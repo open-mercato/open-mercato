@@ -253,6 +253,10 @@ const entityHeaderEntry: GalleryEntry = {
       'Pass idBase and use entityHeaderTabIds(idBase, activeTabKey) to set id and aria-labelledby on your tab panel',
       'Give a tab an href when each section has its own address, so it can be opened in a new browser tab; with onTabChange a plain click is handed to your handler for client-side navigation',
       'Use backLabel with backHref or onBack to lead one level up, and name the destination in the label',
+      'Give an action an href when it leads to an address, so it can be opened in a new browser tab; a plain click is still handed to onAction for client-side navigation',
+      'Give a fact an href when its value is a record, a phone number or an email address, and use suffix for a short count of further values such as "+2"',
+      'Use badges for further labels after the main badge and cap them with maxVisibleBadges; the rest collapse into a "+N" badge',
+      'Use display: "icon" for well-known actions such as call or email when the header has many actions; the label stays the accessible name and the tooltip',
     ],
     dont: [
       'Do not fetch the record inside the block',
@@ -260,6 +264,8 @@ const entityHeaderEntry: GalleryEntry = {
       'Do not add a breadcrumb to the header: inside the application shell the top bar already shows it, and the back link covers the step up',
       'Do not build a second tab strip in the below slot; the below slot stays above the tabs and is meant for short supporting content',
       'Do not repeat the count in the subtitle or in a tab badge on the same screen',
+      'Do not set destructivePlacement to "inline" unless deleting is a main task of the screen, and keep the confirmation in onAction either way',
+      'Do not use icon-only display for an action whose icon is not obvious without its label',
     ],
   },
   accessibility: [
@@ -270,6 +276,10 @@ const entityHeaderEntry: GalleryEntry = {
     'The tablist is named "Sections" by default; pass tabsLabel when the page needs a more specific name.',
     'On narrow screens the tab strip scrolls sideways in one line, fades at the edge that has more tabs and keeps the active tab in view.',
     'The back control is a link when backHref is given and a button otherwise; its arrow icon is decorative.',
+    'An action with an href is a real link styled as a button. A plain click calls onAction and the browser does not navigate; clicks with Ctrl, Cmd, Shift, Alt or the middle button are left to the browser. A disabled action is always a button.',
+    'Icon-only actions are named by their label and show it in a tooltip on hover and on focus.',
+    'The "+N" badge can be focused and lists the hidden labels in a tooltip and to screen readers.',
+    'Facts with an href are underlined links, so they do not rely on colour alone. An icon name that is not in the icon registry renders no icon and logs one warning outside production builds.',
   ],
   variants: [
     {
@@ -453,6 +463,54 @@ const entityHeaderEntry: GalleryEntry = {
   tabs={tabs}
   activeTabKey={activeTabKey}
   onTabChange={setActiveTabKey}`),
+    },
+    {
+      id: 'record-links-badges',
+      title: 'Record header with links, badges and icon actions',
+      render: () => <EntityHeader {...entityHeaderFixtures.recordWithLinks} />,
+      code: entityHeaderCode(`  title="Northwind Supplies"
+  subtitle="Wholesale customer since March 2021"
+  avatar={{ initials: 'NS', variant: 'monochrome' }}
+  badge={{ label: 'Active', tone: 'success' }}
+  badges={[
+    { label: 'Key account', tone: 'info' },
+    { label: 'Wholesale', tone: 'neutral' },
+    { label: 'Payment overdue', tone: 'warning' },
+    { label: 'Newsletter', tone: 'neutral' },
+  ]}
+  maxVisibleBadges={2}
+  meta={[
+    { key: 'owner', label: 'Owner', value: owner.name, href: ownerUrl },
+    { key: 'phone', label: 'Phone', value: '+48 22 555 01 42', href: 'tel:+48225550142', suffix: '+2' },
+    { key: 'email', label: 'Email', value: 'orders@northwind.example', href: 'mailto:orders@northwind.example' },
+    { key: 'city', label: 'City', value: 'Gdansk' },
+  ]}
+  actions={[
+    { key: 'edit', label: 'Edit', href: editUrl },
+    { key: 'call', label: 'Call', icon: 'phone', display: 'icon' },
+    { key: 'email', label: 'Send email', icon: 'mail', display: 'icon' },
+    { key: 'portal', label: 'Open in portal', icon: 'external-link', href: portalUrl },
+    { key: 'delete', label: 'Delete', icon: 'trash-2', tone: 'destructive' },
+  ]}
+  primaryActionKey="edit"
+  onAction={(key) => (key === 'edit' ? router.push(editUrl) : runAction(key))}`),
+    },
+    {
+      id: 'icon-actions',
+      title: 'Icon actions',
+      render: () => <EntityHeader {...entityHeaderFixtures.iconActions} />,
+      code: entityHeaderCode(`  title="Invoice 2026/11/0042"
+  subtitle="Northwind Supplies"
+  badge={{ label: 'Sent', tone: 'info' }}
+  actions={[
+    { key: 'send', label: 'Send again', icon: 'send' },
+    { key: 'download', label: 'Download PDF', icon: 'download', display: 'icon', href: pdfUrl },
+    { key: 'delete', label: 'Delete', icon: 'trash-2', tone: 'destructive', display: 'icon' },
+    { key: 'duplicate', label: 'Duplicate', icon: 'copy' },
+  ]}
+  destructivePlacement="inline"
+  primaryActionKey="send"
+  onAction={(key) => (key === 'delete' ? confirmDelete() : runAction(key))}`),
     },
   ],
 }

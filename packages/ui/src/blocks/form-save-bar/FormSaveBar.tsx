@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { AlertCircle, Check, CircleDot, MoreHorizontal } from 'lucide-react'
 import { useOptionalLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -42,8 +43,23 @@ const MESSAGE_TONE_CLASS: Record<FormSaveState, string> = {
   failed: 'text-status-error-text',
 }
 
-function ActionIcon({ name }: { name: string | undefined }) {
+const logger = createLogger('ui')
+const reportedUnknownIcons = new Set<string>()
+
+function resolveIcon(name: string | undefined) {
   const Icon = resolveRegisteredLucideIcon(name)
+  if (Icon || !name || process.env.NODE_ENV === 'production' || reportedUnknownIcons.has(name)) return Icon
+  reportedUnknownIcons.add(name)
+  logger.warn('[internal] FormSaveBar received an icon name that is not in the icon registry', { icon: name })
+  return Icon
+}
+
+function isPlainLeftClick(event: React.MouseEvent): boolean {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+}
+
+function ActionIcon({ name }: { name: string | undefined }) {
+  const Icon = resolveIcon(name)
   if (!Icon) return null
   return <Icon aria-hidden="true" className="size-4" />
 }
@@ -63,13 +79,51 @@ function formatSavedTime(iso: string | undefined, locale: string | undefined): s
   return parsed.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
 }
 
-type OverflowMenuProps = {
-  actions: BlockAction[]
-  pendingKeys: ReadonlySet<string>
+type OverflowLinkItemProps = {
+  action: BlockAction
+  interceptLinkClicks: boolean
+  onClose: () => void
   onRun: (key: string) => void
 }
 
-function OverflowMenu({ actions, pendingKeys, onRun }: OverflowMenuProps) {
+function OverflowLinkItem({ action, interceptLinkClicks, onClose, onRun }: OverflowLinkItemProps) {
+  const anchorRef = React.useRef<HTMLAnchorElement | null>(null)
+  return (
+    <DropdownItem
+      value={action.key}
+      size={36}
+      leading={action.icon ? <ActionIcon name={action.icon} /> : undefined}
+      className={cn(action.tone === 'destructive' && 'text-destructive')}
+      onSelect={() => anchorRef.current?.click()}
+    >
+      <a
+        ref={anchorRef}
+        href={action.href}
+        tabIndex={-1}
+        data-slot="form-save-bar-menu-link"
+        className="outline-none after:absolute after:inset-0"
+        onClick={(event) => {
+          event.stopPropagation()
+          onClose()
+          if (!interceptLinkClicks || !isPlainLeftClick(event)) return
+          event.preventDefault()
+          onRun(action.key)
+        }}
+      >
+        {action.label}
+      </a>
+    </DropdownItem>
+  )
+}
+
+type OverflowMenuProps = {
+  actions: BlockAction[]
+  pendingKeys: ReadonlySet<string>
+  interceptLinkClicks: boolean
+  onRun: (key: string) => void
+}
+
+function OverflowMenu({ actions, pendingKeys, interceptLinkClicks, onRun }: OverflowMenuProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const anyPending = actions.some((action) => pendingKeys.has(action.key))
@@ -91,6 +145,17 @@ function OverflowMenu({ actions, pendingKeys, onRun }: OverflowMenuProps) {
         <DropdownList>
           {actions.map((action) => {
             const icon = action.icon ? <ActionIcon name={action.icon} /> : undefined
+            if (action.href && action.disabled !== true && !pendingKeys.has(action.key)) {
+              return (
+                <OverflowLinkItem
+                  key={action.key}
+                  action={action}
+                  interceptLinkClicks={interceptLinkClicks}
+                  onClose={() => setOpen(false)}
+                  onRun={onRun}
+                />
+              )
+            }
             return (
               <DropdownItem
                 key={action.key}
@@ -140,6 +205,60 @@ function FormSaveBarSkeleton({ label, placement, className }: SkeletonProps) {
   )
 }
 
+const FOCUSABLE_FIELD_SELECTOR = [
+  'input:not([type="hidden"]):not(:disabled)',
+  'select:not(:disabled)',
+  'textarea:not(:disabled)',
+  'button:not(:disabled)',
+  'a[href]',
+  '[contenteditable="true"]',
+  '[tabindex]:not([tabindex="-1"])',
+].join(', ')
+
+type ReturnFocusTargetGetter = () => HTMLElement | null | undefined
+
+function resolveReturnFocusTarget(
+  getTarget: ReturnFocusTargetGetter | undefined,
+  formId: string | undefined,
+): HTMLElement | null {
+  const requested = getTarget?.()
+  if (requested && requested.isConnected) return requested
+  if (!formId) return null
+  const form = document.getElementById(formId)
+  if (!form) return null
+  if (form.hasAttribute('tabindex')) return form
+  return form.querySelector<HTMLElement>(FOCUSABLE_FIELD_SELECTOR)
+}
+
+function isFocusUnplaced(): boolean {
+  const active = document.activeElement
+  return !active || active === document.body || !active.isConnected
+}
+
+type ReturnFocusOnHideProps = {
+  barNodeRef: React.RefObject<HTMLElement | null>
+  focusHeldRef: React.RefObject<boolean>
+  resolveTargetRef: React.RefObject<() => HTMLElement | null>
+}
+
+function ReturnFocusOnHide({ barNodeRef, focusHeldRef, resolveTargetRef }: ReturnFocusOnHideProps) {
+  React.useLayoutEffect(() => {
+    return () => {
+      const barNode = barNodeRef.current
+      const active = document.activeElement
+      const focusInsideBar = Boolean(barNode && active && barNode.contains(active))
+      const focusDroppedInsideBar = focusHeldRef.current && isFocusUnplaced()
+      focusHeldRef.current = false
+      if (!focusInsideBar && !focusDroppedInsideBar) return
+      queueMicrotask(() => {
+        if (!isFocusUnplaced()) return
+        resolveTargetRef.current()?.focus()
+      })
+    }
+  }, [barNodeRef, focusHeldRef, resolveTargetRef])
+  return null
+}
+
 function isPromise(value: void | Promise<void>): value is Promise<void> {
   return Boolean(value) && typeof (value as Promise<void>).then === 'function'
 }
@@ -166,8 +285,27 @@ export function FormSaveBar(props: FormSaveBarProps) {
     status,
     errorMessage,
     className,
+    getReturnFocusTarget,
   } = props
   const reasonId = React.useId()
+  const barNodeRef = React.useRef<HTMLElement | null>(null)
+  const focusHeldRef = React.useRef(false)
+  const resolveTargetRef = React.useRef<() => HTMLElement | null>(() => null)
+  React.useLayoutEffect(() => {
+    resolveTargetRef.current = () => resolveReturnFocusTarget(getReturnFocusTarget, formId)
+  }, [getReturnFocusTarget, formId])
+  const attachBarNode = React.useCallback((node: HTMLDivElement | null) => {
+    if (node) barNodeRef.current = node
+  }, [])
+  const handleBarFocus = React.useCallback(() => {
+    focusHeldRef.current = true
+  }, [])
+  const handleBarBlur = React.useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    const nextTarget = event.relatedTarget
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) return
+    if (event.target instanceof Element && event.target.matches(':disabled')) return
+    focusHeldRef.current = false
+  }, [])
   const [savePending, setSavePending] = React.useState(false)
   const [pendingKeys, setPendingKeys] = React.useState<ReadonlySet<string>>(() => new Set())
 
@@ -269,13 +407,17 @@ export function FormSaveBar(props: FormSaveBarProps) {
     <>
       {announcer}
       <div
+        ref={attachBarNode}
         role="group"
         aria-label={t('ui.blocks.formSaveBar.label', 'Form changes')}
         data-slot="form-save-bar"
         data-placement={placement}
         data-state={state}
         className={cn(PLACEMENT_CLASS[placement], ENTER_MOTION_CLASS[placement], 'px-4 py-2', className)}
+        onFocus={handleBarFocus}
+        onBlur={handleBarBlur}
       >
+        <ReturnFocusOnHide barNodeRef={barNodeRef} focusHeldRef={focusHeldRef} resolveTargetRef={resolveTargetRef} />
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           {leading ? (
             <div data-slot="form-save-bar-leading" className="flex min-w-0 shrink-0 items-center">
@@ -317,7 +459,12 @@ export function FormSaveBar(props: FormSaveBarProps) {
             ) : null}
             {hasReason ? <SimpleTooltip content={saveDisabledReason}>{saveButton}</SimpleTooltip> : saveButton}
             {actions && actions.length > 0 ? (
-              <OverflowMenu actions={actions} pendingKeys={pendingKeys} onRun={runAction} />
+              <OverflowMenu
+                actions={actions}
+                pendingKeys={pendingKeys}
+                interceptLinkClicks={onAction !== undefined}
+                onRun={runAction}
+              />
             ) : null}
           </div>
           {hasReason ? (

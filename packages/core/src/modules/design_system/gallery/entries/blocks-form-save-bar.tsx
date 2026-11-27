@@ -168,6 +168,7 @@ export const formSaveBarEntry: GalleryEntry = {
       'Add FORM_SAVE_BAR_FLOATING_SPACER_CLASS to the scrolling page container in the floating placement so the last field is not covered',
       'Use placement="container" inside dialogs, sheets and side panels and render the bar as the last child of the scrolling element; it takes its own space there, so no extra padding is needed',
       'Pass formId to submit a form natively, or onSave to save from a handler; a promise returned from onSave shows the saving state until it settles',
+      'Pass getReturnFocusTarget when focus should land somewhere specific after the bar hides, for example the page heading; without it focus goes to the form named by formId',
     ],
     dont: [
       'Do not pass both formId and onSave expecting two saves; with formId the button only submits the form',
@@ -180,7 +181,7 @@ export const formSaveBarEntry: GalleryEntry = {
     'State changes are announced through a polite live region that stays mounted while the bar is hidden',
     'A failed save is announced as an alert',
     'Focus stays where it is when the bar appears; the bar is reached with Tab after the form fields',
-    'When the bar hides after Save or Reset, the button that had focus is gone; move focus back to the form in the host if the flow needs it',
+    'When the bar hides while focus is inside it, focus moves to the element from getReturnFocusTarget, otherwise to the form named by formId or its first enabled field; focus outside the bar is never moved',
     'The block registers no keyboard shortcuts',
     'A blocked Save stays focusable and is described by its reason',
     'The entrance animation is skipped when the user prefers reduced motion',

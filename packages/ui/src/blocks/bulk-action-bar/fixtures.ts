@@ -56,5 +56,11 @@ export const bulkActionBarFixtures: Record<string, BulkActionBarProps> = {
     ],
   },
   singleAction: { ...base, selectedCount: 1, actions: [exportCsv] },
+  destructiveInline: {
+    ...base,
+    destructivePlacement: 'inline',
+    maxVisibleActions: 4,
+    actions: [changeStage, assignOwner, exportCsv, remove],
+  },
   floating: { ...base, position: 'floating', actions: [assignOwner, changeStage, remove] },
 }

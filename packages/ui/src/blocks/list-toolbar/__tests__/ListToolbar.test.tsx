@@ -160,7 +160,8 @@ describe('ListToolbar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove filter Stage: Negotiation' }))
     expect(onChipRemove).toHaveBeenCalledWith('stage')
     fireEvent.click(screen.getByRole('button', { name: 'Owner: Maria Lindqvist' }))
-    expect(onChipOpen).toHaveBeenCalledWith('owner')
+    expect(onChipOpen).toHaveBeenCalledTimes(1)
+    expect(onChipOpen.mock.calls[0][0]).toBe('owner')
   })
 
   it('renders no remove button for a chip that is not removable', () => {

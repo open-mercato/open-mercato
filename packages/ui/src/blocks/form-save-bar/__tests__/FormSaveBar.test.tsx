@@ -318,4 +318,156 @@ describe('FormSaveBar', () => {
   it('exports a spacer class for hosts of the floating placement', () => {
     expect(FORM_SAVE_BAR_FLOATING_SPACER_CLASS).toBe('pb-24')
   })
+
+  describe('focus when the bar hides', () => {
+    type HostProps = {
+      saveState: FormSaveBarProps['saveState']
+      formTabIndex?: number
+      withField?: boolean
+      withForm?: boolean
+      getReturnFocusTarget?: () => HTMLElement | null
+    }
+
+    function Host({ saveState, formTabIndex, withField = true, withForm = true, getReturnFocusTarget }: HostProps) {
+      return (
+        <>
+          <h1 tabIndex={-1}>Customer</h1>
+          <input aria-label="Outside field" />
+          {withForm ? (
+            <form id="customer-form" tabIndex={formTabIndex}>
+              <input type="hidden" name="id" />
+              <input aria-label="Disabled field" disabled />
+              {withField ? <input aria-label="Company name" /> : null}
+            </form>
+          ) : null}
+          <FormSaveBar
+            saveState={saveState}
+            formId="customer-form"
+            onReset={noop}
+            getReturnFocusTarget={getReturnFocusTarget}
+          />
+        </>
+      )
+    }
+
+    async function flushFocus() {
+      await act(async () => {
+        await Promise.resolve()
+      })
+    }
+
+    it('moves focus to the target from getReturnFocusTarget first', async () => {
+      const getTarget = () => screen.getByRole('heading', { name: 'Customer' })
+      const view = renderWithProviders(<Host saveState="dirty" getReturnFocusTarget={getTarget} />, { dict })
+      screen.getByRole('button', { name: 'Save' }).focus()
+      view.rerender(<Host saveState="idle" getReturnFocusTarget={getTarget} />)
+      await flushFocus()
+      expect(bar()).toBeNull()
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Customer' }))
+    })
+
+    it('falls back to the form when the getter returns nothing', async () => {
+      const getTarget = () => null
+      const view = renderWithProviders(<Host saveState="dirty" getReturnFocusTarget={getTarget} />, { dict })
+      screen.getByRole('button', { name: 'Reset' }).focus()
+      view.rerender(<Host saveState="idle" getReturnFocusTarget={getTarget} />)
+      await flushFocus()
+      expect(document.activeElement).toBe(screen.getByLabelText('Company name'))
+    })
+
+    it('moves focus to the form itself when the form is focusable', async () => {
+      const view = renderWithProviders(<Host saveState="dirty" formTabIndex={-1} />, { dict })
+      screen.getByRole('button', { name: 'Save' }).focus()
+      view.rerender(<Host saveState="idle" formTabIndex={-1} />)
+      await flushFocus()
+      expect(document.activeElement).toBe(document.getElementById('customer-form'))
+    })
+
+    it('moves focus to the first enabled visible field of the form otherwise', async () => {
+      const view = renderWithProviders(<Host saveState="dirty" />, { dict })
+      screen.getByRole('button', { name: 'Save' }).focus()
+      view.rerender(<Host saveState="idle" />)
+      await flushFocus()
+      expect(document.activeElement).toBe(screen.getByLabelText('Company name'))
+    })
+
+    it('leaves focus alone when the form has nothing focusable', async () => {
+      const view = renderWithProviders(<Host saveState="dirty" withField={false} />, { dict })
+      screen.getByRole('button', { name: 'Save' }).focus()
+      view.rerender(<Host saveState="idle" withField={false} />)
+      await flushFocus()
+      expect(document.activeElement).toBe(document.body)
+    })
+
+    it('leaves focus alone when there is no form and no target', async () => {
+      const view = renderWithProviders(<Host saveState="dirty" withForm={false} />, { dict })
+      screen.getByRole('button', { name: 'Save' }).focus()
+      view.rerender(<Host saveState="idle" withForm={false} />)
+      await flushFocus()
+      expect(document.activeElement).toBe(document.body)
+    })
+
+    it('never moves focus that was outside the bar', async () => {
+      const getTarget = jest.fn(() => screen.getByRole('heading', { name: 'Customer' }))
+      const view = renderWithProviders(<Host saveState="dirty" getReturnFocusTarget={getTarget} />, { dict })
+      const outside = screen.getByLabelText('Outside field')
+      outside.focus()
+      view.rerender(<Host saveState="idle" getReturnFocusTarget={getTarget} />)
+      await flushFocus()
+      expect(document.activeElement).toBe(outside)
+      expect(getTarget).not.toHaveBeenCalled()
+    })
+
+    it('does not move focus that visited the bar and then left it', async () => {
+      const view = renderWithProviders(<Host saveState="dirty" />, { dict })
+      screen.getByRole('button', { name: 'Save' }).focus()
+      const outside = screen.getByLabelText('Outside field')
+      outside.focus()
+      outside.blur()
+      view.rerender(<Host saveState="idle" />)
+      await flushFocus()
+      expect(document.activeElement).toBe(document.body)
+    })
+
+    it('still returns focus when the focused Save button lost it by being disabled while saving', async () => {
+      const view = renderWithProviders(<Host saveState="dirty" />, { dict })
+      const save = screen.getByRole('button', { name: 'Save' })
+      save.focus()
+      view.rerender(<Host saveState="saving" />)
+      expect(save).toBeDisabled()
+      const field = screen.getByLabelText('Company name')
+      const focusField = jest.spyOn(field, 'focus')
+      const droppedFocus = jest.spyOn(document, 'activeElement', 'get').mockReturnValue(document.body)
+      try {
+        view.rerender(<Host saveState="idle" />)
+        await flushFocus()
+      } finally {
+        droppedFocus.mockRestore()
+      }
+      expect(focusField).toHaveBeenCalledTimes(1)
+    })
+
+    it('finds a form that was remounted in the same update', async () => {
+      const view = renderWithProviders(
+        <>
+          <form id="customer-form" key="first">
+            <input aria-label="Company name" />
+          </form>
+          <FormSaveBar saveState="dirty" formId="customer-form" onReset={noop} />
+        </>,
+        { dict },
+      )
+      screen.getByRole('button', { name: 'Reset' }).focus()
+      view.rerender(
+        <>
+          <form id="customer-form" key="second">
+            <input aria-label="Company name" />
+          </form>
+          <FormSaveBar saveState="idle" formId="customer-form" onReset={noop} />
+        </>,
+      )
+      await flushFocus()
+      expect(document.activeElement).toBe(screen.getByLabelText('Company name'))
+    })
+  })
 })

@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import {
-  blockActionSchema,
+  DISABLED_REASON_ISSUE,
+  blockActionFieldsSchema,
   blockBasePropsSchema,
   callbackSchema,
+  disabledReasonRequiresDisabled,
   hasUniqueKeys,
   iconNameSchema,
   slotSchema,
@@ -13,8 +15,28 @@ export const entityHeaderMetaSchema = z.object({
   key: z.string().min(1),
   label: z.string().min(1),
   value: z.string(),
+  href: z.string().min(1).optional(),
+  suffix: z.string().min(1).optional(),
 })
 export type EntityHeaderMeta = z.infer<typeof entityHeaderMetaSchema>
+
+export const entityHeaderActionDisplaySchema = z.enum(['label', 'icon'])
+export type EntityHeaderActionDisplay = z.infer<typeof entityHeaderActionDisplaySchema>
+
+export const entityHeaderActionSchema = blockActionFieldsSchema
+  .extend({ display: entityHeaderActionDisplaySchema.optional() })
+  .refine(disabledReasonRequiresDisabled, DISABLED_REASON_ISSUE)
+  .refine((action) => action.display !== 'icon' || action.icon !== undefined, {
+    message: "display: 'icon' requires an icon",
+    path: ['icon'],
+  })
+export type EntityHeaderAction = z.infer<typeof entityHeaderActionSchema>
+
+export const entityHeaderDestructivePlacementSchema = z.enum(['overflow', 'inline'])
+export type EntityHeaderDestructivePlacement = z.infer<typeof entityHeaderDestructivePlacementSchema>
+
+export const entityHeaderAvatarVariantSchema = z.enum(['default', 'monochrome'])
+export type EntityHeaderAvatarVariant = z.infer<typeof entityHeaderAvatarVariantSchema>
 
 export const entityHeaderTabSchema = z.object({
   key: z.string().min(1),
@@ -30,10 +52,19 @@ export const entityHeaderPropsSchema = blockBasePropsSchema
   .extend({
     title: z.string().min(1),
     subtitle: z.string().optional(),
-    avatar: z.object({ src: z.string().optional(), initials: z.string().min(1).max(3) }).optional(),
+    avatar: z
+      .object({
+        src: z.string().optional(),
+        initials: z.string().min(1).max(3),
+        variant: entityHeaderAvatarVariantSchema.optional(),
+      })
+      .optional(),
     badge: toneLabelSchema.optional(),
+    badges: z.array(toneLabelSchema).optional(),
+    maxVisibleBadges: z.number().int().min(1).optional(),
     meta: z.array(entityHeaderMetaSchema).optional(),
-    actions: z.array(blockActionSchema).optional(),
+    actions: z.array(entityHeaderActionSchema).optional(),
+    destructivePlacement: entityHeaderDestructivePlacementSchema.optional(),
     primaryActionKey: z.string().min(1).optional(),
     onAction: callbackSchema<(actionKey: string) => void | Promise<void>>().optional(),
     leading: slotSchema.optional(),

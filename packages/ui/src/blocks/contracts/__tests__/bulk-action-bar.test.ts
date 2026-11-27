@@ -94,6 +94,17 @@ describe('BulkActionBar contract', () => {
     expect(bulkActionBarPropsSchema.safeParse({ ...base, position: 'sticky' }).success).toBe(false)
   })
 
+  it('accepts both destructive placements and rejects an unknown one', () => {
+    expect(bulkActionBarPropsSchema.safeParse({ ...base, destructivePlacement: 'overflow' }).success).toBe(true)
+    expect(bulkActionBarPropsSchema.safeParse({ ...base, destructivePlacement: 'inline' }).success).toBe(true)
+    expect(bulkActionBarPropsSchema.safeParse({ ...base, destructivePlacement: 'first' }).success).toBe(false)
+  })
+
+  it('accepts an ariaLabel and rejects an empty one', () => {
+    expect(bulkActionBarPropsSchema.safeParse({ ...base, ariaLabel: 'Bulk actions for deals' }).success).toBe(true)
+    expect(bulkActionBarPropsSchema.safeParse({ ...base, ariaLabel: '' }).success).toBe(false)
+  })
+
   it('rejects a disabledReason on an enabled action', () => {
     const result = bulkActionBarPropsSchema.safeParse({
       ...base,

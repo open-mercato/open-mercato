@@ -1,8 +1,10 @@
 import {
+  blockActionFieldsSchema,
   blockActionSchema,
   blockBasePropsSchema,
   blockStatusSchema,
   callbackSchema,
+  disabledReasonRequiresDisabled,
   hasUniqueIds,
   hasUniqueKeys,
   iconNameSchema,
@@ -38,6 +40,20 @@ describe('shared block contract primitives', () => {
     expect(
       blockActionSchema.safeParse({ key: 'delete', label: 'Delete', disabled: true, disabledReason: 'Locked' }).success,
     ).toBe(true)
+  })
+
+  it('accepts an optional href on an action and rejects an empty one', () => {
+    expect(blockActionSchema.safeParse({ key: 'edit', label: 'Edit' }).success).toBe(true)
+    expect(blockActionSchema.safeParse({ key: 'edit', label: 'Edit', href: '/backend/customers/1/edit' }).success).toBe(true)
+    expect(blockActionSchema.safeParse({ key: 'call', label: 'Call', href: 'tel:+48225550142' }).success).toBe(true)
+    expect(blockActionSchema.safeParse({ key: 'edit', label: 'Edit', href: '' }).success).toBe(false)
+  })
+
+  it('keeps the disabledReason rule on the plain fields schema helper', () => {
+    expect(blockActionFieldsSchema.safeParse({ key: 'edit', label: 'Edit', disabledReason: 'Locked' }).success).toBe(true)
+    expect(disabledReasonRequiresDisabled({ disabledReason: 'Locked' })).toBe(false)
+    expect(disabledReasonRequiresDisabled({ disabled: true, disabledReason: 'Locked' })).toBe(true)
+    expect(disabledReasonRequiresDisabled({})).toBe(true)
   })
 
   it('accepts functions only in callback slots', () => {

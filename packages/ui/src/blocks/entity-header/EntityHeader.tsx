@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { ArrowLeft, MoreHorizontal } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -20,86 +21,222 @@ import {
 } from '@open-mercato/ui/primitives/dropdown'
 import { resolveRegisteredLucideIcon } from '@open-mercato/ui/backend/icons/lucideRegistryRuntime'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
-import type { BlockAction } from '../contracts/shared'
-import type { EntityHeaderProps, EntityHeaderTab } from '../contracts/entity-header'
+import type { BlockToneLabel } from '../contracts/shared'
+import type {
+  EntityHeaderAction,
+  EntityHeaderDestructivePlacement,
+  EntityHeaderMeta,
+  EntityHeaderProps,
+  EntityHeaderTab,
+} from '../contracts/entity-header'
+
+const logger = createLogger('ui')
+const reportedUnknownIcons = new Set<string>()
+
+function resolveIcon(name: string | undefined) {
+  const Icon = resolveRegisteredLucideIcon(name)
+  if (Icon || !name || process.env.NODE_ENV === 'production' || reportedUnknownIcons.has(name)) return Icon
+  reportedUnknownIcons.add(name)
+  logger.warn('[internal] EntityHeader received an icon name that is not in the icon registry', { icon: name })
+  return Icon
+}
 
 function ActionIcon({ name }: { name: string | undefined }) {
-  const Icon = resolveRegisteredLucideIcon(name)
+  const Icon = resolveIcon(name)
   if (!Icon) return null
   return <Icon aria-hidden="true" className="size-4" />
 }
 
 const MAX_VISIBLE_SECONDARY_ACTIONS = 2
+const DISABLED_LOOK_CLASS =
+  'cursor-not-allowed border-border-disabled bg-bg-disabled text-text-disabled shadow-none hover:bg-bg-disabled hover:text-text-disabled'
 
 type ActionSplit = {
-  primary: BlockAction | null
-  secondary: BlockAction[]
-  overflow: BlockAction[]
+  primary: EntityHeaderAction | null
+  secondary: EntityHeaderAction[]
+  overflow: EntityHeaderAction[]
 }
 
-function splitActions(actions: BlockAction[], primaryActionKey: string | undefined): ActionSplit {
+function splitActions(
+  actions: EntityHeaderAction[],
+  primaryActionKey: string | undefined,
+  destructivePlacement: EntityHeaderDestructivePlacement,
+): ActionSplit {
   const primary = actions.find((action) => action.key === primaryActionKey && action.tone !== 'destructive') ?? null
   const rest = actions.filter((action) => action !== primary)
-  const secondary: BlockAction[] = []
-  const overflow: BlockAction[] = []
+  const secondary: EntityHeaderAction[] = []
+  const overflow: EntityHeaderAction[] = []
   for (const action of rest) {
-    if (action.tone !== 'destructive' && secondary.length < MAX_VISIBLE_SECONDARY_ACTIONS) secondary.push(action)
+    const mayBeVisible = destructivePlacement === 'inline' || action.tone !== 'destructive'
+    if (mayBeVisible && secondary.length < MAX_VISIBLE_SECONDARY_ACTIONS) secondary.push(action)
     else overflow.push(action)
   }
   return { primary, secondary, overflow }
 }
 
 type ActionButtonProps = {
-  action: BlockAction
+  action: EntityHeaderAction
   variant: 'default' | 'outline'
   pending: boolean
   reasonId: string
+  interceptLinkClicks: boolean
   onRun: (key: string) => void
 }
 
-function hasDisabledReason(action: BlockAction): boolean {
+function hasDisabledReason(action: EntityHeaderAction): boolean {
   return action.disabled === true && Boolean(action.disabledReason)
 }
 
-function ActionButton({ action, variant, pending, reasonId, onRun }: ActionButtonProps) {
+function isPlainLeftClick(event: React.MouseEvent): boolean {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+}
+
+function rendersAsLink(action: EntityHeaderAction): boolean {
+  return Boolean(action.href) && action.disabled !== true
+}
+
+function ActionButton({ action, variant, pending, reasonId, interceptLinkClicks, onRun }: ActionButtonProps) {
   const hasReason = hasDisabledReason(action)
   const ariaDisabled = hasReason && !pending
-  const button = (
-    <Button
-      type="button"
-      size="sm"
-      variant={variant}
-      data-action-emphasis={variant === 'default' ? 'primary' : 'secondary'}
-      disabled={(action.disabled === true && !hasReason) || pending}
-      aria-disabled={ariaDisabled ? 'true' : undefined}
-      aria-busy={pending || undefined}
-      aria-describedby={hasReason ? reasonId : undefined}
-      className={cn(
-        'h-10 max-w-full sm:h-8',
-        variant === 'default' && 'flex-1 sm:flex-none',
-        ariaDisabled &&
-          'cursor-not-allowed border-border-disabled bg-bg-disabled text-text-disabled shadow-none hover:bg-bg-disabled hover:text-text-disabled',
-      )}
-      onClick={() => {
-        if (ariaDisabled) return
-        onRun(action.key)
-      }}
-    >
-      {pending ? <Spinner size="sm" /> : <ActionIcon name={action.icon} />}
+  const asLink = rendersAsLink(action)
+  const iconOnly = action.display === 'icon' && resolveIcon(action.icon) !== null
+  const destructive = action.tone === 'destructive'
+  const emphasis = variant === 'default' ? 'primary' : 'secondary'
+  const handleLinkClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (pending) {
+      event.preventDefault()
+      return
+    }
+    if (!interceptLinkClicks || event.defaultPrevented || !isPlainLeftClick(event)) return
+    event.preventDefault()
+    onRun(action.key)
+  }
+  const handleButtonClick = () => {
+    if (ariaDisabled) return
+    onRun(action.key)
+  }
+  const stateProps = {
+    'data-action-emphasis': emphasis,
+    'aria-busy': pending || undefined,
+    'aria-describedby': hasReason ? reasonId : undefined,
+  }
+  const linkStateProps = { ...stateProps, 'aria-disabled': pending ? ('true' as const) : undefined }
+  const buttonStateProps = {
+    ...stateProps,
+    type: 'button' as const,
+    disabled: (action.disabled === true && !hasReason) || pending,
+    'aria-disabled': ariaDisabled ? ('true' as const) : undefined,
+    onClick: handleButtonClick,
+  }
+  const glyph = pending ? <Spinner size="sm" /> : <ActionIcon name={action.icon} />
+
+  if (iconOnly) {
+    const iconClassName = cn(
+      'size-10 shrink-0 sm:size-8',
+      destructive && 'text-destructive hover:text-destructive',
+      (ariaDisabled || (asLink && pending)) && DISABLED_LOOK_CLASS,
+    )
+    const iconVariant = variant === 'default' ? 'primary' : 'outline'
+    const iconButton = asLink ? (
+      <IconButton asChild variant={iconVariant} className={iconClassName} aria-label={action.label} {...linkStateProps}>
+        <a href={action.href} data-display="icon" onClick={handleLinkClick}>
+          {glyph}
+        </a>
+      </IconButton>
+    ) : (
+      <IconButton
+        variant={iconVariant}
+        className={iconClassName}
+        aria-label={action.label}
+        data-display="icon"
+        {...buttonStateProps}
+      >
+        {glyph}
+      </IconButton>
+    )
+    const tooltip = hasReason ? (
+      <span className="flex flex-col gap-1">
+        <span>{action.label}</span>
+        <span>{action.disabledReason}</span>
+      </span>
+    ) : (
+      action.label
+    )
+    return <SimpleTooltip content={tooltip}>{iconButton}</SimpleTooltip>
+  }
+
+  const buttonVariant = destructive ? 'destructive-outline' : variant
+  const className = cn(
+    'h-10 max-w-full sm:h-8',
+    variant === 'default' && 'flex-1 sm:flex-none',
+    (ariaDisabled || (asLink && pending)) && DISABLED_LOOK_CLASS,
+  )
+  const content = (
+    <>
+      {glyph}
       <span className="min-w-0 truncate">{action.label}</span>
+    </>
+  )
+  const button = asLink ? (
+    <Button asChild size="sm" variant={buttonVariant} className={className} {...linkStateProps}>
+      <a href={action.href} onClick={handleLinkClick}>
+        {content}
+      </a>
+    </Button>
+  ) : (
+    <Button size="sm" variant={buttonVariant} className={className} {...buttonStateProps}>
+      {content}
     </Button>
   )
   if (!hasReason) return button
   return <SimpleTooltip content={action.disabledReason}>{button}</SimpleTooltip>
 }
 
-type OverflowMenuProps = {
-  actions: BlockAction[]
-  pendingKeys: ReadonlySet<string>
+type OverflowLinkItemProps = {
+  action: EntityHeaderAction
+  interceptLinkClicks: boolean
+  onClose: () => void
   onRun: (key: string) => void
 }
 
-function OverflowMenu({ actions, pendingKeys, onRun }: OverflowMenuProps) {
+function OverflowLinkItem({ action, interceptLinkClicks, onClose, onRun }: OverflowLinkItemProps) {
+  const anchorRef = React.useRef<HTMLAnchorElement | null>(null)
+  return (
+    <DropdownItem
+      value={action.key}
+      size={36}
+      leading={action.icon ? <ActionIcon name={action.icon} /> : undefined}
+      className={cn(action.tone === 'destructive' && 'text-destructive')}
+      onSelect={() => anchorRef.current?.click()}
+    >
+      <a
+        ref={anchorRef}
+        href={action.href}
+        tabIndex={-1}
+        data-slot="entity-header-menu-link"
+        className="outline-none after:absolute after:inset-0"
+        onClick={(event) => {
+          event.stopPropagation()
+          onClose()
+          if (!interceptLinkClicks || !isPlainLeftClick(event)) return
+          event.preventDefault()
+          onRun(action.key)
+        }}
+      >
+        {action.label}
+      </a>
+    </DropdownItem>
+  )
+}
+
+type OverflowMenuProps = {
+  actions: EntityHeaderAction[]
+  pendingKeys: ReadonlySet<string>
+  interceptLinkClicks: boolean
+  onRun: (key: string) => void
+}
+
+function OverflowMenu({ actions, pendingKeys, interceptLinkClicks, onRun }: OverflowMenuProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const anyPending = actions.some((action) => pendingKeys.has(action.key))
@@ -121,6 +258,17 @@ function OverflowMenu({ actions, pendingKeys, onRun }: OverflowMenuProps) {
         <DropdownList>
           {actions.map((action) => {
             const icon = action.icon ? <ActionIcon name={action.icon} /> : undefined
+            if (rendersAsLink(action) && !pendingKeys.has(action.key)) {
+              return (
+                <OverflowLinkItem
+                  key={action.key}
+                  action={action}
+                  interceptLinkClicks={interceptLinkClicks}
+                  onClose={() => setOpen(false)}
+                  onRun={onRun}
+                />
+              )
+            }
             return (
               <DropdownItem
                 key={action.key}
@@ -151,10 +299,6 @@ const TAB_SCROLL_MARGIN = 40
 export function entityHeaderTabIds(idBase: string, tabKey: string): { tabId: string; panelId: string } {
   const token = encodeURIComponent(tabKey)
   return { tabId: `${idBase}-tab-${token}`, panelId: `${idBase}-panel-${token}` }
-}
-
-function isPlainLeftClick(event: React.MouseEvent): boolean {
-  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
 }
 
 function usesPageHeaderProps(props: EntityHeaderProps): boolean {
@@ -377,7 +521,7 @@ function HeaderTabs({ tabs, activeTabKey, onTabChange, idBase, label }: HeaderTa
           {tabs.map((tab, index) => {
             const selected = tab.key === activeTabKey
             const ids = idBase ? entityHeaderTabIds(idBase, tab.key) : null
-            const Icon = resolveRegisteredLucideIcon(tab.icon)
+            const Icon = resolveIcon(tab.icon)
             const shared = {
               role: 'tab',
               id: ids ? ids.tabId : `${generatedId}-tab-${index}`,
@@ -452,6 +596,80 @@ function HeaderTabs({ tabs, activeTabKey, onTabChange, idBase, label }: HeaderTa
   )
 }
 
+function MetaValue({ item }: { item: EntityHeaderMeta }) {
+  return (
+    <dd className="min-w-0 break-words text-foreground">
+      {item.href ? (
+        <a
+          href={item.href}
+          data-slot="entity-header-meta-link"
+          className="-my-2 inline-block max-w-full rounded-sm py-2 text-foreground underline decoration-border underline-offset-4 outline-none transition-colors hover:decoration-foreground focus-visible:shadow-focus"
+        >
+          {item.value}
+        </a>
+      ) : (
+        item.value
+      )}
+      {item.suffix ? (
+        <span data-slot="entity-header-meta-suffix" className="ml-1 text-muted-foreground">
+          {item.suffix}
+        </span>
+      ) : null}
+    </dd>
+  )
+}
+
+function formatLabelList(labels: string[], locale: string): string {
+  if (typeof Intl.ListFormat !== 'function') return labels.join(', ')
+  return new Intl.ListFormat(locale, { style: 'short', type: 'unit' }).format(labels)
+}
+
+type HeaderBadgesProps = {
+  badges: BlockToneLabel[]
+  maxVisible: number | undefined
+}
+
+function HeaderBadges({ badges, maxVisible }: HeaderBadgesProps) {
+  const t = useT()
+  const locale = useLocale()
+  const visible = maxVisible === undefined ? badges : badges.slice(0, maxVisible)
+  const hidden = badges.slice(visible.length)
+  const hiddenLabels = formatLabelList(
+    hidden.map((badge) => badge.label),
+    locale,
+  )
+  return (
+    <>
+      {visible.map((badge, index) => (
+        <StatusBadge key={`${index}-${badge.label}`} variant={badge.tone}>
+          {badge.label}
+        </StatusBadge>
+      ))}
+      {hidden.length > 0 ? (
+        <SimpleTooltip content={hiddenLabels}>
+          <span
+            tabIndex={0}
+            data-slot="entity-header-badges-overflow"
+            className="inline-flex cursor-default rounded-full outline-none focus-visible:shadow-focus"
+          >
+            <StatusBadge variant="neutral">
+              <span aria-hidden="true" className="tabular-nums">
+                {t('ui.blocks.entityHeader.moreBadges', '+{count}', { count: hidden.length })}
+              </span>
+              <span className="sr-only">
+                {t('ui.blocks.entityHeader.moreBadgesList', '{count} more: {labels}', {
+                  count: hidden.length,
+                  labels: hiddenLabels,
+                })}
+              </span>
+            </StatusBadge>
+          </span>
+        </SimpleTooltip>
+      ) : null}
+    </>
+  )
+}
+
 export function EntityHeader(props: EntityHeaderProps) {
   const t = useT()
   const {
@@ -459,9 +677,12 @@ export function EntityHeader(props: EntityHeaderProps) {
     subtitle,
     avatar,
     badge,
+    badges,
+    maxVisibleBadges,
     status,
     meta,
     actions,
+    destructivePlacement = 'overflow',
     primaryActionKey,
     onAction,
     onRetry,
@@ -500,7 +721,10 @@ export function EntityHeader(props: EntityHeaderProps) {
     [onAction],
   )
 
-  const split = React.useMemo(() => splitActions(actions ?? [], primaryActionKey), [actions, primaryActionKey])
+  const split = React.useMemo(
+    () => splitActions(actions ?? [], primaryActionKey, destructivePlacement),
+    [actions, primaryActionKey, destructivePlacement],
+  )
 
   if (status === 'loading') {
     return <EntityHeaderSkeleton label={t('ui.blocks.entityHeader.loading', 'Loading')} props={props} />
@@ -512,7 +736,7 @@ export function EntityHeader(props: EntityHeaderProps) {
       {leading}
     </div>
   ) : avatar ? (
-    <Avatar label={avatar.initials} src={avatar.src} size="lg" className="font-normal" />
+    <Avatar label={avatar.initials} src={avatar.src} size="lg" variant={avatar.variant} className="font-normal" />
   ) : null
   const titleNode = (
     <h1 className="min-w-0 break-words text-xl font-normal leading-tight text-foreground sm:text-2xl">{title}</h1>
@@ -563,10 +787,12 @@ export function EntityHeader(props: EntityHeaderProps) {
     )
   }
 
-  const reasonIdFor = (action: BlockAction) => `${reasonIdBase}-${action.key}`
+  const reasonIdFor = (action: EntityHeaderAction) => `${reasonIdBase}-${action.key}`
   const visibleActions = split.primary ? [...split.secondary, split.primary] : split.secondary
   const actionsWithReason = visibleActions.filter(hasDisabledReason)
   const hasButtons = visibleActions.length > 0 || split.overflow.length > 0
+  const interceptLinkClicks = onAction !== undefined
+  const hasMetaLinks = Boolean(meta?.some((item) => item.href))
 
   return (
     <div data-slot="entity-header" className={cn('flex flex-col gap-3', className)}>
@@ -579,17 +805,21 @@ export function EntityHeader(props: EntityHeaderProps) {
               {titleNode}
               {countNode}
               {badge ? <StatusBadge variant={badge.tone}>{badge.label}</StatusBadge> : null}
+              {badges && badges.length > 0 ? <HeaderBadges badges={badges} maxVisible={maxVisibleBadges} /> : null}
             </div>
             {subtitle ? <p className="mt-1 text-sm leading-5 text-muted-foreground">{subtitle}</p> : null}
             {meta && meta.length > 0 ? (
               <dl
                 data-slot="entity-header-meta"
-                className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:flex sm:flex-wrap sm:gap-y-1"
+                className={cn(
+                  'mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:flex sm:flex-wrap',
+                  hasMetaLinks ? 'sm:gap-y-3' : 'sm:gap-y-1',
+                )}
               >
                 {meta.map((item) => (
                   <div key={item.key} className="flex min-w-0 flex-col sm:flex-row sm:items-baseline sm:gap-2">
                     <dt className="min-w-0 break-words text-muted-foreground">{item.label}</dt>
-                    <dd className="min-w-0 break-words text-foreground">{item.value}</dd>
+                    <MetaValue item={item} />
                   </div>
                 ))}
               </dl>
@@ -616,6 +846,7 @@ export function EntityHeader(props: EntityHeaderProps) {
                       variant="outline"
                       pending={pendingKeys.has(action.key)}
                       reasonId={reasonIdFor(action)}
+                      interceptLinkClicks={interceptLinkClicks}
                       onRun={runAction}
                     />
                   ))}
@@ -625,11 +856,17 @@ export function EntityHeader(props: EntityHeaderProps) {
                       variant="default"
                       pending={pendingKeys.has(split.primary.key)}
                       reasonId={reasonIdFor(split.primary)}
+                      interceptLinkClicks={interceptLinkClicks}
                       onRun={runAction}
                     />
                   ) : null}
                   {split.overflow.length > 0 ? (
-                    <OverflowMenu actions={split.overflow} pendingKeys={pendingKeys} onRun={runAction} />
+                    <OverflowMenu
+                      actions={split.overflow}
+                      pendingKeys={pendingKeys}
+                      interceptLinkClicks={interceptLinkClicks}
+                      onRun={runAction}
+                    />
                   ) : null}
                 </div>
               ) : null}

@@ -473,19 +473,19 @@ const IMPORT_LINE = `import { DataTable } from '@open-mercato/ui/backend/DataTab
 const COLUMNS_SNIPPET = `type ProjectRow = { id: string; name: string; owner: string; status: ProjectStatus; budget: number; dueDate: string }
 
 const columns: ColumnDef<ProjectRow>[] = [
-  { accessorKey: 'name', header: t('projects.list.columns.name') },
-  { accessorKey: 'owner', header: t('projects.list.columns.owner') },
+  { accessorKey: 'name', header: t(keys.columnName) },
+  { accessorKey: 'owner', header: t(keys.columnOwner) },
   {
     accessorKey: 'status',
-    header: t('projects.list.columns.status'),
+    header: t(keys.columnStatus),
     cell: ({ row }) => (
       <StatusBadge variant={statusVariants[row.original.status]} dot>
         {t(\`projects.status.\${row.original.status}\`)}
       </StatusBadge>
     ),
   },
-  { accessorKey: 'budget', header: t('projects.list.columns.budget') },
-  { accessorKey: 'dueDate', header: t('projects.list.columns.dueDate') },
+  { accessorKey: 'budget', header: t(keys.columnBudget) },
+  { accessorKey: 'dueDate', header: t(keys.columnDueDate) },
 ]`
 
 export const dataTableBasicCode = `import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
@@ -497,11 +497,11 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 ${COLUMNS_SNIPPET}
 
 <DataTable<ProjectRow>
-  title={t('projects.list.title')}
+  title={t(keys.title)}
   actions={
     <Button size="sm" onClick={openCreateDialog}>
       <Plus className="size-4" aria-hidden />
-      {t('projects.list.create')}
+      {t(keys.create)}
     </Button>
   }
   columns={columns}
@@ -519,7 +519,7 @@ const sortedRows = React.useMemo(() => sortRows(allRows, sorting), [allRows, sor
 const pageRows = sortedRows.slice((page - 1) * pageSize, page * pageSize)
 
 <DataTable<ProjectRow>
-  title={t('projects.list.title')}
+  title={t(keys.title)}
   columns={columns}
   data={pageRows}
   sortable
@@ -551,8 +551,8 @@ const [search, setSearch] = React.useState('')
 const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
 const filters: FilterDef[] = [
-  { id: 'status', label: t('projects.list.columns.status'), type: 'select', options: statusOptions },
-  { id: 'region', label: t('projects.list.columns.region'), type: 'select', options: regionOptions },
+  { id: 'status', label: t(keys.columnStatus), type: 'select', options: statusOptions },
+  { id: 'region', label: t(keys.columnRegion), type: 'select', options: regionOptions },
 ]
 
 const rows = React.useMemo(
@@ -561,12 +561,12 @@ const rows = React.useMemo(
 )
 
 <DataTable<ProjectRow>
-  title={t('projects.list.title')}
+  title={t(keys.title)}
   columns={columns}
   data={rows}
   searchValue={search}
   onSearchChange={setSearch}
-  searchPlaceholder={t('projects.list.search')}
+  searchPlaceholder={t(keys.search)}
   filters={filters}
   filterValues={filterValues}
   onFiltersApply={setFilterValues}
@@ -578,16 +578,16 @@ ${IMPORT_LINE}
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 
 <DataTable<ProjectRow>
-  title={t('projects.list.title')}
+  title={t(keys.title)}
   columns={columns}
   data={rows}
   onRowClick={(row) => router.push(\`/backend/projects/\${row.id}\`)}
   rowActions={(row) => (
     <RowActions
       items={[
-        { id: 'edit', label: t('projects.list.actions.edit'), icon: <Pencil className="size-4" />, href: \`/backend/projects/\${row.id}/edit\` },
-        { id: 'duplicate', label: t('projects.list.actions.duplicate'), icon: <Copy className="size-4" />, onSelect: () => duplicateProject(row) },
-        { id: 'delete', label: t('projects.list.actions.delete'), icon: <Trash2 className="size-4" />, destructive: true, onSelect: () => deleteProject(row) },
+        { id: 'edit', label: t(keys.actionEdit), icon: <Pencil className="size-4" />, href: \`/backend/projects/\${row.id}/edit\` },
+        { id: 'duplicate', label: t(keys.actionDuplicate), icon: <Copy className="size-4" />, onSelect: () => duplicateProject(row) },
+        { id: 'delete', label: t(keys.actionDelete), icon: <Trash2 className="size-4" />, destructive: true, onSelect: () => deleteProject(row) },
       ]}
     />
   )}
@@ -599,32 +599,32 @@ import { DataTable, type BulkAction } from '@open-mercato/ui/backend/DataTable'
 const bulkActions: BulkAction<ProjectRow>[] = [
   {
     id: 'complete',
-    label: t('projects.list.bulk.complete'),
+    label: t(keys.bulkComplete),
     icon: CheckCircle2,
     onExecute: async (selected) => {
       await completeProjects(selected.map((row) => row.id))
-      return { ok: true, affectedCount: selected.length, message: t('projects.list.bulk.completed', { count: selected.length }) }
+      return { ok: true, affectedCount: selected.length, message: t(keys.bulkCompleted, { count: selected.length }) }
     },
   },
   {
     id: 'delete',
-    label: t('projects.list.bulk.delete'),
+    label: t(keys.bulkDelete),
     icon: Trash2,
     destructive: true,
     onExecute: async (selected) => {
       await deleteProjects(selected.map((row) => row.id))
-      return { ok: true, affectedCount: selected.length, message: t('projects.list.bulk.deleted', { count: selected.length }) }
+      return { ok: true, affectedCount: selected.length, message: t(keys.bulkDeleted, { count: selected.length }) }
     },
   },
 ]
 
-<DataTable<ProjectRow> title={t('projects.list.title')} columns={columns} data={rows} bulkActions={bulkActions} />`
+<DataTable<ProjectRow> title={t(keys.title)} columns={columns} data={rows} bulkActions={bulkActions} />`
 
 export const dataTablePinnedColumnsCode = `${IMPORT_LINE}
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 
 <DataTable<ProjectRow>
-  title={t('projects.list.title')}
+  title={t(keys.title)}
   columns={wideColumns}
   data={rows}
   stickyFirstColumn
@@ -637,8 +637,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open
 
 <Card>
   <CardHeader>
-    <CardTitle>{t('clients.detail.projects.title')}</CardTitle>
-    <CardDescription>{t('clients.detail.projects.description')}</CardDescription>
+    <CardTitle>{t(keys.projectTitle)}</CardTitle>
+    <CardDescription>{t(keys.projectDescription)}</CardDescription>
   </CardHeader>
   <CardContent className="overflow-x-auto">
     <DataTable<ProjectRow> embedded columns={columns} data={clientProjects} />
@@ -647,19 +647,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open
 
 export const dataTableLoadingCode = `${IMPORT_LINE}
 
-<DataTable<ProjectRow> title={t('projects.list.title')} columns={columns} data={rows} isLoading={isLoading} />`
+<DataTable<ProjectRow> title={t(keys.title)} columns={columns} data={rows} isLoading={isLoading} />`
 
 export const dataTableEmptyCode = `${IMPORT_LINE}
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 <DataTable<ProjectRow>
-  title={t('projects.list.title')}
+  title={t(keys.title)}
   columns={columns}
   data={rows}
   emptyState={
     <ListEmptyState
-      entityName={t('projects.list.entityPlural')}
-      createLabel={t('projects.list.create')}
+      entityName={t(keys.entityPlural)}
+      createLabel={t(keys.create)}
       onCreate={openCreateDialog}
     />
   }
@@ -671,20 +671,20 @@ const [search, setSearch] = React.useState('zeppelin')
 const rows = React.useMemo(() => allRows.filter((row) => matchesSearch(row, search)), [allRows, search])
 
 <DataTable<ProjectRow>
-  title={t('projects.list.title')}
+  title={t(keys.title)}
   columns={columns}
   data={rows}
   searchValue={search}
   onSearchChange={setSearch}
-  searchPlaceholder={t('projects.list.search')}
+  searchPlaceholder={t(keys.search)}
 />`
 
 export const dataTableErrorCode = `${IMPORT_LINE}
 
 <DataTable<ProjectRow>
-  title={t('projects.list.title')}
+  title={t(keys.title)}
   columns={columns}
   data={rows}
-  error={loadFailed ? t('projects.list.loadError') : null}
-  refreshButton={{ label: t('projects.list.reload'), onRefresh: reload, isRefreshing: isLoading }}
+  error={loadFailed ? t(keys.loadError) : null}
+  refreshButton={{ label: t(keys.reload), onRefresh: reload, isRefreshing: isLoading }}
 />`

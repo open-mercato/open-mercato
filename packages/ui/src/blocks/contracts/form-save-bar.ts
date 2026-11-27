@@ -31,6 +31,7 @@ export const formSaveBarPropsSchema = blockBasePropsSchema
     alwaysVisible: z.boolean().optional(),
     leading: slotSchema.optional(),
     trailing: slotSchema.optional(),
+    getReturnFocusTarget: callbackSchema<() => HTMLElement | null | undefined>().optional(),
   })
   .refine((props) => hasUniqueKeys(props.actions), { message: 'Action keys must be unique', path: ['actions'] })
   .refine((props) => props.formId !== undefined || props.onSave !== undefined, {

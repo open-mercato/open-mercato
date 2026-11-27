@@ -191,4 +191,62 @@ describe('EntityHeader contract', () => {
     expect(entityHeaderPropsSchema.safeParse({ ...base, count: -1 }).success).toBe(false)
     expect(entityHeaderPropsSchema.safeParse({ ...base, count: 1.5 }).success).toBe(false)
   })
+
+  it('accepts meta items with an href and a suffix and rejects empty ones', () => {
+    const withMeta = (extra: Record<string, unknown>) =>
+      entityHeaderPropsSchema.safeParse({ ...base, meta: [{ key: 'phone', label: 'Phone', value: '555 01 42', ...extra }] }).success
+    expect(withMeta({})).toBe(true)
+    expect(withMeta({ href: 'tel:+48225550142', suffix: '+2' })).toBe(true)
+    expect(withMeta({ href: 'mailto:orders@northwind.example' })).toBe(true)
+    expect(withMeta({ href: '/backend/customers/1' })).toBe(true)
+    expect(withMeta({ href: '' })).toBe(false)
+    expect(withMeta({ suffix: '' })).toBe(false)
+  })
+
+  it('accepts several badges next to the single badge and a positive maxVisibleBadges', () => {
+    const badges = [
+      { label: 'Key account', tone: 'info' },
+      { label: 'Wholesale', tone: 'neutral' },
+    ]
+    expect(entityHeaderPropsSchema.safeParse({ ...base, badges }).success).toBe(true)
+    expect(
+      entityHeaderPropsSchema.safeParse({ ...base, badge: { label: 'Active', tone: 'success' }, badges, maxVisibleBadges: 1 })
+        .success,
+    ).toBe(true)
+    expect(entityHeaderPropsSchema.safeParse({ ...base, badges, maxVisibleBadges: 0 }).success).toBe(false)
+    expect(entityHeaderPropsSchema.safeParse({ ...base, badges: [{ label: 'Key account', tone: 'purple' }] }).success).toBe(false)
+  })
+
+  it('requires an icon for an icon-only action', () => {
+    const withAction = (action: Record<string, unknown>) =>
+      entityHeaderPropsSchema.safeParse({ ...base, actions: [{ key: 'call', label: 'Call', ...action }], onAction: () => undefined })
+    expect(withAction({ display: 'label' }).success).toBe(true)
+    expect(withAction({ display: 'icon', icon: 'phone' }).success).toBe(true)
+    const missingIcon = withAction({ display: 'icon' })
+    expect(missingIcon.success).toBe(false)
+    if (!missingIcon.success) {
+      expect(missingIcon.error.issues[0]?.message).toBe("display: 'icon' requires an icon")
+      expect(missingIcon.error.issues[0]?.path).toEqual(['actions', 0, 'icon'])
+    }
+    expect(withAction({ display: 'compact', icon: 'phone' }).success).toBe(false)
+  })
+
+  it('keeps the shared action rules on header actions', () => {
+    const withAction = (action: Record<string, unknown>) =>
+      entityHeaderPropsSchema.safeParse({ ...base, actions: [{ key: 'edit', label: 'Edit', ...action }], onAction: () => undefined })
+        .success
+    expect(withAction({ href: '/backend/customers/1/edit' })).toBe(true)
+    expect(withAction({ href: '' })).toBe(false)
+    expect(withAction({ disabledReason: 'Locked' })).toBe(false)
+    expect(withAction({ disabled: true, disabledReason: 'Locked' })).toBe(true)
+  })
+
+  it('accepts the two destructive placements and the two avatar variants only', () => {
+    expect(entityHeaderPropsSchema.safeParse({ ...base, destructivePlacement: 'overflow' }).success).toBe(true)
+    expect(entityHeaderPropsSchema.safeParse({ ...base, destructivePlacement: 'inline' }).success).toBe(true)
+    expect(entityHeaderPropsSchema.safeParse({ ...base, destructivePlacement: 'hidden' }).success).toBe(false)
+    expect(entityHeaderPropsSchema.safeParse({ ...base, avatar: { initials: 'NS', variant: 'monochrome' } }).success).toBe(true)
+    expect(entityHeaderPropsSchema.safeParse({ ...base, avatar: { initials: 'NS', variant: 'default' } }).success).toBe(true)
+    expect(entityHeaderPropsSchema.safeParse({ ...base, avatar: { initials: 'NS', variant: 'outline' } }).success).toBe(false)
+  })
 })

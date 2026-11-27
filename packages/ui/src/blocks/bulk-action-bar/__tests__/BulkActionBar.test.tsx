@@ -124,6 +124,54 @@ describe('BulkActionBar', () => {
     expect(screen.getByRole('button', { name: 'More actions' })).toBeInTheDocument()
   })
 
+  it('shows a destructive action as a visible button when destructivePlacement is inline', () => {
+    const onAction = jest.fn()
+    renderBar({ ...bulkActionBarFixtures.destructiveInline, onAction })
+    const visible = screen
+      .getAllByRole('button')
+      .filter((button) => button.dataset.slot === 'bulk-action-bar-action')
+    expect(visible.map((button) => button.textContent)).toEqual(['Change stage', 'Assign owner', 'Export', 'Delete'])
+    const remove = screen.getByRole('button', { name: 'Delete' })
+    const removeClasses = remove.className.split(' ')
+    expect(removeClasses).toContain('text-destructive')
+    expect(removeClasses).not.toContain('border-destructive')
+    expect(screen.getByRole('button', { name: 'Export' }).className.split(' ')).not.toContain('text-destructive')
+    expect(screen.queryByRole('button', { name: 'More actions' })).not.toBeInTheDocument()
+    fireEvent.click(remove)
+    expect(onAction).toHaveBeenCalledWith('delete')
+  })
+
+  it('counts an inline destructive action in maxVisibleActions and keeps the given order', () => {
+    renderBar({
+      ...bulkActionBarFixtures.default,
+      destructivePlacement: 'inline',
+      maxVisibleActions: 2,
+      actions: [
+        { key: 'delete', label: 'Delete', tone: 'destructive' },
+        { key: 'export', label: 'Export' },
+        { key: 'archive', label: 'Archive', tone: 'destructive' },
+      ],
+    })
+    const visible = screen
+      .getAllByRole('button')
+      .filter((button) => button.dataset.slot === 'bulk-action-bar-action')
+    expect(visible.map((button) => button.textContent)).toEqual(['Delete', 'Export'])
+    fireEvent.click(screen.getByRole('button', { name: 'More actions' }))
+    expect(screen.getByText('Archive')).toBeInTheDocument()
+  })
+
+  it('keeps destructive actions in the menu when destructivePlacement is overflow', () => {
+    renderBar({ ...bulkActionBarFixtures.destructiveInline, destructivePlacement: 'overflow' })
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More actions' })).toBeInTheDocument()
+  })
+
+  it('uses ariaLabel as the accessible name of the toolbar', () => {
+    renderBar({ ...bulkActionBarFixtures.default, ariaLabel: 'Bulk actions for deals' })
+    expect(screen.getByRole('toolbar', { name: 'Bulk actions for deals' })).toBeInTheDocument()
+    expect(screen.queryByRole('toolbar', { name: 'Bulk actions' })).not.toBeInTheDocument()
+  })
+
   it('respects maxVisibleActions', () => {
     renderBar({ ...fiveActions, maxVisibleActions: 2 })
     expect(screen.getAllByRole('button').filter((button) => button.dataset.slot === 'bulk-action-bar-action')).toHaveLength(2)

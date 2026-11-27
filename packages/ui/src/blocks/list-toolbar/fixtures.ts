@@ -80,6 +80,17 @@ export const listToolbarFixtures: Record<string, ListToolbarProps> = {
     secondaryActions,
     onAction: noop,
   },
+  withLinkActions: {
+    search,
+    onSearchChange: noop,
+    primaryAction: { key: 'create', label: 'New deal', icon: 'plus-square', href: '#new-deal' },
+    secondaryActions: [
+      { key: 'import', label: 'Import', icon: 'file-spreadsheet', href: '#import' },
+      { key: 'export', label: 'Export', icon: 'download' },
+      { key: 'columns', label: 'Edit columns', icon: 'settings' },
+    ],
+    onAction: noop,
+  },
   full: {
     search,
     onSearchChange: noop,

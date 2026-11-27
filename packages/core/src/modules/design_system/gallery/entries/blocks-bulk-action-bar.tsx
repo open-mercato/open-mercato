@@ -45,6 +45,7 @@ export const bulkActionBarEntry: GalleryEntry = {
       'Pass totalCount and onSelectAllMatching when the list has more matching records than the current page',
       'Use position="inline" inside dialogs, drawers and panels',
       'Give disabled actions a disabledReason',
+      'Set destructivePlacement="inline" only when a destructive action must stay one click away; it then counts in maxVisibleActions and keeps its place in the order',
     ],
     dont: [
       'Do not run the bulk operation inside the block',
@@ -58,6 +59,7 @@ export const bulkActionBarEntry: GalleryEntry = {
     'Escape clears the selection unless focus is in a text field or a menu or dialog is open; turn it off with clearOnEscape={false}',
     'A disabled action stays focusable and exposes its reason as its description',
     'The entrance animation is skipped when reduced motion is requested',
+    'Pass ariaLabel to name the toolbar after the records it acts on when a page has more than one toolbar',
   ],
   variants: [
     {
@@ -91,11 +93,29 @@ export const bulkActionBarEntry: GalleryEntry = {
   onClear={clearSelection}`),
     },
     {
+      id: 'destructive-inline',
+      title: 'Destructive action inline',
+      description:
+        'With destructivePlacement="inline" a destructive action is a visible button in the quiet destructive style, counted in maxVisibleActions.',
+      render: () => <BulkActionBar {...bulkActionBarFixtures.destructiveInline} />,
+      code: bulkActionBarCode(`  selectedCount={selectedIds.length}
+  actions={[
+    { key: 'change-stage', label: 'Change stage', icon: 'workflow' },
+    { key: 'assign-owner', label: 'Assign owner', icon: 'user-round' },
+    { key: 'export', label: 'Export', icon: 'download' },
+    { key: 'delete', label: 'Delete', icon: 'trash-2', tone: 'destructive' },
+  ]}
+  maxVisibleActions={4}
+  destructivePlacement="inline"
+  onAction={handleBulkAction}
+  onClear={clearSelection}`),
+    },
+    {
       id: 'with-summary',
       title: 'With summary',
       render: () => <BulkActionBar {...bulkActionBarFixtures.withSummary} />,
       code: bulkActionBarCode(`  selectedCount={selectedIds.length}
-  summary={t('deals.bulk.total', 'Total {amount}', { amount: formatMoney(selectedTotal) })}
+  summary={t(keys.bulkTotal, 'Total {amount}', { amount: formatMoney(selectedTotal) })}
   actions={bulkActions}
   onAction={handleBulkAction}
   onClear={clearSelection}`),
@@ -143,7 +163,7 @@ export const bulkActionBarEntry: GalleryEntry = {
       render: () => <BulkActionBar {...bulkActionBarFixtures.progress} />,
       code: bulkActionBarCode(`  selectedCount={selectedIds.length}
   actions={bulkActions}
-  progress={{ label: t('deals.bulk.updatingStage', 'Updating stage'), done: job.processed, total: job.total }}
+  progress={{ label: t(keys.bulkUpdatingStage, 'Updating stage'), done: job.processed, total: job.total }}
   onAction={handleBulkAction}
   onClear={clearSelection}`),
     },
@@ -158,7 +178,7 @@ export const bulkActionBarEntry: GalleryEntry = {
       label: 'Create report',
       icon: 'file-text',
       disabled: !sameCustomer,
-      disabledReason: sameCustomer ? undefined : t('projects.bulk.reportBlocked', 'Select projects of one customer to create a report'),
+      disabledReason: sameCustomer ? undefined : t(keys.bulkReportBlocked, 'Select projects of one customer to create a report'),
     },
     { key: 'assign-members', label: 'Assign members', icon: 'users' },
   ]}

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { MoreHorizontal, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -18,7 +19,11 @@ import {
 } from '@open-mercato/ui/primitives/dropdown'
 import { resolveRegisteredLucideIcon } from '@open-mercato/ui/backend/icons/lucideRegistryRuntime'
 import type { BlockAction } from '../contracts/shared'
-import type { BulkActionBarProgress, BulkActionBarProps } from '../contracts/bulk-action-bar'
+import type {
+  BulkActionBarDestructivePlacement,
+  BulkActionBarProgress,
+  BulkActionBarProps,
+} from '../contracts/bulk-action-bar'
 
 const DEFAULT_MAX_VISIBLE_ACTIONS = 3
 const PHONE_MAX_VISIBLE_ACTIONS = 1
@@ -46,8 +51,30 @@ function useIsPhoneViewport(): boolean {
   return React.useSyncExternalStore(subscribeToViewport, readIsPhoneViewport, readIsPhoneViewportOnServer)
 }
 
-function ActionIcon({ name }: { name: string | undefined }) {
+const DISABLED_LOOK_CLASS =
+  'cursor-not-allowed border-border-disabled bg-bg-disabled text-text-disabled shadow-none hover:bg-bg-disabled hover:text-text-disabled'
+
+const logger = createLogger('ui')
+const reportedUnknownIcons = new Set<string>()
+
+function resolveIcon(name: string | undefined) {
   const Icon = resolveRegisteredLucideIcon(name)
+  if (Icon || !name || process.env.NODE_ENV === 'production' || reportedUnknownIcons.has(name)) return Icon
+  reportedUnknownIcons.add(name)
+  logger.warn('[internal] BulkActionBar received an icon name that is not in the icon registry', { icon: name })
+  return Icon
+}
+
+function isPlainLeftClick(event: React.MouseEvent): boolean {
+  return event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey
+}
+
+function rendersAsLink(action: BlockAction): boolean {
+  return Boolean(action.href) && action.disabled !== true
+}
+
+function ActionIcon({ name }: { name: string | undefined }) {
+  const Icon = resolveIcon(name)
   if (!Icon) return null
   return <Icon aria-hidden="true" className="size-4" />
 }
@@ -57,11 +84,16 @@ type ActionSplit = {
   overflow: BlockAction[]
 }
 
-function splitActions(actions: BlockAction[], maxVisible: number): ActionSplit {
+function splitActions(
+  actions: BlockAction[],
+  maxVisible: number,
+  destructivePlacement: BulkActionBarDestructivePlacement,
+): ActionSplit {
   const visible: BlockAction[] = []
   const overflow: BlockAction[] = []
   for (const action of actions) {
-    if (action.tone !== 'destructive' && visible.length < maxVisible) visible.push(action)
+    const mayBeVisible = destructivePlacement === 'inline' || action.tone !== 'destructive'
+    if (mayBeVisible && visible.length < maxVisible) visible.push(action)
     else overflow.push(action)
   }
   return { visible, overflow }
@@ -88,32 +120,97 @@ function ActionButton({ action, pending, blocked, reasonId, onRun }: ActionButto
   const hasReason = hasDisabledReason(action)
   const busy = pending || blocked
   const ariaDisabled = hasReason && !busy
-  const button = (
+  const asLink = rendersAsLink(action)
+  const variant = action.tone === 'destructive' ? 'destructive-ghost' : 'outline'
+  const className = cn('h-10 min-w-0 shrink sm:h-8', (ariaDisabled || (asLink && busy)) && DISABLED_LOOK_CLASS)
+  const content = (
+    <>
+      {pending ? <Spinner size="sm" /> : <ActionIcon name={action.icon} />}
+      <span className="min-w-0 truncate">{action.label}</span>
+    </>
+  )
+  const button = asLink ? (
+    <Button
+      asChild
+      size="sm"
+      variant={variant}
+      aria-disabled={busy ? 'true' : undefined}
+      aria-busy={pending || undefined}
+      className={className}
+    >
+      <a
+        href={action.href}
+        data-slot="bulk-action-bar-action"
+        onClick={(event) => {
+          if (busy) {
+            event.preventDefault()
+            return
+          }
+          if (event.defaultPrevented || !isPlainLeftClick(event)) return
+          event.preventDefault()
+          onRun(action.key)
+        }}
+      >
+        {content}
+      </a>
+    </Button>
+  ) : (
     <Button
       type="button"
       size="sm"
-      variant="outline"
+      variant={variant}
       data-slot="bulk-action-bar-action"
       disabled={(action.disabled === true && !hasReason) || busy}
       aria-disabled={ariaDisabled ? 'true' : undefined}
       aria-busy={pending || undefined}
       aria-describedby={hasReason ? reasonId : undefined}
-      className={cn(
-        'h-10 min-w-0 shrink sm:h-8',
-        ariaDisabled &&
-          'cursor-not-allowed border-border-disabled bg-bg-disabled text-text-disabled shadow-none hover:bg-bg-disabled hover:text-text-disabled',
-      )}
+      className={className}
       onClick={() => {
         if (ariaDisabled) return
         onRun(action.key)
       }}
     >
-      {pending ? <Spinner size="sm" /> : <ActionIcon name={action.icon} />}
-      <span className="min-w-0 truncate">{action.label}</span>
+      {content}
     </Button>
   )
   if (!hasReason) return button
   return <SimpleTooltip content={action.disabledReason}>{button}</SimpleTooltip>
+}
+
+type OverflowLinkItemProps = {
+  action: BlockAction
+  onClose: () => void
+  onRun: (key: string) => void
+}
+
+function OverflowLinkItem({ action, onClose, onRun }: OverflowLinkItemProps) {
+  const anchorRef = React.useRef<HTMLAnchorElement | null>(null)
+  return (
+    <DropdownItem
+      value={action.key}
+      size={36}
+      leading={action.icon ? <ActionIcon name={action.icon} /> : undefined}
+      className={cn(action.tone === 'destructive' && 'text-destructive')}
+      onSelect={() => anchorRef.current?.click()}
+    >
+      <a
+        ref={anchorRef}
+        href={action.href}
+        tabIndex={-1}
+        data-slot="bulk-action-bar-menu-link"
+        className="outline-none after:absolute after:inset-0"
+        onClick={(event) => {
+          event.stopPropagation()
+          onClose()
+          if (!isPlainLeftClick(event)) return
+          event.preventDefault()
+          onRun(action.key)
+        }}
+      >
+        {action.label}
+      </a>
+    </DropdownItem>
+  )
 }
 
 type OverflowMenuProps = {
@@ -145,6 +242,9 @@ function OverflowMenu({ actions, pendingKeys, blocked, onRun }: OverflowMenuProp
         <DropdownList>
           {actions.map((action) => {
             const icon = action.icon ? <ActionIcon name={action.icon} /> : undefined
+            if (rendersAsLink(action)) {
+              return <OverflowLinkItem key={action.key} action={action} onClose={() => setOpen(false)} onRun={onRun} />
+            }
             return (
               <DropdownItem
                 key={action.key}
@@ -213,6 +313,7 @@ export function BulkActionBar(props: BulkActionBarProps) {
     summary,
     actions,
     maxVisibleActions,
+    destructivePlacement = 'overflow',
     pendingActionKey,
     progress,
     position = 'floating',
@@ -221,6 +322,7 @@ export function BulkActionBar(props: BulkActionBarProps) {
     onClear,
     onSelectAllMatching,
     trailing,
+    ariaLabel,
     className,
   } = props
   const reasonIdBase = React.useId()
@@ -259,7 +361,10 @@ export function BulkActionBar(props: BulkActionBarProps) {
   )
 
   const visibleLimit = isPhone ? PHONE_MAX_VISIBLE_ACTIONS : (maxVisibleActions ?? DEFAULT_MAX_VISIBLE_ACTIONS)
-  const split = React.useMemo(() => splitActions(actions, visibleLimit), [actions, visibleLimit])
+  const split = React.useMemo(
+    () => splitActions(actions, visibleLimit, destructivePlacement),
+    [actions, visibleLimit, destructivePlacement],
+  )
 
   React.useEffect(() => {
     setAnnouncement(shown && hasSelection ? countLabel : '')
@@ -289,7 +394,7 @@ export function BulkActionBar(props: BulkActionBarProps) {
   return (
     <div
       role="toolbar"
-      aria-label={t('ui.blocks.bulkActionBar.label', 'Bulk actions')}
+      aria-label={ariaLabel ?? t('ui.blocks.bulkActionBar.label', 'Bulk actions')}
       data-slot="bulk-action-bar"
       data-position={position}
       className={cn(

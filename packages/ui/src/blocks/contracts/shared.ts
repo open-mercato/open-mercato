@@ -12,19 +12,26 @@ export type BlockIconName = z.infer<typeof iconNameSchema>
 
 export const isoDateTimeSchema = z.iso.datetime({ offset: true })
 
-export const blockActionSchema = z
-  .object({
-    key: z.string().min(1),
-    label: z.string().min(1),
-    icon: iconNameSchema.optional(),
-    tone: z.enum(['default', 'destructive']).optional(),
-    disabled: z.boolean().optional(),
-    disabledReason: z.string().min(1).optional(),
-  })
-  .refine((action) => action.disabledReason === undefined || action.disabled === true, {
-    message: 'disabledReason requires disabled: true',
-    path: ['disabledReason'],
-  })
+export const blockActionFieldsSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  icon: iconNameSchema.optional(),
+  tone: z.enum(['default', 'destructive']).optional(),
+  disabled: z.boolean().optional(),
+  disabledReason: z.string().min(1).optional(),
+  href: z.string().min(1).optional(),
+})
+
+export function disabledReasonRequiresDisabled(action: { disabled?: boolean; disabledReason?: string }): boolean {
+  return action.disabledReason === undefined || action.disabled === true
+}
+
+export const DISABLED_REASON_ISSUE = {
+  message: 'disabledReason requires disabled: true',
+  path: ['disabledReason'],
+}
+
+export const blockActionSchema = blockActionFieldsSchema.refine(disabledReasonRequiresDisabled, DISABLED_REASON_ISSUE)
 export type BlockAction = z.infer<typeof blockActionSchema>
 
 export const toneLabelSchema = z.object({

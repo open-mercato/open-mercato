@@ -75,4 +75,9 @@ describe('FormSaveBar contract', () => {
     expect(formSaveBarPropsSchema.safeParse({ ...base, saveLabel: '' }).success).toBe(false)
     expect(formSaveBarPropsSchema.safeParse({ ...base, message: '' }).success).toBe(false)
   })
+
+  it('accepts an optional return focus target getter and rejects a non-function', () => {
+    expect(formSaveBarPropsSchema.safeParse({ ...base, getReturnFocusTarget: () => null }).success).toBe(true)
+    expect(formSaveBarPropsSchema.safeParse({ ...base, getReturnFocusTarget: 'title' }).success).toBe(false)
+  })
 })

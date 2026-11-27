@@ -18,6 +18,9 @@ export type BulkActionBarProgress = z.infer<typeof bulkActionBarProgressSchema>
 export const bulkActionBarPositionSchema = z.enum(['floating', 'inline'])
 export type BulkActionBarPosition = z.infer<typeof bulkActionBarPositionSchema>
 
+export const bulkActionBarDestructivePlacementSchema = z.enum(['overflow', 'inline'])
+export type BulkActionBarDestructivePlacement = z.infer<typeof bulkActionBarDestructivePlacementSchema>
+
 export const bulkActionBarPropsSchema = z
   .object({
     selectedCount: countSchema,
@@ -26,6 +29,7 @@ export const bulkActionBarPropsSchema = z
     summary: z.string().optional(),
     actions: z.array(blockActionSchema),
     maxVisibleActions: z.number().int().min(1).optional(),
+    destructivePlacement: bulkActionBarDestructivePlacementSchema.optional(),
     pendingActionKey: z.string().min(1).optional(),
     progress: bulkActionBarProgressSchema.optional(),
     position: bulkActionBarPositionSchema.optional(),
@@ -34,6 +38,7 @@ export const bulkActionBarPropsSchema = z
     onClear: callbackSchema<() => void>(),
     onSelectAllMatching: callbackSchema<() => void>().optional(),
     trailing: slotSchema.optional(),
+    ariaLabel: z.string().min(1).optional(),
     className: z.string().optional(),
   })
   .refine((props) => hasUniqueKeys(props.actions), { message: 'Action keys must be unique', path: ['actions'] })

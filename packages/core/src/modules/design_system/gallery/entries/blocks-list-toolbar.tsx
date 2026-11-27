@@ -1,4 +1,7 @@
 import * as React from 'react'
+import { ChevronDown } from 'lucide-react'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { ListToolbar } from '@open-mercato/ui/blocks/list-toolbar'
 import { listToolbarFixtures } from '@open-mercato/ui/blocks/list-toolbar/fixtures'
 import { listToolbarPropsSchema, type ListToolbarProps } from '@open-mercato/ui/blocks/contracts/list-toolbar'
@@ -60,6 +63,114 @@ function StickyListToolbarExample() {
   )
 }
 
+type FilterBarControl = { id: string; label: string; options: string[] }
+
+const FILTER_BAR_CONTROLS: FilterBarControl[] = [
+  { id: 'stage', label: 'Stage', options: ['Qualification', 'Proposal', 'Negotiation'] },
+  { id: 'owner', label: 'Owner', options: ['Maria Lindqvist', 'Tomas Berg', 'Unassigned'] },
+  { id: 'close', label: 'Close date', options: ['This month', 'Next month', 'This quarter'] },
+]
+
+type FilterOptionsProps = { control: FilterBarControl; value: string | undefined; onPick: (value: string) => void }
+
+function FilterOptions({ control, value, onPick }: FilterOptionsProps) {
+  return (
+    <div role="group" aria-label={control.label} className="flex flex-col gap-1">
+      {control.options.map((option) => (
+        <Button
+          key={option}
+          type="button"
+          size="sm"
+          variant={option === value ? 'secondary' : 'ghost'}
+          aria-pressed={option === value}
+          className="h-10 justify-start font-normal md:h-8"
+          onClick={() => onPick(option)}
+        >
+          {option}
+        </Button>
+      ))}
+    </div>
+  )
+}
+
+type FilterBarButtonProps = { control: FilterBarControl; value: string | undefined; onPick: (value: string) => void }
+
+function FilterBarButton({ control, value, onPick }: FilterBarButtonProps) {
+  const [open, setOpen] = React.useState(false)
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button type="button" size="sm" variant="outline" className="h-10 font-normal md:h-8">
+          {control.label}
+          <ChevronDown aria-hidden="true" className="size-4 text-muted-foreground" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-56 p-2">
+        <FilterOptions
+          control={control}
+          value={value}
+          onPick={(next) => {
+            onPick(next)
+            setOpen(false)
+          }}
+        />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+type ChipEditor = { id: string; anchor: HTMLElement | null }
+
+function FilterBarListToolbarExample() {
+  const [searchValue, setSearchValue] = React.useState('')
+  const [values, setValues] = React.useState<Record<string, string>>({ stage: 'Negotiation', owner: 'Maria Lindqvist' })
+  const [editor, setEditor] = React.useState<ChipEditor | null>(null)
+  const pick = (id: string, value: string) => setValues((current) => ({ ...current, [id]: value }))
+  const chips = FILTER_BAR_CONTROLS.filter((control) => values[control.id] !== undefined).map((control) => ({
+    id: control.id,
+    label: `${control.label}: ${values[control.id]}`,
+  }))
+  const editedControl = FILTER_BAR_CONTROLS.find((control) => control.id === editor?.id)
+  return (
+    <>
+      <ListToolbar
+        search={{ value: searchValue, placeholder: 'Search deals' }}
+        onSearchChange={setSearchValue}
+        filterBar={FILTER_BAR_CONTROLS.map((control) => (
+          <FilterBarButton
+            key={control.id}
+            control={control}
+            value={values[control.id]}
+            onPick={(value) => pick(control.id, value)}
+          />
+        ))}
+        chips={chips}
+        onChipOpen={(id, anchor) => setEditor({ id, anchor })}
+        onChipRemove={(id) =>
+          setValues((current) => Object.fromEntries(Object.entries(current).filter(([key]) => key !== id)))
+        }
+        onClearAll={() => setValues({})}
+        resultSummary="128 results"
+      />
+      <Popover open={editor !== null && editedControl !== undefined} onOpenChange={(open) => (open ? undefined : setEditor(null))}>
+        <PopoverAnchor virtualRef={{ current: editor?.anchor ?? null }} />
+        <PopoverContent align="start" className="w-56 p-2">
+          {editedControl ? (
+            <FilterOptions
+              control={editedControl}
+              value={values[editedControl.id]}
+              onPick={(value) => {
+                pick(editedControl.id, value)
+                setEditor(null)
+              }}
+            />
+          ) : null}
+        </PopoverContent>
+      </Popover>
+    </>
+  )
+}
+
 const listToolbarCode = (props: string) => `import { ListToolbar } from '@open-mercato/ui/blocks/list-toolbar'
 
 <ListToolbar
@@ -84,6 +195,9 @@ export const listToolbarEntry: GalleryEntry = {
       'Use onOpenFilters to anchor your own filter panel to the button element it hands you',
       'Give a view an href when it has its own address so it can open in a new tab',
       'Leave primaryAction out when the page title row already has the Create button',
+      'Give an action an href when it leads to its own address, for example the create page; a plain click is still handed to onAction',
+      'Use filterBar for filter controls that open their own popovers; it gets a full-width row under the search row',
+      'Use the element handed to onChipOpen as the second argument to anchor the editor of that filter to its chip',
     ],
     dont: [
       'Do not fetch or filter records inside the block',
@@ -99,6 +213,8 @@ export const listToolbarEntry: GalleryEntry = {
     'The view switch is a labelled group; views with an href are real links and mark the active one with aria-current',
     'Each applied filter has a remove button named after the filter, and "+N more" exposes aria-expanded',
     'On phones the Filters button and the view switch show icons only and keep their accessible names',
+    'Actions with an href are real links styled as buttons; a plain click calls onAction, and clicks with Ctrl, Cmd, Shift, Alt or the middle button open the address in the browser',
+    'The filterBar row is part of the toolbar; give every control in it its own accessible name',
   ],
   variants: [
     {
@@ -172,16 +288,35 @@ export const listToolbarEntry: GalleryEntry = {
     {
       id: 'with-actions',
       title: 'With actions',
-      render: () => <ListToolbarExample fixture={listToolbarFixtures.withActions} />,
+      render: () => <ListToolbarExample fixture={listToolbarFixtures.withLinkActions} />,
       code: listToolbarCode(`  search={{ value: query, placeholder: 'Search deals' }}
   onSearchChange={setQuery}
-  primaryAction={{ key: 'create', label: 'New deal', icon: 'plus-square' }}
+  primaryAction={{ key: 'create', label: 'New deal', icon: 'plus-square', href: '/backend/deals/create' }}
   secondaryActions={[
-    { key: 'import', label: 'Import', icon: 'file-spreadsheet' },
+    { key: 'import', label: 'Import', icon: 'file-spreadsheet', href: '/backend/deals/import' },
     { key: 'export', label: 'Export', icon: 'download' },
     { key: 'columns', label: 'Edit columns', icon: 'settings' },
   ]}
-  onAction={(key) => runAction(key)}`),
+  onAction={(key) => (key === 'create' ? router.push('/backend/deals/create') : runAction(key))}`),
+    },
+    {
+      id: 'filter-bar',
+      title: 'With filter bar',
+      render: () => <FilterBarListToolbarExample />,
+      code: listToolbarCode(`  search={{ value: query, placeholder: 'Search deals' }}
+  onSearchChange={setQuery}
+  filterBar={
+    <>
+      <StageFilter value={filters.stage} onChange={setStage} />
+      <OwnerFilter value={filters.owner} onChange={setOwner} />
+      <CloseDateFilter value={filters.closeDate} onChange={setCloseDate} />
+    </>
+  }
+  chips={chips}
+  onChipOpen={(id, anchor) => openFilterEditor(id, anchor)}
+  onChipRemove={(id) => removeFilter(id)}
+  onClearAll={clearFilters}
+  resultSummary={t(keys.resultCount, { count: total })}`),
     },
     {
       id: 'full',
@@ -204,7 +339,7 @@ export const listToolbarEntry: GalleryEntry = {
   primaryAction={{ key: 'create', label: 'New deal', icon: 'plus-square' }}
   secondaryActions={secondaryActions}
   onAction={(key) => runAction(key)}
-  resultSummary={t('deals.list.resultCount', { count: total })}`),
+  resultSummary={t(keys.resultCount, { count: total })}`),
     },
     {
       id: 'busy',
@@ -214,7 +349,7 @@ export const listToolbarEntry: GalleryEntry = {
   onSearchChange={setQuery}
   quickFilters={quickFilters}
   onQuickFilterToggle={(id, next) => toggleQuickFilter(id, next)}
-  resultSummary={t('deals.list.resultCount', { count: total })}
+  resultSummary={t(keys.resultCount, { count: total })}
   busy={isFetching}`),
     },
     {
@@ -236,7 +371,7 @@ export const listToolbarEntry: GalleryEntry = {
     quickFilters={quickFilters}
     onQuickFilterToggle={(id, next) => toggleQuickFilter(id, next)}
     onOpenFilters={(anchor) => openFilterPanel(anchor)}
-    resultSummary={t('deals.list.resultCount', { count: total })}
+    resultSummary={t(keys.resultCount, { count: total })}
     sticky="top"
     stickyOffset="0px"
   />

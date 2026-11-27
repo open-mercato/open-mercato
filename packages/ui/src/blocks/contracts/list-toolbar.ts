@@ -66,7 +66,7 @@ export const listToolbarPropsSchema = blockBasePropsSchema
     filtersActiveCount: z.number().int().min(0).optional(),
     onOpenFilters: callbackSchema<(anchor: HTMLElement | null) => void>().optional(),
     chips: z.array(listToolbarChipSchema).optional(),
-    onChipOpen: callbackSchema<(id: string) => void>().optional(),
+    onChipOpen: callbackSchema<(id: string, anchor: HTMLElement | null) => void>().optional(),
     onChipRemove: callbackSchema<(id: string) => void>().optional(),
     onAddFilter: callbackSchema<() => void>().optional(),
     onClearAll: callbackSchema<() => void>().optional(),
@@ -83,6 +83,7 @@ export const listToolbarPropsSchema = blockBasePropsSchema
     stickyOffset: z.string().min(1).optional(),
     leading: slotSchema.optional(),
     searchTrailing: slotSchema.optional(),
+    filterBar: slotSchema.optional(),
     trailing: slotSchema.optional(),
   })
   .refine((props) => props.search === undefined || props.onSearchChange !== undefined, {

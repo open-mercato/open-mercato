@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { MoreHorizontal, Plus, SlidersHorizontal, X } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -41,8 +42,22 @@ const MAX_TRACKED_EMITS = 20
 const CONTROL_HEIGHT_CLASS = 'h-10 md:h-8'
 const ICON_CONTROL_SIZE_CLASS = 'size-10 md:size-8'
 
-function NamedIcon({ name }: { name: string | undefined }) {
+const DISABLED_LOOK_CLASS =
+  'cursor-not-allowed border-border-disabled bg-bg-disabled text-text-disabled shadow-none hover:bg-bg-disabled hover:text-text-disabled'
+
+const logger = createLogger('ui')
+const reportedUnknownIcons = new Set<string>()
+
+function resolveIcon(name: string | undefined) {
   const Icon = resolveRegisteredLucideIcon(name)
+  if (Icon || !name || process.env.NODE_ENV === 'production' || reportedUnknownIcons.has(name)) return Icon
+  reportedUnknownIcons.add(name)
+  logger.warn('[internal] ListToolbar received an icon name that is not in the icon registry', { icon: name })
+  return Icon
+}
+
+function NamedIcon({ name }: { name: string | undefined }) {
+  const Icon = resolveIcon(name)
   if (!Icon) return null
   return <Icon aria-hidden="true" className="size-4" />
 }
@@ -288,7 +303,7 @@ function ViewSwitch({ views, activeViewId, onViewChange }: ViewSwitchProps) {
     >
       {views.map((view) => {
         const active = view.id === activeViewId
-        const Icon = resolveRegisteredLucideIcon(view.icon)
+        const Icon = resolveIcon(view.icon)
         const itemClassName = cn(
           segmentedControlItemVariants({ size: 'sm' }),
           'h-10 min-w-10 cursor-pointer gap-1 px-3 text-sm font-normal md:h-8 md:min-w-0',
@@ -355,18 +370,62 @@ function splitSecondaryActions(actions: BlockAction[]): ActionSplit {
   return { visible, overflow }
 }
 
+function rendersAsLink(action: BlockAction): boolean {
+  return Boolean(action.href) && action.disabled !== true
+}
+
 type ActionButtonProps = {
   action: BlockAction
   variant: 'default' | 'outline'
   pending: boolean
   reasonId: string
+  interceptLinkClicks: boolean
   onRun: (key: string) => void
 }
 
-function ActionButton({ action, variant, pending, reasonId, onRun }: ActionButtonProps) {
+function ActionButton({ action, variant, pending, reasonId, interceptLinkClicks, onRun }: ActionButtonProps) {
   const hasReason = hasDisabledReason(action)
   const ariaDisabled = hasReason && !pending
-  const button = (
+  const asLink = rendersAsLink(action)
+  const className = cn(
+    CONTROL_HEIGHT_CLASS,
+    'max-w-full shrink-0 font-normal',
+    variant === 'outline' && 'hidden lg:inline-flex',
+    (ariaDisabled || (asLink && pending)) && DISABLED_LOOK_CLASS,
+  )
+  const content = (
+    <>
+      {pending ? <Spinner size="sm" /> : <NamedIcon name={action.icon} />}
+      <span className="min-w-0 truncate">{action.label}</span>
+    </>
+  )
+  const button = asLink ? (
+    <Button
+      asChild
+      size="sm"
+      variant={variant}
+      data-action-emphasis={variant === 'default' ? 'primary' : 'secondary'}
+      aria-disabled={pending ? 'true' : undefined}
+      aria-busy={pending || undefined}
+      className={className}
+    >
+      <a
+        href={action.href}
+        data-slot="list-toolbar-action"
+        onClick={(event) => {
+          if (pending) {
+            event.preventDefault()
+            return
+          }
+          if (!interceptLinkClicks || event.defaultPrevented || !isPlainLeftClick(event)) return
+          event.preventDefault()
+          onRun(action.key)
+        }}
+      >
+        {content}
+      </a>
+    </Button>
+  ) : (
     <Button
       type="button"
       size="sm"
@@ -377,34 +436,67 @@ function ActionButton({ action, variant, pending, reasonId, onRun }: ActionButto
       aria-disabled={ariaDisabled ? 'true' : undefined}
       aria-busy={pending || undefined}
       aria-describedby={hasReason ? reasonId : undefined}
-      className={cn(
-        CONTROL_HEIGHT_CLASS,
-        'max-w-full shrink-0 font-normal',
-        variant === 'outline' && 'hidden lg:inline-flex',
-        ariaDisabled &&
-          'cursor-not-allowed border-border-disabled bg-bg-disabled text-text-disabled shadow-none hover:bg-bg-disabled hover:text-text-disabled',
-      )}
+      className={className}
       onClick={() => {
         if (ariaDisabled) return
         onRun(action.key)
       }}
     >
-      {pending ? <Spinner size="sm" /> : <NamedIcon name={action.icon} />}
-      <span className="min-w-0 truncate">{action.label}</span>
+      {content}
     </Button>
   )
   if (!hasReason) return button
   return <SimpleTooltip content={action.disabledReason}>{button}</SimpleTooltip>
 }
 
+type MenuLinkItemProps = {
+  action: BlockAction
+  className: string | undefined
+  interceptLinkClicks: boolean
+  onClose: () => void
+  onRun: (key: string) => void
+}
+
+function MenuLinkItem({ action, className, interceptLinkClicks, onClose, onRun }: MenuLinkItemProps) {
+  const anchorRef = React.useRef<HTMLAnchorElement | null>(null)
+  return (
+    <DropdownItem
+      value={action.key}
+      size={36}
+      leading={action.icon ? <NamedIcon name={action.icon} /> : undefined}
+      data-action-key={action.key}
+      className={className}
+      onSelect={() => anchorRef.current?.click()}
+    >
+      <a
+        ref={anchorRef}
+        href={action.href}
+        tabIndex={-1}
+        data-slot="list-toolbar-menu-link"
+        className="outline-none after:absolute after:inset-0"
+        onClick={(event) => {
+          event.stopPropagation()
+          onClose()
+          if (!interceptLinkClicks || !isPlainLeftClick(event)) return
+          event.preventDefault()
+          onRun(action.key)
+        }}
+      >
+        {action.label}
+      </a>
+    </DropdownItem>
+  )
+}
+
 type ActionsMenuProps = {
   actions: BlockAction[]
   desktopVisibleKeys: ReadonlySet<string>
   pendingKeys: ReadonlySet<string>
+  interceptLinkClicks: boolean
   onRun: (key: string) => void
 }
 
-function ActionsMenu({ actions, desktopVisibleKeys, pendingKeys, onRun }: ActionsMenuProps) {
+function ActionsMenu({ actions, desktopVisibleKeys, pendingKeys, interceptLinkClicks, onRun }: ActionsMenuProps) {
   const t = useT()
   const [open, setOpen] = React.useState(false)
   const anyPending = actions.some((action) => pendingKeys.has(action.key))
@@ -428,6 +520,22 @@ function ActionsMenu({ actions, desktopVisibleKeys, pendingKeys, onRun }: Action
         <DropdownList>
           {actions.map((action) => {
             const icon = action.icon ? <NamedIcon name={action.icon} /> : undefined
+            const itemClassName = cn(
+              action.tone === 'destructive' && 'text-destructive',
+              desktopVisibleKeys.has(action.key) && 'lg:hidden',
+            )
+            if (rendersAsLink(action) && !pendingKeys.has(action.key)) {
+              return (
+                <MenuLinkItem
+                  key={action.key}
+                  action={action}
+                  className={itemClassName}
+                  interceptLinkClicks={interceptLinkClicks}
+                  onClose={() => setOpen(false)}
+                  onRun={onRun}
+                />
+              )
+            }
             return (
               <DropdownItem
                 key={action.key}
@@ -437,10 +545,7 @@ function ActionsMenu({ actions, desktopVisibleKeys, pendingKeys, onRun }: Action
                 leading={icon}
                 description={action.disabledReason}
                 data-action-key={action.key}
-                className={cn(
-                  action.tone === 'destructive' && 'text-destructive',
-                  desktopVisibleKeys.has(action.key) && 'lg:hidden',
-                )}
+                className={itemClassName}
                 onSelect={() => {
                   setOpen(false)
                   onRun(action.key)
@@ -458,7 +563,7 @@ function ActionsMenu({ actions, desktopVisibleKeys, pendingKeys, onRun }: Action
 
 type ChipProps = {
   chip: ListToolbarChip
-  onOpen: ((id: string) => void) | undefined
+  onOpen: ((id: string, anchor: HTMLElement | null) => void) | undefined
   onRemove: ((id: string) => void) | undefined
 }
 
@@ -483,7 +588,12 @@ function Chip({ chip, onOpen, onRemove }: ChipProps) {
               '-my-px cursor-pointer rounded-full outline-none focus-visible:shadow-focus',
               labelClassName,
             )}
-            onClick={() => onOpen(chip.id)}
+            onClick={(event) =>
+              onOpen(
+                chip.id,
+                event.currentTarget.closest<HTMLElement>('[data-slot="list-toolbar-chip"]') ?? event.currentTarget,
+              )
+            }
           >
             {chip.label}
           </button>
@@ -513,7 +623,7 @@ function Chip({ chip, onOpen, onRemove }: ChipProps) {
 type ChipsRowProps = {
   chips: ListToolbarChip[]
   maxVisible: number
-  onChipOpen: ((id: string) => void) | undefined
+  onChipOpen: ((id: string, anchor: HTMLElement | null) => void) | undefined
   onChipRemove: ((id: string) => void) | undefined
   onAddFilter: (() => void) | undefined
   onClearAll: (() => void) | undefined
@@ -668,6 +778,7 @@ export function ListToolbar(props: ListToolbarProps) {
     stickyOffset,
     leading,
     searchTrailing,
+    filterBar,
     trailing,
     status,
     className,
@@ -710,6 +821,7 @@ export function ListToolbar(props: ListToolbarProps) {
   }
 
   const reasonIdFor = (action: BlockAction) => `${reasonIdBase}-${action.key}`
+  const interceptLinkClicks = onAction !== undefined
   const hasQuickFilters = Boolean(quickFilters && quickFilters.length > 0)
   const hasViews = Boolean(views && views.length > 0)
   const hasChips = Boolean(chips && chips.length > 0)
@@ -855,6 +967,7 @@ export function ListToolbar(props: ListToolbarProps) {
                     variant="outline"
                     pending={pendingKeys.has(action.key)}
                     reasonId={reasonIdFor(action)}
+                    interceptLinkClicks={interceptLinkClicks}
                     onRun={runAction}
                   />
                 ))}
@@ -863,6 +976,7 @@ export function ListToolbar(props: ListToolbarProps) {
                     actions={secondaryActions ?? []}
                     desktopVisibleKeys={desktopVisibleKeys}
                     pendingKeys={pendingKeys}
+                    interceptLinkClicks={interceptLinkClicks}
                     onRun={runAction}
                   />
                 ) : null}
@@ -872,6 +986,7 @@ export function ListToolbar(props: ListToolbarProps) {
                     variant="default"
                     pending={pendingKeys.has(primaryAction.key)}
                     reasonId={reasonIdFor(primaryAction)}
+                    interceptLinkClicks={interceptLinkClicks}
                     onRun={runAction}
                   />
                 ) : null}
@@ -899,6 +1014,11 @@ export function ListToolbar(props: ListToolbarProps) {
           </div>
         ) : null}
       </div>
+      {filterBar ? (
+        <div data-slot="list-toolbar-filter-bar" className="flex w-full min-w-0 flex-wrap items-center gap-2">
+          {filterBar}
+        </div>
+      ) : null}
       {hasChips ? (
         <ChipsRow
           chips={chips ?? []}

@@ -108,4 +108,26 @@ describe('ListToolbar contract', () => {
     expect(listToolbarPropsSchema.safeParse({ sticky: 'bottom' }).success).toBe(false)
     expect(listToolbarPropsSchema.safeParse({ maxVisibleChips: 0 }).success).toBe(false)
   })
+
+  it('accepts a filterBar slot and actions with an href', () => {
+    expect(listToolbarPropsSchema.safeParse({ filterBar: 'Stage' }).success).toBe(true)
+    expect(listToolbarPropsSchema.safeParse({ filterBar: null }).success).toBe(true)
+    const result = listToolbarPropsSchema.safeParse({
+      primaryAction: { key: 'create', label: 'New deal', href: '/backend/deals/create' },
+      secondaryActions: [{ key: 'import', label: 'Import', href: '/backend/deals/import' }],
+      onAction: noop,
+    })
+    expect(result.success).toBe(true)
+    expect(listToolbarPropsSchema.safeParse({ primaryAction: { key: 'create', label: 'New deal', href: '' }, onAction: noop }).success).toBe(
+      false,
+    )
+  })
+
+  it('accepts chip handlers that take the id alone or the id and the chip element', () => {
+    const chips = [{ id: 'stage', label: 'Stage: Negotiation' }]
+    expect(listToolbarPropsSchema.safeParse({ chips, onChipOpen: (id: string) => id }).success).toBe(true)
+    expect(
+      listToolbarPropsSchema.safeParse({ chips, onChipOpen: (id: string, anchor: HTMLElement | null) => [id, anchor] }).success,
+    ).toBe(true)
+  })
 })
