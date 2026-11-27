@@ -241,7 +241,7 @@ export function ActionsDropdown({
         onClick={() => {
           focusOnOpenRef.current = true
           deliberateOpenRef.current = true
-          setOpen((prev) => !prev)
+          setOpen(true)
           requestAnimationFrame(updatePosition)
         }}
       >

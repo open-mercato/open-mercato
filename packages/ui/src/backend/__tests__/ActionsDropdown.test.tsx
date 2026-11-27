@@ -3,7 +3,7 @@
  */
 
 import * as React from 'react'
-import { screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent, waitFor } from '@testing-library/react'
 import { ActionsDropdown, type ActionItem } from '../forms/ActionsDropdown'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
@@ -165,5 +165,44 @@ describe('ActionsDropdown — keyboard navigation (#6445)', () => {
       expect(notPrevented).toBe(true)
       expect(trigger()).toHaveFocus()
     }
+  })
+})
+
+// Regression coverage: hovering the wrapper opens the menu, so a mouse user's
+// click on the trigger arrived while the menu was already open and the click
+// handler's toggle closed it again. The click looked like it did nothing.
+describe('ActionsDropdown — hover then click', () => {
+  const ITEMS: ActionItem[] = [
+    { id: 'export', label: 'Export', onSelect: jest.fn() },
+    { id: 'delete', label: 'Delete', destructive: true, onSelect: jest.fn() },
+  ]
+
+  function trigger() {
+    return screen.getByRole('button', { name: TRIGGER_LABEL })
+  }
+
+  it('keeps the menu open when the trigger is clicked after a hover opened it', async () => {
+    renderDropdown(ITEMS)
+
+    fireEvent.mouseEnter(trigger())
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+
+    fireEvent.click(trigger())
+
+    expect(screen.getByRole('menu')).toBeInTheDocument()
+    expect(trigger()).toHaveAttribute('aria-expanded', 'true')
+    // The click is a deliberate open, so focus still moves into the menu.
+    await waitFor(() => expect(screen.getByRole('menuitem', { name: 'Export' })).toHaveFocus())
+  })
+
+  it('still closes on an outside click after a hover-then-click open', () => {
+    renderDropdown(ITEMS)
+
+    fireEvent.mouseEnter(trigger())
+    fireEvent.click(trigger())
+    fireEvent.mouseDown(document.body)
+
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    expect(trigger()).toHaveAttribute('aria-expanded', 'false')
   })
 })
