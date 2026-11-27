@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
+import type { CustomerFormFieldOptions } from '../../../components/formConfig'
 import CreateCompanyPage from '../companies/create/page'
 import CreatePersonPage from '../people/create/page'
 
@@ -37,10 +38,12 @@ jest.mock('@open-mercato/ui/backend/injection/useInjectionDataWidgets', () => ({
 }))
 jest.mock('@open-mercato/ui/backend/utils/customFieldDefs', () => ({
   fetchCustomFieldDefs: async () => [],
-  fetchCustomFieldFormStructure: async () => ({ definitions: [], metadata: {} }),
+}))
+jest.mock('@open-mercato/ui/backend/utils/customFieldForms', () => ({
+  fetchCustomFieldFormStructure: async () => ({ fields: [], definitions: [], metadata: {} }),
 }))
 jest.mock('../../../components/formConfig', () => {
-  const createFields = () => [
+  const createFields = (_translate: (key: string) => string, options?: CustomerFormFieldOptions) => [
     { id: 'displayName', label: 'Name', type: 'text' },
     {
       id: 'addresses',
@@ -49,6 +52,7 @@ jest.mock('../../../components/formConfig', () => {
       component: ({ setValue }: CrudCustomFieldRenderProps) => (
         <input
           aria-label="Address company name"
+          disabled={options?.addressDrafts?.customFields.structure.status !== 'ready'}
           onChange={(event) => setValue([{
             id: 'staged-address',
             addressLine1: ' Portowa 3 ',
@@ -97,7 +101,9 @@ describe.each([
     ['   ', undefined],
   ])('submits the staged address company name %j as %j', async (input, expected) => {
     const { form, getByRole } = renderCreatePage()
-    fireEvent.change(getByRole('textbox', { name: 'Address company name' }), { target: { value: input } })
+    const companyName = getByRole('textbox', { name: 'Address company name' })
+    await waitFor(() => expect(companyName).toBeEnabled())
+    fireEvent.change(companyName, { target: { value: input } })
     await act(async () => { fireEvent.submit(form) })
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith(detailHref))
 
