@@ -126,7 +126,7 @@ function getHandler(): CommandHandler<Record<string, unknown>, unknown> {
 
 const createInput = (organizationId: string, roles?: string[]) => ({
   email: 'new.user@example.com',
-  password: 'P@ssw0rd!23',
+  password: 'TestP@ssw0rd!23',
   organizationId,
   ...(roles ? { roles } : {}),
 })

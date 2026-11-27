@@ -42,7 +42,7 @@ function buildOptionsUrl(base: string, query?: string): string {
   }
 }
 
-async function loadRemoteOptions(url: string): Promise<Array<{ value: string; label: string }>> {
+async function loadRemoteOptions(url: string, rejectOnError = false): Promise<Array<{ value: string; label: string }>> {
   try {
     // Options routes bound how many rows one response carries (dictionary
     // entries at 500), so walk every page instead of reading a single
@@ -50,7 +50,10 @@ async function loadRemoteOptions(url: string): Promise<Array<{ value: string; la
     // resolvable to its label. Routes without `hasMore` still resolve in one
     // request.
     const pages = await fetchAllOffsetPages(url)
-    if (!pages.ok) return []
+    if (!pages.ok) {
+      if (rejectOnError) throw new Error('[internal] Failed to load relation options')
+      return []
+    }
     return pages.items.map((item) => {
       const record = item && typeof item === 'object' ? (item as Record<string, unknown>) : null
       return {
@@ -58,7 +61,8 @@ async function loadRemoteOptions(url: string): Promise<Array<{ value: string; la
         label: String(record?.label ?? record?.value ?? item),
       }
     })
-  } catch {
+  } catch (error) {
+    if (rejectOnError) throw error
     return []
   }
 }
@@ -121,7 +125,7 @@ export function buildFormFieldFromCustomFieldDef(
           ? {
               loadOptions: async (query?: string) => {
                 const url = buildOptionsUrl(def.optionsUrl!, query)
-                return loadRemoteOptions(url)
+                return loadRemoteOptions(url, def.kind === 'relation')
               },
             }
           : {}),

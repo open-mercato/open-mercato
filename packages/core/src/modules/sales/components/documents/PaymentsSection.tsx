@@ -72,6 +72,13 @@ function formatMoney(value: number, currency: string | null | undefined, locale?
   }
 }
 
+const PaymentActionsContext = React.createContext<(payment: PaymentRow) => React.ReactNode>(() => null)
+
+function PaymentActionsCell({ row }: { row: { original: PaymentRow } }) {
+  const renderActions = React.useContext(PaymentActionsContext)
+  return renderActions(row.original)
+}
+
 export function SalesDocumentPaymentsSection({
   orderId,
   currencyCode,
@@ -314,24 +321,10 @@ export function SalesDocumentPaymentsSection({
       {
         id: 'actions',
         header: t('ui.dataTable.actionsColumn', 'Actions'),
-        cell: ({ row }) => {
-          return (
-            <RowActions
-              items={[
-                { id: 'edit', label: editActionLabel, onSelect: () => openEditPayment(row.original) },
-                {
-                  id: 'delete',
-                  label: deleteActionLabel,
-                  destructive: true,
-                  onSelect: () => void handleDelete(row.original),
-                },
-              ]}
-            />
-          )
-        },
+        cell: PaymentActionsCell,
       },
     ],
-    [currencyCode, deleteActionLabel, editActionLabel, handleDelete, locale, openEditPayment, t]
+    [currencyCode, locale, t]
   )
 
   if (loading) {
@@ -359,12 +352,21 @@ export function SalesDocumentPaymentsSection({
   return (
     <div className="space-y-4">
       {payments.length ? (
-        <DataTable<PaymentRow>
-          columns={columns}
-          data={payments}
-          onRowClick={openEditPayment}
-          extensionTableId={extensionPoints.hosts.paymentsTable.tableId}
-        />
+        <PaymentActionsContext.Provider value={(payment) => (
+          <RowActions
+            items={[
+              { id: 'edit', label: editActionLabel, onSelect: () => openEditPayment(payment) },
+              { id: 'delete', label: deleteActionLabel, destructive: true, onSelect: () => void handleDelete(payment) },
+            ]}
+          />
+        )}>
+          <DataTable<PaymentRow>
+            columns={columns}
+            data={payments}
+            onRowClick={openEditPayment}
+            extensionTableId={extensionPoints.hosts.paymentsTable.tableId}
+          />
+        </PaymentActionsContext.Provider>
       ) : (
         <TabEmptyState
           title={t('sales.documents.payments.emptyTitle', 'No payments yet.')}

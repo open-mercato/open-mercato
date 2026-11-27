@@ -1,3 +1,4 @@
+import type { CrudFormSectionCapabilityProviderFact } from '../../modules/form-section-facts'
 import type { AwilixContainer } from 'awilix'
 import type { OrganizationScope } from '@open-mercato/shared/lib/auth/principal-service'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -5,6 +6,8 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 export interface CommandInterceptor {
   /** Unique interceptor ID (e.g., 'example.log-customer-saves', 'compliance.block-inactive-edits') */
   id: string
+
+  crudFormSectionCapabilities?: readonly CrudFormSectionCapabilityProviderFact[]
 
   /** Target command ID pattern. Supports exact, module wildcard (customers.*), global wildcard (*) */
   targetCommand: string

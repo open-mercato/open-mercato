@@ -16,6 +16,7 @@ const container = {
     if (name === 'em') return em
     if (name === 'analyticsRegistry') return analyticsRegistry
     if (name === 'cache') return cache
+    if (name === 'rbacService') return { getGrantedFeatures: jest.fn(async () => []) }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }

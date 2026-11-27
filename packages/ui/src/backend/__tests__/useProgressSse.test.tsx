@@ -8,6 +8,7 @@ jest.mock('../utils/apiCall', () => ({
 
 const mockAppEventHandlers = new Map<string, Array<(event: { payload?: unknown }) => void>>()
 jest.mock('../injection/useAppEvent', () => ({
+  ...jest.requireActual('../injection/useAppEvent'),
   useAppEvent: (eventId: string, handler: (event: { payload?: unknown }) => void) => {
     const handlers = mockAppEventHandlers.get(eventId) ?? []
     handlers.push(handler)

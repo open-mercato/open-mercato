@@ -23,7 +23,7 @@ test.describe('TC-AUTH-039: Clear user display name through the API', () => {
       userId = await createUserFixture(request, token, {
         email,
         name: 'Temporary Display Name',
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId,
         roles: ['employee'],
       })

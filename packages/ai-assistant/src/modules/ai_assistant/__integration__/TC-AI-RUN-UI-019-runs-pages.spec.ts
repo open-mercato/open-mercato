@@ -31,7 +31,7 @@ import { createConversationFixture } from './helpers/agentRunChat';
  */
 const RUNS_PAGE = '/backend/config/ai-assistant/runs';
 const AGENT_FILTER_PLACEHOLDER = 'Agent id, e.g. catalog.merchandiser';
-const PASSWORD = 'Secret123!';
+const PASSWORD = 'QaSecret123!';
 
 async function loginWithCredentials(page: Page, email: string, password: string): Promise<void> {
   const response = await page.request.post('/api/auth/login', {

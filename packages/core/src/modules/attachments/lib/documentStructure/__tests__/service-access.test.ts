@@ -72,6 +72,13 @@ function matchesValue(actual: unknown, expected: unknown): boolean {
   return true
 }
 
+function matches(row: Row, where: Row): boolean {
+  return Object.entries(where).every(([key, value]) => {
+    if (key === '$or' && Array.isArray(value)) return value.some((branch) => matches(row, branch))
+    return matchesValue(row[key], value)
+  })
+}
+
 function createFakeEm() {
   const tables = new Map<unknown, Row[]>([
     [Attachment, []],
@@ -88,9 +95,7 @@ function createFakeEm() {
   const em = {
     __find: (entity: unknown, where: Row, options?: FindOptions) => {
       queries.push({ entity, where, options })
-      let rows = table(entity).filter((row) =>
-        Object.entries(where).every(([key, value]) => matchesValue(row[key], value)),
-      )
+      let rows = table(entity).filter((row) => matches(row, where))
       const orderBy = options?.orderBy
       if (orderBy) {
         const [[key, direction]] = Object.entries(orderBy)
@@ -286,7 +291,7 @@ describe('attachmentDocumentStructureService access', () => {
     }
   })
 
-  it('allows a tenant-level partition and another-org partition of the same tenant', async () => {
+  it('allows a tenant-level partition and rejects a sibling organization partition', async () => {
     const { service, fake } = setup()
     const partitions = fake.table(AttachmentPartition)
     partitions.splice(0, partitions.length, {
@@ -303,7 +308,7 @@ describe('attachmentDocumentStructureService access', () => {
       tenantId: TENANT_A,
       organizationId: ORG_B,
     })
-    expect((await service.getStructure({ attachmentId: ATTACHMENT_ID, scope: scopeA }))?.extraction?.id).toBe(EXTRACTION_ID)
+    expect(await service.getStructure({ attachmentId: ATTACHMENT_ID, scope: scopeA })).toBeNull()
   })
 
   it('denies a partition owned by another tenant', async () => {

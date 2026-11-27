@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { readGallery } from '../packages/create-app/scripts/design-system-sources.mjs'
 import { buildFigmaLibrary } from './storybook-figma-library.mjs'
+import { buildVariantStory } from './storybook-variant-source.mjs'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const output = path.join(root, 'packages/ui/.storybook/generated')
@@ -35,7 +36,7 @@ for (const entry of entries) {
     'export const Overview: Story = { render: () => <EntryOverview entry={entry} /> }',
   ]
   for (const variantId of entry.variantIds) {
-    lines.push(`export const Variant${pascal(variantId)}: Story = { name: ${JSON.stringify(variantId)}, render: () => <EntryVariant entry={entry} variantId=${JSON.stringify(variantId)} />, parameters: { docs: { source: { code: entry.variants.find(variant => variant.id === ${JSON.stringify(variantId)})!.code } } } }`)
+    lines.push(buildVariantStory(variantId))
   }
   files.set(`${family.id}-${entry.entryId}.stories.tsx`, lines.join('\n') + '\n')
 }

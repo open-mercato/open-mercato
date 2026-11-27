@@ -59,6 +59,29 @@ const parseMetadataValue = (raw: string): unknown => {
   return trimmed
 }
 
+const jsonValuesEqual = (a: unknown, b: unknown): boolean => {
+  if (a === b) return true
+  if (a === null || b === null) return false
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+    return a.every((item, index) => jsonValuesEqual(item, b[index]))
+  }
+  if (typeof a === 'object' && typeof b === 'object') {
+    const aRecord = a as Record<string, unknown>
+    const bRecord = b as Record<string, unknown>
+    const aKeys = Object.keys(aRecord)
+    const bKeys = Object.keys(bRecord)
+    if (aKeys.length !== bKeys.length) return false
+    return aKeys.every(
+      (key) => Object.prototype.hasOwnProperty.call(bRecord, key) && jsonValuesEqual(aRecord[key], bRecord[key]),
+    )
+  }
+  return false
+}
+
+const normalizeMetadataRecord = (value?: Record<string, unknown> | null): Record<string, unknown> =>
+  value && typeof value === 'object' ? value : {}
+
 export function MetadataEditor({
   value,
   onChange,
@@ -71,17 +94,24 @@ export function MetadataEditor({
   const [collapsed, setCollapsed] = React.useState(defaultCollapsed)
   const [entries, setEntries] = React.useState<MetadataEntry[]>(() => toEntries(value))
   const skipSyncRef = React.useRef(false)
-  const lastSyncedValueRef = React.useRef(serializeMetadataValue(value))
+  // Tracks the last `value` this editor either resynced its entries FROM or
+  // emitted TO the parent via `onChange` — never the UI's own text-input
+  // state. Comparing incoming snapshots directly (instead of reconstructing
+  // "committed" entries from local state and matching them against
+  // `value`) sidesteps every ambiguity a blank draft row's placeholder key
+  // ('') can create: a draft never has a counterpart in this ref, so it can
+  // never collide with — or get mistaken for — an actual stored entry, no
+  // matter what key either one carries.
+  const lastSyncedValueRef = React.useRef(normalizeMetadataRecord(value))
 
   React.useEffect(() => {
-    const serializedValue = serializeMetadataValue(value)
     if (skipSyncRef.current) {
       skipSyncRef.current = false
-      lastSyncedValueRef.current = serializedValue
+      lastSyncedValueRef.current = normalizeMetadataRecord(value)
       return
     }
-    if (lastSyncedValueRef.current === serializedValue) return
-    lastSyncedValueRef.current = serializedValue
+    if (jsonValuesEqual(lastSyncedValueRef.current, normalizeMetadataRecord(value))) return
+    lastSyncedValueRef.current = normalizeMetadataRecord(value)
     setEntries(toEntries(value))
   }, [value])
 

@@ -5,95 +5,15 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { expandOccurrences } from '../../lib/calendar/recurrence'
 import { getFetchWindow } from '../../lib/calendar/range'
 import { mapInteractionToCalendarItem } from '../../lib/calendar/mapItem'
-import {
-  calendarInteractionPayloadSchema,
-  type CalendarInteractionPayload,
-  type CalendarItem,
-  type CalendarRange,
-} from './types'
+import { fetchCalendarCandidates, MAX_WINDOW_ITEMS } from '@open-mercato/core/helpers/calendar/interactionCandidates'
+import type { CalendarInteractionPayload, CalendarItem, CalendarRange } from './types'
 
-const PAGE_LIMIT = 100
-export const MAX_WINDOW_ITEMS = 500
-
-type FetchInteractionWindowOptions = {
-  recurrenceMasters?: boolean
-  maxItems?: number
-}
-
-/**
- * Cursor-follows `/api/customers/interactions` across the given window (already
- * padded by the caller) up to the candidate budget. The grid and the editor
- * conflict probe share this fetch path.
- */
-export async function fetchInteractionWindow(
-  window: CalendarRange,
-  signal?: AbortSignal,
-  options: FetchInteractionWindowOptions = {},
-): Promise<{ payloads: CalendarInteractionPayload[]; truncated: boolean }> {
-  const { maxItems = MAX_WINDOW_ITEMS, recurrenceMasters } = options
-  const collected: CalendarInteractionPayload[] = []
-  let cursor: string | undefined
-  do {
-    const params = new URLSearchParams({
-      from: window.from.toISOString(),
-      to: window.to.toISOString(),
-      limit: String(PAGE_LIMIT),
-    })
-    if (recurrenceMasters) params.set('recurrenceMasters', 'true')
-    if (cursor) params.set('cursor', cursor)
-    const call = await apiCall<{ items?: unknown[]; nextCursor?: string }>(
-      `/api/customers/interactions?${params.toString()}`,
-      { signal },
-    )
-    if (!call.ok) throw new Error(`[internal] calendar interactions fetch failed (${call.status})`)
-    const pageItems = Array.isArray(call.result?.items) ? call.result.items : []
-    for (const rawItem of pageItems) {
-      const parsed = calendarInteractionPayloadSchema.safeParse(rawItem)
-      if (parsed.success) collected.push(parsed.data)
-    }
-    cursor = typeof call.result?.nextCursor === 'string' ? call.result.nextCursor : undefined
-  } while (cursor && collected.length < maxItems)
-  return {
-    payloads: collected.slice(0, maxItems),
-    truncated: Boolean(cursor) || collected.length > maxItems,
-  }
-}
-
-export function mergeInteractionPayloads(
-  windowPayloads: CalendarInteractionPayload[],
-  recurringPayloads: CalendarInteractionPayload[],
-  maxItems = MAX_WINDOW_ITEMS,
-): { payloads: CalendarInteractionPayload[]; truncated: boolean } {
-  const windowById = new Map(windowPayloads.map((payload) => [payload.id, payload]))
-  const byId = new Map<string, CalendarInteractionPayload>()
-  for (const payload of recurringPayloads) {
-    byId.set(payload.id, windowById.get(payload.id) ?? payload)
-  }
-  for (const payload of windowPayloads) {
-    if (!byId.has(payload.id)) byId.set(payload.id, payload)
-  }
-  const payloads = Array.from(byId.values())
-  return {
-    payloads: payloads.slice(0, maxItems),
-    truncated: payloads.length > maxItems,
-  }
-}
-
-export async function fetchCalendarCandidates(
-  window: CalendarRange,
-  signal?: AbortSignal,
-  maxItems = MAX_WINDOW_ITEMS,
-): Promise<{ payloads: CalendarInteractionPayload[]; truncated: boolean }> {
-  const [windowResult, recurringResult] = await Promise.all([
-    fetchInteractionWindow(window, signal, { maxItems }),
-    fetchInteractionWindow(window, signal, { maxItems, recurrenceMasters: true }),
-  ])
-  const merged = mergeInteractionPayloads(windowResult.payloads, recurringResult.payloads, maxItems)
-  return {
-    payloads: merged.payloads,
-    truncated: windowResult.truncated || recurringResult.truncated || merged.truncated,
-  }
-}
+export {
+  fetchCalendarCandidates,
+  fetchInteractionWindow,
+  MAX_WINDOW_ITEMS,
+  mergeInteractionPayloads,
+} from '@open-mercato/core/helpers/calendar/interactionCandidates'
 
 type ActivityTypeDictionaryEntry = {
   value?: unknown

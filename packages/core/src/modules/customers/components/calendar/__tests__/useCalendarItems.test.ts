@@ -135,6 +135,23 @@ describe('useCalendarItems window budget', () => {
     expect(result.truncated).toBe(false)
   })
 
+  test('stops at a repeated cursor before exhausting the custom budget', async () => {
+    const candidate = interaction('repeated', '2026-08-03T10:00:00.000Z')
+    apiCallMock.mockImplementation(async (url: string) => {
+      const params = new URL(url, 'http://localhost').searchParams
+      const result = params.has('recurrenceMasters')
+        ? { items: [] }
+        : { items: [candidate], nextCursor: 'repeated-cursor' }
+      return { ok: true, status: 200, result }
+    })
+
+    const result = await fetchCalendarCandidates(range, undefined, 10)
+
+    expect(result.payloads).toEqual([candidate])
+    expect(result.truncated).toBe(true)
+    expect(apiCallMock).toHaveBeenCalledTimes(3)
+  })
+
   test('applies the budget to the combined result after deduplicating', async () => {
     const regularCopy = interaction('in-window', '2026-08-03T10:00:00.000Z')
     const duplicate = { ...regularCopy, title: 'Duplicate copy' }

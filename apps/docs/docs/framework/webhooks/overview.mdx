@@ -227,6 +227,8 @@ Webhook secrets use the Standard Webhooks format:
 
 ## Inbound Webhooks
 
+Open Mercato 0.7.0 introduced the Phase 1 infrastructure for registering and dispatching inbound webhooks. Modules can register sources in `webhook-sources.ts` and handlers in `webhook-handlers.ts`. The 0.7.0 release shipped without a built-in consumer of these extension points.
+
 The webhooks module provides a generic receiver for external webhook sources:
 
 ```

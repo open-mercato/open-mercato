@@ -9,6 +9,7 @@ const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
 const ORG_ID = '123e4567-e89b-12d3-a456-426614174002'
 const USER_ID = '123e4567-e89b-12d3-a456-426614174010'
 const ALL_ORGS = '__all__'
+const OTHER_ORG_ID = '123e4567-e89b-12d3-a456-426614174003'
 
 const mockFindOneWithDecryption = jest.fn()
 const mockResolveFeatureCheckContext = jest.fn()
@@ -119,6 +120,20 @@ function allOrganizationsSelection(fallbackOrganizationId: string | null) {
   }
 }
 
+function emptyOrganizationScope(shape: 'allowedIds' | 'filterIds') {
+  const allowedIds = shape === 'allowedIds' ? [] : null
+  return {
+    organizationId: null,
+    scope: {
+      selectedId: null,
+      filterIds: shape === 'filterIds' ? [] : allowedIds,
+      allowedIds,
+      tenantId: TENANT_ID,
+    },
+    allowedOrganizationIds: allowedIds,
+  }
+}
+
 beforeEach(() => {
   jest.clearAllMocks()
   mockEm.find.mockResolvedValue([])
@@ -221,6 +236,28 @@ describe('resolveBackendChromePayload — currentOrganization', () => {
     expect(payload.currentOrganization).toBeNull()
     expect(payload.brand).toBeNull()
   })
+
+  it.each(['allowedIds', 'filterIds'] as const)(
+    'loads no organization when the scope is explicitly empty (%s: []), whatever the request names',
+    async (shape) => {
+      mockResolveFeatureCheckContext.mockResolvedValue(emptyOrganizationScope(shape))
+      mockGetSelectedOrganizationFromRequest.mockReturnValue(OTHER_ORG_ID)
+      mockFindOneWithDecryption.mockResolvedValue({
+        id: OTHER_ORG_ID,
+        name: 'Contoso GmbH',
+        logoUrl: 'https://cdn.example.com/contoso.png',
+      })
+
+      const selectedByRequest = await resolve(OTHER_ORG_ID)
+      const fallbackToHome = await resolve(null)
+
+      expect(selectedByRequest.brand).toBeNull()
+      expect(selectedByRequest.currentOrganization).toBeNull()
+      expect(fallbackToHome.brand).toBeNull()
+      expect(fallbackToHome.currentOrganization).toBeNull()
+      expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    },
+  )
 
   it('scopes the organization lookup to the resolved tenant and organization', async () => {
     mockFindOneWithDecryption.mockResolvedValue({ id: ORG_ID, name: 'Northwind Ltd', logoUrl: null })

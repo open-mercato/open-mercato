@@ -59,7 +59,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload', schema: recordLockErrorSchema },
         { status: 401, description: 'Unauthorized', schema: recordLockErrorSchema },
-        { status: 403, description: 'Missing permission', schema: recordLockErrorSchema },
+        { status: 403, description: 'Missing permission or organization scope denied', schema: recordLockErrorSchema },
         { status: 409, description: 'No releasable lock', schema: recordLockErrorSchema },
       ],
     },

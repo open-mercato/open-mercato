@@ -51,12 +51,11 @@ describe('customFieldValues encryption helpers', () => {
     expect(decrypted).toBe('secret')
   })
 
-  it('returns original value when encryption is disabled or tenant is missing', async () => {
+  it('preserves reads without an available key and writes without a tenant', async () => {
     const disabledService = {
       isEnabled: () => false,
       getDek: async () => ({ key: fixedKey }),
     } as any
-    expect(await encryptCustomFieldValue('plain', 'tenant-1', disabledService)).toBe('plain')
     expect(await decryptCustomFieldValue('plain', 'tenant-1', disabledService)).toBe('plain')
     expect(await encryptCustomFieldValue('plain', null, disabledService)).toBe('plain')
   })

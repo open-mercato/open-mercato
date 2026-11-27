@@ -31,7 +31,8 @@ For Customers calendar event types, follow the [Customers calendar guide](custom
 | Add pre/post command behavior without replacing the command | Command interceptor | `commands/interceptors.ts` |
 | Block/rewrite a mutation with post-success work | Mutation guard contract | `data/guards.ts`; add widget injection only for a UI surface |
 | Enrich query-engine reads | Query enricher | `data/enrichers.ts` with `queryEngine.enabled` |
-| Add form fields/table columns/actions/filters/toolbar | Headless widget injection | `widgets/injection/**`, `widgets/injection-table.ts`; select an exact bound family row from target facts |
+| Change a section or its stored fields on a policy-enabled CrudForm | CrudForm section extension | `form-sections.ts` and the published host, variant, and operation |
+| Add injected form fields/table columns/actions/filters/toolbar | Headless widget injection | `widgets/injection/**`, `widgets/injection-table.ts`; select an exact bound family row from target facts |
 | Add/reorder menu items | Headless menu widget | same widget files, `menu:*` host |
 | Render a card/tab/section in another page | UI widget injection | same widget files |
 | Add app data linked to installed entity | Entity extension | `data/extensions.ts` |
@@ -71,6 +72,10 @@ For Customers calendar event types, follow the [Customers calendar guide](custom
 - Run post-success callbacks only after commit; callback failure must be logged without pretending the committed write failed.
 - Preserve optimistic locking and command side effects. A guard cannot authorize a caller denied by the host.
 
+## CrudForm Section Extensions
+
+Use `defineCrudFormExtension` from `@open-mercato/ui/backend/crud-form-extensions` for a published section-policy host. Export `crudFormExtensions` from `form-sections.ts` with the exact host, variant, and operation. Read the CrudForm section policy branch in `om-system-extension/references/extension-branches.md` for ownership and verification.
+
 ## Widget Injection
 
 - Map stable widget IDs to exact host spots with `InjectionPosition` for deterministic order.
@@ -98,7 +103,7 @@ Menu hosts are framework-owned unless the named module facts prove otherwise. Us
 - In `src/modules.ts`, `null` disables a supported contract and a value replaces it. Keep override IDs aligned with the replaced value.
 - Add a route/page replacement only once; verify generated registries select it and that disabling leaves no stale nav/cache entry.
 - Use AI extensions for small prompt/tool/suggestion changes; use full AI overrides only for replacement/disable.
-- The complete wired override catalog spans AI agents/tools/extensions, API/page routes, subscribers, workers, injection/component/dashboard widgets, notification types/handlers, API/command interceptors, enrichers, page guards, CLI, setup, ACL, DI, and encryption. Use `om-system-extension` → `references/unified-overrides.md`; never guess a domain/key.
+- The complete wired override catalog spans AI agents/tools/extensions, API/page routes, subscribers, workers, injection/component/dashboard widgets, notification types/handlers, API/command interceptors, enrichers, page guards, CLI, setup, ACL, DI, encryption, and CrudForm sections. Use `om-system-extension` → `references/unified-overrides.md`; never guess a domain/key.
 
 ## Specialized Extension Families
 

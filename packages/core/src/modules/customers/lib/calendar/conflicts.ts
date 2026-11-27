@@ -118,7 +118,6 @@ export type EditorConflictDraft = {
   // exactly as the grid excludes canceled items, so the editor never warns about
   // a record the grid would not badge/ring. Defaults to 'planned'.
   status?: CalendarItemStatus
-  // Resources the draft books. Omitted when the type has no resources field.
   resources?: Array<{ id: string; label: string }>
   // Display name of `ownerUserId`, when the editor knows it (a task's assignee).
   // An owner who is not also a participant has no name on either event.
