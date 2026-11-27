@@ -495,28 +495,6 @@ and `scope.userId`. A job missing any of them now fails before deleting anything
 without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
 needed if you only use the API.
 
-<<<<<<< HEAD
-=======
-### Customer portal password-reset and magic-link requests now send email (#5959)
-
-`POST /api/customer_accounts/password/reset-request` and `POST /api/customer_accounts/magic-link/request`
-used to mint a single-use token and emit `customer_accounts.password_reset.requested` /
-`customer_accounts.magic_link.requested` without ever delivering it — no subscriber consumed those
-events, and the raw token was discarded. Both routes now email the link directly through `sendEmail`
-(the same path portal invitations use): password reset links to `/<orgSlug>/portal/reset-password`,
-and magic links to a new `/<orgSlug>/portal/magic-link` page that redeems the token when the user
-clicks "Sign in". Responses stay `200 { ok: true }` in every case, and the events are still emitted
-with unchanged payloads.
-
-**Action for operators:** configure an email sender (`NOTIFICATIONS_EMAIL_FROM`, `EMAIL_FROM` or
-`ADMIN_EMAIL`) and transport if portal customers should receive these messages; without one the send
-fails, is logged and reported (`customer_accounts.password_reset_email_failed` /
-`customer_accounts.magic_link_email_failed`), and the request still answers `200`.
-
-**Action for module authors:** none, unless your app wraps these two routes (an API interceptor or a
-proxy endpoint) to mint and deliver its own link alongside the call — remove that delivery, or
-customers will receive two emails per request.
-
 ### Password-reset and magic-link lookup, token minting and delivery moved to a queue worker (#8889)
 
 `POST /api/customer_accounts/password/reset-request` and `POST /api/customer_accounts/magic-link/request`
@@ -542,31 +520,6 @@ magic-link emails are silently never sent even though the request still answers 
 payload shape (`{ email: string; tenantId: string; locale: Locale }`) is new and additive; it does not
 replace any existing contract.
 
-### Standalone apps must keep `pdfjs-dist` out of the server bundle (#6398)
-
-Production builds bundled `pdfjs-dist` into a Next server chunk, so pdfjs looked for its
-`pdf.worker.mjs` in the chunks folder, where the build never emits it. PDF text extraction and PDF
-OCR then returned nothing: uploaded PDFs kept `attachments.content = NULL`, and the OCR path logged
-`Setting up fake worker failed: Cannot find module '…/chunks/pdf.worker.mjs'`. Development
-(`yarn dev`) was not affected.
-
-The monorepo app and the `create-mercato-app` template now list `'pdfjs-dist'` in
-`serverExternalPackages`, so newly scaffolded apps are fixed.
-
-**Action for standalone app authors:** apps scaffolded before this release keep their own
-`next.config.ts`. Add the package to the existing list:
-
-```ts
-serverExternalPackages: [
-  // ...existing entries
-  'pdfjs-dist',
-],
-```
-
-Rebuild with `yarn build`, then restart the server. pdfjs caches a failed worker setup for the
-lifetime of the process.
-
->>>>>>> e89d24ae81 (fix(customer_accounts): remove account-dependent delivery latency from portal recovery requests (#8889) (#8976))
 ### Redoing an `auth.users.create` no longer restores the account's password
 
 Creating a user writes an audit entry, and that entry used to carry the credential twice: the

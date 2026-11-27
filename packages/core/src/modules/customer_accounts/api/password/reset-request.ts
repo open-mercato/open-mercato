@@ -13,11 +13,8 @@ import {
   customerPasswordResetIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
-<<<<<<< HEAD
-=======
 import { getPasswordResetDeliveryQueue } from '@open-mercato/core/modules/customer_accounts/lib/authLinkQueue'
 import { detectLocale } from '@open-mercato/shared/lib/i18n/server'
->>>>>>> e89d24ae81 (fix(customer_accounts): remove account-dependent delivery latency from portal recovery requests (#8889) (#8976))
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -56,24 +53,6 @@ export async function POST(req: Request) {
     throw err
   }
 
-<<<<<<< HEAD
-  const container = await createRequestContainer()
-  const customerUserService = container.resolve('customerUserService') as CustomerUserService
-  const customerTokenService = container.resolve('customerTokenService') as CustomerTokenService
-
-  const user = await customerUserService.findByEmail(email, tenantId)
-  if (user) {
-    await customerTokenService.createPasswordReset(user.id, tenantId)
-    // Token is stored in DB; email delivery should be handled by a direct service call,
-    // NOT via the event bus — raw tokens must never travel through events.
-    void import('@open-mercato/core/modules/customer_accounts/events').then(({ emitCustomerAccountsEvent }) =>
-      emitCustomerAccountsEvent('customer_accounts.password_reset.requested', {
-        userId: user.id,
-        tenantId,
-      })
-    ).catch(() => undefined)
-  }
-=======
   // Lookup, token minting and email delivery all happen inside a queue worker
   // (see workers/passwordResetDelivery.ts) so the response never depends on
   // whether the account exists — known and unknown emails return identically,
@@ -83,7 +62,6 @@ export async function POST(req: Request) {
   // preserves the recovery-email language once delivery moves to the worker.
   const locale = await detectLocale()
   await getPasswordResetDeliveryQueue().enqueue({ email, tenantId, locale })
->>>>>>> e89d24ae81 (fix(customer_accounts): remove account-dependent delivery latency from portal recovery requests (#8889) (#8976))
 
   // Always return 200 to prevent email enumeration
   return NextResponse.json({ ok: true })
