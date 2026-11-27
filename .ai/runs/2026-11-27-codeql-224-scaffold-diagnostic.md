@@ -23,9 +23,11 @@ The diagnostic must resolve TypeScript from the same directory used by ESLint's 
 
 ## Progress
 
+PR: #10960
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Test diagnostic
 
-- [ ] 1.1 Run the static toolchain diagnostic
-- [ ] 1.2 Prove diagnostic and scaffold behavior
+- [x] 1.1 Run the static toolchain diagnostic — 97526498340e414265a25d8bbf33d2bce76dd213
+- [x] 1.2 Prove diagnostic and scaffold behavior — 97526498340e414265a25d8bbf33d2bce76dd213
