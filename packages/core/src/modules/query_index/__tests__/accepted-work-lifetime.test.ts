@@ -26,6 +26,7 @@ jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: () => mockEncryption,
 }))
 jest.mock('../lib/search-tokens', () => ({
+  ...jest.requireActual('../lib/search-tokens'),
   replaceSearchTokensForRecord: async (_db: unknown, args: { doc: Record<string, unknown> }) => {
     await nextTurn()
     expect(currentDatabaseExecutionContext()?.kind).toBe('tenant')
