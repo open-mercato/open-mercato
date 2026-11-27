@@ -204,7 +204,7 @@ export const listToolbarEntry: GalleryEntry = {
   primaryAction={{ key: 'create', label: 'New deal', icon: 'plus-square' }}
   secondaryActions={secondaryActions}
   onAction={(key) => runAction(key)}
-  resultSummary={t('deals.list.resultCount', { count: total })}`),
+  resultSummary={t(keys.resultCount, { count: total })}`),
     },
     {
       id: 'busy',
@@ -214,7 +214,7 @@ export const listToolbarEntry: GalleryEntry = {
   onSearchChange={setQuery}
   quickFilters={quickFilters}
   onQuickFilterToggle={(id, next) => toggleQuickFilter(id, next)}
-  resultSummary={t('deals.list.resultCount', { count: total })}
+  resultSummary={t(keys.resultCount, { count: total })}
   busy={isFetching}`),
     },
     {
@@ -236,7 +236,7 @@ export const listToolbarEntry: GalleryEntry = {
     quickFilters={quickFilters}
     onQuickFilterToggle={(id, next) => toggleQuickFilter(id, next)}
     onOpenFilters={(anchor) => openFilterPanel(anchor)}
-    resultSummary={t('deals.list.resultCount', { count: total })}
+    resultSummary={t(keys.resultCount, { count: total })}
     sticky="top"
     stickyOffset="0px"
   />

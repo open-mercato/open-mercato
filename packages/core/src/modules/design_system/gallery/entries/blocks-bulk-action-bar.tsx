@@ -95,7 +95,7 @@ export const bulkActionBarEntry: GalleryEntry = {
       title: 'With summary',
       render: () => <BulkActionBar {...bulkActionBarFixtures.withSummary} />,
       code: bulkActionBarCode(`  selectedCount={selectedIds.length}
-  summary={t('deals.bulk.total', 'Total {amount}', { amount: formatMoney(selectedTotal) })}
+  summary={t(keys.bulkTotal, 'Total {amount}', { amount: formatMoney(selectedTotal) })}
   actions={bulkActions}
   onAction={handleBulkAction}
   onClear={clearSelection}`),
@@ -143,7 +143,7 @@ export const bulkActionBarEntry: GalleryEntry = {
       render: () => <BulkActionBar {...bulkActionBarFixtures.progress} />,
       code: bulkActionBarCode(`  selectedCount={selectedIds.length}
   actions={bulkActions}
-  progress={{ label: t('deals.bulk.updatingStage', 'Updating stage'), done: job.processed, total: job.total }}
+  progress={{ label: t(keys.bulkUpdatingStage, 'Updating stage'), done: job.processed, total: job.total }}
   onAction={handleBulkAction}
   onClear={clearSelection}`),
     },
@@ -158,7 +158,7 @@ export const bulkActionBarEntry: GalleryEntry = {
       label: 'Create report',
       icon: 'file-text',
       disabled: !sameCustomer,
-      disabledReason: sameCustomer ? undefined : t('projects.bulk.reportBlocked', 'Select projects of one customer to create a report'),
+      disabledReason: sameCustomer ? undefined : t(keys.bulkReportBlocked, 'Select projects of one customer to create a report'),
     },
     { key: 'assign-members', label: 'Assign members', icon: 'users' },
   ]}
