@@ -103,6 +103,7 @@ describeWithPostgres('WMS warehouse undo against a concurrent primary promotion 
         resolve: (name: string) => {
           if (name === 'em') return root
           if (name === 'dataEngine') return dataEngine
+          if (name === 'rbacService') return { userHasAllFeatures: async () => true }
           throw new Error(`[internal] unexpected resolve ${name}`)
         },
       } as unknown as AwilixContainer,
