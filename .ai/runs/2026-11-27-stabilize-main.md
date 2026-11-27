@@ -47,7 +47,7 @@ Before the independent main merge, the complete configured local gate passed all
 
 ## Run identity
 Claim-Run: 48d644e3-9ed1-4059-a436-23d9b0aad094
-Claim-Lock-SHA: 7f1e98a080e27d83670e0539b4be50092247c6e2
+Claim-Lock-SHA: 59408b81c72a5a762a295fabe287399af2d96206
 Recovered stopped drivers f7e6e045 and 02bdcafd after the operator renewed autonomous continuation; recovery audit is on PR #10850.
 Branch: stabilize/main-2026-11-27 (explicit operator override of skill branch prefix)
 Engine: om-auto-create-pr (steps: 5, --loop: no)
@@ -66,15 +66,17 @@ The independent investigator 3baae04c never started: the cockpit rejected its re
 
 ### Phase 2: Validate and repair
 
-- [x] 2.1 Run configured validation in order and the PR's full 15-shard suite; fix confirmed causes and repeat as needed. — 690958d38a
+- [ ] 2.1 Run configured validation in order and the PR's full 15-shard suite; fix confirmed causes and repeat as needed.
 
 ### Phase 3: Independent review and handoff
 
-- [x] 3.1 Dispatch one final read-only cezar review using om-auto-review-pr, validate its verdict, and address findings. — 690958d38a
-- [x] 3.2 Publish verification, release the claim, mark ready, and add automerge after green exact-head CI. — c31be6a3fc
+- [ ] 3.1 Dispatch one final read-only cezar review using om-auto-review-pr, validate its verdict, and address findings.
+- [ ] 3.2 Publish verification, release the claim, mark ready, and add automerge after green exact-head CI.
 
 Independent review task d9c429ed approved all seven net files at 690958d38a against main26585de7ef, with no findings. Driver verified the report, exact ancestry, diff checks and zero child source changes. [Authoritative native review](https://github.com/open-mercato/open-mercato/pull/10850#issuecomment-7223838578). GitHub rejected App self-approval with HTTP422; no host approving review exists and no credentials or gates were bypassed. [Human QA instructions](https://github.com/open-mercato/open-mercato/pull/10850#issuecomment-7223853899). The refreshed eight-command local gate passed on690958d38a, and full CI46037346639 passed all15shards plus merged coverage. All reported checks settled green before automerge was applied.
 
 Final source verification: [CI46037346639](https://github.com/open-mercato/open-mercato/actions/runs/46037346639) passed all15integration shards, merge-coverage, unit tests, timezone, Docker, documents and lint on the independently reviewed690958d38a. Every exact-head workflow settled successfully or intentionally skipped. The automerge label was applied only after verifying that state. Any subsequent commits are execution-plan progress only; their CI is still checked before this task finishes. Human QA and a host approving review remain merge gates.
 
 Handoff checkpoint: the existing human-promoted ready state is preserved. Automerge was applied after all source-head checks passed. The final progress-only push is followed immediately by owned-claim cleanup, then a CI-only follow-up on that documentation revision; no further source edits are planned. The final PR body and run-summary comment disclose the actual final-check state and remaining human QA/GitHub approval gates.
+
+Reopened after the final tracking push: CI46044484975 checked a synthetic merge against newer main9782469c7e, whose demo stylesheet grew the existing OMH-223 read surface to261603bytes, above its stale261444 allowance. The prior690 full suite remains valid evidence for that revision. Automerge was removed, the vacant claim was reacquired as59408b81 (same run/comment), and current main d5490b61 was merged via b46ca2613f. Fix only the declaration allowance to262143, below the unchanged262144total cap; initial98304bytes, file ceiling10, source paths and capabilities stay fixed. Added guards pin those original hard limits. Existing reachability failed before the fix and all66read-policy tests pass afterward. The knowledge-change controller independently executed the test-only patch on base (exit1) and the fixed head (exit0); its manifest passes with controlled output hashes. No live release-suite certification is claimed. Fresh full local/CI gates and the same final reviewer re-review are pending. The newer main QA taxonomy will be handled by that reviewer without a waiver.
