@@ -4,14 +4,14 @@
 
 - Route all matches on each axis; missing context: `yarn mercato agentic:init --update-harness`.
 - Lessons: scan `.ai/lessons.md` tags; open/update one matching record + row.
-- Business modules: `src/modules/<id>/`; [cache/queue/KMS](.ai/guides/infrastructure-providers.md): `src/providers/`.
+- Modules: `src/modules/<id>/`; [cache/queue/KMS](.ai/guides/infrastructure-providers.md): `src/providers/`.
 - Derive trusted `tenantId` + `organizationId` and fail closed. Only an installed contract may use system scope (`organizationId: null`).
 - Use commands/`makeCrudRoute`/`CrudForm`/`DataTable`, DI/events/UMES; effects stay post-commit.
-- Entities: `src/modules/<id>/data/entities.ts`; API routes: per-method `metadata` + `openApi`.
+- Entities: `src/modules/<id>/data/entities.ts`; API: per-method `metadata` + `openApi`.
 - Editable records expose `updated_at`/`updatedAt`; custom update/delete clients send the version and surface 409s.
 - Run `yarn db:generate`, review scoped SQL/snapshot, and ask before applying it.
-- After discovery files/`src/modules.ts`/routes/pages/events/widgets/agents/tools/workflows change, run `yarn generate`.
-- Before route/schema/ID/export/seam/signature/event-payload/CLI changes, read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract.
+- Run `yarn generate` after discovery files/`src/modules.ts`/routes/pages/events/widgets/agents/tools/workflows change.
+- Contract-surface changes (route/schema/ID/export/seam/signature/event payload/CLI) MUST read `.ai/guides/upstream/BACKWARD_COMPATIBILITY.md`; tenant/org scope alone is not a contract.
 - Localize strings; use shared UI/tokens and cover loading/empty/error/conflict/keyboard/a11y.
 
 ## Ask First
@@ -24,7 +24,7 @@
 - Never edit `node_modules`/`.mercato/generated/**`/generated facts/shipped migrations.
 - Never use cross-module ORM relations; use IDs/snapshots/events/enrichers/extensions/optional DI.
 - Never use raw admin `fetch`/`<form>`, ad hoc crypto/cache/queues, role-name guards, or direct mutations when helpers exist.
-- Never hard-code user strings/status colors, expose secrets/transcripts, or guess answerable contracts.
+- Never hard-code user strings/status colors; expose secrets/transcripts; or guess answerable contracts.
 
 ## Validation
 
@@ -32,7 +32,7 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 
 ## Production Deployment
 
-Production deployment/go-live/security-readiness: `architecture` + `.ai/guides/production-deployment.md`. Route via the inventory, never `.env*`. Readiness uses only checked-in `.env.example` names/comments, never live `.env` values. Ask before credentials, billable infrastructure, or live deployments.
+Route production deployment/go-live/security-readiness: `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; use inventory. Readiness: checked-in `.env.example` names/comments only; never read or report live `.env` values. Ask before credentials, billable infrastructure or live deployments.
 
 ## Three-Axis Context Assembler
 
@@ -106,7 +106,7 @@ Read `.agents/skills/<id>/SKILL.md` AND any `.ai/skills/<id>/SKILL.md` override.
 
 ### Token-Efficient Assembly Policy
 
-- Read each matched guide once, then relevant skills and required references/facts.
+- Read matched guides once, then required skills/refs/facts.
 - `spec-pr` reads template via spec-delivery.
 - Inspect app call sites before bounded `framework-context`. Skip it for additive page/form/table/conflict UI.
 - Never bulk-read guide, skill, fact, or source trees.
@@ -121,6 +121,6 @@ Mechanisms: events/subscribers→events; long operation/progress→progress; pro
 ## Working Sequence
 
 1. Route; implement a minimal complete slice via real call sites.
-2. Discovery: `yarn generate`; then focused gates/integration paths.
+2. Discovery: `yarn generate`; focused gates/integration paths.
 
 Precedence: root→BC→installed `AGENTS.md`→facts; stop on skew/conflict; never guess.
