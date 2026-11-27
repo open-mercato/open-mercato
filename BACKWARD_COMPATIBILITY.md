@@ -753,9 +753,9 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
 
-## Task fields (2026-11-26, #9142)
+## #9142 (2026-11-26)
 
-STABLE task fields reject unknown or reserved keys. A bridge retains bypass. [Upgrade](UPGRADE_NOTES.md#task-fields-9142). Named waiver pending.
+STABLE task fields. A bridge retains bypass. Waiver due. [Guide](UPGRADE_NOTES.md#task-fields-9142).
 
 ## 2026-11-26 — Vector-index entity authorization (#10693)
 
