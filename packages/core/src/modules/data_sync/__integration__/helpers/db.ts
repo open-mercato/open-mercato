@@ -205,3 +205,35 @@ export async function deleteSyncSchedulesByIntegration(integrationId: string): P
     await client.query('delete from sync_schedules where integration_id = $1', [integrationId])
   })
 }
+
+export type SeedIntegrationStateInput = SyncRunScope & {
+  integrationId: string
+  isEnabled: boolean
+}
+
+/**
+ * Seeds `integration_states` rows so a synthetic integration id resolves an
+ * explicit enabled/disabled state instead of the registry default (a synthetic
+ * id has no definition, so without a row it resolves disabled).
+ */
+export async function seedIntegrationStates(rows: SeedIntegrationStateInput[]): Promise<void> {
+  if (rows.length === 0) return
+  await withClient(async (client) => {
+    for (const row of rows) {
+      await client.query(
+        `insert into integration_states
+           (id, integration_id, is_enabled, reauth_required, organization_id, tenant_id, created_at, updated_at)
+         values ($1, $2, $3, false, $4, $5, now(), now())`,
+        [randomUUID(), row.integrationId, row.isEnabled, row.organizationId, row.tenantId],
+      )
+    }
+  })
+}
+
+/** Hard-deletes every `integration_states` row for an integration (best-effort cleanup). */
+export async function deleteIntegrationStatesByIntegration(integrationId: string): Promise<void> {
+  if (!integrationId) return
+  await withClient(async (client) => {
+    await client.query('delete from integration_states where integration_id = $1', [integrationId])
+  })
+}
