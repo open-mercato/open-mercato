@@ -24,9 +24,8 @@ import {
  * Fixture: a three-role form (admin / participant / reviewer). Customer A
  * starts it on the portal (auto-assigned `participant`), staff assign customer
  * B as `reviewer`, B fills the reviewer-only note, A submits. The participant
- * PDF is fetched first (before any staff read, so the canonical snapshot is
- * stored only if the on-submit job already produced it) and again after the
- * staff route has certainly stored it. Neither participant read may change the
+ * PDF is fetched after the on-submit snapshot and consent have been projected,
+ * then again after the staff read. Neither participant read may change the
  * stored snapshot link. The staff PDF containing the reviewer note is the
  * positive control for the text probe.
  *
@@ -71,7 +70,7 @@ function buildRoleSplitSchema(): Record<string, unknown> {
     'x-om-roles': ['admin', 'participant', 'reviewer'],
     'x-om-default-actor-role': 'participant',
     'x-om-sections': [
-      { key: 'answers', title: { en: 'Answers' }, fieldKeys: ['full_name', 'reviewer_note'] },
+      { key: 'answers', title: { en: 'Answers' }, fieldKeys: ['full_name', 'consent', 'reviewer_note'] },
     ],
     properties: {
       full_name: {
@@ -82,6 +81,15 @@ function buildRoleSplitSchema(): Record<string, unknown> {
         'x-om-label': { en: 'Full name' },
         'x-om-editable-by': ['participant'],
         'x-om-visible-to': ['admin', 'participant', 'reviewer'],
+      },
+      consent: {
+        type: 'object',
+        'x-om-type': 'signature',
+        'x-om-label': { en: 'Consent' },
+        'x-om-consent-clause': { en: 'I consent to this test submission.' },
+        'x-om-signature-modes': ['typed'],
+        'x-om-editable-by': ['participant'],
+        'x-om-visible-to': ['admin', 'participant'],
       },
       reviewer_note: {
         type: 'string',
@@ -168,7 +176,16 @@ test.describe('TC-FORMS-PDF-016: participant PDF is role-sliced like the JSON re
             `/api/forms/form-submissions/${submissionId}`,
             {
               cookies: participantCookies,
-              data: { base_revision_id: revisionId, patch: { full_name: participantMarker } },
+              data: {
+                base_revision_id: revisionId,
+                patch: {
+                  full_name: participantMarker,
+                  consent: {
+                    mode: 'typed', typedName: participantMarker, affirmed: true,
+                    signedAt: new Date().toISOString(), clauseSha256: 'c'.repeat(64),
+                  },
+                },
+              },
             },
           )
           expect(participantSave.status(), 'participant autosave should return 200').toBe(200)
@@ -226,6 +243,16 @@ test.describe('TC-FORMS-PDF-016: participant PDF is role-sliced like the JSON re
 
           const publicPdfPath = `/api/forms/public/submissions/${submissionId}/pdf`
 
+          await expect.poll(readStoredSnapshotId, { timeout: 30_000, message: 'submit stores the snapshot before any PDF read' })
+            .not.toBeNull()
+          await expect.poll(async () => {
+            const response = await apiRequest(request, 'GET', `/api/forms/subjects/customer/${participant.id}/consents?formId=${published.formId}`, {
+              token: adminToken!,
+            })
+            expect(response.status()).toBe(200)
+            const body = await readJsonSafe<{ items: Array<{ submissionId: string; consentFieldKey: string; status: string }> }>(response)
+            return body?.items.map(({ submissionId, consentFieldKey, status }) => ({ submissionId, consentFieldKey, status }))
+          }, { timeout: 30_000 }).toEqual([{ submissionId, consentFieldKey: 'consent', status: 'active' }])
           const snapshotIdBeforeParticipantRead = await readStoredSnapshotId()
           const firstParticipantPdf = await readPdf(
             await portalCall(participantRequest, 'GET', publicPdfPath, { cookies: participantCookies }),

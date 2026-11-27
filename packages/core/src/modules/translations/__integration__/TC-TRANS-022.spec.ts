@@ -13,7 +13,7 @@ const ENTITY_TYPE = 'catalog:catalog_product'
 const CONFLICT_CODE = 'translations.errors.undoConflict'
 const CONFLICT_MESSAGE = 'These translations changed after the action you are undoing. Undo was refused.'
 const CONFLICT_MESSAGE_PL = 'Te tłumaczenia zmieniły się po akcji, którą próbujesz cofnąć. Cofnięcie zostało odrzucone.'
-const SECOND_PASSWORD = 'Valid1!Pass'
+const SECOND_PASSWORD = 'QaValid1!Pass'
 
 function translationPath(productId: string): string {
   return `/api/translations/${ENTITY_TYPE}/${productId}`
