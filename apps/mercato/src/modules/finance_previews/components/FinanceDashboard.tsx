@@ -31,9 +31,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import dashboard from '../data/dashboard.json'
-import balanceGrid from '../assets/dashboard/balance-grid.svg'
-import balanceFill from '../assets/dashboard/balance-fill.svg'
-import balanceLine from '../assets/dashboard/balance-line.svg'
+import { balanceFill, balanceGrid, balanceLine } from '../assets/dashboard/balanceArt'
 
 const icons = {
   entry: FilePlus,
