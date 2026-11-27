@@ -16,8 +16,6 @@ import {
 } from './helpers/recordLocks'
 
 test.describe('TC-LOCK-CRM-10242: Keep my changes retries the deal stage update', () => {
-  test.describe.configure({ mode: 'serial' })
-
   for (const panel of ['expanded', 'collapsed'] as const) {
     test(`submits only the selected stage with the details form ${panel}`, async ({ page, request }) => {
       const superadminToken = await getAuthToken(request, 'superadmin')
@@ -56,7 +54,12 @@ test.describe('TC-LOCK-CRM-10242: Keep my changes retries the deal stage update'
         await page.goto(`/backend/customers/deals/${dealId}`)
         await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
         await lockAcquired
-        if (panel === 'expanded') await page.getByRole('button', { name: 'Expand form panel' }).click()
+        const expandForm = page.getByRole('button', { name: 'Expand form panel' })
+        await expect(expandForm).toBeVisible()
+        if (panel === 'expanded') {
+          await expandForm.click()
+          await expect(page.locator('[data-crud-field-id="title"]').getByRole('textbox')).toBeVisible()
+        }
 
         const incomingTitle = `${title} updated by employee`
         expect((await updateDeal(request, employeeToken, dealId, incomingTitle)).status).toBe(200)

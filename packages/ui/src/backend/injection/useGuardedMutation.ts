@@ -25,6 +25,11 @@ type UseGuardedMutationOptions = {
   spotId?: string
 }
 
+type GuardedMutationExecutor<TContext extends GuardedMutationContext> = <TResult>(
+  input: GuardedMutationRunInput<TResult, TContext>,
+  retryFormId?: string,
+) => Promise<TResult>
+
 export function useGuardedMutation<TContext extends GuardedMutationContext>({
   contextId,
   blockedMessage = 'Save blocked by validation',
@@ -33,6 +38,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
   const t = useT()
   const { triggerEvent } = useInjectionSpotEvents<TContext, Record<string, unknown>>(spotId)
   const lastMutationRef = React.useRef<BackendMutationErrorEventDetail['retryMutation']>(undefined)
+  const executeMutationRef = React.useRef<GuardedMutationExecutor<TContext> | null>(null)
 
   const emitMutationSaveError = React.useCallback((
     error: unknown,
@@ -59,7 +65,7 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
     }
   }, [contextId, t])
 
-  const runMutation = React.useCallback(async <TResult,>({
+  const executeMutation = React.useCallback(async <TResult,>({
     operation,
     context,
     mutationPayload,
@@ -67,8 +73,10 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
   }: GuardedMutationRunInput<TResult, TContext>, retryFormId?: string): Promise<TResult> => {
     const payload = mutationPayload ?? {}
     const retryMutation = async (formId?: string): Promise<boolean> => {
+      const execute = executeMutationRef.current
+      if (!execute) return false
       try {
-        await runMutation({ operation, context, mutationPayload: payload, onSuccess }, formId)
+        await execute({ operation, context, mutationPayload: payload, onSuccess }, formId)
         return true
       } catch {
         return false
@@ -103,6 +111,13 @@ export function useGuardedMutation<TContext extends GuardedMutationContext>({
     await onSuccess?.()
     return result
   }, [blockedMessage, contextId, emitMutationSaveError, triggerEvent])
+
+  React.useEffect(() => {
+    executeMutationRef.current = executeMutation
+    return () => { executeMutationRef.current = null }
+  }, [executeMutation])
+
+  const runMutation: <TResult>(input: GuardedMutationRunInput<TResult, TContext>) => Promise<TResult> = executeMutation
 
   const retryLastMutation = React.useCallback(async (): Promise<boolean> => {
     return (await lastMutationRef.current?.()) ?? false
