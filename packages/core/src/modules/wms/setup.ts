@@ -1,5 +1,6 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { ensureRoles } from '@open-mercato/core/modules/auth/lib/setup-app'
+import { FeatureToggle } from '@open-mercato/core/modules/feature_toggles/data/entities'
 import {
   WMS_CUSTOM_ROLE_NAMES,
   WMS_OPERATOR_FEATURES,
@@ -15,7 +16,9 @@ async function seedWmsRoles(em: Parameters<typeof ensureRoles>[0], tenantId: str
 
 export const setup: ModuleSetupConfig = {
   seedDefaults: async (ctx) => {
-    await seedWmsIntegrationToggles(ctx.em)
+    if (ctx.em.getMetadata().find(FeatureToggle)) {
+      await seedWmsIntegrationToggles(ctx.em)
+    }
     await seedWmsRoles(ctx.em, ctx.tenantId)
   },
   defaultRoleFeatures: {

@@ -6,9 +6,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
-import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { emitCustomerEmailVerified, verifyCustomerEmail } from '../../lib/verifyCustomerEmail'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -30,26 +30,21 @@ export async function POST(req: Request) {
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
 
-  const result = await customerTokenService.verifyPasswordResetToken(parsed.data.token)
+  const em = container.resolve('em') as EntityManager
+  const result = await em.transactional(async (tx) => {
+    const identity = await customerTokenService.verifyPasswordResetToken(parsed.data.token, undefined, tx)
+    if (!identity) return null
+    return verifyCustomerEmail(tx, identity, customerSessionService, {
+      password: parsed.data.password,
+      users: customerUserService,
+      reset: true,
+    })
+  })
   if (!result) {
     return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
   }
-
-  const user = await customerUserService.findById(result.userId, result.tenantId)
-  if (!user) {
-    return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
-  }
-
-  const em = container.resolve('em') as EntityManager
-  await em.transactional(async (trx) => {
-    await customerUserService.updatePassword(user, parsed.data.password, trx)
-    await customerSessionService.revokeAllUserSessions(user.id, trx)
-    await trx.nativeUpdate(
-      CustomerUser,
-      { id: user.id, emailVerifiedAt: null },
-      { emailVerifiedAt: new Date() },
-    )
-  })
+  const { user, newlyVerified } = result
+  if (newlyVerified) emitCustomerEmailVerified(user)
 
   void emitCustomerAccountsEvent('customer_accounts.password.changed', {
     userId: user.id,

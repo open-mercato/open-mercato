@@ -12,6 +12,7 @@
 import { createContainer, asValue, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { E } from '#generated/entities.ids.generated'
+import { SalesDocumentTag, SalesDocumentTagAssignment } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -46,6 +47,8 @@ const TENANT_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const DOCUMENT_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const LINE_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const ADJUSTMENT_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+const KEPT_TAG_ID = '11111111-1111-4111-8111-111111111111'
+const DELETED_TAG_ID = '22222222-2222-4222-8222-222222222222'
 
 function makeEm() {
   const em: any = {
@@ -167,5 +170,34 @@ describe('order/quote update undo restores custom fields under their definition 
     expect(writes[E.sales.sales_quote]).toEqual({ k: 'B', tags: ['x', 'y'] })
     expect(writes[E.sales.sales_quote_line]).toEqual({ line_note: 'L' })
     expect(writes[E.sales.sales_quote_adjustment]).toEqual({ reason: 'promo' })
+  })
+
+  it.each(['order', 'quote'] as const)('restores only surviving %s tag assignments from a snapshot', async (kind) => {
+    const handler = commandRegistry.get(`sales.${kind}s.update`)!
+    const em = makeEm()
+    em.find.mockImplementation(async (model: unknown) =>
+      model === SalesDocumentTag ? [{ id: KEPT_TAG_ID }] : [],
+    )
+    const tags = [
+      { id: 'kept-assignment', tagId: KEPT_TAG_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      { id: 'deleted-assignment', tagId: DELETED_TAG_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+    ]
+    const before = { ...buildSnapshot(kind), tags }
+
+    await handler.undo?.({
+      logEntry: { commandPayload: { undo: { before } } },
+      ctx: makeCtx(em),
+      input: {},
+    })
+
+    expect(em.find).toHaveBeenCalledWith(SalesDocumentTag, {
+      id: { $in: [KEPT_TAG_ID, DELETED_TAG_ID] },
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+    })
+    const assignmentCreates = em.create.mock.calls.filter(([model]: [unknown]) => model === SalesDocumentTagAssignment)
+    expect(assignmentCreates).toEqual([
+      [SalesDocumentTagAssignment, expect.objectContaining({ id: 'kept-assignment', tag: { id: KEPT_TAG_ID } })],
+    ])
   })
 })
