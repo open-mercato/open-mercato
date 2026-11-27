@@ -50,6 +50,7 @@ const stateSchema = z.object({
 type State = z.infer<typeof stateSchema>
 const timestampSchema = z.object({ before: z.record(z.string(), z.union([z.string(), z.null()])), after: z.record(z.string(), z.union([z.string(), z.null()])), mac: z.string().regex(/^[a-f0-9]{64}$/) }).strict()
 const timestampPageSchema = z.object({ page: z.string().regex(/^intent-[a-f0-9]{64}$/), entries: z.array(z.object({ identity: z.string().max(8192), record: timestampSchema }).strict()).min(1).max(500) }).strict()
+const lockRecordSchema = z.object({ pid: z.number().int().positive(), host: z.string(), id: z.string().uuid(), startedAt: z.string() })
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
 
 async function ownerDirectory(path: string) {
@@ -80,7 +81,13 @@ async function loadState(path: string): Promise<State> {
 async function acquireLock(path: string, id: string, resume: boolean) {
   const flags = constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW
   try { return await open(path, flags, 0o600) }
-  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || !resume) throw error }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    if (!resume) {
+      const runId = await readLockRunId(path)
+      throw new Error(runId ? `[internal] ROTATION_RUN_LOCKED:${runId}` : '[internal] ROTATION_RUN_LOCKED')
+    }
+  }
   const recoveryPath = `${path}.recovery`
   const recovery = await open(recoveryPath, flags, 0o600)
   try {
@@ -88,7 +95,7 @@ async function acquireLock(path: string, id: string, resume: boolean) {
     try {
       const info = await prior.stat()
       if (!info.isFile() || info.size > 2048 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid?.()) throw new Error('[internal] ROTATION_RUN_LOCKED')
-      const record = z.object({ pid: z.number().int().positive(), host: z.string(), id: z.string().uuid(), startedAt: z.string() }).parse(JSON.parse(await prior.readFile('utf8')))
+      const record = lockRecordSchema.parse(JSON.parse(await prior.readFile('utf8')))
       if (record.id !== id || record.host !== hostname() || Date.now() - Date.parse(record.startedAt) <= 60000 || !Number.isFinite(Date.parse(record.startedAt))) throw new Error('[internal] ROTATION_RUN_LOCKED')
       let dead = false
       try { process.kill(record.pid, 0) } catch (error) { dead = (error as NodeJS.ErrnoException).code === 'ESRCH' }
@@ -97,6 +104,25 @@ async function acquireLock(path: string, id: string, resume: boolean) {
     } finally { await prior.close() }
     return await open(path, flags, 0o600)
   } finally { await recovery.close(); await unlink(recoveryPath) }
+}
+
+async function readLockRunId(path: string): Promise<string | undefined> {
+  try {
+    const lock = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    try {
+      const info = await lock.stat()
+      if (!info.isFile() || info.size > 2048 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid?.()) return
+      const bytes = Buffer.alloc(2049)
+      const { bytesRead } = await lock.read(bytes)
+      if (bytesRead > 2048) return
+      const record = lockRecordSchema.safeParse(JSON.parse(bytes.toString('utf8', 0, bytesRead)))
+      if (record.success) return record.data.id
+    } finally {
+      await lock.close()
+    }
+  } catch {
+    return undefined
+  }
 }
 
 export function createEnterpriseRotationProtection(options: RotationCoordinatorOptions): RotationProtectionService {
@@ -116,7 +142,6 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
       if (!z.string().uuid().safeParse(id).success) throw new Error('[internal] ROTATION_RESUME_INVALID')
       const trustPath = join(trustRoot, `${id}.json`)
       const anchors = join(trustRoot, `${id}-intents`)
-      await ownerDirectory(anchors)
       const lockPath = join(trustRoot, 'rotation.lock')
       const lock = await acquireLock(lockPath, id, Boolean(options.resumeId))
       let state: State | undefined
@@ -127,8 +152,9 @@ export function createEnterpriseRotationProtection(options: RotationCoordinatorO
       let verified: VerificationResult | undefined
       let journal: RotationCheckpointJournal | undefined
       try {
-        const store = new RotationArtifactStore(join(artifactRoot, id), await options.cipher()); failureStore = store
         await lock.writeFile(JSON.stringify({ pid: process.pid, host: hostname(), id, startedAt: new Date().toISOString() })); await lock.sync()
+        await ownerDirectory(anchors)
+        const store = new RotationArtifactStore(join(artifactRoot, id), await options.cipher()); failureStore = store
         await options.reportRun?.(id)
         const providers = await options.providers(context)
         if (!providers.previousKms) throw new Error('[internal] ROTATION_SOURCE_KEY_REQUIRED')

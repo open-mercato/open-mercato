@@ -61,6 +61,7 @@
   "backups.progress.running": "running",
   "backups.rotation.entitlementRequired": "Commercial rotation protection rights and module capabilities must be available.",
   "backups.rotation.failed": "Protected key rotation did not complete. Keep writers stopped, retain all previous keys and recovery artifacts, and inspect the trusted run record before resuming.",
+  "backups.rotation.loopbackTlsUnavailable": "The local PostgreSQL service does not support TLS. Set sslmode=disable in its backup service entry if this loopback connection is intended.",
   "backups.rotation.preparingRecovery": "Preparing encrypted recovery backup before key rotation.",
   "backups.rotation.presentation.backup": "Retained recovery backup",
   "backups.rotation.presentation.baseline": "Capture verification baseline",

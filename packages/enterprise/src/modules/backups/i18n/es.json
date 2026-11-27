@@ -61,6 +61,7 @@
   "backups.progress.running": "en curso",
   "backups.rotation.entitlementRequired": "La protección de rotación requiere derechos comerciales y módulos disponibles.",
   "backups.rotation.failed": "La rotación protegida no finalizó. Mantenga detenidas las escrituras, conserve las claves y copias anteriores y revise el registro de confianza antes de continuar.",
+  "backups.rotation.loopbackTlsUnavailable": "El servicio local de PostgreSQL no admite TLS. Si la conexión local es intencionada, establezca sslmode=disable en la entrada del servicio de copia de seguridad.",
   "backups.rotation.preparingRecovery": "Preparando la copia cifrada de recuperación antes de rotar las claves.",
   "backups.rotation.presentation.backup": "Copia de recuperación conservada",
   "backups.rotation.presentation.baseline": "Capturar referencia de verificación",

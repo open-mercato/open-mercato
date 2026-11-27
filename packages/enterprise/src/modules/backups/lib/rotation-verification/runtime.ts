@@ -4,6 +4,7 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RotationProtectionContext, RotationProtectionService } from '@open-mercato/shared/lib/encryption/rotationProtection'
 import { createBackup, verifyBackup, createPostgresSource, recipientsFromFile, identitiesFromFile } from '../engine'
+import { BackupError } from '../engine/errors'
 import { createRotationPresentation } from './presentation'
 import type { VerificationResult } from './verifier'
 import { createRotationArtifactCipher } from './age'
@@ -142,7 +143,14 @@ export function createConfiguredRotationProtection(environment: NodeJS.ProcessEn
           ), { canResume: false })
           throw error
         }
+        if (error instanceof Error && /^\[internal\] ROTATION_RUN_LOCKED(?::[0-9a-f-]{36})?$/i.test(error.message)) {
+          throw error
+        }
         presentation.failed(translate('backups.rotation.failed', 'Protected key rotation did not complete. Keep writers stopped, retain all previous keys and recovery artifacts, and inspect the trusted run record before resuming.'))
+        if (error instanceof BackupError && error.cause === 'BACKUP_LOOPBACK_TLS_UNAVAILABLE') {
+          const hint = translate('backups.rotation.loopbackTlsUnavailable', 'The local PostgreSQL service does not support TLS. Set sslmode=disable in its backup service entry if this loopback connection is intended.')
+          throw new Error(`BACKUP_CONNECTION_FAILED: ${hint}`)
+        }
         if (error instanceof RecoveryConfigurationError) throw new Error(`[internal] ${error.code}:${error.field.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase()}`)
         const code = error instanceof Error && /^\[internal\] [A-Z][A-Z0-9_]*(?::[A-Z][A-Z0-9_]*)?$/.test(error.message) ? error.message : '[internal] ROTATION_VERIFICATION_FAILED'
         throw new Error(code)
