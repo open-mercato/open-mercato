@@ -5,7 +5,7 @@ import { createPublicCapabilityFixtures } from './helpers/publicCapabilityFixtur
 
 test.describe('TC-RLS-004: persisted public capabilities under restricted FORCE RLS', () => {
   test.setTimeout(240_000)
-  test('signup links only own CRM person; reset capability ignores foreign cookies and is consumed once', async () => {
+  test('signup stays unlinked until verified; reset links only the own CRM person and is consumed once', async () => {
     const previousDelivery = process.env.OM_EVENTS_SINGLE_DELIVERY
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'false'
     const runtime = await startRlsLiveRuntime().finally(() => {
@@ -30,9 +30,14 @@ test.describe('TC-RLS-004: persisted public capabilities under restricted FORCE 
       expect(await fixture.users()).toEqual([])
       const accepted = await foreign.post('/api/customer_accounts/signup', { data: signup })
       expect(accepted.status()).toBe(202)
-      await expect.poll(async () => (await fixture.users()).map((user) => user.person_entity_id)).toEqual([fixture.personIds[0]])
-      const [user] = await fixture.users()
-      expect(user).toMatchObject({ tenant_id: runtime.first.tenantId, organization_id: runtime.first.orgId, email_verified_at: null })
+      const pending = await fixture.users()
+      expect(pending).toEqual([expect.objectContaining({
+        tenant_id: runtime.first.tenantId,
+        organization_id: runtime.first.orgId,
+        person_entity_id: null,
+        email_verified_at: null,
+      })])
+      const [user] = pending
       expect((await anonymous.post('/api/customer_accounts/login', { data: { ...signup } })).status()).toBe(401)
       expect(await fixture.sessions()).toEqual([])
 
@@ -50,7 +55,11 @@ test.describe('TC-RLS-004: persisted public capabilities under restricted FORCE 
       expect(confirmed.status()).toBe(200)
       const consumed = await fixture.tokenState(rawToken)
       expect(consumed).toEqual([{ user_id: user.id, used_at: expect.any(Date) }])
-      expect(await fixture.users()).toEqual([{ ...user, email_verified_at: expect.any(Date) }])
+      await expect.poll(fixture.users).toEqual([{
+        ...user,
+        person_entity_id: fixture.personIds[0],
+        email_verified_at: expect.any(Date),
+      }])
       const replay = await anonymous.post('/api/customer_accounts/password/reset-confirm', { data: { token: rawToken, password: fixture.password } })
       expect(replay.status()).toBe(400)
       expect(await fixture.tokenState(rawToken)).toEqual(consumed)
