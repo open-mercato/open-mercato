@@ -247,7 +247,7 @@ CI sees from the changed paths that no code changed and picks a docs lane itself
 
 ### QA lanes
 
-Rules from QA, source of truth `.ai/docs/pr-workflow.md` → "QA meta labels" and "Batch QA", implemented in skills by open-mercato/skills#210. QA triage (`om-auto-review-pr`, rules in `.ai/agentic.config.json` → `humanQaPolicy`) puts every PR in one lane, judging the change, not the author. Under the ready-to-merge rule no lane holds the merge; lanes decide what the tester looks at in the batch.
+Rules from QA, source of truth `.ai/docs/pr-workflow.md` → "QA meta labels" and "Batch QA", implemented in skills by open-mercato/skills#210 and #211. QA triage (`om-auto-review-pr` today, `om-triage-pr` from skills #211 with the same rules; rules in `.ai/agentic.config.json` → `humanQaPolicy`) puts every PR in one lane, judging the change, not the author. Under the ready-to-merge rule no lane holds the merge; lanes decide what the tester looks at in the batch.
 
 | Lane | When | Effect |
 |---|---|---|
@@ -313,7 +313,7 @@ Rules from QA, source of truth `.ai/docs/pr-workflow.md` → "Batch QA". One bui
 2. **Deploy and start.** `qa-deploy.yml` deploys the batch branch to a QA slot. `om-qa-batch --start` assigns the tester and adds `qa-in-progress` to the batch PR. While it is on, the batch is not refreshed with newer `main` commits; an untouched batch may be refreshed.
 3. **What blocks the batch:** a user cannot finish a main task. A main screen does not load or a main path returns a server error; signing in, saving or creating a basic record fails; data is lost, saved wrong or shown to another organization or tenant; a migration fails or the app does not start. Cosmetics, translations and small UX issues never block.
 4. **Reporting.** Blocker: issue with `bug` + `daily-qa` + `qa-blocker`, plus a comment on the batch PR mentioning the stabilizer; open `qa-blocker` issues are listed at the start of the next batch. After a passing retest of the fix, QA (or the stabilizer) closes the `qa-blocker` issue by hand; `Fixes #N` on the batch PR is traceability only, since it closes nothing until the batch merges. Anything else: issue with `bug` + `daily-qa`.
-5. **Verdict.** On the batch PR: `qa-approved` = stable for the tested head; `qa-failed` = unstable (at least one open blocker), frozen until the retest. The verdict comment carries `QA verdict: STABLE|UNSTABLE`, `QA head: <sha>` and the range. A new head needs a new verdict, except the merge-back conflict fix after the green tag ([Merge-back conflicts](#merge-back-conflicts)); retests cover only the fixed area. `om-qa-batch` refuses `stable` while a blocker is open, and a bot identity cannot give a verdict. QA judges quality; the stabilizer owns the branch, tags `green/<date>` and merges back.
+5. **Verdict.** On the batch PR: `qa-approved` = stable for the tested head; `qa-failed` = unstable (at least one open blocker), frozen until the retest. The verdict comment carries `QA verdict: STABLE|UNSTABLE`, `QA head: <sha>` and the range. A new head needs a new verdict, except the merge-back conflict fix after the green tag ([Merge-back conflicts](#merge-back-conflicts)); retests cover only the fixed area. `om-qa-batch` refuses `stable` while a blocker is open, and a bot identity cannot give a verdict. It trusts verdicts and checklists only from `qaBatch.testers` plus the current user; with an empty list one tester's write action treats another's verdict as untrusted and withdraws a valid `qa-approved`, so teams with more than one tester set `qaBatch.testers`. QA judges quality; the stabilizer owns the branch, tags `green/<date>` and merges back.
 6. **Batch report.** The same verdict, with blockers when unstable, as a short message on the team's QA channel. Replaces the weekly QA pass.
 
 **No tester available:** no new batch is cut while one is open. The open batch grows with `main` until a tester claims it with `qa-in-progress`; open blockers stay listed. It delays the green tag, not the merges.
@@ -362,7 +362,8 @@ gitGraph
 
 - **Tag first**, before touching the conflict. Releases and bisects use the tag, so they never see the conflict fix.
 - **The stabilizer merges `main` into the batch** (GitHub's "Update branch") and resolves it, with the author of the conflicting PR if needed.
-- **CI re-runs the full suite on the batch PR.** The batch PR's head is a `stabilize/` branch, so `FORCE_FULL_SUITE` applies to every push to it, including the conflict resolution. This is deliberate: one more 45–70 minute run on the batch, rarely needed. The batch is not re-tested after a merge-back conflict fix: the stable verdict stays on the green-tagged commit, and the `main` PRs the fix brings in are tested in the next batch, whose range starts at the previous green tag.
+- **CI re-runs the full suite on the batch PR.** The batch PR's head is a `stabilize/` branch, so `FORCE_FULL_SUITE` applies to every push to it, including the conflict resolution. This is deliberate: one more 45–70 minute run on the batch, rarely needed.
+- **The verdict stays on the tagged commit.** The stable verdict covers its `QA head:`, which the green tag pins; the batch is not re-tested before the merge back. The merge back is pinned to the resolved head once the full suite is green on it. `om-qa-batch` reports `qa-approved` on the moved head as stale, so the stabilizer merges without it. The `main` PRs the conflict fix merged into the batch are not covered by this verdict: the next batch's range starts at the previous green tag, so they are tested in the next batch.
 - **If it would take long**, cherry-pick only the stabilization commits into a PR to `main` and close the batch PR. The tag is unaffected.
 - **Fewer conflicts by design:** one open batch at a time, merged back as soon as it goes green, small stabilizer fix commits.
 
@@ -388,7 +389,7 @@ flowchart LR
 - **Default wait for the green batch**, so the line gets the corrected version if the fix needed a follow-up. Urgent fixes skip the wait (owner's call) or use path B.
 - **Follow-ups** to the fix get the same backport label; if the team drops the fix, close the backport PR.
 - **Patch releases batch fixes:** several backports can land before one QA pass and one `release.yml` run.
-- **QA labels on backports.** `backport.yml` copies `needs-qa` / `skip-qa` but not `needs-human-qa` or `qa-approved`: `needs-human-qa` is a batch-checklist lane, not a merge gate, and the release QA pass on the line covers every backport. The release waits for that pass to be green. A backport whose cherry-pick conflict was resolved by hand is no longer the code the tester saw, so the reviewer adds `needs-human-qa` by hand and the `qa-approved` merge gate applies.
+- **QA labels on backports.** `backport.yml` copies `needs-qa` / `skip-qa` but not `needs-human-qa` or `qa-approved`: `needs-human-qa` is a batch-checklist lane, not a merge gate, and the release QA pass on the line covers every backport. The release waits for that pass to be green. A backport whose cherry-pick conflict was resolved by hand is no longer the code the tester saw, so the reviewer adds `needs-human-qa` by hand so a tester checks it in the release QA pass; it does not block the merge.
 
 **B. Urgent hotfix (security, outage): release line first, then `main`**
 
@@ -808,6 +809,8 @@ None. No HTTP API changes. The contract surfaces are CI check names, labels and 
 - **QA lanes (from QA, 2026-11-26; revised 2026-11-27):** no QA label blocks a merge into `main`; `needs-human-qa` is checked first in the batch; `needs-qa` is automatic QA and does not block; `qa-batch-check`, `daily-qa`, `qa-blocker`; the batch PR uses existing labels; retire `weekly-qa` and `ready-for-qa`.
 - **Draft PRs get no CI (2026-11-26).** `ci.yml` and `mutation-tests.yml` skip their work on drafts and re-run on `ready_for_review`. `audit-scope` reads the draft state live; on a draft the required `test` check fails instead of skipping, so skipped draft results can never leave every required check green after the PR is marked ready. No ruleset change. The enterprise guard keeps running on drafts.
 - **PRs #10434 and #10457** are closed as superseded by this spec.
+- **Triage skills (2026-11-27, open-mercato/skills#211):** a separate `om-triage-pr` sets the routing labels (category and priority only when missing; risk, QA lane, CI level and areas raise-only, without asking on later pushes) and `om-review-pr` makes the merge decision. CI rules stay in `.github/ci-scope.json`; the skills find it through `prTriage.ciScopeFile` in `.ai/agentic.config.json`.
+- **Merge-back conflict and the verdict (2026-11-27, open-mercato/skills#210):** the stable verdict stays on the green-tagged commit; the batch is not re-tested after a conflict fix, and the `main` PRs it brings in are tested in the next batch, whose range starts at the previous green tag.
 - **Batch fixes (2026-11-27).** Only the stabilizer fixes QA blockers, with commits pushed directly onto the batch branch; no PR merges into a batch.
 
 ### Open
@@ -866,6 +869,7 @@ Other:
 
 ## Changelog
 
+- 2026-11-27: Aligned with open-mercato/skills#210 and #211: triage is `om-triage-pr` plus `om-review-pr` (open question closed); CI rules stay in `.github/ci-scope.json`, referenced by `prTriage.ciScopeFile`; `qaBatch.testers` documented; the merge-back conflict rule now says the verdict stays on the green-tagged commit and the PRs the fix brings in are tested in the next batch (fixes the contradiction with "a new head needs a new verdict"); backports do not copy `needs-human-qa`, a release waits for the green release QA pass, a hand-resolved backport conflict gets `needs-human-qa`.
 - 2026-11-27: Review fixes: acceptance rows read `.github/core-team.json`; no per-day batch wording left; the batch is not re-tested after a merge-back conflict fix (verdict stays on the green tag, the fix's `main` PRs go to the next batch).
 - 2026-11-27: Core team is the login list in `.github/core-team.json` (GitHub team `open-mercato/core-team` plus `matgren` and `tkarwatka`), replacing the "write permission or higher" rule; Phase 5 acceptance reads that file.
 - 2026-11-27: Aligned with the current PR process: batches are cut on demand (no daily cut, no rotation, no automation); only the stabilizer fixes blockers, with commits on the batch branch (no PRs into a batch); one QA pass per batch; no QA label gates a merge into `main` (`needs-human-qa` dropped from the merge-ready rule and the `merge-queue` guard; `qaGate: false`); `merge-queue` is optional routing.
