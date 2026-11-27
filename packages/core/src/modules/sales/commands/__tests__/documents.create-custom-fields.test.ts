@@ -71,13 +71,6 @@ const TEST_ORG_ID = 'bbbbbbbb-bbbb-4bbb-abbb-bbbbbbbbbbbb'
 
 function buildHarness() {
   let inTransaction = false
-<<<<<<< HEAD
-  let em: Record<string, unknown>
-  em = {
-    fork: () => em,
-    create: (_entity: unknown, data: Record<string, unknown>) => ({ ...data }),
-    persist: () => undefined,
-=======
   const persist = jest.fn()
   const create = jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data }))
   const generate = jest.fn(async () => ({ number: 'DOC-1' }))
@@ -87,7 +80,6 @@ function buildHarness() {
     fork: () => em,
     create,
     persist,
->>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
     find: async () => [],
     findOne: async () => null,
     nativeDelete: async () => 0,
@@ -124,11 +116,7 @@ function buildHarness() {
     organizationIds: [TEST_ORG_ID],
   }
 
-<<<<<<< HEAD
-  return { ctx }
-=======
   return { ctx, create, generate, userHasAllFeatures, persist }
->>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
 }
 
 const line = {

@@ -23,12 +23,7 @@ import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-<<<<<<< HEAD
 import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-=======
-import { isUuidListParam, parseIdsParam, splitIdListParam } from '@open-mercato/shared/lib/crud/ids'
->>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 
 type DocumentKind = 'order' | 'quote'
@@ -567,25 +562,12 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const { base, custom } = splitCustomFieldPayload(raw ?? {})
-<<<<<<< HEAD
-          const numberValue =
-            binding.kind === 'order'
-              ? (base as Record<string, unknown>).orderNumber
-              : (base as Record<string, unknown>).quoteNumber
-          if (typeof numberValue === 'string') {
-            await ensureNumberEditPermission(ctx, translate)
-          }
-          const parsed = parseScopedCommandInput(
+          return parseScopedCommandInput(
             documentUpdateSchema,
             Object.keys(custom).length ? { ...base, customFields: custom } : base,
             ctx,
             translate,
           )
-          return parsed
-=======
-          const payload = Object.keys(custom).length ? { ...base, customFields: custom } : base
-          return withExactDocumentInput(parseScopedCommandInput(documentUpdateSchema, payload, ctx, translate), payload)
->>>>>>> 4cdb8e662c (fix(sales): enforce document number edit permissions (#10206))
         },
         response: ({ result }: { result: any }) =>
           mapUpdateResponse((result as any)?.order ?? (result as any)?.quote ?? result),
