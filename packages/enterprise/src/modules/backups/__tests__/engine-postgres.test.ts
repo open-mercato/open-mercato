@@ -5,6 +5,7 @@ import { transform } from '../lib/engine/streams'
 import { randomUUID, createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Client, type ClientConfig } from 'pg'
 import { createBackup } from '../lib/engine/create'
@@ -23,6 +24,64 @@ async function collect(stream: ByteStream) {
   return Buffer.concat(buffers)
 }
 async function* data(bytes: Buffer): ByteStream { yield bytes }
+
+describe('PostgreSQL source connection failures', () => {
+  const sslRefusal = 'The server does not support SSL connections'
+  let directory: string
+  let options: NativeOptions
+
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), 'backup-postgres-'))
+    options = {
+      sourceService: 'source',
+      serviceFile: join(directory, 'service.conf'),
+      passwordFile: join(directory, 'password'),
+      binariesDir: directory,
+    }
+    await writeFile(options.passwordFile, '*:5432:backup:backup:test-password\n', { mode: 0o600 })
+  })
+
+  afterEach(async () => {
+    jest.restoreAllMocks()
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  async function writeService(host: string, sslmode: string) {
+    await writeFile(options.serviceFile, `[source]\nhost=${host}\ndbname=backup\nuser=backup\nsslmode=${sslmode}\n`, { mode: 0o600 })
+  }
+
+  test.each<[host: string, sslmode: string, message: string, cause: string | undefined]>([
+    ['127.0.0.1', 'verify-full', sslRefusal, 'BACKUP_LOOPBACK_TLS_UNAVAILABLE'],
+    ['127.0.0.1', 'verify-full', 'password authentication failed', undefined],
+    ['127.0.0.1', 'verify-full', 'self-signed certificate', undefined],
+    ['127.0.0.1', 'verify-full', 'connect ECONNREFUSED', undefined],
+    ['127.0.0.1', 'disable', sslRefusal, undefined],
+    ['db.example.test', 'verify-full', sslRefusal, undefined],
+  ])('classifies %s with sslmode=%s when the driver reports %s', async (host, sslmode, message, cause) => {
+    await writeService(host, sslmode)
+    const connect = jest.spyOn(Client.prototype, 'connect').mockImplementation(async () => { throw new Error(message) })
+    const end = jest.spyOn(Client.prototype, 'end').mockImplementation(async () => undefined)
+
+    const opening = createPostgresSource(options).open()
+    await expect(opening).rejects.toMatchObject({ code: 'BACKUP_CONNECTION_FAILED' })
+    if (cause) {
+      await expect(opening).rejects.toHaveProperty('cause', cause)
+    } else {
+      await expect(opening).rejects.not.toHaveProperty('cause')
+    }
+    expect(connect).toHaveBeenCalledTimes(1)
+    expect(end).toHaveBeenCalledTimes(1)
+    expect(end.mock.contexts[0]).toBe(connect.mock.contexts[0])
+  })
+
+  test('rejects remote sslmode=disable before opening a connection', async () => {
+    await writeService('db.example.test', 'disable')
+    const connect = jest.spyOn(Client.prototype, 'connect').mockImplementation(async () => undefined)
+
+    await expect(createPostgresSource(options).open()).rejects.toMatchObject({ code: 'BACKUP_REMOTE_TLS_REQUIRED' })
+    expect(connect).not.toHaveBeenCalled()
+  })
+})
 
 integration('native PostgreSQL backup transport (isolated fixture only)', () => {
   let admin: Client
