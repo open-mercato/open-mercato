@@ -69,4 +69,4 @@ Merge the 100-id cap on `POST /api/attachments/transfer` now that its prerequisi
 
 ### Phase 6: Keep up with main
 
-- [x] 6.1 Merge upstream main (2026-11-27) and keep #7672 within the harness context caps — 6f14b55d9
+- [x] 6.1 Merge upstream main (2026-11-27) and keep #7672 within the harness context caps — 6f14b55d9, e2bc2ed64
