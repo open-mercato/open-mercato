@@ -1845,6 +1845,31 @@ describe('module command secret output', () => {
     if (fails) expect(output).toContain('Rejected **** **** **** ****')
   })
 
+  it('redacts secrets from rotation failure progress without changing the JSON event contract', async () => {
+    process.env.OM_ROTATION_PROGRESS = 'json'
+    const args = ['--old-key', 'fixture-rotation-key']
+    const handler = jest.fn().mockRejectedValue(new Error('Cannot rotate fixture-rotation-key'))
+    const stderr = jest.spyOn(process.stderr, 'write').mockReturnValue(true)
+    const mercato = await import('../mercato')
+    mercato.registerCliModules([
+      { id: 'entities', cli: [{ command: 'rotate-encryption-key', run: handler }] } as Module,
+    ])
+
+    expect(await mercato.run(['node', 'mercato', 'entities', 'rotate-encryption-key', ...args])).toBe(1)
+    expect(handler).toHaveBeenCalledWith(args)
+    expect(stderr).toHaveBeenCalledTimes(1)
+    const eventLine = String(stderr.mock.calls[0][0])
+    expect(eventLine.endsWith('\n')).toBe(true)
+    expect(eventLine).not.toContain('fixture-rotation-key')
+    expect(JSON.parse(eventLine)).toMatchObject({
+      schemaVersion: 1,
+      type: 'phase.changed',
+      runId: 'rotation',
+      phase: 'rotation.failed',
+      entity: 'Cannot rotate ****',
+    })
+  })
+
   it('preserves ordinary module banner and failure values with token-related environment settings', async () => {
     Object.assign(process.env, {
       OM_SEARCH_STORE_RAW_TOKENS: 'false',

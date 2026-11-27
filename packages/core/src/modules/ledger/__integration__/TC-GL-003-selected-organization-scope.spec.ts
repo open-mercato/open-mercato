@@ -1,0 +1,312 @@
+import { randomUUID } from 'node:crypto';
+import { expect, test, type APIRequestContext } from '@playwright/test';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import {
+  createOrganizationFixture,
+  createUserFixture,
+  deleteOrganizationIfExists,
+  deleteUserIfExists,
+} from '@open-mercato/core/helpers/integration/authFixtures';
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures';
+import { deleteGeneralEntityIfExists, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures';
+import {
+  createCurrencyFixture,
+  generateUniqueCurrencyCode,
+  deleteCurrenciesEntityIfExists,
+} from '@open-mercato/core/helpers/integration/currenciesFixtures';
+import {
+  createFiscalPeriodFixture,
+  createAccountTypeFixture,
+  createAccountFixture,
+  seedAccountGroupInDb,
+  seedJournalEntryInDb,
+} from '@open-mercato/core/helpers/integration/ledgerFixtures';
+
+/**
+ * TC-GL-003: `GET /api/ledger/{account-types,accounts,fiscal-periods,
+ * journal-entries}` scope to the organization selected for the request, not
+ * the caller's home organization.
+ *
+ * Before this fix, all four routes filtered by `auth.orgId` — the token's
+ * own home organization — and only fell back to no filter at all when that
+ * was absent. A superadmin token's home organization is whatever org the
+ * environment minted it against, which is neither of the two throwaway
+ * organizations this test creates; so with the pre-fix code, selecting
+ * organization B via the `om_selected_org` cookie would still filter (or
+ * fail to filter) against the superadmin's own home org, never against B —
+ * meaning organization B's rows would either be missing entirely or, if the
+ * pre-fix code's `auth.orgId` guard failed open, organization A's rows would
+ * leak in alongside them. `resolveOrganizationScopeForRequest` (the fix)
+ * makes the selected-organization cookie win, matching the pattern already
+ * used correctly by the fiscal-period lock/unlock routes (TC-GL-002).
+ *
+ * Each route is exercised the same way: seed one row scoped to organization
+ * A and one scoped to organization B (same tenant), then GET with the
+ * request scoped to organization B and assert the response contains B's row
+ * and excludes A's — proving the query is actually filtered by the selected
+ * organization rather than listing across the tenant or resolving to the
+ * wrong organization.
+ */
+
+const randomSlug = (prefix: string) => `${prefix}-${randomUUID().slice(0, 8)}`;
+
+async function createTenant(request: APIRequestContext, token: string, name: string): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/directory/tenants', { token, data: { name } });
+  const body = await readJsonSafe<{ id?: string }>(response);
+  expect(response.status(), 'POST /api/directory/tenants should return 201').toBe(201);
+  const id = body?.id;
+  expect(typeof id === 'string' && id.length > 0).toBeTruthy();
+  return id as string;
+}
+
+function scopedHeaders(scope: { tenantId: string; organizationId: string }): Record<string, string> {
+  return {
+    Cookie: [
+      `om_selected_tenant=${encodeURIComponent(scope.tenantId)}`,
+      `om_selected_org=${encodeURIComponent(scope.organizationId)}`,
+    ].join('; '),
+  };
+}
+
+test.describe('TC-GL-003: GET routes honor the selected organization, not the caller\'s home org', () => {
+  test('account-types, accounts, fiscal-periods, and journal-entries all scope to the selected organization', async ({ request }) => {
+    const superadminToken = await getAuthToken(request, 'superadmin');
+    const stamp = randomUUID();
+
+    let userId: string | null = null;
+    let tenantId: string | null = null;
+    let orgAId: string | null = null;
+    let orgBId: string | null = null;
+    let currencyId: string | null = null;
+    let accountTypeAId: string | null = null;
+    let accountTypeBId: string | null = null;
+    const groupIds: string[] = [];
+    let accountAId: string | null = null;
+    let accountBId: string | null = null;
+    let fiscalPeriodAId: string | null = null;
+    let fiscalPeriodBId: string | null = null;
+    let journalEntryAId: string | null = null;
+    let journalEntryBId: string | null = null;
+    let headersA: Record<string, string> | undefined;
+    let headersB: Record<string, string> | undefined;
+
+    try {
+      tenantId = await createTenant(request, superadminToken, `QA TC-GL-003 Tenant ${stamp}`);
+      orgAId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-GL-003 Organization A ${stamp}`,
+        tenantId,
+      });
+      orgBId = await createOrganizationFixture(request, superadminToken, {
+        name: `QA TC-GL-003 Organization B ${stamp}`,
+        tenantId,
+      });
+      headersA = scopedHeaders({ tenantId, organizationId: orgAId });
+      headersB = scopedHeaders({ tenantId, organizationId: orgBId });
+
+      // A single currency is enough — it's only referenced by id in the raw
+      // SQL insert below, which bypasses API-level organization scoping.
+      currencyId = await createCurrencyFixture(request, superadminToken, {
+        code: generateUniqueCurrencyCode(),
+        name: `QA TC-GL-003 Currency ${stamp}`,
+      });
+
+      accountTypeAId = await createAccountTypeFixture(
+        request,
+        superadminToken,
+        { organizationId: orgAId, tenantId, number: randomSlug('qa-gl-003-type-a'), name: 'QA Type A', normalBalance: 'DEBIT' },
+        { headers: headersA },
+      );
+      accountTypeBId = await createAccountTypeFixture(
+        request,
+        superadminToken,
+        { organizationId: orgBId, tenantId, number: randomSlug('qa-gl-003-type-b'), name: 'QA Type B', normalBalance: 'DEBIT' },
+        { headers: headersB },
+      );
+
+      accountAId = await createAccountFixture(
+        request,
+        superadminToken,
+        { organizationId: orgAId, tenantId, number: randomSlug('qa-gl-003-account-a'), accountTypeId: accountTypeAId },
+        { headers: headersA },
+      );
+      accountBId = await createAccountFixture(
+        request,
+        superadminToken,
+        { organizationId: orgBId, tenantId, number: randomSlug('qa-gl-003-account-b'), accountTypeId: accountTypeBId },
+        { headers: headersB },
+      );
+
+      fiscalPeriodAId = await createFiscalPeriodFixture(
+        request,
+        superadminToken,
+        { organizationId: orgAId, tenantId, startDate: '2033-01-01', endDate: '2033-01-31' },
+        { headers: headersA },
+      );
+      fiscalPeriodBId = await createFiscalPeriodFixture(
+        request,
+        superadminToken,
+        { organizationId: orgBId, tenantId, startDate: '2033-01-01', endDate: '2033-01-31' },
+        { headers: headersB },
+      );
+
+      journalEntryAId = await seedJournalEntryInDb({
+        organizationId: orgAId,
+        tenantId,
+        currencyId,
+        operationDate: '2033-01-15',
+        description: `QA TC-GL-003 entry A ${stamp}`,
+        lines: [
+          { accountId: accountAId, debit: '100.00', credit: '0.00' },
+          { accountId: accountAId, debit: '0.00', credit: '100.00' },
+        ],
+      });
+      journalEntryBId = await seedJournalEntryInDb({
+        organizationId: orgBId,
+        tenantId,
+        currencyId,
+        operationDate: '2033-01-16',
+        description: `QA TC-GL-003 entry B ${stamp}`,
+        lines: [
+          { accountId: accountBId, debit: '50.00', credit: '0.00' },
+          { accountId: accountBId, debit: '0.00', credit: '50.00' },
+        ],
+      });
+
+      // --- account-types ---
+      const accountTypesRes = await apiRequest(request, 'GET', '/api/ledger/account-types?pageSize=100', {
+        token: superadminToken,
+        headers: headersB,
+      });
+      expect(accountTypesRes.status(), 'GET account-types scoped to org B should return 200').toBe(200);
+      const accountTypesBody = (await accountTypesRes.json()) as { items: Array<{ id: string }> };
+      const accountTypeIds = accountTypesBody.items.map((item) => item.id);
+      expect(accountTypeIds, 'org B account-types list should include org B\'s account type').toContain(accountTypeBId);
+      expect(accountTypeIds, 'org B account-types list must not include org A\'s account type').not.toContain(accountTypeAId);
+
+      // --- accounts ---
+      const accountsRes = await apiRequest(request, 'GET', '/api/ledger/accounts?pageSize=100', {
+        token: superadminToken,
+        headers: headersB,
+      });
+      expect(accountsRes.status(), 'GET accounts scoped to org B should return 200').toBe(200);
+      const accountsBody = (await accountsRes.json()) as { items: Array<{ id: string }> };
+      const accountIds = accountsBody.items.map((item) => item.id);
+      expect(accountIds, 'org B accounts list should include org B\'s account').toContain(accountBId);
+      expect(accountIds, 'org B accounts list must not include org A\'s account').not.toContain(accountAId);
+
+      // --- fiscal-periods ---
+      const fiscalPeriodsRes = await apiRequest(request, 'GET', '/api/ledger/fiscal-periods?pageSize=100', {
+        token: superadminToken,
+        headers: headersB,
+      });
+      expect(fiscalPeriodsRes.status(), 'GET fiscal-periods scoped to org B should return 200').toBe(200);
+      const fiscalPeriodsBody = (await fiscalPeriodsRes.json()) as { items: Array<{ id: string }> };
+      const fiscalPeriodIds = fiscalPeriodsBody.items.map((item) => item.id);
+      expect(fiscalPeriodIds, 'org B fiscal-periods list should include org B\'s period').toContain(fiscalPeriodBId);
+      expect(fiscalPeriodIds, 'org B fiscal-periods list must not include org A\'s period').not.toContain(fiscalPeriodAId);
+
+      // --- journal-entries ---
+      const journalEntriesRes = await apiRequest(request, 'GET', '/api/ledger/journal-entries?pageSize=100', {
+        token: superadminToken,
+        headers: headersB,
+      });
+      expect(journalEntriesRes.status(), 'GET journal-entries scoped to org B should return 200').toBe(200);
+      const journalEntriesBody = (await journalEntriesRes.json()) as { items: Array<{ id: string }> };
+      const journalEntryIds = journalEntriesBody.items.map((item) => item.id);
+      expect(journalEntryIds, 'org B journal-entries list should include org B\'s entry').toContain(journalEntryBId);
+      expect(journalEntryIds, 'org B journal-entries list must not include org A\'s entry').not.toContain(journalEntryAId);
+      const allOrganizationsHeaders = {
+        Cookie: `om_selected_tenant=${encodeURIComponent(tenantId)}; om_selected_org=__all__`,
+      };
+      const allJournalEntries = await apiRequest(request, 'GET', '/api/ledger/journal-entries', {
+        token: superadminToken, headers: allOrganizationsHeaders,
+      });
+      expect(allJournalEntries.status()).toBe(200);
+      const allJournalBody = await readJsonSafe<{ items: Array<{ id: string }> }>(allJournalEntries);
+      expect(allJournalBody?.items.map(({ id }) => id)).toEqual(expect.arrayContaining([journalEntryAId, journalEntryBId]));
+
+      const namedPeriod = await apiRequest(request, 'GET', `/api/ledger/journal-entries?periodId=${fiscalPeriodBId}`, {
+        token: superadminToken, headers: allOrganizationsHeaders,
+      });
+      expect(namedPeriod.status()).toBe(200);
+      const namedPeriodBody = await readJsonSafe<{ items: Array<{ id: string }> }>(namedPeriod);
+      expect(namedPeriodBody?.items.map(({ id }) => id)).toEqual([journalEntryBId]);
+
+      const userEmail = `qa-gl-003-${stamp}@example.com`;
+      const userPassword = `Test-${stamp}!`;
+      userId = await createUserFixture(request, superadminToken, {
+        email: userEmail,
+        password: userPassword,
+        organizationId: orgAId,
+        roles: [],
+      });
+      const aclUpdate = await apiRequest(request, 'PUT', '/api/auth/users/acl', {
+        token: superadminToken,
+        data: {
+          userId,
+          tenantId,
+          organizations: [orgBId],
+          features: ['ledger.accounts.view', 'ledger.periods.view', 'ledger.entries.view'],
+        },
+      });
+      expect(aclUpdate.status()).toBe(200);
+      expect(await readJsonSafe(aclUpdate)).toMatchObject({ ok: true });
+      const restrictedToken = await getAuthToken(request, userEmail, userPassword);
+      expect(getTokenContext(restrictedToken)).toMatchObject({ tenantId, organizationId: orgAId });
+      const groupAId = await seedAccountGroupInDb({ tenantId, organizationId: orgAId, code: '4', name: 'QA Group A' });
+      groupIds.push(groupAId);
+      const groupBId = await seedAccountGroupInDb({ tenantId, organizationId: orgBId, code: '4', name: 'QA Group B' });
+      groupIds.push(groupBId);
+      const recordScopes = [
+        { resource: 'account-groups', excluded: groupAId, allowed: groupBId },
+        { resource: 'account-types', excluded: accountTypeAId, allowed: accountTypeBId },
+        { resource: 'accounts', excluded: accountAId, allowed: accountBId },
+        { resource: 'fiscal-periods', excluded: fiscalPeriodAId, allowed: fiscalPeriodBId },
+        { resource: 'journal-entries', excluded: journalEntryAId, allowed: journalEntryBId },
+      ];
+      for (const { resource, excluded, allowed } of recordScopes) {
+        const list = await apiRequest(request, 'GET', `/api/ledger/${resource}`, { token: restrictedToken });
+        expect(list.status(), resource).toBe(200);
+        const listBody = await readJsonSafe<{ items: Array<{ id: string }> }>(list);
+        expect(listBody?.items.map(({ id }) => id)).toEqual([allowed]);
+
+        const detail = await apiRequest(request, 'GET', `/api/ledger/${resource}?id=${excluded}`, {
+          token: restrictedToken,
+        });
+        expect(detail.status()).toBe(200);
+        expect(await readJsonSafe(detail)).toMatchObject({ items: [], total: 0 });
+      }
+
+      const periodFilter = await apiRequest(request, 'GET', `/api/ledger/journal-entries?periodId=${fiscalPeriodAId}`, {
+        token: restrictedToken,
+      });
+      expect(periodFilter.status()).toBe(200);
+      expect(await readJsonSafe(periodFilter)).toMatchObject({ items: [], total: 0 });
+
+      const authorizedFilters = await apiRequest(
+        request, 'GET', `/api/ledger/journal-entries?periodId=${fiscalPeriodBId}&accountId=${accountBId}`,
+        { token: restrictedToken },
+      );
+      expect(authorizedFilters.status()).toBe(200);
+      const filtered = await readJsonSafe<{ items: Array<{ id: string }> }>(authorizedFilters);
+      expect(filtered?.items.map(({ id }) => id)).toEqual([journalEntryBId]);
+    } finally {
+      if (groupIds.length) {
+        await withClient((client) => client.query('delete from ledger_account_groups where id = any($1::uuid[])', [groupIds]));
+      }
+      await deleteUserIfExists(request, superadminToken, userId);
+      // JournalEntry and FiscalPeriod ship no DELETE route (append-only by
+      // design — see `seedJournalEntryInDb`'s doc comment); the seeded rows
+      // are left behind, scoped to org A/B and the tenant, which are deleted
+      // below. Every other row is deleted under the scope it was created in.
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', accountAId, { headers: headersA });
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/accounts', accountBId, { headers: headersB });
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeAId, { headers: headersA });
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/ledger/account-types', accountTypeBId, { headers: headersB });
+      await deleteCurrenciesEntityIfExists(request, superadminToken, '/api/currencies/currencies', currencyId);
+      await deleteOrganizationIfExists(request, superadminToken, orgAId);
+      await deleteOrganizationIfExists(request, superadminToken, orgBId);
+      await deleteGeneralEntityIfExists(request, superadminToken, '/api/directory/tenants', tenantId);
+    }
+  });
+});
