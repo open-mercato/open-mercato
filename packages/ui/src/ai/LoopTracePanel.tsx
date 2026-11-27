@@ -114,7 +114,7 @@ function LoopStepRow({ step }: { step: LoopStepRecord }) {
                         <span className="text-muted-foreground">{formatMs(tc.durationMs)}</span>
                       ) : null}
                       {tc.error ? (
-                        <span className="text-status-error-fg">
+                        <span className="text-status-error-text">
                           {t('ui.ai.loopTrace.toolError', 'error: {code}', { code: tc.error.code })}
                         </span>
                       ) : null}
