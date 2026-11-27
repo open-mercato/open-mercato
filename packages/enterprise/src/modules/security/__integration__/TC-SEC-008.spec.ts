@@ -14,7 +14,7 @@ test.describe('TC-SEC-008: Provider registry and generic fallback UI', () => {
   let adminToken: string
   let userId: string | null = null
   let userEmail = ''
-  const userPassword = 'Valid1!Pass'
+  const userPassword = 'QaValid1!Pass'
 
   test.beforeAll(async ({ request }) => {
     adminToken = await createAdminApiToken(request)

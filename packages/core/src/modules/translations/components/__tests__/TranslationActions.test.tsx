@@ -55,20 +55,31 @@ describe('translation action contributions', () => {
     expect(mockTranslationManager).not.toHaveBeenCalled()
   })
 
-  it('asks for a single organization before loading dictionary translations in All Organizations', () => {
+  it('requires a selected organization for dictionary entries and keeps field-definition translations available', () => {
     document.cookie = 'om_selected_org=__all__; path=/'
     try {
       render(
-        <DictionaryEntryTranslationAction
-          context={{ dictionaryId: 'dictionary-one', entry: { id: 'entry-one', label: 'Preferred customer' } }}
-        />,
+        <>
+          <DictionaryEntryTranslationAction
+            context={{ dictionaryId: 'dictionary-one', entry: { id: 'entry-one', label: 'Preferred customer' } }}
+          />
+          <FieldDefinitionTranslationAction
+            context={{ entityId: 'example:record', definition: { key: 'priority', kind: 'text' } }}
+          />
+        </>,
       )
-      fireEvent.click(screen.getByRole('button', { name: 'Translate' }))
 
-      expect(screen.getByRole('dialog', { name: 'Translate: Preferred customer' })).toHaveAccessibleDescription(
+      fireEvent.click(screen.getByRole('button', { name: 'Translate', exact: true }))
+      expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
         'Select one organization in the organization switcher to translate this dictionary entry.',
       )
       expect(mockTranslationManager).not.toHaveBeenCalled()
+
+      fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' })
+      fireEvent.click(screen.getByRole('button', { name: 'Translate field', exact: true }))
+      expect(mockTranslationManager).toHaveBeenLastCalledWith(expect.objectContaining({
+        entityType: 'entities:custom_field_def',
+      }))
     } finally {
       document.cookie = 'om_selected_org=; Max-Age=0; path=/'
     }

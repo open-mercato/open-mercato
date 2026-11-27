@@ -6,6 +6,12 @@ import { createScopedEventBusFactory, type EventBus } from '@open-mercato/events
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
+import {
+  isCacheProviderError,
+  prepareCacheProviderSelection,
+  readSelectedCacheProviderId,
+} from '@open-mercato/cache/provider'
+import { runDeferredOAuthStateCacheWarningCheck } from './modules/communication_channels/lib/oauth-state-cache-warning'
 import { createKmsService, type KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { registerTenantEncryptionSubscriber } from '@open-mercato/shared/lib/encryption/subscriber'
@@ -41,7 +47,11 @@ const CACHE_SHUTDOWN_KEY = '__openMercatoCacheShutdown__'
 
 // Escape hatch: set OM_CACHE_SINGLETON=off to fall back to the legacy
 // per-request cache instance (e.g. to isolate a regression). Default ON.
+// A selected cache provider (CACHE_PROVIDER) always uses the process singleton:
+// provider transports are owned once per process and closed on shutdown, so a
+// per-request instance would open (and leak) one client per request container.
 function isCacheSingletonEnabled(): boolean {
+  if (readSelectedCacheProviderId(process.env)) return true
   const raw = process.env.OM_CACHE_SINGLETON
   if (raw === undefined) return true
   const normalized = raw.trim().toLowerCase()
@@ -60,7 +70,10 @@ function isCacheSingletonEnabled(): boolean {
  * service holds no request-bound state.
  *
  * Returns null when disabled via the escape hatch or when creation fails, so
- * the caller falls back to a per-request instance.
+ * the caller falls back to a per-request instance. A `CacheProviderError`
+ * (selected provider missing, invalid or not prepared) is rethrown instead of
+ * degrading to memory: silently ignoring a configured provider would split the
+ * cache across replicas.
  */
 export function getCachedCacheService(): CacheStrategy | null {
   if (!isCacheSingletonEnabled()) return null
@@ -70,6 +83,7 @@ export function getCachedCacheService(): CacheStrategy | null {
       try {
         service = createCacheService()
       } catch (err) {
+        if (isCacheProviderError(err)) throw err
         logger.warn('Cache service initialization failed; falling back to memory strategy', { err })
         service = createCacheService({ strategy: 'memory' })
       }
@@ -83,6 +97,7 @@ export function getCachedCacheService(): CacheStrategy | null {
         ;(globalThis as any)[CACHE_SHUTDOWN_KEY] = true
       }
     } catch (err) {
+      if (isCacheProviderError(err)) throw err
       logger.warn('Failed to create cache service', { component: 'cache', err })
     }
   }
@@ -118,6 +133,8 @@ export function getCachedRateLimiterService(): RateLimiterService | null {
 }
 
 export async function bootstrap(container: AwilixContainer) {
+  await prepareCacheProviderSelection()
+  runDeferredOAuthStateCacheWarningCheck()
   // Register the cache service. Prefer the process-wide singleton so caches
   // survive across request containers; fall back to a per-request instance
   // when the singleton is disabled or fails to build.
@@ -126,6 +143,7 @@ export async function bootstrap(container: AwilixContainer) {
     try {
       cache = createCacheService()
     } catch (err: any) {
+      if (isCacheProviderError(err)) throw err
       logger.warn('Cache service initialization failed; falling back to memory strategy', { err })
       cache = createCacheService({ strategy: 'memory' })
     }
@@ -322,6 +340,8 @@ function getProcessKmsService(): KmsService {
 }
 
 export async function bootstrapProcessRoot(root: AwilixContainer): Promise<() => void> {
+  await prepareCacheProviderSelection()
+  runDeferredOAuthStateCacheWarningCheck()
   const cache = getCachedCacheService()
   if (!cache) throw new Error('[internal] Process root requires the shared cache service')
   const kmsService = getProcessKmsService()

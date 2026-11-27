@@ -144,7 +144,7 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
 
         // ── Setup: User A (author, channel owner) ──────────────────────────
         const userAEmail = `qa-crm-email-001-a-${stamp}@acme.com`;
-        const userAPassword = 'Valid1!Pass';
+        const userAPassword = 'QaValid1!Pass';
         userAId = await createUserFixture(request, adminToken, {
           email: userAEmail,
           password: userAPassword,
@@ -156,7 +156,7 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
 
         // ── Setup: User B (other employee — same role, no view_private) ────
         const userBEmail = `qa-crm-email-001-b-${stamp}@acme.com`;
-        const userBPassword = 'Valid1!Pass';
+        const userBPassword = 'QaValid1!Pass';
         userBId = await createUserFixture(request, adminToken, {
           email: userBEmail,
           password: userBPassword,
@@ -305,7 +305,7 @@ test.describe('TC-CRM-EMAIL-001: outbound compose → subscriber → cross-user 
         expect(aclResp.ok(), 'PUT ACL should succeed').toBeTruthy();
 
         const userAEmail = `qa-crm-email-001-smoke-a-${stamp}@acme.com`;
-        const userAPassword = 'Valid1!Pass';
+        const userAPassword = 'QaValid1!Pass';
         userAId = await createUserFixture(request, adminToken, {
           email: userAEmail,
           password: userAPassword,

@@ -1464,13 +1464,13 @@ describe('cart promotions + totals recompute (Step 8.2, QA F12)', () => {
     expect(seededCarts[0].totals).toMatchObject({ discountTotalAmount: 0, grandTotalNetAmount: 10, grandTotalGrossAmount: 12 })
   })
 
-  function makeVisibleScopeCtx() {
+  function makeVisibleScopeCtx(options: Pick<Parameters<typeof makeCtx>[0], 'catalogBuyerPricingService'> = {}) {
     const loadScopedProducts = jest.fn(async () => new Map([['product-1', { id: 'product-1', categoryIds: ['cat-a'], tagIds: [], isActive: true }]]))
-    return makeCtx({ em: makeEm(), catalogScopedProductService: { loadScopedProducts } })
+    return makeCtx({ em: makeEm(), catalogScopedProductService: { loadScopedProducts }, ...options })
   }
 
-  it('cart.lines.update clears a stale product_unavailable flag on a line it accepted and counts it in Cart.totals', async () => {
-    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+  it('cart.lines.update reprices a newly visible line in the same tier before counting it in cart totals', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', unitPriceNet: '8', unitPriceGross: '9.6', flagState: 'product_unavailable' })]
     const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
 
     const result = await handler.execute(
@@ -1479,8 +1479,37 @@ describe('cart promotions + totals recompute (Step 8.2, QA F12)', () => {
     )
 
     expect(result.status).toBe('updated')
+    if (result.status !== 'updated') throw new Error('[internal] expected updated')
     expect(seededCartLines[0].flagState).toBeNull()
+    expect(result.line).toMatchObject({ quantity: '3', unitPriceNet: '10', unitPriceGross: '12', priceRowId: 'price-row-1' })
     expect(seededCarts[0].totals).toMatchObject({ grandTotalNetAmount: 30, grandTotalGrossAmount: 36 })
+    expect(result.priceChanges).toEqual([{
+      lineId: 'line-1',
+      productId: 'product-1',
+      oldUnitPriceNet: '8',
+      newUnitPriceNet: '10',
+      oldUnitPriceGross: '9.6',
+      newUnitPriceGross: '12',
+      reason: 'stale_snapshot',
+    }])
+    expect(seededCarts[0].lastPriceChangeAt).toBeInstanceOf(Date)
+    expect(emitCartEventMock).toHaveBeenCalledWith('cart.price.changed', expect.objectContaining({ cartId: CART_ID, changes: result.priceChanges }))
+  })
+
+  it('cart.lines.update leaves a newly visible line flagged when no current price can be resolved', async () => {
+    seededCartLines = [makeBareLine({ quantity: '2', flagState: 'product_unavailable' })]
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+    const resolveLinePrice = jest.fn(async () => makeResolvedLinePrice({ priceRow: null }))
+
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: 3, assortmentScope: [{ categoryIds: ['cat-a'] }] },
+      makeVisibleScopeCtx({ catalogBuyerPricingService: { resolveLinePrice } }),
+    )
+
+    expect(result).toEqual({ status: 'rejected', reason: 'product_not_priceable' })
+    expect(seededCartLines[0]).toMatchObject({ quantity: '2', flagState: 'product_unavailable' })
+    expect(seededCarts[0].lastPriceChangeAt).toBeUndefined()
+    expect(emitCartEventMock).not.toHaveBeenCalled()
   })
 
   it('cart.lines.update keeps a product_unavailable flag when no assortment scope is enforced', async () => {

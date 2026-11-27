@@ -6,6 +6,13 @@ jest.mock('@open-mercato/shared/lib/commands', () => ({
   registerCommand,
 }))
 
+const mockLoggerWarn = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const logger = { warn: (...args: unknown[]) => mockLoggerWarn(...args), child: () => logger }
+  return { createLogger: () => logger }
+})
+
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn().mockResolvedValue({
     translate: (_key: string, fallback?: string) => fallback ?? _key,
@@ -455,6 +462,44 @@ describe('currencies base-currency invariant (exactly one live base per tenant/o
     await run(update, { id: EUR_ID, isBase: true, name: 'Euro (base)' }, ctx)
     expect(liveBases(rows)).toEqual(['EUR'])
     expect(rows[0].name).toBe('Euro (base)')
+  })
+
+  it('warns when deactivating the current base currency and still applies it during the deprecation window', async () => {
+    const rows = [makeCurrency(EUR_ID, 'EUR', true), makeCurrency(USD_ID, 'USD', false)]
+    const { ctx } = buildEnv(rows)
+    const { update } = loadCommands()
+
+    await run(update, { id: EUR_ID, isActive: false }, ctx)
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('deprecated'),
+      { currencyId: EUR_ID, tenantId: TENANT, organizationId: ORG, promoted: false },
+    )
+    expect(rows.find((row) => row.id === EUR_ID)).toMatchObject({ isBase: true, isActive: false })
+  })
+
+  it('warns when promoting a currency to base while deactivating it', async () => {
+    const rows = [makeCurrency(EUR_ID, 'EUR', true), makeCurrency(USD_ID, 'USD', false)]
+    const { ctx } = buildEnv(rows)
+    const { update } = loadCommands()
+
+    await run(update, { id: USD_ID, isBase: true, isActive: false }, ctx)
+    expect(mockLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(mockLoggerWarn.mock.calls[0][1]).toMatchObject({ currencyId: USD_ID, promoted: true })
+  })
+
+  it('does not warn for a non-base deactivation, an active base save or a re-save of an inactive base', async () => {
+    const rows = [makeCurrency(EUR_ID, 'EUR', true), makeCurrency(USD_ID, 'USD', false)]
+    const { ctx } = buildEnv(rows)
+    const { update } = loadCommands()
+
+    await run(update, { id: USD_ID, isActive: false }, ctx)
+    await run(update, { id: EUR_ID, isBase: true, isActive: true, name: 'Euro' }, ctx)
+    rows[0].isActive = false
+    await run(update, { id: EUR_ID, isBase: true, isActive: false, name: 'Euro (legacy)' }, ctx)
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
+    expect(rows.find((row) => row.id === USD_ID)?.isActive).toBe(false)
+    expect(rows.find((row) => row.id === EUR_ID)).toMatchObject({ isBase: true, name: 'Euro (legacy)' })
   })
 
   it('refuses to undo creating a currency that active exchange rates now reference', async () => {
