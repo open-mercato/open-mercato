@@ -1,0 +1,211 @@
+import { createHash } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+import ts from 'typescript-js'
+import { compareSectionIds } from '@open-mercato/shared/lib/crud/form-sections/composition'
+import { MODULE_CODE_EXTENSIONS, stripModuleCodeExtension } from './scanner'
+
+const ledgerFileName = 'form-sections.runtime-revisions.json'
+const revisionPattern = /^(.+)@v([1-9][0-9]*)$/
+
+type Revision = { roundTripId: string; sourceHash: string }
+type Entry = Revision & { id: string }
+
+function withoutParentheses(node: ts.Node): ts.Node {
+  return ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
+    ? withoutParentheses(node.expression) : node
+}
+
+function enclosingExpression(node: ts.Node): ts.Node {
+  const parent = node.parent
+  return parent && withoutParentheses(parent) === node ? enclosingExpression(parent) : node
+}
+
+function isGranularRefinement(refinement: ts.ObjectLiteralExpression): boolean {
+  const array = enclosingExpression(refinement).parent
+  if (!array || !ts.isArrayLiteralExpression(array)) return false
+  const setting = enclosingExpression(array).parent
+  if (!setting || !ts.isPropertyAssignment(setting) || (!ts.isIdentifier(setting.name) && !ts.isStringLiteral(setting.name))
+      || setting.name.text !== 'refinements') return false
+  const definition = enclosingExpression(setting.parent)
+  const call = definition.parent
+  return Boolean(call && ts.isCallExpression(call) && ts.isIdentifier(call.expression)
+    && call.expression.text === 'defineCrudFormFieldGranularSection' && call.arguments[0] === definition)
+}
+
+function isDefaultRefinementFlag(property: ts.Node): boolean {
+  if (!ts.isPropertyAssignment(property) || property.initializer.kind !== ts.SyntaxKind.FalseKeyword
+      || (!ts.isIdentifier(property.name) && !ts.isStringLiteral(property.name)) || property.name.text !== 'mandatory') return false
+  const refinement = property.parent
+  if (!ts.isObjectLiteralExpression(refinement) || refinement.properties.some((candidate) => candidate !== property
+      && (!candidate.name || (!ts.isIdentifier(candidate.name) && !ts.isStringLiteral(candidate.name))
+        || candidate.name.text === 'mandatory'))) return false
+  return true
+}
+
+function normalize(node: ts.Node, source: ts.SourceFile): unknown {
+  if (ts.isObjectLiteralExpression(node) && ts.isArrayLiteralExpression(node.parent)
+      && ts.isPropertyAssignment(node.parent.parent)
+      && node.parent.parent.name.getText(source).replace(/^['"]|['"]$/g, '') === 'refinements') {
+    const entries = node.properties.filter((property) => !ts.isPropertyAssignment(property)
+      || property.name.getText(source).replace(/^['"]|['"]$/g, '') !== 'mandatory'
+      || property.initializer.kind !== ts.SyntaxKind.FalseKeyword)
+    return [node.kind, entries.map((entry) => normalize(entry, source))]
+  }
+  const children = node.getChildren(source).filter((child) => !ts.isJSDoc(child))
+  if (ts.isObjectLiteralExpression(node) && isGranularRefinement(node)) {
+    return [node.kind, node.properties.filter((property) => !isDefaultRefinementFlag(property)).map((property) => normalize(property, source))]
+  }
+  const last = children.at(-1)
+  if (last?.kind === ts.SyntaxKind.SemicolonToken && (ts.isStatement(node) || ts.isTypeElement(node))
+      && !ts.isEmptyStatement(node)) children.pop()
+  if (last?.kind === ts.SyntaxKind.CommaToken && node.kind === ts.SyntaxKind.SyntaxList) children.pop()
+  if (children.length) return [node.kind, children.map((child) => normalize(child, source))]
+  if (ts.isIdentifier(node) || ts.isStringLiteral(node) || ts.isNumericLiteral(node) || ts.isJsxText(node)) {
+    return [node.kind, node.text]
+  }
+  return [node.kind, node.getText(source)]
+}
+
+function readLocalDependency(specifier: string, file: string, sourceRoot: string): string | null {
+  const logical = specifier.startsWith('.') ? path.resolve(path.dirname(file), specifier)
+    : specifier.startsWith('@/') ? path.resolve(sourceRoot, specifier.slice(2)) : null
+  if (!logical) return null
+  const target = stripModuleCodeExtension(logical)
+  const candidates = [
+    ...MODULE_CODE_EXTENSIONS.map((extension) => target + extension),
+    ...MODULE_CODE_EXTENSIONS.map((extension) => path.join(target, 'index' + extension)),
+    ...(path.extname(logical) === '.json' ? [logical] : []),
+  ]
+  for (const candidate of candidates) {
+    if (!fs.existsSync(candidate) || !fs.statSync(candidate).isFile()) continue
+    const absolute = fs.realpathSync(candidate)
+    const relative = path.relative(sourceRoot, absolute)
+    if (relative.startsWith('..' + path.sep) || path.isAbsolute(relative) || relative.split(path.sep).includes('node_modules')) continue
+    return absolute
+  }
+  return null
+}
+
+function fingerprintRuntime(source: ts.SourceFile, sourceRoot: string, visited: Set<string>): unknown {
+  const filename = fs.realpathSync(source.fileName)
+  if (visited.has(filename)) return null
+  visited.add(filename)
+  if (path.extname(filename) === '.json') return JSON.parse(source.text)
+  const specifiers = new Set<string>()
+  const visit = (node: ts.Node): void => {
+    if ((ts.isImportDeclaration(node) && !node.importClause?.isTypeOnly)
+      || (ts.isExportDeclaration(node) && !node.isTypeOnly)) {
+      if (node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) specifiers.add(node.moduleSpecifier.text)
+    } else if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+      || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
+      const [argument] = node.arguments
+      if (argument && ts.isStringLiteralLike(argument)) specifiers.add(argument.text)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(source)
+  const dependencies = [...specifiers].sort(compareSectionIds).flatMap((specifier) => {
+    const dependency = readLocalDependency(specifier, filename, sourceRoot)
+    if (!dependency || visited.has(dependency)) return []
+    const contents = ts.createSourceFile(dependency, fs.readFileSync(dependency, 'utf8'), ts.ScriptTarget.Latest, true)
+    return [[specifier, fingerprintRuntime(contents, sourceRoot, visited)]]
+  })
+  const jsxPragmas = (ts.getLeadingCommentRanges(source.text, 0) ?? []).flatMap(({ pos, end }) =>
+    [...source.text.slice(pos, end).matchAll(/@(jsx(?:Frag|ImportSource|Runtime)?)\s+([^\s*]+)/g)].map((match) => match.slice(1)))
+  return [path.relative(sourceRoot, filename).split(path.sep).join('/'), jsxPragmas, normalize(source, source), dependencies]
+}
+
+export function hashHandwrittenSectionRuntime(runtime: ts.SourceFile, fact: ts.Expression, moduleBase: string): string {
+  const sourceRoot = fs.realpathSync(path.resolve(moduleBase, '../..'))
+  return createHash('sha256').update(JSON.stringify([
+    normalize(fact, fact.getSourceFile()), fingerprintRuntime(runtime, sourceRoot, new Set()),
+  ])).digest('hex')
+}
+
+function readLedger(filename: string, invalid: (reason: string) => never): Map<string, Revision> {
+  const stats = fs.lstatSync(filename, { throwIfNoEntry: false })
+  if (!stats) return new Map()
+  if (!stats.isFile()) return invalid(ledgerFileName + ' must be a regular file')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(fs.readFileSync(filename, 'utf8'))
+  } catch {
+    return invalid('invalid ' + ledgerFileName)
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return invalid('invalid ' + ledgerFileName)
+  const entries = new Map<string, Revision>()
+  for (const [id, entry] of Object.entries(parsed)) {
+    if (!entry || typeof entry !== 'object' || Object.keys(entry).length !== 2
+        || typeof entry.roundTripId !== 'string' || revisionPattern.exec(entry.roundTripId)?.[1] !== id
+        || typeof entry.sourceHash !== 'string' || !/^[0-9a-f]{64}$/.test(entry.sourceHash)) {
+      return invalid('invalid ' + ledgerFileName)
+    }
+    entries.set(id, { roundTripId: entry.roundTripId, sourceHash: entry.sourceHash })
+  }
+  return entries
+}
+
+export function planHandwrittenSectionRevisionWrite(
+  moduleBase: string, entries: readonly Entry[], invalid: (reason: string) => never,
+): { filename: string; content: string } | null {
+  if (!entries.length) return null
+  const filename = path.join(moduleBase, ledgerFileName)
+  const ledger = readLedger(filename, invalid)
+  let changed = false
+  for (const { id, roundTripId, sourceHash } of entries) {
+    const previous = ledger.get(id)
+    if (previous?.roundTripId === roundTripId && previous.sourceHash === sourceHash) continue
+    const version = (revision: string) => BigInt(revisionPattern.exec(revision)![2])
+    if (previous && version(roundTripId) <= version(previous.roundTripId)) {
+      return invalid(`semantic runtime drift for "${id}" requires advancing roundTripId beyond "${previous.roundTripId}"`)
+    }
+    ledger.set(id, { roundTripId, sourceHash })
+    changed = true
+  }
+  if (!changed) return null
+  return {
+    filename,
+    content: JSON.stringify(Object.fromEntries([...ledger.keys()].sort(compareSectionIds).map((id) => [id, ledger.get(id)])), null, 2) + '\n',
+  }
+}
+
+export function hashCompiledSectionSource(syntax: ts.Expression, moduleBase: string): string {
+  const source = syntax.getSourceFile()
+  const sourceRoot = fs.realpathSync(path.resolve(moduleBase, '../..'))
+  const declarations = new Map<string, ts.Node>()
+  for (const statement of source.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name) declarations.set(statement.name.text, statement)
+    if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name)) declarations.set(declaration.name.text, declaration)
+    }
+    if (ts.isImportDeclaration(statement) && !statement.importClause?.isTypeOnly) {
+      const clause = statement.importClause
+      if (clause?.name) declarations.set(clause.name.text, statement)
+      const bindings = clause?.namedBindings
+      if (bindings && ts.isNamespaceImport(bindings)) declarations.set(bindings.name.text, statement)
+      if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) {
+        if (!element.isTypeOnly) declarations.set(element.name.text, statement)
+      }
+    }
+  }
+  const reachable = new Set<ts.Node>()
+  function visit(node: ts.Node): void {
+    if (ts.isIdentifier(node)) {
+      const declaration = declarations.get(node.text)
+      if (declaration && !reachable.has(declaration)) {
+        reachable.add(declaration)
+        ts.forEachChild(declaration, visit)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(syntax)
+  const imports = [...reachable].filter(ts.isImportDeclaration)
+  const snippets = [...imports.map((statement) => statement.getText(source)), `const descriptor = (${syntax.getText(source)})`]
+  const graph = ts.createSourceFile(source.fileName, snippets.join('\n'), ts.ScriptTarget.Latest, true)
+  return createHash('sha256').update(JSON.stringify([
+    [...reachable].filter((statement) => !ts.isImportDeclaration(statement)).map((statement) => normalize(statement, source)),
+    fingerprintRuntime(graph, sourceRoot, new Set()),
+  ])).digest('hex')
+}

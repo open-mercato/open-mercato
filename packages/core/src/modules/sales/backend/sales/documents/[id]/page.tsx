@@ -52,9 +52,10 @@ import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/comp
 import { SalesDocumentPaymentsSection } from '@open-mercato/core/modules/sales/components/documents/PaymentsSection'
 import { SalesDocumentAdjustmentsSection } from '@open-mercato/core/modules/sales/components/documents/AdjustmentsSection'
 import type { AdjustmentRowData } from '@open-mercato/core/modules/sales/components/documents/AdjustmentDialog'
+import { toExactAmount } from '@open-mercato/core/modules/sales/components/documents/lineItemUtils'
 import { SalesShipmentsSection } from '@open-mercato/core/modules/sales/components/documents/ShipmentsSection'
 import { SalesReturnsSection } from '@open-mercato/core/modules/sales/components/documents/ReturnsSection'
-import { DocumentTotals } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
+import { DocumentTotals, type DocumentTotalItem } from '@open-mercato/core/modules/sales/components/documents/DocumentTotals'
 import { SalesDocumentExtensionSpot, type SalesDocumentExtensionContext } from '@open-mercato/core/modules/sales/components/documents/SalesDocumentExtensionSpot'
 import { E } from '#generated/entities.ids.generated'
 import type { DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
@@ -899,17 +900,29 @@ type DocumentRecord = {
   channelCode?: string | null
   comment?: string | null
   subtotalNetAmount?: number | null
+  subtotalNetAmountExact?: string | null
   subtotalGrossAmount?: number | null
+  subtotalGrossAmountExact?: string | null
   discountTotalAmount?: number | null
+  discountTotalAmountExact?: string | null
   taxTotalAmount?: number | null
+  taxTotalAmountExact?: string | null
   shippingNetAmount?: number | null
+  shippingNetAmountExact?: string | null
   shippingGrossAmount?: number | null
+  shippingGrossAmountExact?: string | null
   surchargeTotalAmount?: number | null
+  surchargeTotalAmountExact?: string | null
   grandTotalNetAmount?: number | null
+  grandTotalNetAmountExact?: string | null
   grandTotalGrossAmount?: number | null
+  grandTotalGrossAmountExact?: string | null
   paidTotalAmount?: number | null
+  paidTotalAmountExact?: string | null
   refundedTotalAmount?: number | null
+  refundedTotalAmountExact?: string | null
   outstandingAmount?: number | null
+  outstandingAmountExact?: string | null
   totalsMode?: 'computed' | 'external' | null
   createdAt?: string
   updatedAt?: string
@@ -963,7 +976,9 @@ export function handleDocumentMutationError(
   refresh: () => void,
 ): boolean {
   if (surfaceRecordConflict(err, t, { onRefresh: refresh })) {
-    refresh()
+    if (err instanceof Error) {
+      err.message = t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+    }
     return true
   }
   return false
@@ -2748,15 +2763,13 @@ export default function SalesDocumentDetailPage({
       )
       const items = Array.isArray(response.result?.items) ? response.result.items : []
       const mapped: AdjustmentRowData[] = items
-        .map((item) => {
+        .map((item): AdjustmentRowData | null => {
           const id = typeof item.id === 'string' ? item.id : null
           if (!id) return null
-          const amountNet = parseNumber(
-            (item as any).amount_net ?? (item as any).amountNet ?? (item as any).amount_net_amount
-          )
-          const amountGross = parseNumber(
-            (item as any).amount_gross ?? (item as any).amountGross ?? (item as any).amount_gross_amount
-          )
+          const rawAmountNet = item.amount_net ?? item.amountNet ?? item.amount_net_amount
+          const rawAmountGross = item.amount_gross ?? item.amountGross ?? item.amount_gross_amount
+          const amountNet = parseNumber(rawAmountNet)
+          const amountGross = parseNumber(rawAmountGross)
           const rateRaw = parseNumber((item as any).rate)
           const kindValue =
             typeof item.kind === 'string' && item.kind.trim().length
@@ -2782,6 +2795,8 @@ export default function SalesDocumentDetailPage({
             rate: Number.isFinite(rateRaw) ? rateRaw : null,
             amountNet: Number.isFinite(amountNet) ? amountNet : null,
             amountGross: Number.isFinite(amountGross) ? amountGross : null,
+            amountNetExact: toExactAmount(rawAmountNet),
+            amountGrossExact: toExactAmount(rawAmountGross),
             currencyCode: currency,
             position:
               typeof item.position === 'number'
@@ -2889,26 +2904,26 @@ export default function SalesDocumentDetailPage({
 
   const totalsItems = React.useMemo(() => {
     if (!record) return []
-    const items: { key: string; label: string; amount: number | null | undefined; emphasize?: boolean }[] = [
+    const items: DocumentTotalItem[] = [
       {
         key: 'subtotalNetAmount',
         label: t('sales.documents.detail.totals.subtotalNet', 'Subtotal (net)'),
-        amount: record.subtotalNetAmount ?? null,
+        amount: record.subtotalNetAmountExact ?? record.subtotalNetAmount,
       },
       {
         key: 'subtotalGrossAmount',
         label: t('sales.documents.detail.totals.subtotalGross', 'Subtotal (gross)'),
-        amount: record.subtotalGrossAmount ?? null,
+        amount: record.subtotalGrossAmountExact ?? record.subtotalGrossAmount,
       },
       {
         key: 'discountTotalAmount',
         label: t('sales.documents.detail.totals.discountTotal', 'Discounts'),
-        amount: record.discountTotalAmount ?? null,
+        amount: record.discountTotalAmountExact ?? record.discountTotalAmount,
       },
       {
         key: 'taxTotalAmount',
         label: t('sales.documents.detail.totals.taxTotal', 'Tax total'),
-        amount: record.taxTotalAmount ?? null,
+        amount: record.taxTotalAmountExact ?? record.taxTotalAmount,
       },
     ]
     if (kind === 'order') {
@@ -2916,17 +2931,17 @@ export default function SalesDocumentDetailPage({
         {
           key: 'shippingNetAmount',
           label: t('sales.documents.detail.totals.shippingNet', 'Shipping (net)'),
-          amount: record.shippingNetAmount ?? null,
+          amount: record.shippingNetAmountExact ?? record.shippingNetAmount,
         },
         {
           key: 'shippingGrossAmount',
           label: t('sales.documents.detail.totals.shippingGross', 'Shipping (gross)'),
-          amount: record.shippingGrossAmount ?? null,
+          amount: record.shippingGrossAmountExact ?? record.shippingGrossAmount,
         },
         {
           key: 'surchargeTotalAmount',
           label: t('sales.documents.detail.totals.surchargeTotal', 'Surcharges'),
-          amount: record.surchargeTotalAmount ?? null,
+          amount: record.surchargeTotalAmountExact ?? record.surchargeTotalAmount,
         }
       )
     }
@@ -2935,7 +2950,7 @@ export default function SalesDocumentDetailPage({
         items.push({
           key: `adjustment-${adj.id}`,
           label: resolveAdjustmentLabel(adj),
-          amount: adj.amountGross ?? adj.amountNet ?? null,
+          amount: adj.amountGrossExact ?? adj.amountGross ?? adj.amountNetExact ?? adj.amountNet,
         })
       })
     }
@@ -2943,13 +2958,13 @@ export default function SalesDocumentDetailPage({
       {
         key: 'grandTotalNetAmount',
         label: t('sales.documents.detail.totals.grandTotalNet', 'Grand total (net)'),
-        amount: record.grandTotalNetAmount ?? null,
+        amount: record.grandTotalNetAmountExact ?? record.grandTotalNetAmount,
         emphasize: true,
       },
       {
         key: 'grandTotalGrossAmount',
         label: t('sales.documents.detail.totals.grandTotalGross', 'Grand total (gross)'),
-        amount: record.grandTotalGrossAmount ?? null,
+        amount: record.grandTotalGrossAmountExact ?? record.grandTotalGrossAmount,
         emphasize: true,
       }
     )
@@ -2958,41 +2973,23 @@ export default function SalesDocumentDetailPage({
         {
           key: 'paidTotalAmount',
           label: t('sales.documents.detail.totals.paidTotal', 'Paid'),
-          amount: record.paidTotalAmount ?? null,
+          amount: record.paidTotalAmountExact ?? record.paidTotalAmount,
         },
         {
           key: 'refundedTotalAmount',
           label: t('sales.documents.detail.totals.refundedTotal', 'Refunded'),
-          amount: record.refundedTotalAmount ?? null,
+          amount: record.refundedTotalAmountExact ?? record.refundedTotalAmount,
         },
         {
           key: 'outstandingAmount',
           label: t('sales.documents.detail.totals.outstandingTotal', 'Outstanding'),
-          amount: record.outstandingAmount ?? null,
+          amount: record.outstandingAmountExact ?? record.outstandingAmount,
           emphasize: true,
         }
       )
     }
     return items
-  }, [
-    kind,
-    record,
-    record?.discountTotalAmount,
-    record?.grandTotalGrossAmount,
-    record?.grandTotalNetAmount,
-    record?.outstandingAmount,
-    record?.paidTotalAmount,
-    record?.refundedTotalAmount,
-    record?.shippingGrossAmount,
-    record?.shippingNetAmount,
-    record?.surchargeTotalAmount,
-    record?.subtotalGrossAmount,
-    record?.subtotalNetAmount,
-    record?.taxTotalAmount,
-    adjustmentRows,
-    resolveAdjustmentLabel,
-    t,
-  ])
+  }, [kind, record, adjustmentRows, resolveAdjustmentLabel, t])
   const guardAllows = (list: string[] | null | undefined, status: string | null | undefined) => {
     if (list === null || list === undefined) return true
     if (list.length === 0) return false
@@ -3161,7 +3158,7 @@ export default function SalesDocumentDetailPage({
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
         return savedCode
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message = err instanceof Error && err.message ? err.message : t('sales.documents.detail.updateError', 'Failed to update document.')
         flash(message, 'error')
         throw err
@@ -3190,7 +3187,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, placedAt: savedPlacedAt } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3224,7 +3221,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, expectedDeliveryAt: savedExpectedDelivery } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3251,7 +3248,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, comment: savedComment } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3278,7 +3275,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, externalReference: savedExternalReference } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3305,7 +3302,7 @@ export default function SalesDocumentDetailPage({
         setRecord((prev) => (prev ? { ...prev, customerReference: savedCustomerReference } : prev))
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3368,7 +3365,7 @@ export default function SalesDocumentDetailPage({
         })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3393,7 +3390,7 @@ export default function SalesDocumentDetailPage({
         }
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3443,7 +3440,7 @@ export default function SalesDocumentDetailPage({
         emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3501,7 +3498,7 @@ export default function SalesDocumentDetailPage({
         emitSalesDocumentTotalsRefresh({ documentId: record.id, kind })
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3538,7 +3535,7 @@ export default function SalesDocumentDetailPage({
         }
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3618,7 +3615,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3679,7 +3676,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -3729,7 +3726,7 @@ export default function SalesDocumentDetailPage({
       setNumberEditing(false)
       flash(t('sales.documents.detail.numberGenerated', 'New number generated.'), 'success')
     } catch (err) {
-      if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+      if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
       const message =
         err instanceof Error && err.message
           ? err.message
@@ -3773,7 +3770,7 @@ export default function SalesDocumentDetailPage({
         )
         flash(t('sales.documents.detail.updatedMessage', 'Document updated.'), 'success')
       } catch (err) {
-        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) return
+        if (handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) throw err
         const message =
           err instanceof Error && err.message
             ? err.message
