@@ -41,6 +41,7 @@ import {
 } from '../data/validators'
 import { workflowDraftGenerationSchema } from '../lib/ai-authoring'
 import { isComponentKind } from '../lib/component-guard'
+import type { WorkflowRuleContainer } from '../lib/named-rules'
 import {
   computeDefinitionContextLedger,
   narrowLedgerToStep,
@@ -624,6 +625,7 @@ const startTestRunTool: WorkflowsAiToolDefinition<z.infer<typeof startTestRunInp
       startWorkflow: (
         em: EntityManager,
         options: Record<string, unknown>,
+        container?: WorkflowRuleContainer,
       ) => Promise<WorkflowInstance>
       executeWorkflow: (
         em: EntityManager,
@@ -644,7 +646,7 @@ const startTestRunTool: WorkflowsAiToolDefinition<z.infer<typeof startTestRunInp
       isDryRun: true,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    })
+    }, ctx.container)
 
     let executionError: string | null = null
     try {

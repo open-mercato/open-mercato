@@ -14,6 +14,19 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: jest.fn(async ({ auth }: { auth: { tenantId: string; orgId: string | null } }) => ({
+    organizationId: auth.orgId,
+    scope: {
+      selectedId: auth.orgId,
+      filterIds: auth.orgId ? [auth.orgId] : null,
+      allowedIds: null,
+      tenantId: auth.tenantId,
+    },
+    allowedOrganizationIds: null,
+  })),
+}))
+
 const TENANT_A = '11111111-1111-4111-8111-111111111111'
 const ORG_A = '22222222-2222-4222-8222-222222222222'
 const ORG_B = '33333333-3333-4333-8333-333333333333'
@@ -63,6 +76,7 @@ function createKyselyFake(rows: Row[]) {
       const cell = row[key]
       if (op === 'is') return cell === null
       if (op === '=') return cell === value
+      if (op === 'in') return Array.isArray(value) && value.includes(cell)
       return false
     }
   }

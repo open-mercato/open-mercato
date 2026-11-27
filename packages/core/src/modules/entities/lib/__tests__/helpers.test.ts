@@ -59,6 +59,7 @@ describe('setRecordCustomFields', () => {
     function createValueStore(encrypted = false) {
       const definitions = [
         { key: 'labels', kind: 'text', configJson: { multi: true, encrypted } },
+        { key: 'protected', kind: 'text', configJson: { encrypted } },
         { key: 'assignee', kind: 'select', configJson: { multi: true } },
         { key: 'counts', kind: 'integer', configJson: { multi: true, encrypted } },
         { key: 'flags', kind: 'boolean', configJson: { multi: true, encrypted } },
@@ -85,6 +86,77 @@ describe('setRecordCustomFields', () => {
       }
       return { rows, emMock, em: emMock as unknown as EntityManager }
     }
+
+    it('rolls back a multi-value replacement when the encrypted field has no usable key', async () => {
+      const previousEncryptionToggle = process.env.TENANT_DATA_ENCRYPTION
+      process.env.TENANT_DATA_ENCRYPTION = 'yes'
+      try {
+        const { em, emMock } = createValueStore(true)
+        const encryptionService = {
+          isEnabled: () => true,
+          getDek: async () => null,
+          createDek: async () => null,
+        } as unknown as TenantDataEncryptionService
+        const onChanged = jest.fn()
+
+        await expect(setRecordCustomFields(em, {
+          ...scope,
+          encryptionService,
+          values: { labels: ['replacement'] },
+          onChanged,
+        })).rejects.toMatchObject({ status: 503, body: { code: 'ENCRYPTION_UNAVAILABLE' } })
+
+        expect(emMock.begin).toHaveBeenCalledTimes(1)
+        expect(emMock.nativeDelete).toHaveBeenCalledTimes(1)
+        expect(emMock.rollback).toHaveBeenCalledTimes(1)
+        expect(emMock.persist).not.toHaveBeenCalled()
+        expect(emMock.flush).not.toHaveBeenCalled()
+        expect(emMock.commit).not.toHaveBeenCalled()
+        expect(onChanged).not.toHaveBeenCalled()
+      } finally {
+        if (previousEncryptionToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+        else process.env.TENANT_DATA_ENCRYPTION = previousEncryptionToggle
+      }
+    })
+
+    it('rejects scalar reconciliation when the existing encrypted value cannot obtain its key', async () => {
+      const { rows, em, emMock } = createValueStore(true)
+      rows.push({ ...scope, id: 'existing', fieldKey: 'protected', valueText: 'existing value' })
+      const before = structuredClone(rows)
+      const cause = new Error('[internal] test key provider failure')
+      const encryptionService = {
+        isEnabled: () => true,
+        getDek: async () => { throw cause },
+      } as unknown as TenantDataEncryptionService
+
+      await expect(setRecordCustomFields(em, {
+        ...scope,
+        encryptionService,
+        values: { protected: ['existing value', 'extra legacy row'] },
+      })).rejects.toMatchObject({ status: 503, body: { code: 'ENCRYPTION_UNAVAILABLE' }, cause })
+
+      expect(rows).toEqual(before)
+      expect(emMock.rollback).toHaveBeenCalledTimes(1)
+      expect(emMock.nativeDelete).not.toHaveBeenCalled()
+      expect(emMock.commit).not.toHaveBeenCalled()
+    })
+
+    it.each([{ values: [] }, { values: [null, null] }])(
+      'clears an encrypted scalar during a key outage with $values',
+      async ({ values }) => {
+        const { rows, em, emMock } = createValueStore(true)
+        rows.push({ ...scope, id: 'existing', fieldKey: 'protected', valueText: 'existing value' })
+        const getDek = jest.fn(async () => { throw new Error('[internal] test key provider failure') })
+        const encryptionService = { isEnabled: () => true, getDek } as unknown as TenantDataEncryptionService
+
+        await setRecordCustomFields(em, { ...scope, encryptionService, values: { protected: values } })
+
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.valueText).toBeNull()
+        expect(getDek).not.toHaveBeenCalled()
+        expect(emMock.commit).toHaveBeenCalledTimes(1)
+      },
+    )
 
     it('keeps empty fields absent and all other values intact when an unrelated edit echoes nulls', async () => {
       const { rows, em, emMock } = createValueStore()

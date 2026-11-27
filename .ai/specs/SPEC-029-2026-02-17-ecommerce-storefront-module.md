@@ -2,7 +2,7 @@
 
 | Field | Value |
 |-------|-------|
-| **Status** | Specification (v4.12 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, the deleted default sales channel, the Release 5 `resolveForBuyer` contract, and its re-landing audit fixes) |
+| **Status** | Specification (v4.15 — the lock refresh passes the cart's store 2026-11-23; v4.14 — the pay-link resolution owned by `cart.create` 2026-11-21; v4.13 — one trusted-context import path, the proposal `buyerContext` callers 2026-11-21; v4.12 — Phase 0 reconciliation, owner decisions, post-merge cache amendments, review fixes, the deleted default sales channel, the Release 5 `resolveForBuyer` contract, and its re-landing audit fixes) |
 | **Created** | 2026-02-17 |
 | **Rescoped** | 2026-08-14 |
 | **Pre-implementation fixes** | 2026-08-17 — see §21 |
@@ -405,7 +405,7 @@ v3 returned `403` for draft stores unconditionally, which confirms a store exist
 - Only `customerId` given (a trusted cart with a CRM customer and no portal user): a person entity resolves with its primary company (`CustomerPersonProfile.company_entity_id`, read through `customers` by FK id, no ORM relation). Other `customer_person_company_links` rows are not read. A company entity resolves alone. `customerUserId` is `null` in the result. An identified CRM buyer counts as authenticated for scope, so a `require_authentication` channel does not deny it.
 - Neither given: a guest. The result is the anonymous scope: no groups, the channel price kind when a store is given, and the store's anonymous assortment (`[]` when the default channel binding has `require_authentication`).
 
-**Stored-identity refresh (D-R5-SF2).** A caller that refreshes the identity of an existing cart passes `customerUserId` alone when the cart has one. It never passes the stored `customerId` next to it. The stored `customerId` is a copy taken when the cart was created. A CRM relink or merge can change `CustomerUser.person_entity_id` after that, and the refresh exists to read the current link. A cart with no `customerUserId` passes its stored `customerId`. The refresh callers are the admin re-price, the whole-cart re-price at lock, and a proposal against an existing cart (callers table below). When the buyer or the store is really gone, the refresh is refused and the caller answers a mapped error (below). It never falls back to the stored identity.
+**Stored-identity refresh (D-R5-SF2).** A caller that refreshes the identity of an existing cart passes `customerUserId` alone when the cart has one. It never passes the stored `customerId` next to it. The stored `customerId` is a copy taken when the cart was created. A CRM relink or merge can change `CustomerUser.person_entity_id` after that, and the refresh exists to read the current link. A cart with no `customerUserId` passes its stored `customerId`. The refresh callers are the admin re-price, the whole-cart re-price at lock, a proposal against an existing cart, and assisted-selling authoring, re-author and re-author on merge (callers table below). When the buyer or the store is really gone, the refresh is refused and the caller answers a mapped error (below). It never falls back to the stored identity.
 
 **Output.** `customerIds`, `customerGroupIds` (`customerGroupsService.resolveGroups` over `customerIds`), `priceKindId` (group terms override, else the store's default channel price kind, else `null`), `taxMode` (§6.1a; `null` only when neither a price kind nor a store resolves, and the caller then keeps its own channel's mode), `currencyCode` (the store's; `null` without a store, and the caller keeps its cart's currency) and `buyerDigest`. `buyerDigest` = sha256(`storeId ?? '-'`, `taxMode ?? '-'`, `priceKindId ?? '-'`, sorted `customerGroupIds`, `assortmentScopeHash ?? '-'`, `customerOverlayId ?? '-'`), truncated to 16 hex characters. It has no locale or channel component, so it is not interchangeable with `StoreContext.digest` and MUST NOT be used as a storefront cache key. It is a record-level fingerprint of the identity a write was priced under.
 
@@ -433,13 +433,13 @@ The error carries the marker `Symbol.for('@open-mercato/ecommerce/StorefrontReso
 
 | Caller | `storeId` | Identity passed | Purpose |
 |---|---|---|---|
-| `assisted_selling` proposal authoring (assisted-selling §6.3 step 2) | The thread's store | The target basket's `customerUserId` alone when set, else its `customerId` (refresh rule) | Price and scope the proposal under the target buyer, never the author (roadmap ADR-10) |
+| `assisted_selling` proposal authoring (assisted-selling §6.3 step 2) | The thread's store | The target basket's `customerUserId` alone when set, else its `customerId` (refresh rule) | Price and scope the proposal under the target buyer, never the author (roadmap ADR-10). The resolved result is passed to `cart.proposal.create` as its server-owned `buyerContext`, the one input for both the visibility check and pricing (assisted-selling §6.3 step 3) |
 | `assisted_selling` re-author on merge (assisted-selling §8.1) | The thread's store | The new target basket's identity (refresh rule) | Re-author a live proposal for the merged basket (D-R5-14) |
-| Cart proposals route, `cart.proposal.create` against a storefront target (cart §7a) | The target cart's store | The target cart's identity (refresh rule) | Scope the proposal under the target buyer |
+| Cart proposals route, `cart.proposal.create` against a storefront target (cart §7a) | The target cart's store | The target cart's identity (refresh rule) | Scope and price the proposal under the resolved target buyer: the route passes the result as the command's `buyerContext`, never the target cart's stored customer fields, price kind or digest |
 | Cart admin re-price, `POST /api/cart/carts/:id/reprice` (cart §10.2) | `cart.storeId` when set | The cart's identity (refresh rule) | Refresh identity, and scope for a storefront cart, before the whole-cart re-price |
-| Whole-cart re-price at lock of a non-storefront cart with a buyer (cart §6a.4) | None | The cart's identity (refresh rule) | Refresh identity before the lock's re-price and approval gate. A storefront cart locks with the route context from the buyer's request instead (cart §9.1) |
-| `cart.create` trusted path, `api`/`agent` carts with a customer (cart §6a.4) | The cart's store, when it has one | Authenticated command input | Same identity as a storefront buyer, so the approval gate (D-R5-29) and credit see the company |
-| Checkout pay-link cart seeding with a logged-in buyer (D-R5-19) | None | The session's `customerUserId`, when its tenant and organization equal the link's | Template lines without `unit_price_override` price at the buyer's own rate; terms, credit and approval resolve to the company |
+| Whole-cart re-price at lock of a non-storefront cart with a buyer (cart §6a.4) | `cart.storeId` when set, as at `cart.create` and the admin re-price (cart §6a.4: the same call), so the refresh resolves the same channel price kind the cart was created under; the scope it returns is not applied | The cart's identity (refresh rule) | Refresh identity before the lock's re-price and approval gate. A storefront cart locks with the route context from the buyer's request instead (cart §9.1) |
+| `cart.create` trusted path, `api`/`agent` carts with a customer (cart §6a.4) | The cart's store, when it has one | Authenticated command input | Same identity as a storefront buyer, so the approval gate (D-R5-29) and credit see the company. A `pay_link` cart is the next row, not this one |
+| Checkout pay-link cart seeding with a logged-in buyer (D-R5-19), resolved inside `cart.create` for `channel: 'pay_link'` (cart §6a.4 step 3) | None | The session's `customerUserId` alone, which checkout passes to `cart.create` when the session's tenant and organization equal the link's. Checkout never calls `resolveForBuyer` itself (checkout §4.3 step 3) | Template lines without `unit_price_override` price at the buyer's own rate; terms, credit and approval resolve to the company |
 
 **How each caller handles absence and refusal.** `buyer_resolution_unavailable` and `cart_buyer_unresolvable` are cart error codes. Refusals are logged as warnings with the cart or link id; they are expected outcomes, not errors.
 
@@ -451,11 +451,11 @@ The error carries the marker `Symbol.for('@open-mercato/ecommerce/StorefrontReso
 | Cart admin re-price | The re-price runs without an identity refresh (cart §6a.4 fallback) | `503 buyer_resolution_unavailable` | `store_misconfigured` → `503 store_misconfigured`; any other code → `409 cart_buyer_unresolvable`; the cart is unchanged |
 | Lock of a non-storefront cart | The lock keeps the stored identity (cart §6a.4 fallback) | The lock is refused with `503 buyer_resolution_unavailable` | The lock is refused with `409 cart_buyer_unresolvable`; the cart stays `active` |
 | `cart.create` trusted path | Keeps the input identity (`customerIds = [customerId]`, no groups), as cart §6a.4 documents | `503 buyer_resolution_unavailable`, nothing persisted | The error's own `status` and `code` (`403 buyer_out_of_scope`, `403 store_out_of_scope`, `503 store_misconfigured`), nothing persisted |
-| Checkout pay-link seeding | Guest cart | Guest cart | Guest cart; the buyer can still pay the link at its template prices |
+| Checkout pay-link seeding (`cart.create`, `channel: 'pay_link'`) | Guest cart | Guest cart | Guest cart; the buyer can still pay the link at its template prices. In all three cases the cart stores no buyer identifiers, groups or buyer price kind (checkout §4.3, CH3 gate). `cart.create` applies this row, not the trusted-path row above, to a `pay_link` cart |
 
 A `409 cart_buyer_unresolvable` blocks checkout for that cart until staff relink the buyer or the cart is recreated. That is deliberate: a fallback would price a relinked buyer under the old company's terms.
 
-The command context those callers run under comes from the shared `buildTrustedCommandContext` helper (X10, `@open-mercato/shared/lib/commands/trusted-context`); `resolveForBuyer` supplies only the buyer identity.
+The command context those callers run under comes from the shared `buildTrustedCommandContext` helper (X10), imported from `@open-mercato/shared/lib/commands/trusted-context` (file `trusted-context.ts`) and re-exported by the barrel `@open-mercato/shared/lib/commands`, the one spelling the checkout (D-R5-CH7) and assisted-selling (D-R5-AS9) specs use; `resolveForBuyer` supplies only the buyer identity.
 
 ---
 
@@ -1010,6 +1010,25 @@ Open:
 
 ## 21) Changelog
 
+### 2026-11-23 — v4.15 (lock refresh with the cart's store)
+
+- §6.3 callers table: the whole-cart re-price at lock of a non-storefront cart passes `cart.storeId` when set, as `cart.create` and the admin re-price do (cart §6a.4, "the same call"). Without it the refresh could resolve a different channel price kind than the one the cart was created under, and the lock's re-price would move prices. The scope it returns is still not applied to a non-storefront cart.
+
+### 2026-11-21 — v4.14 (pay-link resolution owned by `cart.create`)
+
+Self-review of #10000 against checkout #9998 (head `54ceb3def3`) and cart #9999.
+
+- §6.3 callers table: the checkout pay-link row is resolved inside `cart.create` for `channel: 'pay_link'` (cart §6a.4 step 3) from the `customerUserId` checkout passes alone. Checkout never calls `resolveForBuyer`. This is the v4.11 design ("the cart trusted path for `pay_link`") and the wording of checkout §4.3 on #9998 and in this PR's checkout v2.4.9.
+- §6.3 absence table: `cart.create` applies the pay-link row (guest cart, no stored buyer identifiers) to a `pay_link` cart, never the `api`/`agent` trusted-path row (`503 buyer_resolution_unavailable`, refusal codes, trusted-input fallback). The Cart text belongs to #9999 (checkout §16 cross-module requirements).
+- The v4.12 note "checkout §4.3 step 3 still passes the full identity to `cart.create` (N2)" is resolved: checkout passes `customerUserId` alone.
+- Consistent with #9998: recovery never calls `resolveForBuyer` (D-R5-SF4), and the order is created directly with `sales.orders.create` (checkout D-R5-CH1), so no SPEC-029 caller depends on a quote conversion.
+
+### 2026-11-21 — v4.13 (re-review of #10000, [review 6002336743](https://github.com/open-mercato/open-mercato/pull/10000#pullrequestreview-6002336743))
+
+- §6.3: the trusted-context helper is imported from `@open-mercato/shared/lib/commands/trusted-context`, re-exported by `@open-mercato/shared/lib/commands`, the spelling of checkout D-R5-CH7 and assisted-selling D-R5-AS9. The earlier `commands/trustedContext` spelling is withdrawn, so implementers add one stable export.
+- §6.3 callers table: the assisted-selling authoring caller and the cart proposals route pass the resolved identity to `cart.proposal.create` as one server-owned `buyerContext`, used for both visibility and pricing, so a CRM relink cannot keep the old buyer's contract price.
+- §6.3 absence table: the pay-link guest fallback stores no buyer identifiers, groups or buyer price kind in any of its three cases (checkout §4.3).
+
 ### 2026-11-19 — v4.12 (Re-landing audit — remediation of `.ai/analysis/pre-implement-SPEC-029-2026-02-17-ecommerce-storefront-module-release-5.md`)
 
 Resolves the seven Important findings of the pre-implementation audit of the Release 5 amendment.
@@ -1025,7 +1044,7 @@ Resolves the seven Important findings of the pre-implementation audit of the Rel
 - §17 Phase 4: the dependants no longer include checkout recovery, and the gate is the `ecommerce` unit suite (I5, I6).
 - §18: "a new optional method".
 
-Not changed here: cart §9.1 and checkout §12.1 still describe a recovery re-lock through `resolveForBuyer`, and checkout §4.3 step 3 still passes the full identity to `cart.create` (N2). Those belong to the cart and checkout specs. `ecommerce`'s `requires` list (N3) is an implementation item.
+Aligned in the same change (review of PR #10000): checkout §3.3, §6, §7.2, §12.1, §16, R14 and the BC table (v2.3.1) and the suite roadmap no longer describe a recovery re-lock through `resolveForBuyer`. Recovery only extends a lock its session still holds, through cart's atomic `cart.lock({ extendOnly: true })`; a lapsed lock answers `409 cart_lock_lost` and is compensated, never re-locked (D-R5-SF4). The cart side of this decision (cart §3.1a, §6a.4, §9.1 extend-only mode and lapsed-lock table, §12, §14 `TC-CART-LOCK-09`/`-10`, §15, §15a `cart_lock_lost`) is owned by PR #9999 (cart rev 10.1, D-R5-CA10 and D-R5-CA11), and this PR does not edit the cart spec. Assisted-selling §6.3 step 2 (rev 6.3) passes `customerUserId` alone when the basket has one (D-R5-SF2), with a relink regression case. Not changed here: checkout §4.3 step 3 still passes the full identity to `cart.create` (N2), which belongs to the checkout spec. `ecommerce`'s `requires` list (N3) is an implementation item.
 
 #### Owner decisions
 
