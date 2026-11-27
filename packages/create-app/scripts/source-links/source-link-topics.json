@@ -1133,6 +1133,34 @@
       "requirement": "source-required",
       "href": "../../../../node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts",
       "resolvedPath": "node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:form-sections.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/form-sections.ts",
+      "resolvedPath": "src/modules/example/form-sections.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:references/crud-form-extensions/required-coverage.md",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/references/crud-form-extensions/required-coverage.md",
+      "resolvedPath": "src/modules/example/references/crud-form-extensions/required-coverage.md"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:references/module-overrides.reference.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/references/module-overrides.reference.ts",
+      "resolvedPath": "src/modules/example/references/module-overrides.reference.ts"
+    },
+    {
+      "topicId": "root:.ai/skills/om-system-extension/references/extension-branches.md",
+      "owner": "AGENTS.md",
+      "requirement": "source-required",
+      "href": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "resolvedPath": ".ai/skills/om-system-extension/references/extension-branches.md"
     }
   ]
 }
