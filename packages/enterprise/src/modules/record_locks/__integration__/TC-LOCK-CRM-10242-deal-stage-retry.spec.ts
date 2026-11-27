@@ -26,6 +26,7 @@ test.describe('TC-LOCK-CRM-10242: Keep my changes retries the deal stage update'
       let pipelineId: string | null = null
       let dealId: string | null = null
       const stageIds: string[] = []
+      const initialLockRequests = Promise.withResolvers<void>()
 
       try {
         await saveRecordLockSettings(request, superadminToken, {
@@ -47,19 +48,26 @@ test.describe('TC-LOCK-CRM-10242: Keep my changes retries the deal stage update'
         dealId = await createDealFixture(request, adminToken, { title, pipelineId, pipelineStageId: firstStageId })
 
         await login(page, 'admin')
+        if (panel === 'expanded') {
+          await page.route('**/api/record_locks/acquire', async (route) => {
+            await initialLockRequests.promise
+            await route.continue()
+          })
+        }
         const lockAcquired = page.waitForResponse((response) => {
           if (!response.ok() || new URL(response.url()).pathname !== '/api/record_locks/acquire') return false
           return response.request().postDataJSON()?.resourceId === dealId
         })
         await page.goto(`/backend/customers/deals/${dealId}`)
         await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible()
-        await lockAcquired
         const expandForm = page.getByRole('button', { name: 'Expand form panel' })
         await expect(expandForm).toBeVisible()
         if (panel === 'expanded') {
           await expandForm.click()
           await expect(page.locator('[data-crud-field-id="title"]').getByRole('textbox')).toBeVisible()
         }
+        initialLockRequests.resolve()
+        await lockAcquired
 
         const incomingTitle = `${title} updated by employee`
         expect((await updateDeal(request, employeeToken, dealId, incomingTitle)).status).toBe(200)
@@ -83,6 +91,7 @@ test.describe('TC-LOCK-CRM-10242: Keep my changes retries the deal stage update'
         expect(await response.request().headerValue('x-om-record-lock-resolution')).toBe('accept_mine')
         expect(await getDealTitle(request, adminToken, dealId)).toBe(incomingTitle)
       } finally {
+        initialLockRequests.resolve()
         await cleanupDeal(request, adminToken, dealId)
         for (const stageId of stageIds) {
           await deleteEntityByBody(request, adminToken, '/api/customers/pipeline-stages', stageId)
