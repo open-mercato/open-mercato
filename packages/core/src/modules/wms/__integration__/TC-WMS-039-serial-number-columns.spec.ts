@@ -16,7 +16,6 @@ import {
   createCrudFixture,
   ensureRoleFeatures,
   postAction,
-  type InventoryBalanceListResponse,
 } from './helpers/wmsFixtures'
 import {
   ensureEnglishLocale,
@@ -26,6 +25,10 @@ import {
 
 export const integrationMeta = {
   dependsOnModules: ['wms', 'catalog'],
+}
+
+type SerialBalanceListResponse = {
+  items?: Array<{ serial_number?: string | null }>
 }
 
 type FixtureIds = {
@@ -43,8 +46,8 @@ async function listSerialsAtVariant(
   const params = new URLSearchParams({ catalogVariantId: variantId, page: '1', pageSize: '100' })
   const response = await apiRequest(request, 'GET', `/api/wms/inventory/balances?${params.toString()}`, { token })
   expect(response.ok(), `Failed GET balances: ${response.status()}`).toBeTruthy()
-  const body = await readJsonSafe<InventoryBalanceListResponse & { items: Array<{ serial_number?: string | null }> }>(response)
-  return (body?.items ?? []).map((item) => String(item.serial_number ?? '')).sort()
+  const body = await readJsonSafe<SerialBalanceListResponse>(response)
+  return (body?.items ?? []).map((item) => String(item.serial_number ?? '')).sort((left, right) => left.localeCompare(right))
 }
 
 function movementLedgerSection(page: Page) {
@@ -123,7 +126,7 @@ test.describe('TC-WMS-039: Inventory console shows serial numbers', () => {
       }
       await expect
         .poll(() => listSerialsAtVariant(request, adminToken, variantId), { timeout: 15_000 })
-        .toEqual([...serials].sort())
+        .toEqual([...serials].sort((left, right) => left.localeCompare(right)))
 
       await login(page, 'admin')
       await ensureEnglishLocale(page)
