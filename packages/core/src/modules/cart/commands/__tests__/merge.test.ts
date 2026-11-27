@@ -504,6 +504,36 @@ describe('cart.merge — §7.1 policy rows', () => {
     expect(seededMergeLogs[0].outcome).toHaveLength(3)
   })
 
+  it.each([
+    ['999999999999.9998', '0.0001', '999999999999.9999'],
+    ['999999999999.9996', '0.0001', '999999999999.9997'],
+    ['0.1', '0.2', '0.3'],
+  ])('merges quantities %s and %s exactly', async (targetQuantity, sourceQuantity, expected) => {
+    seededCarts = [makeCartFixture({ id: 'cart-target' }), makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token') })]
+    seededProducts = [makeProductFixture({ id: 'product-1' })]
+    seededCartLines = [
+      makeLineFixture({ id: 'line-target-1', cartId: 'cart-target', quantity: targetQuantity }),
+      makeLineFixture({ id: 'line-guest-1', cartId: 'cart-guest', quantity: sourceQuantity }),
+    ]
+    await getMergeHandler().execute({ targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-plain-token', routeContext: makeRouteContext() }, makeCtx({ em: makeEm() }))
+    expect(seededCartLines.find((line) => line.id === 'line-target-1')?.quantity).toBe(expected)
+  })
+
+  it('rejects an unrepresentable policy cap before saving a merge', async () => {
+    seededCarts = [makeCartFixture({ id: 'cart-target' }), makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-plain-token') })]
+    seededProducts = [makeProductFixture({ id: 'product-1', maxOrderQty: 1.00001 })]
+    seededCartLines = [
+      makeLineFixture({ id: 'line-target-1', cartId: 'cart-target', quantity: '999999999999.9999' }),
+      makeLineFixture({ id: 'line-guest-1', cartId: 'cart-guest', quantity: '1' }),
+    ]
+    const em = makeEm()
+    await expect(getMergeHandler().execute({ targetCartId: 'cart-target', tenantId: TENANT_ID, organizationId: ORG_ID, sourceToken: 'guest-plain-token', routeContext: makeRouteContext() }, makeCtx({ em })))
+      .rejects.toMatchObject({ status: 400, body: { code: 'cart_quantity_invalid' } })
+    expect(seededCartLines[0].quantity).toBe('999999999999.9999')
+    expect(seededMergeLogs).toHaveLength(0)
+    expect(em.commit).not.toHaveBeenCalled()
+  })
+
   it('row 4: caps a summed quantity at maxOrderQuantity and reports disposition capped', async () => {
     seededCarts = [
       makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash' }),

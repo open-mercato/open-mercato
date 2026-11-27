@@ -85,3 +85,11 @@ describe('cart line lock timeout HTTP boundary', () => {
     await expect(response.json()).resolves.toEqual({ error: 'Unexpected error' })
   })
 })
+
+describe('cart quantity HTTP boundary', () => {
+  it('maps unsupported computed quantities to a localized client error', async () => {
+    const response = await mapRouteErrorToResponse(new CrudHttpError(400, { error: 'cart.errors.quantity_invalid', code: 'cart_quantity_invalid' }))
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({ error: 'cart.errors.quantity_invalid', code: 'cart_quantity_invalid' })
+  })
+})

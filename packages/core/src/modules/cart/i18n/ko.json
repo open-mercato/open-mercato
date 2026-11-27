@@ -5,6 +5,7 @@
   "cart.audit.lines.remove": "Remove cart line",
   "cart.audit.merge": "Merge cart",
   "cart.errors.busy": "장바구니가 사용 중입니다. 다시 시도해 주세요.",
+  "cart.errors.quantity_invalid": "수량은 0보다 크고 999999999999.9999 이하여야 하며 소수점 이하 네 자리까지만 허용됩니다.",
   "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
   "cart.errors.unexpected": "Unexpected error",
   "cart.warnings.code_no_longer_valid": "A previously applied code is no longer valid",

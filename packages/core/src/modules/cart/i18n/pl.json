@@ -5,6 +5,7 @@
   "cart.audit.lines.remove": "Remove cart line",
   "cart.audit.merge": "Merge cart",
   "cart.errors.busy": "Koszyk jest zajęty. Spróbuj ponownie.",
+  "cart.errors.quantity_invalid": "Ilość musi być większa od zera, nie większa niż 999999999999.9999 i mieć najwyżej cztery miejsca po przecinku.",
   "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
   "cart.errors.unexpected": "Unexpected error",
   "cart.warnings.code_no_longer_valid": "A previously applied code is no longer valid",

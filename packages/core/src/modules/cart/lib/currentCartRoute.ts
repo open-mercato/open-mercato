@@ -1,3 +1,4 @@
+import { CART_QUANTITY_ERROR_KEY } from './quantity'
 import { NextResponse } from 'next/server'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -181,7 +182,13 @@ export async function mapRouteErrorToResponse(error: unknown): Promise<NextRespo
       { status: 503, headers: { 'Retry-After': '1', 'Cache-Control': 'no-store' } },
     )
   }
-  if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+  if (isCrudHttpError(error)) {
+    if (error.body.code === 'cart_quantity_invalid') {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ ...error.body, error: translate(CART_QUANTITY_ERROR_KEY) }, { status: error.status })
+    }
+    return NextResponse.json(error.body, { status: error.status })
+  }
   const interceptorRejection = getCommandInterceptorHttpRejection(error)
   if (interceptorRejection) return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
   logger.error('cart api route failed', { err: error })

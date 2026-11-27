@@ -299,6 +299,48 @@ function resetFixtures() {
 describe('cart.lines.add', () => {
   beforeEach(resetFixtures)
 
+  it.each(['1000000000000', '999999999999.99995', '1.00001', '9'.repeat(2049)])('rejects unsupported command quantity before pricing: %s', async (quantity) => {
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const em = makeEm()
+    const resolveLinePrice = jest.fn()
+    await expect(handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity, addedByActorType: 'rep' },
+      makeCtx({ em, catalogBuyerPricingService: { resolveLinePrice } }),
+    )).rejects.toMatchObject({ status: 400, body: { code: 'cart_quantity_invalid' } })
+    expect(resolveLinePrice).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(seededCartLines).toHaveLength(0)
+  })
+
+  it.each(['999999999999.9999', '999999999999.9997', '0.0001', '1.2345'])('preserves representable quantity %s', async (quantity) => {
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const result = await handler.execute(
+      { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', quantity, addedByActorType: 'rep' },
+      makeCtx({ em: makeEm() }),
+    )
+    expect(result).toMatchObject({ status: 'added', line: { quantity } })
+  })
+
+  it.each([
+    ['999999999999.9998', '0.0001', '999999999999.9999'],
+    ['999999999999.9996', '0.0001', '999999999999.9997'],
+    ['0.1', '0.2', '0.3'],
+  ])('adds %s and %s exactly', async (initial, added, expected) => {
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const input = { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', addedByActorType: 'rep' as const }
+    await handler.execute({ ...input, quantity: initial }, makeCtx({ em: makeEm() }))
+    const result = await handler.execute({ ...input, quantity: added }, makeCtx({ em: makeEm() }))
+    expect(result).toMatchObject({ status: 'merged', line: { quantity: expected } })
+  })
+
+  it('retains the storage ceiling when the combined quantity exceeds it', async () => {
+    const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
+    const input = { tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, productId: 'product-1', addedByActorType: 'rep' as const }
+    await handler.execute({ ...input, quantity: '999999999999.9999' }, makeCtx({ em: makeEm() }))
+    await expect(handler.execute({ ...input, quantity: '0.0001' }, makeCtx({ em: makeEm() })))
+      .resolves.toMatchObject({ status: 'merged', line: { quantity: '999999999999.9999' }, warnings: ['quantity_capped'] })
+  })
+
   it('creates a new line with a correct price snapshot', async () => {
     const handler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')
     const em = makeEm()
@@ -582,6 +624,23 @@ describe('cart.lines.update', () => {
     return line
   }
 
+  it.each(['1000000000000', '1.00001'])('rejects unsupported update quantity %s without changing the line', async (quantity) => {
+    await seedLine()
+    const em = makeEm()
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+    await expect(handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity }, makeCtx({ em })))
+      .rejects.toMatchObject({ status: 400, body: { code: 'cart_quantity_invalid' } })
+    expect(seededCartLines[0].quantity).toBe('5')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('preserves an exact boundary update', async () => {
+    await seedLine()
+    const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, lineId: 'line-1', quantity: '999999999999.9997' }, makeCtx({ em: makeEm() }))
+    expect(result).toMatchObject({ status: 'updated', line: { quantity: '999999999999.9997' } })
+  })
+
   it('rejects an update on a promotion-origin line with a thrown conflict', async () => {
     await seedLine({ origin: 'promotion' })
     const handler = getHandler<CartLinesUpdateInput, CartLinesUpdateOutcome>('cart.lines.update')
@@ -794,6 +853,26 @@ describe('cart.lines.bulkAdd', () => {
   })
 
   beforeEach(resetFixtures)
+
+  it('prevalidates every bulk input before any entry is persisted', async () => {
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const em = makeEm()
+    await expect(handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, addedByActorType: 'rep', lines: [
+      { productId: 'product-1', quantity: '1' },
+      { productId: 'product-1', quantity: '1000000000000' },
+    ] }, makeCtx({ em }))).rejects.toMatchObject({ status: 400, body: { code: 'cart_quantity_invalid' } })
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(seededCartLines).toHaveLength(0)
+  })
+
+  it('preserves exact bulk sums at the boundary', async () => {
+    const handler = getHandler<CartLinesBulkAddInput, CartLinesBulkAddResult>('cart.lines.bulkAdd')
+    const result = await handler.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, cartId: CART_ID, addedByActorType: 'rep', lines: [
+      { productId: 'product-1', quantity: '999999999999.9996' },
+      { productId: 'product-1', quantity: '0.0001' },
+    ] }, makeCtx({ em: makeEm() }))
+    expect(result.results[1]).toMatchObject({ status: 'merged', line: { quantity: '999999999999.9997' } })
+  })
 
   it.each([0, 1])('uses the committed quantity after waiting for the lock with %i initial units', async (initialQuantity) => {
     const addHandler = getHandler<CartLinesAddInput, CartLinesAddOutcome>('cart.lines.add')

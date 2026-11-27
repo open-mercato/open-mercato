@@ -5,6 +5,7 @@
   "cart.audit.lines.remove": "Remove cart line",
   "cart.audit.merge": "Merge cart",
   "cart.errors.busy": "Der Warenkorb ist ausgelastet. Bitte versuche es erneut.",
+  "cart.errors.quantity_invalid": "Die Menge muss größer als null sein, darf höchstens 999999999999.9999 betragen und maximal vier Nachkommastellen haben.",
   "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
   "cart.errors.unexpected": "Unexpected error",
   "cart.warnings.code_no_longer_valid": "A previously applied code is no longer valid",

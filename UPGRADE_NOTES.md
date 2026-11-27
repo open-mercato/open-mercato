@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Cart quantities must fit the existing storage precision (#10339)
+
+Send a positive decimal no greater than `999999999999.9999`, with at most four fractional places after removing trailing zeros. The cart request schemas continue to reject values outside storage precision. Direct command calls and computed writes now check the same limit before saving. An invalid command quantity or an unrepresentable final cap can return HTTP 400 with `cart_quantity_invalid`.
+
+Correct the quantity or the product's applicable maximum order quantity before retrying. Combined quantities still cap at the existing storage ceiling or a lower valid order maximum. Existing carts need no data migration, and deployment requires no configuration changes.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.

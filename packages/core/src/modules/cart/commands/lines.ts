@@ -10,6 +10,7 @@ import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { badRequest, conflict, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { addDecimals, decimalToString } from '@open-mercato/shared/lib/decimal'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
@@ -50,6 +51,7 @@ import type { SalesCalculationService } from '@open-mercato/core/modules/sales/s
 import type { SalesAdjustmentDraft } from '@open-mercato/core/modules/sales/lib/types'
 
 import { MAX_CART_LINE_QUANTITY } from '../data/validators'
+import { assertCartQuantity } from '../lib/quantity'
 import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartLineActorType, CartLineOrigin } from '../data/entities'
 import {
@@ -641,10 +643,13 @@ export function toCartLineSnapshot(line: CartLine): CartLineSnapshot {
   }
 }
 
-function toQuantityNumber(value: number | string): number {
-  const numeric = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(numeric)) throw badRequest('[internal] quantity must be a finite number')
-  return numeric
+function checkWritableQuantity(rules: QuantityRules, quantity: string) {
+  const check = checkQuantityRule(rules, Number(quantity))
+  if (check.status === 'rejected') return check
+  return {
+    ...check,
+    quantityExact: assertCartQuantity(check.status === 'accepted_clamped' ? check.quantity : quantity),
+  }
 }
 
 /**
@@ -918,8 +923,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     assertStorefrontHasRouteContext(cart, input)
     const assortmentScope = resolveEnforcedScope(cart, rawScope)
 
-    const requestedQuantity = toQuantityNumber(input.quantity)
-    if (!(requestedQuantity > 0)) throw badRequest('[internal] quantity must be greater than zero')
+    const requestedQuantity = assertCartQuantity(input.quantity)
 
     const variantId = input.variantId ?? null
 
@@ -933,7 +937,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     }
 
     const rules = await resolveQuantityRulesForProduct(em, ctx.container, scope, cart.storeId ?? null, product, variantId)
-    const check = checkQuantityRule(rules, requestedQuantity)
+    const check = checkWritableQuantity(rules, requestedQuantity)
     if (check.status === 'rejected') return { status: 'rejected', reason: check.reason, nearestValid: check.nearestValid }
     const warnings: CartLineWarning[] = check.status === 'accepted_clamped' ? ['quantity_capped'] : []
     const acceptedQuantity = check.quantity
@@ -974,8 +978,8 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
 
         if (existing) {
           const before = toCartLineSnapshot(existing)
-          const summedQuantity = Number(existing.quantity) + acceptedQuantity
-          const sumCheck = checkQuantityRule(rules, summedQuantity)
+          const summedQuantity = decimalToString(addDecimals(existing.quantity, check.quantityExact))
+          const sumCheck = checkWritableQuantity(rules, summedQuantity)
           if (sumCheck.status === 'rejected') {
             outcome = { status: 'rejected', reason: sumCheck.reason, nearestValid: sumCheck.nearestValid }
             return
@@ -988,7 +992,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
             return
           }
 
-          existing.quantity = String(sumCheck.quantity)
+          existing.quantity = sumCheck.quantityExact
           if (assortmentScope !== undefined && existing.flagState === 'product_unavailable') existing.flagState = null
           applyPriceSnapshot(existing, resolved, now)
           existing.lineTotals = await computeLineTotals(ctx.container, cart, {
@@ -1030,7 +1034,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
           sku: fields.sku,
           name: fields.name,
           optionValues: fields.optionValues,
-          quantity: String(acceptedQuantity),
+          quantity: check.quantityExact,
           origin: 'customer' as const,
           promotionId: null,
           discountTotalNet: null,
@@ -1209,14 +1213,13 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     // return `409 promotion_line_immutable`)".
     if (line.origin === 'promotion') throw conflict('[internal] promotion_line_immutable')
 
-    const requestedQuantity = toQuantityNumber(input.quantity)
-    if (!(requestedQuantity > 0)) throw badRequest('[internal] quantity must be greater than zero')
+    const requestedQuantity = assertCartQuantity(input.quantity)
 
     const product = await findOneWithDecryption(em, CatalogProduct, { id: line.productId, tenantId, organizationId, deletedAt: null }, {}, scope)
     if (!product) return { status: 'rejected', reason: 'product_unavailable' }
 
     const rules = await resolveQuantityRulesForProduct(em, ctx.container, scope, cart.storeId ?? null, product, line.variantId ?? null)
-    const check = checkQuantityRule(rules, requestedQuantity)
+    const check = checkWritableQuantity(rules, requestedQuantity)
     if (check.status === 'rejected') return { status: 'rejected', reason: check.reason, nearestValid: check.nearestValid }
     const warnings: CartLineWarning[] = check.status === 'accepted_clamped' ? ['quantity_capped'] : []
     const finalQuantity = check.quantity
@@ -1282,7 +1285,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
 
     await withAtomicFlush(em, [
       async () => {
-        line.quantity = String(finalQuantity)
+        line.quantity = check.quantityExact
         if (restoringVisibility) line.flagState = null
       },
       ...buildCartPromotionsAndTotalsPhases({
@@ -1482,6 +1485,11 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
 
     if (input.lines.length === 0) return { results: [], addedCount: 0, rejectedCount: 0 }
 
+    const requestedQuantities = input.lines.map(({ quantity }) => {
+      const numeric = Number(quantity)
+      return Number.isFinite(numeric) && numeric > 0 ? assertCartQuantity(quantity) : null
+    })
+
     // ---- batched reads (§6a.1c: "never one-at-a-time") — nothing mutated yet ----
     const visibilityRefs: CartVisibilityLineRef[] = input.lines.map((entry) => ({ productId: entry.productId, variantId: entry.variantId ?? null }))
     const visibility = await evaluateCartVisibility({ lines: visibilityRefs, scope: assortmentScope, tenantScope: scope, em, container: ctx.container })
@@ -1530,14 +1538,8 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     // rather than a fresh DB query.
     const phases = input.lines.map((entry, index) => async () => {
       const variantId = entry.variantId ?? null
-      let requestedQuantity: number
-      try {
-        requestedQuantity = toQuantityNumber(entry.quantity)
-      } catch {
-        outcomes[index] = { index, status: 'rejected', reason: 'product_unavailable' }
-        return
-      }
-      if (!(requestedQuantity > 0)) {
+      const requestedQuantity = requestedQuantities[index]
+      if (requestedQuantity == null) {
         outcomes[index] = { index, status: 'rejected', reason: 'product_unavailable' }
         return
       }
@@ -1554,7 +1556,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
       }
 
       const rules = deriveQuantityRules(policies[index] ?? null, product)
-      const check = checkQuantityRule(rules, requestedQuantity)
+      const check = checkWritableQuantity(rules, requestedQuantity)
       if (check.status === 'rejected') {
         outcomes[index] = { index, status: 'rejected', reason: check.reason, nearestValid: check.nearestValid }
         return
@@ -1576,8 +1578,8 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
 
       if (existingLine) {
         const before = toCartLineSnapshot(existingLine)
-        const summedQuantity = Number(existingLine.quantity) + acceptedQuantity
-        const sumCheck = checkQuantityRule(rules, summedQuantity)
+        const summedQuantity = decimalToString(addDecimals(existingLine.quantity, check.quantityExact))
+        const sumCheck = checkWritableQuantity(rules, summedQuantity)
         if (sumCheck.status === 'rejected') {
           outcomes[index] = { index, status: 'rejected', reason: sumCheck.reason, nearestValid: sumCheck.nearestValid }
           return
@@ -1589,7 +1591,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
           outcomes[index] = { index, status: 'rejected', reason: 'product_not_priceable' }
           return
         }
-        existingLine.quantity = String(sumCheck.quantity)
+        existingLine.quantity = sumCheck.quantityExact
         if (assortmentScope !== undefined && existingLine.flagState === 'product_unavailable') existingLine.flagState = null
         applyPriceSnapshot(existingLine, resolved, now)
         existingLine.lineTotals = await computeLineTotals(ctx.container, cart, {
@@ -1629,7 +1631,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
         sku: fields.sku,
         name: fields.name,
         optionValues: fields.optionValues,
-        quantity: String(acceptedQuantity),
+        quantity: check.quantityExact,
         origin: 'customer' as const,
         promotionId: null,
         discountTotalNet: null,

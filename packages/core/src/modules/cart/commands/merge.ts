@@ -7,6 +7,7 @@ import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError, badRequest, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { addDecimals, compareDecimals } from '@open-mercato/shared/lib/decimal'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
@@ -17,6 +18,7 @@ import type { QuantityRulePolicy } from '@open-mercato/core/modules/availability
 import type { PolicyResolutionService } from '@open-mercato/core/modules/availability/lib/policyResolution'
 
 import { MAX_CART_LINE_QUANTITY } from '../data/validators'
+import { assertCartQuantity } from '../lib/quantity'
 import { Cart, CartLine, CartMergeLog } from '../data/entities'
 import type { CartMergeActorType, CartMergeLineDisposition, CartMergeOutcomeEntry, CartMergeStrategy } from '../data/entities'
 import { generateCartToken, hashCartToken } from '../lib/token'
@@ -358,7 +360,7 @@ function buildMergeOutcome(
         sku: sourceLine.sku ?? null,
         name: sourceLine.name,
         optionValues: sourceLine.optionValues ?? null,
-        quantity: sourceLine.quantity,
+        quantity: assertCartQuantity(sourceLine.quantity),
         quantityUnit: sourceLine.quantityUnit ?? null,
         uomSnapshot: sourceLine.uomSnapshot ?? null,
         unitPriceNet: sourceLine.unitPriceNet ?? null,
@@ -390,11 +392,10 @@ function buildMergeOutcome(
     }
 
     const previousTargetQuantity = matched.quantity
-    const summedQuantity = Number(matched.quantity) + Number(sourceLine.quantity)
+    const summedQuantity = addDecimals(matched.quantity, sourceLine.quantity)
     const maxQuantity = Math.min(maxQuantityBySourceLineId.get(sourceLine.id) ?? MAX_CART_LINE_QUANTITY, MAX_CART_LINE_QUANTITY)
-    const capped = summedQuantity > maxQuantity
-    const finalQuantity = capped ? maxQuantity : summedQuantity
-    matched.quantity = String(finalQuantity)
+    const capped = compareDecimals(summedQuantity, maxQuantity) > 0
+    matched.quantity = assertCartQuantity(capped ? maxQuantity : summedQuantity.toFixed())
     updatedLineIds.push(matched.id)
     outcome.push({
       sourceLineId: sourceLine.id,
