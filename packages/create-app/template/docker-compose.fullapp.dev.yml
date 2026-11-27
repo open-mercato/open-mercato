@@ -8,6 +8,9 @@ services:
       context: .
       target: dev
       args:
+        - OM_ENABLE_ENTERPRISE_MODULES=${OM_ENABLE_ENTERPRISE_MODULES:-false}
+        - OM_ENABLE_ENTERPRISE_MODULES_BACKUPS=${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
+        - POSTGRES_CLIENT_MAJOR=${POSTGRES_CLIENT_MAJOR:-17}
         - OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
       extra_hosts:
         - "host.docker.internal:host-gateway"
@@ -24,8 +27,11 @@ services:
     ports:
       - "${INFRA_BIND_HOST:-127.0.0.1}:${APP_PORT:-3000}:3000"
     environment:
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
       OPENCODE_PASSWORD: ${OPENCODE_PASSWORD:?Set OPENCODE_PASSWORD to a strong random value for the dev agent server}
+      OM_ENABLE_ENTERPRISE_MODULES: ${OM_ENABLE_ENTERPRISE_MODULES:-false}
+      OM_ENABLE_ENTERPRISE_MODULES_BACKUPS: ${OM_ENABLE_ENTERPRISE_MODULES_BACKUPS:-false}
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
       REDIS_URL: redis://redis:6379
@@ -240,6 +246,7 @@ services:
       - app_node_modules:/app/node_modules
       - mcp_shared:/run/mcp-shared
     environment:
+      OM_MCP_MUTATION_MODE: ${OM_MCP_MUTATION_MODE:-}
       NODE_ENV: ${NODE_ENV:-development}
       NODE_OPTIONS: ${MCP_NODE_OPTIONS:---max-old-space-size=2048}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
@@ -276,6 +283,7 @@ services:
       # configured contract, since this network is internal and not published (dev
       # compose publishes MCP_PORT to the host, which also requires a non-loopback bind).
       MCP_HTTP_HOST: "0.0.0.0"
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
       MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
       MCP_DEBUG: ${MCP_DEBUG:-false}
@@ -367,6 +375,7 @@ services:
       - mercato-network-fullapp
 
 volumes:
+  recovery_data:
   postgres_data:
   # Shared MCP API key file: the mcp service provisions it, opencode reads it.
   mcp_shared:

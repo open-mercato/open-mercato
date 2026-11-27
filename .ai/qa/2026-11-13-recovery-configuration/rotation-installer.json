@@ -1,0 +1,18 @@
+{
+  "actualCreateInstaller": true,
+  "sandboxOnly": true,
+  "noExternal": true,
+  "manifestValid": true,
+  "bothOperatorSkillsDiscoverable": true,
+  "infraSkills": 4,
+  "canonicalLinkCorrect": true,
+  "externalCalls": 0,
+  "warnings": [],
+  "summary": [
+    "Installed 4 local skills across 1 tiers: infra.",
+    "External skills: skipped (--no-external).",
+    "Layout: .agents/skills/ (canonical); per-agent links: claude-code."
+  ],
+  "backupBundledReferencesResolve": 5,
+  "rotationBundledReferencesResolve": 4
+}

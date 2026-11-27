@@ -6,8 +6,8 @@ function makeValidStartPayload(overrides: Record<string, unknown> = {}) {
     firstName: 'Jane',
     lastName: 'Doe',
     organizationName: 'Acme Corp',
-    password: 'Secret1!',
-    confirmPassword: 'Secret1!',
+    password: 'OnboardingTest1!',
+    confirmPassword: 'OnboardingTest1!',
     termsAccepted: true as const,
     ...overrides,
   }
@@ -34,7 +34,7 @@ describe('onboardingStartSchema', () => {
 
   it('rejects mismatching passwords', () => {
     const result = onboardingStartSchema.safeParse(
-      makeValidStartPayload({ password: 'Secret1!', confirmPassword: 'Different1!' }),
+      makeValidStartPayload({ password: 'OnboardingTest1!', confirmPassword: 'DifferentTest1!' }),
     )
     expect(result.success).toBe(false)
   })

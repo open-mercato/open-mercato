@@ -46,6 +46,8 @@ export async function resolvePaymentGatewayTranslator(): Promise<TranslateWithFa
   }
 }
 
+export { resolvePaymentGatewayTranslator as resolveConflictTranslator }
+
 export function isPaymentOrderTotalResolver(candidate: unknown): candidate is PaymentOrderTotalResolver {
   return !!candidate
     && typeof candidate === 'object'

@@ -99,7 +99,7 @@ describe('GET /api/workflows/instances/[id]/steps', () => {
         tenantId: testTenantId,
       }),
       expect.objectContaining({
-        orderBy: [{ enteredAt: 'ASC' }, { createdAt: 'ASC' }],
+        orderBy: [{ enteredAt: 'ASC' }, { createdAt: 'ASC' }, { id: 'ASC' }],
       })
     )
   })

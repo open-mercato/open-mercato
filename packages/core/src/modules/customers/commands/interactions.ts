@@ -29,6 +29,7 @@ import {
 } from '../data/validators'
 import {
   buildCustomerCommandLookup,
+  commandScopeWhere,
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
@@ -288,7 +289,12 @@ async function loadInteractionSnapshot(
 ): Promise<InteractionSnapshot | null> {
   const interaction = lockForUpdate && ctx
     ? await findInteractionForWrite(em, ctx, { id }, true)
-    : await findOneWithDecryption(em, CustomerInteraction, { id }, { populate: ['entity'] })
+    : await findOneWithDecryption(
+      em,
+      CustomerInteraction,
+      { id, ...(ctx ? commandScopeWhere(ctx) : {}) },
+      { populate: ['entity'] },
+    )
   if (!interaction) return null
   if (ctx) await ensureInteractionMutationAccess(ctx, em, interaction)
   const custom = await loadCustomFieldSnapshot(em, {

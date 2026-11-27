@@ -32,7 +32,7 @@ test.describe('TC-ATT-STRUCT-003: requesting extraction and access control', () 
     const superadminToken = await getAuthToken(request, 'superadmin')
     const { tenantId, organizationId: orgAId } = getTokenScope(adminToken)
     const stamp = `tc-att-struct-003-${Date.now()}`
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
 
     let partition: StructurePartition | null = null
     let attachmentId: string | null = null

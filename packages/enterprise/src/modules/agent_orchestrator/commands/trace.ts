@@ -3,7 +3,10 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { traceIngestSchema } from '../data/validators'
+import { assertTraceIngestOrganization, assertTraceIngestRun } from '../lib/trace/ingestScope'
+import { getTraceIngestAuthority } from '../lib/trace/ingestAuthority'
 import { ingestTrace, type IngestTraceResult } from '../lib/trace/traceIngestionService'
 import { createArtifactResultOffloader } from '../lib/trace/artifactStore'
 import { resolveIngestContentCapture } from '../lib/trace/ingestContentCapture'
@@ -25,16 +28,25 @@ export type IngestTraceCommandInput = z.infer<typeof ingestTraceCommandSchema>
 
 /**
  * Audited write path for trace ingestion. The HMAC route resolves the verified
- * tenant/org scope and hands the parsed payload here; the service performs the
- * idempotent upsert + append, and we emit `run.ingested` once per call.
+ * tenant/org scope and hands the parsed payload here. The command checks
+ * organization ownership and validates the selected run before the service
+ * upserts it, appends child traces, and emits `run.ingested`.
  */
 const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceResult> = {
   id: 'agent_orchestrator.trace.ingest',
   async execute(rawInput, ctx) {
     const input = ingestTraceCommandSchema.parse(rawInput)
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    const authority = getTraceIngestAuthority(ctx)
+    if (authority && (authority.tenantId !== scope.tenantId || authority.organizationId !== scope.organizationId)) {
+      throw new CrudHttpError(401, { error: 'Trace ingest verification failed' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await assertTraceIngestOrganization(em, scope)
     const result = await ingestTrace(em, scope, input.payload, {
+      assertRunScope: (run) => assertTraceIngestRun(
+        em, ctx.container, scope, input.payload, run, authority?.source === 'opencode' ? authority.runId : undefined,
+      ),
       offloadArtifactResult: createArtifactResultOffloader(ctx.container, scope),
       ...(await resolveIngestContentCapture(ctx.container, scope, input.payload)),
     })
@@ -114,6 +126,19 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
     }
 
     return result
+  },
+  buildLog({ ctx, result }) {
+    const authority = getTraceIngestAuthority(ctx)
+    if (authority?.source !== 'webhook') return
+    return {
+      replayable: false,
+      tenantId: authority.tenantId,
+      organizationId: authority.organizationId,
+      actorUserId: 'system:trace-ingest-webhook',
+      resourceKind: 'agent_orchestrator:agent_run',
+      resourceId: result.runId,
+      context: { source: 'api' },
+    }
   },
 }
 

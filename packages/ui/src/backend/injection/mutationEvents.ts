@@ -10,6 +10,7 @@ export type BackendMutationErrorEventDetail = {
   contextId?: string
   formId?: string
   error?: unknown
+  retryMutation?: (formId?: string) => Promise<boolean>
 }
 
 export function dispatchBackendMutationError(detail: BackendMutationErrorEventDetail) {

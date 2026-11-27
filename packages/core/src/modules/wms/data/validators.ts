@@ -166,6 +166,14 @@ const enforceLotDateOrdering = (
 
 export const inventoryLotCreateSchema = inventoryLotBaseSchema.superRefine(enforceLotDateOrdering)
 
+export const inventoryLotDateOrderingSchema = z
+  .object({
+    manufacturedAt: z.date().optional(),
+    bestBeforeAt: z.date().optional(),
+    expiresAt: z.date().optional(),
+  })
+  .superRefine(enforceLotDateOrdering)
+
 export const inventoryLotUpdateSchema = z
   .object({
     id: uuid(),
@@ -174,6 +182,22 @@ export const inventoryLotUpdateSchema = z
   })
   .merge(inventoryLotBaseSchema.partial())
   .superRefine(enforceLotDateOrdering)
+
+type InventoryLotDateKey = 'manufacturedAt' | 'bestBeforeAt' | 'expiresAt'
+
+const inventoryLotDateKeys: InventoryLotDateKey[] = ['manufacturedAt', 'bestBeforeAt', 'expiresAt']
+
+export function keepClearedInventoryLotDates<T extends Partial<Record<InventoryLotDateKey, Date>>>(
+  raw: unknown,
+  parsed: T,
+): Omit<T, InventoryLotDateKey> & Partial<Record<InventoryLotDateKey, Date | null>> {
+  const result: Omit<T, InventoryLotDateKey> & Partial<Record<InventoryLotDateKey, Date | null>> = { ...parsed }
+  if (typeof raw !== 'object' || raw === null) return result
+  for (const key of inventoryLotDateKeys) {
+    if (Reflect.get(raw, key) === null) result[key] = null
+  }
+  return result
+}
 
 const inventoryLowStockFilterSchema = z.enum(['belowReorder', 'belowSafety'])
 

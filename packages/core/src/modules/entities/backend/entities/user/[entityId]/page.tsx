@@ -19,14 +19,8 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { createCrudFormError, raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { FieldDefinitionsEditor, type FieldDefinition, type FieldDefinitionError } from '@open-mercato/ui/backend/custom-fields/FieldDefinitionsEditor'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@open-mercato/ui/primitives/dialog'
-import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entities/options'
-import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
+import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { extensionPoints } from '@open-mercato/core/modules/entities/extension-points'
 
 type Def = FieldDefinition
 export type EntitySource = 'code' | 'custom'
@@ -67,32 +61,6 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const [fieldsets, setFieldsets] = useState<FieldsetDefinition[]>([])
   const [activeFieldset, setActiveFieldset] = useState<string | null>(null)
   const [singleFieldsetPerRecord, setSingleFieldsetPerRecord] = useState(true)
-  const [translateDef, setTranslateDef] = useState<{ def: Def; entityId: string } | null>(null)
-
-  const translateFields = React.useMemo(() => {
-    if (!translateDef) return undefined
-    const { def } = translateDef
-    const fields: string[] = ['label', 'description']
-    const options = normalizeCustomFieldOptions(def.configJson?.options)
-    for (const opt of options) {
-      if (opt.value) fields.push(`options.${opt.value}.label`)
-    }
-    return fields
-  }, [translateDef])
-
-  const translateBaseValues = React.useMemo(() => {
-    if (!translateDef) return undefined
-    const { def } = translateDef
-    const base: Record<string, string> = {}
-    if (typeof def.configJson?.label === 'string') base.label = def.configJson.label
-    if (typeof def.configJson?.description === 'string') base.description = def.configJson.description
-    const options = normalizeCustomFieldOptions(def.configJson?.options)
-    for (const opt of options) {
-      if (opt.value && opt.label) base[`options.${opt.value}.label`] = opt.label
-    }
-    return base
-  }, [translateDef])
-
   const requestedFieldset = React.useMemo(() => {
     const raw = searchParams?.get('fieldset')
     return raw && raw.trim().length ? raw.trim() : null
@@ -317,12 +285,16 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     if (!def) return
     if (def.key) {
       try {
-        const call = await apiCall<DefinitionsBatchResponse>('/api/entities/definitions', {
-          method: 'DELETE',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ entityId, key: def.key }),
-        })
+        const call = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(defsVersion),
+          () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions', {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ entityId, key: def.key }),
+          }),
+        )
         if (!call.ok) {
+          if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
           await raiseCrudError(call.response, t('entities.customFields.errors.deleteFailed', 'Failed to delete field.'))
         }
         // Keep the optimistic-lock token in sync after an out-of-band delete so a
@@ -335,7 +307,6 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       }
     }
     setDefs((arr) => arr.filter((_, i) => i !== idx))
-    setOrderDirty(true)
     if (def.key) {
       await invalidateCustomFieldDefs(queryClient, entityId)
     }
@@ -473,7 +444,12 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           setDefs((arr) => arr.map((entry, idx) => (idx === index ? nextDef : entry)))
           validateAndSetErrorAt(index, nextDef)
         }}
-        onTranslate={(def) => setTranslateDef({ def, entityId })}
+        renderFieldActions={(definition) => (
+          <InjectionSpot
+            spotId={extensionPoints.hosts.fieldDefinitionActions.spotId}
+            context={{ entityId, definition }}
+          />
+        )}
         onRestoreField={(key) => { void restoreField(key) }}
         onReorder={(from, to) => {
           setDefs((arr) => {
@@ -501,7 +477,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         }}
       />
     ),
-  [defs, defErrors, deletedKeys, fieldsets, activeFieldset, singleFieldsetPerRecord, orderDirty, orderSaving, addField, removeField, restoreField, saveOrderIfDirty, t])
+  [entityId, defs, defErrors, deletedKeys, fieldsets, activeFieldset, singleFieldsetPerRecord, orderDirty, orderSaving, addField, removeField, restoreField, saveOrderIfDirty, t])
 
   const definitionsGroup: CrudFormGroup = { id: 'definitions', title: t('entities.userEntities.edit.groups.definitions', 'Field Definitions'), column: 1, component: renderFieldDefinitions }
 
@@ -548,6 +524,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       defs,
       fieldsets: buildFieldsetPayload(),
       singleFieldsetPerRecord,
+      preserveOrder: !orderDirty,
     })
     // Send the aggregate schema version so a concurrent edit is rejected with a 409
     // instead of silently overwriting the other tab (issue #3152). CrudForm's submit
@@ -564,10 +541,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       await raiseCrudError(callDefs.response, t('entities.customFields.errors.saveFailed', 'Failed to save field definitions.'))
     }
     setDefsVersion(readVersionToken(callDefs.result?.version))
+    setOrderDirty(false)
     try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     await invalidateCustomFieldDefs(queryClient, entityId)
     flash(t('entities.customFields.flash.saved', 'Definitions saved'), 'success')
-  }, [buildFieldsetPayload, defs, defsVersion, entityId, entitySource, queryClient, singleFieldsetPerRecord, t, validateAll])
+  }, [buildFieldsetPayload, defs, defsVersion, entityId, entitySource, orderDirty, queryClient, singleFieldsetPerRecord, t, validateAll])
 
   if (!entityId) {
     return (
@@ -641,23 +619,6 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         } : undefined}
       />
       </PageBody>
-      <Dialog open={!!translateDef} onOpenChange={(open) => { if (!open) setTranslateDef(null) }}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{t('translations.manager.translateField', 'Translate field: {{key}}', { key: translateDef?.def.key ?? '' })}</DialogTitle>
-          </DialogHeader>
-          {translateDef && (
-            <TranslationManager
-              mode="embedded"
-              compact
-              entityType="entities:custom_field_def"
-              recordId={`${translateDef.entityId}:${translateDef.def.key}`}
-              baseValues={translateBaseValues}
-              translatableFields={translateFields}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </Page>
   )
 }
@@ -680,9 +641,11 @@ export function buildDefinitionsBatchPayload(options: {
   defs: Array<Pick<Def, 'key' | 'kind' | 'configJson' | 'isActive'>>
   fieldsets: FieldsetDefinition[]
   singleFieldsetPerRecord: boolean
+  preserveOrder?: boolean
 }) {
   return {
     entityId: options.entityId,
+    ...(options.preserveOrder !== undefined && { preserveOrder: options.preserveOrder }),
     definitions: options.defs.filter((d) => !!d.key).map((d) => ({
       key: d.key,
       kind: d.kind,

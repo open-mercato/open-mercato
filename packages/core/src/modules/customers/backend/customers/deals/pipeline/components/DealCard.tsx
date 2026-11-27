@@ -62,9 +62,10 @@ type DealCardProps = {
   extraCompaniesCount?: number
   extraOwners?: DealCardOwner[]
   isActiveDrag?: boolean
+  canDrag?: boolean
   onToggleSelect: (dealId: string) => void
-  onComposeActivity: (dealId: string, type: 'call' | 'email' | 'note') => void
-  onOpenDetail: (dealId: string) => void
+  onComposeActivity?: (dealId: string, type: 'call' | 'email' | 'note') => void
+  onOpenDetail?: (dealId: string) => void
 }
 
 const ACTIVITY_BADGE_CAP = 9
@@ -139,6 +140,7 @@ function DealCardImpl({
   extraCompaniesCount = 0,
   extraOwners,
   isActiveDrag = false,
+  canDrag = true,
   onToggleSelect,
   onComposeActivity,
   onOpenDetail,
@@ -151,6 +153,7 @@ function DealCardImpl({
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: deal.id,
     data: { type: 'deal' },
+    disabled: !canDrag,
   })
   const dimmed = isActiveDrag || isDragging
 
@@ -196,12 +199,12 @@ function DealCardImpl({
       onToggleSelect(deal.id)
       return
     }
-    onOpenDetail(deal.id)
+    onOpenDetail?.(deal.id)
   }
 
   const handleActionClick = (type: 'call' | 'email' | 'note') => (event: React.MouseEvent) => {
     event.stopPropagation()
-    onComposeActivity(deal.id, type)
+    onComposeActivity?.(deal.id, type)
   }
 
   // dnd-kit's `useDraggable` listeners set pointer capture on the card when a pointerdown lands
@@ -267,17 +270,19 @@ function DealCardImpl({
     <div
       ref={setNodeRef}
       style={style}
-      {...attributes}
-      {...listeners}
+      {...(canDrag ? attributes : undefined)}
+      {...(canDrag ? listeners : undefined)}
       aria-label={ariaLabel}
-      aria-roledescription={ariaRoleDescription}
+      aria-roledescription={canDrag ? ariaRoleDescription : undefined}
       onClick={handleCardClick}
       className={`group relative flex w-full flex-col gap-3 rounded-lg border border-border bg-card px-4 py-3.5 shadow-xs transition-shadow ${
         dimmed
           ? 'cursor-grabbing opacity-30'
-          : bulkSelectionActive
+          : bulkSelectionActive || (!canDrag && onOpenDetail)
             ? 'cursor-pointer hover:shadow-sm'
-            : 'cursor-grab hover:shadow-sm active:cursor-grabbing'
+            : canDrag
+              ? 'cursor-grab hover:shadow-sm active:cursor-grabbing'
+              : ''
       } ${selected ? 'ring-2 ring-accent-indigo' : ''}`}
     >
       <div className="flex items-start justify-between gap-2.5">
@@ -330,14 +335,14 @@ function DealCardImpl({
               {activityBadgeLabel}
             </span>
           ) : null}
-          <DealCardMenu
+          {menuItems.length > 0 ? <DealCardMenu
             items={menuItems}
             ariaLabel={translateWithFallback(
               t,
               'customers.deals.kanban.card.aria.menu',
               'Deal actions',
             )}
-          />
+          /> : null}
         </div>
       </div>
 
@@ -364,7 +369,7 @@ function DealCardImpl({
         toast and bailed silently, which was confusing — we surface the same constraint
         here as a disabled-with-tooltip state so the operator can fix the underlying data.
       */}
-      <div
+      {onComposeActivity ? <div
         data-card-action="true"
         // See note on the checkbox wrapper above — pairing `opacity-0` with `pointer-events-none`
         // is what restores drag-and-drop. Without it the (invisible) Call/Email/Note row sits in
@@ -443,7 +448,7 @@ function DealCardImpl({
             </>
           )
         })()}
-      </div>
+      </div> : null}
 
       <div className="flex items-center justify-between gap-2.5">
         {valuePieces ? (
@@ -567,6 +572,9 @@ export const DealCard = React.memo(DealCardImpl, (prev, next) => {
   if (prev.selected !== next.selected) return false
   if (prev.bulkSelectionActive !== next.bulkSelectionActive) return false
   if (prev.isActiveDrag !== next.isActiveDrag) return false
+  if (prev.canDrag !== next.canDrag) return false
+  if (prev.onComposeActivity !== next.onComposeActivity) return false
+  if (prev.onOpenDetail !== next.onOpenDetail) return false
   if (prev.buildMenuItems !== next.buildMenuItems) return false
   if (prev.extraCompaniesCount !== next.extraCompaniesCount) return false
   if (prev.extraOwners !== next.extraOwners) return false

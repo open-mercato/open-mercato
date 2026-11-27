@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { MfaChallenge, UserMfaMethod } from '../data/entities'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
 import { emitSecurityEvent } from '../events'
@@ -7,6 +8,7 @@ import type { MfaEnforcementService } from './MfaEnforcementService'
 import type { MfaProviderRuntimeContext, MfaVerifyContext } from '../lib/mfa-provider-interface'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { readSecurityModuleConfig } from '../lib/security-config'
+import { MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
 
 type AvailableMethod = {
   type: string
@@ -32,6 +34,7 @@ export class MfaVerificationServiceError extends Error {
   constructor(
     message: string,
     public readonly statusCode: number,
+    public readonly code?: string,
   ) {
     super(message)
     this.name = 'MfaVerificationServiceError'
@@ -50,18 +53,8 @@ export class MfaVerificationService {
   async createChallenge(userId: string): Promise<ChallengeCreationResult> {
     const methods = await this.getActiveMethods(userId)
     if (methods.length === 0) {
-      throw new MfaVerificationServiceError('No MFA methods configured', 400)
+      throw new MfaVerificationServiceError('No MFA methods configured', 400, MFA_NO_METHODS_CONFIGURED_CODE)
     }
-
-    const challenge = this.em.create(MfaChallenge, {
-      userId,
-      tenantId: methods[0].tenantId,
-      expiresAt: new Date(Date.now() + this.securityConfig.mfa.challengeTtlMs),
-      attempts: 0,
-      createdAt: new Date(),
-    })
-    this.em.persist(challenge)
-    await this.em.flush()
 
     const availableMethods = methods
       .map((method) => {
@@ -78,6 +71,16 @@ export class MfaVerificationService {
     if (availableMethods.length === 0) {
       throw new MfaVerificationServiceError('No registered MFA providers are available for the configured methods', 400)
     }
+
+    const challenge = this.em.create(MfaChallenge, {
+      userId,
+      tenantId: methods[0].tenantId,
+      expiresAt: new Date(Date.now() + this.securityConfig.mfa.challengeTtlMs),
+      attempts: 0,
+      createdAt: new Date(),
+    })
+    this.em.persist(challenge)
+    await this.em.flush()
 
     return {
       challengeId: challenge.id,
@@ -289,7 +292,7 @@ export class MfaVerificationService {
   }
 
   private async findMethod(userId: string, methodType: string): Promise<UserMfaMethod> {
-    const method = await this.em.findOne(UserMfaMethod, {
+    const method = await findOneWithDecryption(this.em, UserMfaMethod, {
       userId,
       type: methodType,
       isActive: true,
@@ -302,7 +305,7 @@ export class MfaVerificationService {
   }
 
   private async findMethodById(userId: string, methodId: string): Promise<UserMfaMethod> {
-    const method = await this.em.findOne(UserMfaMethod, {
+    const method = await findOneWithDecryption(this.em, UserMfaMethod, {
       id: methodId,
       userId,
       isActive: true,

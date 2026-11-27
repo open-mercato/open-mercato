@@ -69,7 +69,7 @@ export async function createStaffPerson(
 ): Promise<StaffPerson> {
   const suffix = uniqueSuffix()
   const email = `qa-support-${label}-${suffix}@acme.test`
-  const password = 'Valid1!Pass'
+  const password = 'QaValid1!Pass'
   const { organizationId } = getTokenContext(admin)
   const displayName = `QA ${label} ${suffix}`
   const userId = await createUserFixture(request, admin, { email, password, organizationId, roles, name: displayName })

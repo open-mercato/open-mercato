@@ -14,6 +14,8 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { LeaveScheduledEvents } from '@open-mercato/core/modules/staff/components/LeaveScheduledEvents'
 import { LeaveRequestForm, buildLeaveRequestPayload, type LeaveRequestFormValues } from '@open-mercato/core/modules/staff/components/LeaveRequestForm'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { type LeaveRequestRecord, type LeaveRequestsResponse, type NormalizedLeaveRequest, normalizeLeaveRequest, resolveStatusVariant, formatDateLabel, formatDateRange } from '../../../../lib/leaveRequestHelpers'
@@ -23,6 +25,7 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
   const t = useT()
   const router = useRouter()
   const pathname = usePathname()
+  const scopeVersion = useOrganizationScopeVersion()
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
@@ -80,7 +83,7 @@ export default function StaffLeaveRequestDetailPage({ params }: { params?: { id?
     }
     void load()
     return () => { cancelled = true }
-  }, [id, reloadToken, t])
+  }, [id, reloadToken, scopeVersion, t])
 
   const status = record?.status ?? 'pending'
   const memberLabel = record?.member?.displayName ?? null
@@ -210,6 +213,16 @@ const handleSubmit = React.useCallback(async (values: LeaveRequestFormValues) =>
             {t('staff.leaveRequests.detail.dates', 'Dates')}: {dateSummary}
           </p>
         </div>
+
+        {record.member?.userId && record.organizationId && record.startDate && record.endDate ? (
+          <LeaveScheduledEvents
+            userId={record.member.userId}
+            organizationId={record.organizationId}
+            startDate={record.startDate}
+            endDate={record.endDate}
+            timezone={record.timezone}
+          />
+        ) : null}
 
         {status === 'pending' ? (
           <div className="mb-6 rounded-lg border bg-card p-4">

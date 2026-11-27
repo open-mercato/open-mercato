@@ -27,7 +27,8 @@ seed_prebuilt() {
     cp -a "$PREBUILT/node_modules/." /app/node_modules/ || return 0
     date > /app/node_modules/.prebuilt-seeded
   fi
-  for pkg in core shared ui cli cache content checkout events onboarding queue search scheduler ai-assistant create-app documents; do
+  for pkg in core shared ui cli cache content checkout events onboarding queue search scheduler ai-assistant create-app documents \
+    cache-provider-jsonfile cache-provider-kit cache-provider-memory cache-provider-redis-legacy cache-provider-sqlite; do
     src="$PREBUILT/dist/$pkg"
     dst="/app/packages/$pkg/dist"
     if [ -d "$src" ] && [ -z "$(ls -A "$dst" 2>/dev/null)" ]; then

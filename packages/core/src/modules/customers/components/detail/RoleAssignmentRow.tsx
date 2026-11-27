@@ -11,7 +11,8 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasFeature } from '@open-mercato/shared/security/features'
+import { useBackendChrome, useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { fetchAssignableStaffMembers } from './assignableStaff'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -66,6 +67,8 @@ export function RoleAssignmentRow({
 }: RoleAssignmentRowProps) {
   const t = useT()
   const activeOrgId = useCurrentOrganization()?.id ?? null
+  const { payload } = useBackendChrome()
+  const canManageRoles = hasFeature(payload?.grantedFeatures ?? [], 'customers.roles.manage')
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [removing, setRemoving] = React.useState(false)
   const [changingUser, setChangingUser] = React.useState(false)
@@ -161,16 +164,18 @@ export function RoleAssignmentRow({
           <Badge variant="outline" className="max-w-full break-words rounded-full px-2 py-0 text-left text-xs font-semibold">
             {roleTypeLabel}
           </Badge>
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleRemove}
-            disabled={removing}
-            aria-label={t('customers.roles.remove', 'Remove role')}
-          >
-            <X className="size-4" />
-          </IconButton>
+          {canManageRoles ? (
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleRemove}
+              disabled={removing}
+              aria-label={t('customers.roles.remove', 'Remove role')}
+            >
+              <X className="size-4" />
+            </IconButton>
+          ) : null}
         </div>
 
         <div className="mt-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start">
@@ -225,24 +230,26 @@ export function RoleAssignmentRow({
               <Phone className="size-4" />
             </IconButton>
           )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-auto w-full justify-start px-2 py-1 text-xs sm:ml-auto sm:w-auto"
-            onClick={() => {
-              if (onChangeUser) {
-                onChangeUser()
-                return
-              }
-              setChangingUser((current) => !current)
-            }}
-          >
-            {t('customers.roles.changeUser', 'Change user')}
-          </Button>
+          {canManageRoles ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto w-full justify-start px-2 py-1 text-xs sm:ml-auto sm:w-auto"
+              onClick={() => {
+                if (onChangeUser) {
+                  onChangeUser()
+                  return
+                }
+                setChangingUser((current) => !current)
+              }}
+            >
+              {t('customers.roles.changeUser', 'Change user')}
+            </Button>
+          ) : null}
         </div>
 
-        {changingUser && !onChangeUser ? (
+        {canManageRoles && changingUser && !onChangeUser ? (
           <div className="mt-4 border-t pt-4">
             <LookupSelect
               defaultOpen

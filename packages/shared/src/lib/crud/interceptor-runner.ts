@@ -1,5 +1,6 @@
 import type {
   ApiInterceptorMethod,
+  ApiInterceptorScope,
   InterceptorContext,
   InterceptorRequest,
   InterceptorResponse,
@@ -8,6 +9,7 @@ import type {
 import { getApiInterceptorsForRoute } from './interceptor-registry'
 import { authorizeFeatures } from '../../security/featurePolicy'
 import { logInterceptorActivity } from '../umes/interceptor-activity'
+import { runWithRequestScopeAcquisition } from '../di/request-scope'
 
 const DEFAULT_TIMEOUT_MS = 5000
 
@@ -42,14 +44,6 @@ function hasRequiredFeatures(features: string[] | undefined, userFeatures: strin
   return authorizeFeatures(features ?? [], { grantedFeatures: userFeatures ?? [] })
 }
 
-function timeoutPromise(ms: number, interceptorId: string): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => {
-      reject(new Error(`INTERCEPTOR_TIMEOUT:${interceptorId}`))
-    }, ms)
-  })
-}
-
 function isTimeoutError(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith('INTERCEPTOR_TIMEOUT:')
 }
@@ -59,7 +53,15 @@ async function runWithTimeout<T>(
   timeoutMs: number,
   interceptorId: string,
 ): Promise<T> {
-  return Promise.race([task, timeoutPromise(timeoutMs, interceptorId)])
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`INTERCEPTOR_TIMEOUT:${interceptorId}`)), timeoutMs)
+  })
+  try {
+    return await Promise.race([task, timeout])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 function toErrorBody(interceptorId: string, error: unknown): Record<string, unknown> {
@@ -78,6 +80,7 @@ export async function runApiInterceptorsBefore(args: {
   method: ApiInterceptorMethod
   request: InterceptorRequest
   context: Omit<InterceptorContext, 'metadata'>
+  scope?: ApiInterceptorScope
 }): Promise<RunInterceptorsBeforeResult> {
   const { routePath, method, context } = args
   let currentRequest: InterceptorRequest = {
@@ -88,23 +91,25 @@ export async function runApiInterceptorsBefore(args: {
   }
 
   const metadataByInterceptor: Record<string, Record<string, unknown> | undefined> = {}
-  const interceptors = getApiInterceptorsForRoute(routePath, method)
+  const interceptors = getApiInterceptorsForRoute(routePath, method, args.scope)
 
   for (const entry of interceptors) {
     const interceptor = entry.interceptor
-    if (!interceptor.before) continue
+    const before = interceptor.before
+    if (!before) continue
     if (!hasRequiredFeatures(interceptor.features, context.userFeatures)) continue
 
     const startTime = Date.now()
     try {
       const timeoutMs = interceptor.timeoutMs ?? DEFAULT_TIMEOUT_MS
-      const result = await runWithTimeout(
-        interceptor.before(currentRequest, context),
-        timeoutMs,
-        interceptor.id,
-      )
+      const invoke = () => before.call(interceptor, currentRequest, context)
+      const task = args.scope === 'request' ? runWithRequestScopeAcquisition(invoke) : invoke()
+      const result = await runWithTimeout(task, timeoutMs, interceptor.id)
 
       const normalized: InterceptorBeforeResult = result ?? { ok: true }
+      if (args.scope === 'request' && (normalized.body || normalized.query || normalized.headers)) {
+        throw new TypeError('[internal] Request-scoped API interceptors only support admission decisions')
+      }
       if (!normalized.ok) {
         const rejectBody: Record<string, unknown> = {
           error: normalized.message ?? 'Request blocked by API interceptor',
