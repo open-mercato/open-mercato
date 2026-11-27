@@ -7,9 +7,10 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { previewHref } from '@/lib/links'
 import { clampWidth, isPreviewHeightMessage } from '@/lib/preview-protocol'
+import { STATE_WIDTHS } from '@/lib/states-matrix'
 import { useDesignSettings } from './DesignSettings'
 
-export const QUICK_WIDTHS = [390, 768, 1024, 1440] as const
+export const QUICK_WIDTHS = STATE_WIDTHS
 const MIN_WIDTH = 320
 const KEYBOARD_STEP = 16
 const INITIAL_HEIGHT = 160

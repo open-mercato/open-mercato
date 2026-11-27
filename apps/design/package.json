@@ -8,7 +8,8 @@
     "dev": "node ./scripts/generate-registry.mjs && next dev --port 3020",
     "build": "node ./scripts/generate-registry.mjs && next build",
     "typecheck": "node ./scripts/generate-registry.mjs && node ./scripts/typecheck.mjs",
-    "test": "jest --config jest.config.cjs"
+    "test": "jest --config jest.config.cjs",
+    "capture": "node ./scripts/capture-states.mjs"
   },
   "engines": {
     "node": "24.x"

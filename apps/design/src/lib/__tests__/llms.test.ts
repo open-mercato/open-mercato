@@ -15,7 +15,7 @@ function entry(partial: Pick<ManifestEntry, 'id' | 'title' | 'group' | 'importPa
 const copy = {
   title: 'Open Mercato Design',
   summary: 'Summary line.',
-  groupLabels: { foundations: 'Foundations', components: 'Components', blocks: 'Blocks' },
+  groupLabels: { foundations: 'Foundations', components: 'Components', blocks: 'Blocks', screens: 'Screens' },
 }
 
 describe('buildLlmsTxt', () => {
@@ -47,6 +47,17 @@ describe('buildLlmsTxt', () => {
     const output = buildLlmsTxt(entries, copy)
     expect(output).toContain('contract [timeline.json](/r/timeline.json), copy with `yarn mercato ui add timeline --module <moduleId>`')
     expect(output).not.toContain('mercato ui add button')
+  })
+
+  it('links a screen to its published source file instead of an import path', () => {
+    const screen = {
+      ...entry({ id: 'screen-record-list', title: 'Record list', group: 'screens', importPath: 'packages/core/demos/screens/record-list.tsx' }),
+      sourceFile: 'packages/core/demos/screens/record-list.tsx',
+    }
+    const output = buildLlmsTxt([...entries, screen], copy)
+    expect(output).toContain('## Screens')
+    expect(output).toContain('- [Record list](/screens/screen-record-list/): source [record-list.tsx](/r/source/packages/core/demos/screens/record-list.tsx.txt)')
+    expect(output).not.toContain('mercato ui add screen-record-list')
   })
 
   it('uses relative links without a site url', () => {

@@ -5,17 +5,20 @@ import { ExternalLink } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Anchor, type AnchorItem } from '@open-mercato/ui/primitives/anchor'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { entryTabSearch, parseEntryTab, resolveEntryTab, tabsForGroup, type EntryTab } from '@/lib/entry-tabs'
+import { GROUP_LABEL_FALLBACKS } from '@/lib/groups'
 import { githubFileUrl, issuesUrl, publicSourceUrl } from '@/lib/links'
 import type { EntryViewData } from './entry-types'
 import { PageHeader } from './PageHeader'
 import { PropsTable } from './PropsTable'
+import { StatesMatrix } from './StatesMatrix'
 import { VariantExample } from './VariantExample'
 
-function ImportLine({ importPath }: { importPath: string }) {
+function ImportLine({ importPath, source = false }: { importPath: string; source?: boolean }) {
   const t = useT()
   return (
     <p className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-muted-foreground">
-      <span>{t('design.entry.importLabel')}</span>
+      <span>{source ? t('design.entry.sourceLabel', 'Source') : t('design.entry.importLabel')}</span>
       <code className="min-w-0 break-all rounded-md bg-muted px-2 py-0.5 font-mono text-xs text-foreground">{importPath}</code>
     </p>
   )
@@ -176,6 +179,7 @@ function SourceLink({ label, path, local }: { label: string; path: string; local
 
 function SourcePanel({ data }: { data: EntryViewData }) {
   const t = useT()
+  const local = data.group === 'blocks' || data.group === 'screens'
   return (
     <div className="space-y-4">
       {data.sources.component ? null : (
@@ -185,9 +189,9 @@ function SourcePanel({ data }: { data: EntryViewData }) {
         </div>
       )}
       <ul className="space-y-3">
-        {data.sources.component ? <SourceLink local={data.group === 'blocks'} label={t('design.source.component')} path={data.sources.component} /> : null}
-        {data.sources.contract ? <SourceLink local={data.group === 'blocks'} label={t('design.source.contract')} path={data.sources.contract} /> : null}
-        <SourceLink local={data.group === 'blocks'} label={t('design.source.gallery')} path={data.sources.gallery} />
+        {data.sources.component ? <SourceLink local={local} label={data.group === 'screens' ? t('design.source.screen', 'Screen source') : t('design.source.component')} path={data.sources.component} /> : null}
+        {data.sources.contract ? <SourceLink local={local} label={t('design.source.contract')} path={data.sources.contract} /> : null}
+        <SourceLink local={local} label={t('design.source.gallery')} path={data.sources.gallery} />
       </ul>
     </div>
   )
@@ -198,7 +202,7 @@ function EntryMeta({ data }: { data: EntryViewData }) {
   const linkClass = 'inline-flex items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline'
   return (
     <div className="flex flex-col gap-3">
-      <ImportLine importPath={data.importPath} />
+      <ImportLine importPath={data.importPath} source={data.group === 'screens'} />
       {data.group === 'blocks' ? <CopyCommandLine blockId={data.id} /> : null}
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         {data.since ? <span className="text-sm text-muted-foreground">{t('design.entry.since', { version: data.since })}</span> : null}
@@ -228,24 +232,63 @@ function tableOfContents(data: EntryViewData, t: ReturnType<typeof useT>): Ancho
   return items
 }
 
+function replaceLocation(search: string, hash: string): void {
+  window.history.replaceState(null, '', `${window.location.pathname}${search}${hash}`)
+}
+
 export function EntryView({ data }: { data: EntryViewData }) {
   const t = useT()
-  const [tab, setTab] = React.useState('usage')
+  const [tab, setTab] = React.useState<EntryTab>('usage')
+  const [pendingAnchor, setPendingAnchor] = React.useState<string | null>(null)
+  const showStates = tabsForGroup(data.group).includes('states')
+  const showApi = tabsForGroup(data.group).includes('api')
+
+  React.useEffect(() => {
+    const read = () => setTab(parseEntryTab(window.location.search, data.group))
+    read()
+    window.addEventListener('popstate', read)
+    return () => window.removeEventListener('popstate', read)
+  }, [data.group])
+
+  React.useEffect(() => {
+    if (tab !== 'usage' || !pendingAnchor) return
+    document.getElementById(pendingAnchor)?.scrollIntoView({ block: 'start' })
+    replaceLocation(entryTabSearch(window.location.search, 'usage'), `#${pendingAnchor}`)
+    setPendingAnchor(null)
+  }, [tab, pendingAnchor])
+
+  const selectTab = (value: string) => {
+    const next = resolveEntryTab(value, data.group)
+    setTab(next)
+    replaceLocation(entryTabSearch(window.location.search, next), '')
+  }
+
+  const openVariant = (variantId: string) => {
+    setPendingAnchor(`variant-${variantId}`)
+    setTab('usage')
+  }
+
   return (
     <div className="mx-auto flex max-w-7xl gap-10">
       <article className="min-w-0 max-w-6xl flex-1 space-y-8">
-        <PageHeader overline={t(`design.nav.${data.group}`)} title={data.title} lead={data.description}>
+        <PageHeader overline={t(`design.nav.${data.group}`, GROUP_LABEL_FALLBACKS[data.group])} title={data.title} lead={data.description}>
           <EntryMeta data={data} />
         </PageHeader>
-        <Tabs value={tab} onValueChange={setTab} variant="underline" className="min-w-0 space-y-8">
+        <Tabs value={tab} onValueChange={selectTab} variant="underline" className="min-w-0 space-y-8">
           <TabsList aria-label={t('design.entry.tabsLabel')} className="flex w-full">
             <TabsTrigger value="usage">{t('design.entry.tabUsage')}</TabsTrigger>
-            <TabsTrigger value="api">{t('design.entry.tabApi')}</TabsTrigger>
+            {showApi ? <TabsTrigger value="api">{t('design.entry.tabApi')}</TabsTrigger> : null}
             <TabsTrigger value="source">{t('design.entry.tabSource')}</TabsTrigger>
+            {showStates ? <TabsTrigger value="states">{t('design.entry.tabStates')}</TabsTrigger> : null}
           </TabsList>
           <TabsContent value="usage"><UsagePanel data={data} /></TabsContent>
-          <TabsContent value="api"><ApiPanel data={data} /></TabsContent>
+          {showApi ? <TabsContent value="api"><ApiPanel data={data} /></TabsContent> : null}
           <TabsContent value="source"><SourcePanel data={data} /></TabsContent>
+          {showStates ? (
+            <TabsContent value="states">
+              <StatesMatrix entryId={data.id} group={data.group} title={data.title} variants={data.variants} onOpenVariant={openVariant} />
+            </TabsContent>
+          ) : null}
         </Tabs>
       </article>
       {tab === 'usage' ? (

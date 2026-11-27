@@ -20,6 +20,7 @@ import {
   Mail,
   LibraryBig,
   Blocks,
+  AppWindow,
 } from 'lucide-react'
 import type { GalleryFamily } from './types'
 
@@ -151,6 +152,12 @@ export const galleryFamilies: GalleryFamily[] = [
     labelKey: 'design_system.families.blocks',
     icon: familyIcon(Blocks),
     load: () => import('./entries/blocks'),
+  },
+  {
+    id: 'screens',
+    labelKey: 'design_system.families.screens',
+    icon: familyIcon(AppWindow),
+    load: () => import('./entries/screens'),
   },
   {
     id: 'library',

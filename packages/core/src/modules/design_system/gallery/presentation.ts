@@ -65,6 +65,11 @@ export const fullWidthEntryIds: ReadonlySet<string> = new Set([
   'bulk-action-bar',
   'form-save-bar',
   'wizard',
+  'screen-record-list',
+  'screen-record-detail',
+  'screen-record-form',
+  'screen-board',
+  'screen-setup-wizard',
 ])
 
 export const assetBrowserEntryIds: ReadonlySet<string> = new Set([

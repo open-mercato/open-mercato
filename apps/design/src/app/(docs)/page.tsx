@@ -8,6 +8,7 @@ export default function IntroductionPage() {
         foundations: entriesForGroup('foundations').length,
         components: entriesForGroup('components').length,
         blocks: entriesForGroup('blocks').length,
+        screens: entriesForGroup('screens').length,
       }}
     />
   )

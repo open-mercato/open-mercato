@@ -4,7 +4,7 @@ import uiPackage from '../../../packages/ui/package.json'
 import { projectBlockContract, type PublicBlock } from '../src/lib/public-block'
 import { entryHref, publicSourceUrl } from '../src/lib/links'
 import { galleryFamilies } from '../../../packages/core/src/modules/design_system/gallery/registry'
-import { groupForFamily } from '../src/lib/groups'
+import { GROUP_LABEL_FALLBACKS, groupForFamily } from '../src/lib/groups'
 import { buildLlmsTxt } from '../src/lib/llms'
 import type { ManifestEntry, RegistryManifest } from '../src/lib/manifest-types'
 import designEnglish from '../src/i18n/en.json'
@@ -14,6 +14,10 @@ const appRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(appRoot, '../..')
 const GALLERY_ENTRIES_DIR = 'packages/core/src/modules/design_system/gallery/entries'
 const SOURCE_EXTENSIONS = ['.tsx', '.ts', '/index.tsx', '/index.ts']
+const SCREEN_SHARED_SOURCES = [
+  'packages/core/src/modules/design_system/gallery/demos/screens/frame.tsx',
+  `${GALLERY_ENTRIES_DIR}/screens-snippets.ts`,
+]
 const UI_PACKAGE_ROOT = path.join(repoRoot, 'packages', 'ui')
 
 function copyFileUrl(blockId: string, filePath: string): string {
@@ -49,6 +53,10 @@ export async function run(): Promise<void> {
       let contract: ManifestEntry['contract']
       if (family.id === 'blocks' && !entry.contract) {
         throw new Error(`[internal] Missing block contract for ${entry.id}`)
+      }
+      if (family.id === 'screens') {
+        if (!sourceFile) throw new Error(`[internal] Cannot locate screen source: ${entry.id}`)
+        for (const relativePath of [sourceFile, galleryFile, ...SCREEN_SHARED_SOURCES]) publicSourcePaths.add(relativePath)
       }
       const variants = entry.variants.map(({ id, title, code, description }) => ({ id, title, code, ...(description ? { description } : {}) }))
       if (entry.contract) {
@@ -126,6 +134,7 @@ export async function run(): Promise<void> {
         foundations: designEnglish['design.nav.foundations'],
         components: designEnglish['design.nav.components'],
         blocks: designEnglish['design.nav.blocks'],
+        screens: (designEnglish as Record<string, string>)['design.nav.screens'] ?? GROUP_LABEL_FALLBACKS.screens,
       },
     },
     process.env.DESIGN_SITE_URL ?? '',

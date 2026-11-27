@@ -5,6 +5,10 @@ describe('groupForFamily', () => {
     expect(groupForFamily('blocks')).toBe('blocks')
   })
 
+  it('maps the screens family to Screens', () => {
+    expect(groupForFamily('screens')).toBe('screens')
+  })
+
   it('maps token and asset families to Foundations', () => {
     expect(groupForFamily('foundations')).toBe('foundations')
     expect(groupForFamily('icons')).toBe('foundations')
@@ -18,8 +22,9 @@ describe('groupForFamily', () => {
   })
 
   it('only produces known entry groups', () => {
-    expect(ENTRY_GROUPS).toEqual(['foundations', 'components', 'blocks'])
+    expect(ENTRY_GROUPS).toEqual(['foundations', 'components', 'blocks', 'screens'])
     expect(isEntryGroup('blocks')).toBe(true)
+    expect(isEntryGroup('screens')).toBe(true)
     expect(isEntryGroup('introduction')).toBe(false)
   })
 })

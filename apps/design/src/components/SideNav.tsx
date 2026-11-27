@@ -3,10 +3,11 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Box, ChevronRight, Layers, LayoutDashboard, Palette, SwatchBook } from 'lucide-react'
+import { AppWindow, Box, ChevronRight, Layers, LayoutDashboard, Palette, SwatchBook } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { GROUP_LABEL_FALLBACKS } from '@/lib/groups'
 import type { NavGroup } from '@/lib/manifest'
 
 type SideNavProps = {
@@ -14,12 +15,13 @@ type SideNavProps = {
   onNavigate?: () => void
 }
 
-const SECTION_ORDER: NavGroup['group'][] = ['blocks', 'components', 'foundations']
-const SECTION_ICONS = { blocks: Layers, components: Box, foundations: SwatchBook }
+const SECTION_ORDER: NavGroup['group'][] = ['blocks', 'screens', 'components', 'foundations']
+const SECTION_ICONS = { blocks: Layers, screens: AppWindow, components: Box, foundations: SwatchBook }
 const INDEX_LABELS = {
-  foundations: 'design.nav.allFoundations',
-  components: 'design.nav.allComponents',
-  blocks: 'design.nav.allBlocks',
+  foundations: { key: 'design.nav.allFoundations', fallback: 'All foundations' },
+  components: { key: 'design.nav.allComponents', fallback: 'All components' },
+  blocks: { key: 'design.nav.allBlocks', fallback: 'All blocks' },
+  screens: { key: 'design.nav.allScreens', fallback: 'All screens' },
 }
 
 function NavLink({ href, active, children, onNavigate }: { href: string; active: boolean; children: React.ReactNode; onNavigate?: () => void }) {
@@ -82,12 +84,12 @@ export function SideNav({ groups, onNavigate }: SideNavProps) {
             <details key={key + (filter ? '-filtered' : '')} open={!!filter || pathname.startsWith(href) || (pathname === '/' && key === 'blocks')} className="group/section">
               <summary className="flex min-h-9 cursor-pointer list-none items-center gap-2.5 rounded-md px-2.5 text-sm font-medium text-sidebar-foreground hover:bg-muted focus-visible:outline-none focus-visible:shadow-focus [&::-webkit-details-marker]:hidden">
                 <Icon aria-hidden className="size-4 shrink-0" />
-                <span>{t(`design.nav.${key}`)}</span>
+                <span>{t(`design.nav.${key}`, GROUP_LABEL_FALLBACKS[key])}</span>
                 <span className="ml-auto font-mono text-xs font-normal tabular-nums text-muted-foreground">{items.length}</span>
                 <ChevronRight aria-hidden className="size-3.5 text-muted-foreground group-open/section:rotate-90" />
               </summary>
               <ul className="mb-2 ml-4.5 mt-0.5 space-y-0.5 border-l border-sidebar-border pl-2">
-                {!filter && <li><NavLink href={href} active={pathname === href} onNavigate={navigate}>{t(INDEX_LABELS[key])}</NavLink></li>}
+                {!filter && <li><NavLink href={href} active={pathname === href} onNavigate={navigate}>{t(INDEX_LABELS[key].key, INDEX_LABELS[key].fallback)}</NavLink></li>}
                 {items.map((item) => (
                   <li key={item.id}>
                     <NavLink href={item.href} active={pathname === item.href} onNavigate={navigate}>{item.title}</NavLink>

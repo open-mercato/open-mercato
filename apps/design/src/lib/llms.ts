@@ -1,5 +1,5 @@
 import { ENTRY_GROUPS, type EntryGroup } from './groups'
-import { entryHref } from './links'
+import { entryHref, publicSourceUrl } from './links'
 import type { ManifestEntry } from './manifest-types'
 
 export type LlmsTxtCopy = {
@@ -22,7 +22,10 @@ export function buildLlmsTxt(entries: readonly ManifestEntry[], copy: LlmsTxtCop
       const blockDetails = group === 'blocks'
         ? `, contract [${entry.id}.json](${base}/r/${entry.id}.json), copy with \`yarn mercato ui add ${entry.id} --module <moduleId>\``
         : ''
-      lines.push(`- [${entry.title}](${base}${entryHref(group, entry.id)}): \`${entry.importPath}\`${blockDetails}`)
+      const sourceDetails = group === 'screens' && entry.sourceFile
+        ? `source [${entry.sourceFile.split('/').pop()}](${base}${publicSourceUrl(entry.sourceFile)})`
+        : `\`${entry.importPath}\`${blockDetails}`
+      lines.push(`- [${entry.title}](${base}${entryHref(group, entry.id)}): ${sourceDetails}`)
     }
     lines.push('')
   }

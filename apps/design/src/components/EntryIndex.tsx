@@ -11,7 +11,7 @@ import { Timeline } from '@open-mercato/ui/blocks/timeline'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { StepIndicator } from '@open-mercato/ui/primitives/step-indicator'
 import { Tag } from '@open-mercato/ui/primitives/tag'
-import type { EntryGroup } from '@/lib/groups'
+import { GROUP_LABEL_FALLBACKS, type EntryGroup } from '@/lib/groups'
 import { EntryThumbnail } from './EntryThumbnail'
 import { PageHeader } from './PageHeader'
 
@@ -25,10 +25,16 @@ export type EntryCardData = {
   exampleCount: number
 }
 
-const TITLE_KEYS: Record<EntryGroup, { title: string; lead: string }> = {
+const TITLE_KEYS: Record<EntryGroup, { title: string; lead: string; titleFallback?: string; leadFallback?: string }> = {
   foundations: { title: 'design.index.foundationsTitle', lead: 'design.index.foundationsLead' },
   components: { title: 'design.index.componentsTitle', lead: 'design.index.componentsLead' },
   blocks: { title: 'design.index.blocksTitle', lead: 'design.index.blocksLead' },
+  screens: {
+    title: 'design.index.screensTitle',
+    lead: 'design.index.screensLead',
+    titleFallback: 'All screens',
+    leadFallback: 'Whole pages composed from blocks and primitives. Copy one and replace the data.',
+  },
 }
 
 function BlockSpecimen({ id }: { id: string }) {
@@ -123,10 +129,12 @@ export function EntryIndex({ group, cards }: { group: EntryGroup; cards: EntryCa
     const searchable = [card.title, card.id, card.description, card.importPath].join(' ').toLowerCase()
     return words.every((word) => searchable.includes(word))
   })
-  const searchLabel = t('design.index.filter', { group: t(`design.nav.${group}`).toLowerCase() })
+  const groupLabel = t(`design.nav.${group}`, GROUP_LABEL_FALLBACKS[group])
+  const copy = TITLE_KEYS[group]
+  const searchLabel = t('design.index.filter', { group: groupLabel.toLowerCase() })
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      <PageHeader overline={t(`design.nav.${group}`)} title={t(TITLE_KEYS[group].title)} lead={t(TITLE_KEYS[group].lead)} />
+      <PageHeader overline={groupLabel} title={t(copy.title, copy.titleFallback)} lead={t(copy.lead, copy.leadFallback)} />
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-4">
         <SearchInput className="w-full sm:max-w-sm" value={query} onChange={setQuery} placeholder={searchLabel} aria-label={searchLabel} />
         <span role="status" className="text-sm tabular-nums text-muted-foreground">
@@ -136,7 +144,7 @@ export function EntryIndex({ group, cards }: { group: EntryGroup; cards: EntryCa
       {matches.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">{t('design.index.noMatches', { query })}</p>
       ) : (
-        <ul className={group === 'blocks' ? 'grid gap-5 md:grid-cols-2' : 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3'}>
+        <ul className={group === 'blocks' || group === 'screens' ? 'grid gap-5 md:grid-cols-2' : 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3'}>
           {matches.map((card) => (
             <li key={card.id} className="min-w-0">
               <div className="group relative flex h-full min-w-0 flex-col overflow-hidden rounded-xl border border-input bg-card transition-colors hover:border-foreground has-[a:focus-visible]:shadow-focus">

@@ -2,12 +2,12 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ArrowRight, ArrowUpRight, Bot, Box, Braces, Columns3, Layers, LayoutGrid, Palette, Rows3, Shapes, Type } from 'lucide-react'
+import { AppWindow, ArrowRight, ArrowUpRight, Bot, Box, Braces, Columns3, Layers, LayoutGrid, Palette, PanelsTopLeft, Rows3, Shapes, Table2, Type } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { BorderBeam } from '@open-mercato/ui/primitives/border-beam'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Tag } from '@open-mercato/ui/primitives/tag'
-import type { EntryGroup } from '@/lib/groups'
+import { GROUP_LABEL_FALLBACKS, type EntryGroup } from '@/lib/groups'
 import { LivePanel } from '@/components/home/LivePanel'
 import { WhatsNew } from '@/components/home/WhatsNew'
 
@@ -17,11 +17,14 @@ const NEWS = [
   { id: 'primitives', href: '/components/border-beam/', date: '2026-11-25', fresh: false },
 ] as const
 
-const LIBRARY = [
+type LibraryCard = { group: EntryGroup; art: readonly (typeof LayoutGrid)[]; description: string; descriptionFallback?: string }
+
+const LIBRARY: readonly LibraryCard[] = [
   { group: 'blocks', art: [LayoutGrid, Rows3, Columns3], description: 'design.intro.howBlocks' },
+  { group: 'screens', art: [AppWindow, Table2, PanelsTopLeft], description: 'design.intro.howScreens', descriptionFallback: 'Whole pages put together from blocks, ready to copy.' },
   { group: 'components', art: [Shapes, Box, Layers], description: 'design.intro.howComponents' },
   { group: 'foundations', art: [Palette, Type, Braces], description: 'design.intro.howFoundations' },
-] as const
+]
 
 function formatDate(value: string, locale: string): string {
   const date = new Date(`${value}T12:00:00Z`)
@@ -84,8 +87,8 @@ function LibraryCards({ counts }: { counts: Record<EntryGroup, number> }) {
         <h2 id="intro-library" className="text-3xl tracking-tight text-foreground sm:text-4xl">{t('design.intro.howTitle')}</h2>
         <p className="max-w-2xl text-base text-muted-foreground">{t('design.home.libraryLead')}</p>
       </div>
-      <ul className="grid gap-gutter md:grid-cols-3">
-        {LIBRARY.map(({ group, art, description }) => (
+      <ul className="grid gap-gutter sm:grid-cols-2 xl:grid-cols-4">
+        {LIBRARY.map(({ group, art, description, descriptionFallback }) => (
           <li key={group}>
             <Link
               href={`/${group}/`}
@@ -99,12 +102,12 @@ function LibraryCards({ counts }: { counts: Record<EntryGroup, number> }) {
               <span className="flex flex-1 flex-col gap-2 p-panel">
                 <span className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-1 text-lg text-foreground">
-                    {t(`design.nav.${group}`)}
+                    {t(`design.nav.${group}`, GROUP_LABEL_FALLBACKS[group])}
                     <ArrowUpRight aria-hidden className="size-4 text-muted-foreground" />
                   </span>
                   <span className="rounded-md bg-muted px-2 font-mono text-xs leading-5 text-muted-foreground">{counts[group]}</span>
                 </span>
-                <span className="text-sm text-muted-foreground">{t(description)}</span>
+                <span className="text-sm text-muted-foreground">{t(description, descriptionFallback)}</span>
               </span>
             </Link>
           </li>

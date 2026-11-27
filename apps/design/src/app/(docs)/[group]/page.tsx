@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { EntryIndex } from '@/components/EntryIndex'
 import { designDictionary } from '@/lib/design-dictionary'
-import { ENTRY_GROUPS, isEntryGroup } from '@/lib/groups'
+import { ENTRY_GROUPS, GROUP_LABEL_FALLBACKS, isEntryGroup } from '@/lib/groups'
 import { entryHref } from '@/lib/links'
 import { entriesForGroup } from '@/lib/manifest'
 import { entryDescription } from '@/lib/server-text'
@@ -17,7 +17,7 @@ export function generateStaticParams(): Params[] {
 
 export async function generateMetadata({ params }: { params: Promise<Params> }): Promise<Metadata> {
   const { group } = await params
-  return { title: designDictionary[`design.nav.${group}`] ?? group }
+  return { title: designDictionary[`design.nav.${group}`] ?? (isEntryGroup(group) ? GROUP_LABEL_FALLBACKS[group] : group) }
 }
 
 export default async function GroupIndexPage({ params }: { params: Promise<Params> }) {

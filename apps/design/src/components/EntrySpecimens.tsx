@@ -213,7 +213,17 @@ export const thumbnailVariantIds: Readonly<Record<string, string>> = {
   'marketing-widgets': 'total-visitors',
 }
 
-export const wideThumbnailIds: ReadonlySet<string> = new Set(['active-filter-chips', 'filter-bar', 'form-header', 'step-indicator'])
+export const wideThumbnailIds: ReadonlySet<string> = new Set([
+  'active-filter-chips',
+  'filter-bar',
+  'form-header',
+  'step-indicator',
+  'screen-record-list',
+  'screen-record-detail',
+  'screen-record-form',
+  'screen-board',
+  'screen-setup-wizard',
+])
 
 export const firstExampleOnlyIds: ReadonlySet<string> = new Set(['phone-number-field'])
 
