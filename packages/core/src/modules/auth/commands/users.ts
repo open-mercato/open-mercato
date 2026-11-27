@@ -49,7 +49,7 @@ import { resolveNotificationService } from '@open-mercato/core/modules/notificat
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
-import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { sendStaffCredentialEmail } from '@open-mercato/core/modules/auth/lib/sendStaffCredentialEmail'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
@@ -606,7 +606,7 @@ async function sendInviteToUser(
 
   let emailSent = true
   try {
-    await sendEmail({
+    await sendStaffCredentialEmail(em, String(user.id), {
       to: user.email,
       subject,
       react: InviteUserEmail({ inviteUrl, copy }),
