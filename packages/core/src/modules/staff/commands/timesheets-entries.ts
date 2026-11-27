@@ -104,10 +104,10 @@ type RbacServiceLike = {
  * rbacService. Returns false when no auth context (e.g. system/CLI ctx) so
  * write paths that lack a caller identity are NOT silently elevated.
  */
-async function callerHasManageAll(ctx: {
-  auth?: { sub?: string | null; tenantId?: string | null; orgId?: string | null } | null
-  container: { resolve: (token: string) => unknown }
-}): Promise<boolean> {
+async function callerHasManageAll(
+  ctx: EntryAccessCaller,
+  scope = { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+): Promise<boolean> {
   const userId = ctx.auth?.sub
   if (!userId) return false
   try {
@@ -116,7 +116,7 @@ async function callerHasManageAll(ctx: {
     return await rbac.userHasAllFeatures(
       userId,
       ['staff.timesheets.manage_all'],
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scope,
     )
   } catch {
     return false
@@ -397,6 +397,18 @@ export async function resolveTimeEntryWriteAccess(
   return {
     access: await resolveEntryProjectAccess(em, ctx, tenantId, organizationId, settings),
     hasManageAll: await callerHasManageAll(ctx),
+  }
+}
+
+async function resolveTimerStartAccess(
+  em: EntityManager,
+  ctx: EntryAccessCaller,
+  scope: { tenantId: string; organizationId: string },
+  settings: TimeTrackingSettings,
+): Promise<TimeEntryWriteAccess> {
+  return {
+    access: await resolveEntryProjectAccess(em, ctx, scope.tenantId, scope.organizationId, settings),
+    hasManageAll: await callerHasManageAll(ctx, scope),
   }
 }
 
@@ -1138,13 +1150,14 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scopeCtx = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
 
     // A timer entry starts at zero minutes, and D-7 makes `rounded_minutes` the
     // only input to cost — leaving it null here would price the entry at nothing
     // until something else happened to rewrite it. Seeded from the same rule as
     // every other create so timer-stop only ever restates it.
     const settings = await readEntrySettings(ctx, parsed.tenantId)
-    const writeAccess = await resolveTimeEntryWriteAccess(em, ctx, parsed.tenantId, parsed.organizationId, settings)
+    const writeAccess = await resolveTimerStartAccess(em, ctx, scopeCtx, settings)
 
     // Ownership enforcement mirrors createTimeEntryCommand: callers without
     // `staff.timesheets.manage_all` can only start their own timer, so the
@@ -1172,8 +1185,6 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     const requestedProjectId = resolveTimeEntryProjectId(parsed.timeProjectId, task)
     const project = await requireTimeProjectInScope(em, requestedProjectId, parsed.tenantId, parsed.organizationId)
     await assertTaskBelongsToProject(task, project?.id ?? null)
-
-    const scopeCtx = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
 
     await assertEntryProjectAccess(writeAccess, {
       projectId: project?.id ?? null,
@@ -1692,7 +1703,7 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
     // startTimerCommand is NOT copied: it would newly permit starting a
     // colleague's timer, which is an RBAC change rather than a refactor.
     const settings = await readEntrySettings(ctx, parsed.tenantId)
-    const writeAccess = await resolveTimeEntryWriteAccess(em, ctx, parsed.tenantId, parsed.organizationId, settings)
+    const writeAccess = await resolveTimerStartAccess(em, ctx, scopeCtx, settings)
     const callerStaffMemberId = writeAccess.access.staffMemberId
     if (!callerStaffMemberId || entry.staffMemberId !== callerStaffMemberId) {
       throw new CrudHttpError(403, {

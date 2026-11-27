@@ -21,6 +21,10 @@ const scope = { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
 
 const mockFindOneWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
+const mockHasAllFeatures = jest.fn(
+  async (_userId: string, _features: string[], roleScope: typeof scope) =>
+    roleScope.organizationId === OTHER_ORGANIZATION_ID,
+)
 const mockEm = {
   findOne: jest.fn(),
   fork: jest.fn(),
@@ -35,6 +39,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: async () => ({
     resolve(token: string) {
       if (token === 'em') return mockEm
+      if (token === 'rbacService') return { userHasAllFeatures: mockHasAllFeatures }
       if (token === 'commandBus') {
         return {
           async execute(id: string, { input, ctx }: { input: unknown; ctx: CommandRuntimeContext }) {
@@ -189,6 +194,7 @@ describe.each([
 
     expect(response.status).toBe(403)
     await expect(response.json()).resolves.toEqual({ error: message })
+    expect(mockHasAllFeatures).toHaveBeenCalledWith('synthetic-user', ['staff.timesheets.manage_all'], scope)
     expect(entry.startedAt).toBeNull()
     expect(mockEm.create).not.toHaveBeenCalled()
     expect(mockEm.flush).not.toHaveBeenCalled()
