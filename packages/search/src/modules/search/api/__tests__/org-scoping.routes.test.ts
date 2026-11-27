@@ -176,8 +176,14 @@ describe('Search API organizationId scoping', () => {
       getStrategies: jest.fn().mockReturnValue([vectorStrategy]),
     }
 
+    const registrations: Record<string, unknown> = {
+      searchService,
+      searchIndexer: { getEntityConfig: () => undefined, getAllEntityConfigs: () => [] },
+      rbacService: { loadAcl: jest.fn().mockResolvedValue({ isSuperAdmin: true, features: ['*'] }) },
+    }
     const container = {
-      resolve: jest.fn((name: string) => (name === 'searchService' ? searchService : undefined)),
+      hasRegistration: (name: string) => name in registrations,
+      resolve: jest.fn((name: string) => registrations[name]),
       dispose: jest.fn(),
     }
     mockCreateRequestContainer.mockResolvedValue(container)
