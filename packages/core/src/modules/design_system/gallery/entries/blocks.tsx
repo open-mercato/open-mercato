@@ -19,6 +19,12 @@ import type { GalleryEntry } from '../types'
 import { listToolbarEntry } from './blocks-list-toolbar'
 import { bulkActionBarEntry } from './blocks-bulk-action-bar'
 import { formSaveBarEntry } from './blocks-form-save-bar'
+import { stagePathEntry } from './blocks-stage-path'
+import { commentThreadEntry } from './blocks-comment-thread'
+import { decisionPanelEntry } from './blocks-decision-panel'
+import { recordListEntry } from './blocks-record-list'
+import { sectionEntry } from './blocks-section'
+import { statStripEntry } from './blocks-stat-strip'
 
 function StackSamples({ count }: { count: number }) {
   return (
@@ -1132,4 +1138,4 @@ const wizardEntry: GalleryEntry = {
   ],
 }
 
-export const entries: GalleryEntry[] = [stackEntry, entityHeaderEntry, keyValueEntry, timelineEntry, kanbanEntry, wizardEntry, bulkActionBarEntry, formSaveBarEntry, listToolbarEntry]
+export const entries: GalleryEntry[] = [stackEntry, entityHeaderEntry, keyValueEntry, timelineEntry, kanbanEntry, wizardEntry, bulkActionBarEntry, formSaveBarEntry, decisionPanelEntry, listToolbarEntry, statStripEntry, sectionEntry, recordListEntry, commentThreadEntry, stagePathEntry]
