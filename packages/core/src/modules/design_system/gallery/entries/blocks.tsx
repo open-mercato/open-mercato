@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { EntityHeader } from '@open-mercato/ui/blocks/entity-header'
+import { EntityHeader, entityHeaderTabIds, type EntityHeaderProps } from '@open-mercato/ui/blocks/entity-header'
 import { entityHeaderFixtures } from '@open-mercato/ui/blocks/entity-header/fixtures'
 import { Inline, Stack } from '@open-mercato/ui/blocks/stack'
 import { stackFixtures } from '@open-mercato/ui/blocks/stack/fixtures'
@@ -196,6 +196,38 @@ const entityHeaderCode = (props: string) => `import { EntityHeader } from '@open
 ${props}
 />`
 
+const entityHeaderTabsCode = (props: string) => `import { EntityHeader, entityHeaderTabIds } from '@open-mercato/ui/blocks/entity-header'
+
+const [activeTabKey, setActiveTabKey] = React.useState('overview')
+const { tabId, panelId } = entityHeaderTabIds('customer-sections', activeTabKey)
+
+<EntityHeader
+${props}
+/>
+<div role="tabpanel" id={panelId} aria-labelledby={tabId} tabIndex={0}>
+  {renderSection(activeTabKey)}
+</div>`
+
+function EntityHeaderTabsExample({ fixture, idBase }: { fixture: EntityHeaderProps; idBase: string }) {
+  const [activeTabKey, setActiveTabKey] = React.useState(fixture.activeTabKey ?? '')
+  const ids = entityHeaderTabIds(idBase, activeTabKey)
+  const activeTab = fixture.tabs?.find((tab) => tab.key === activeTabKey)
+  return (
+    <div className="flex flex-col gap-4">
+      <EntityHeader {...fixture} idBase={idBase} activeTabKey={activeTabKey} onTabChange={setActiveTabKey} />
+      <div
+        role="tabpanel"
+        id={ids.panelId}
+        aria-labelledby={ids.tabId}
+        tabIndex={0}
+        className="rounded-md border border-dashed border-border p-4 text-sm text-muted-foreground outline-none focus-visible:shadow-focus"
+      >
+        {activeTab?.label}
+      </div>
+    </div>
+  )
+}
+
 const entityHeaderEntry: GalleryEntry = {
   id: 'entity-header',
   title: 'EntityHeader',
@@ -207,18 +239,35 @@ const entityHeaderEntry: GalleryEntry = {
   },
   figmaNodeId: '3829:27898',
   descriptionKey: 'design_system.entries.entity-header.description',
-  keywords: ['record', 'detail', 'title', 'actions'],
+  keywords: ['record', 'detail', 'title', 'actions', 'page header', 'list header', 'tabs', 'back', 'count'],
   usage: {
     do: [
       'Pass pre-resolved title, badge, meta and actions as data',
       'Mark one action as primaryActionKey and let the rest collapse into the overflow menu',
       'Give disabled actions a disabledReason',
+      'Use it as the page header of list pages too: title, count, subtitle and one primary action, without an avatar',
+      'Pass tabs as data with activeTabKey and onTabChange, and render the section content yourself below the header',
+      'Pass idBase and use entityHeaderTabIds(idBase, activeTabKey) to set id and aria-labelledby on your tab panel',
+      'Give a tab an href when each section has its own address, so it can be opened in a new browser tab; with onTabChange a plain click is handed to your handler for client-side navigation',
+      'Use backLabel with backHref or onBack to lead one level up, and name the destination in the label',
     ],
     dont: [
       'Do not fetch the record inside the block',
       'Do not hide destructive actions without a confirmation in onAction',
+      'Do not add a breadcrumb to the header: inside the application shell the top bar already shows it, and the back link covers the step up',
+      'Do not build a second tab strip in the below slot; the below slot stays above the tabs and is meant for short supporting content',
+      'Do not repeat the count in the subtitle or in a tab badge on the same screen',
     ],
   },
+  accessibility: [
+    'The title is the h1 of the page. The count sits next to the heading, not inside it, and screen readers hear it as a separate total.',
+    'Tabs form a tablist with one tab stop. Left and Right arrows move between tabs and wrap, Home and End jump to the first and last tab, and disabled tabs are skipped.',
+    'Arrow keys select button tabs right away. Tabs with an href only receive focus and open with Enter or Space, so moving through them never triggers navigation.',
+    'The header renders no tab panels. Give your panel role="tabpanel" and the ids from entityHeaderTabIds so the active tab and the panel point at each other.',
+    'The tablist is named "Sections" by default; pass tabsLabel when the page needs a more specific name.',
+    'On narrow screens the tab strip scrolls sideways in one line, fades at the edge that has more tabs and keeps the active tab in view.',
+    'The back control is a link when backHref is given and a button otherwise; its arrow icon is decorative.',
+  ],
   variants: [
     {
       id: 'default',
@@ -296,6 +345,111 @@ const entityHeaderEntry: GalleryEntry = {
   ]}
   primaryActionKey="edit"
   onAction={handleAction}`),
+    },
+    {
+      id: 'with-tabs',
+      title: 'With tabs',
+      render: () => <EntityHeaderTabsExample fixture={entityHeaderFixtures.withTabs} idBase="entity-header-with-tabs" />,
+      code: entityHeaderTabsCode(`  title="Acme Corporation"
+  subtitle="Customer since March 2021"
+  avatar={{ initials: 'AC' }}
+  tabs={[
+    { key: 'overview', label: 'Overview' },
+    { key: 'deals', label: 'Deals', count: 12 },
+    { key: 'activity', label: 'Activity' },
+    { key: 'billing', label: 'Billing', disabled: true },
+  ]}
+  activeTabKey={activeTabKey}
+  onTabChange={setActiveTabKey}
+  idBase="customer-sections"`),
+    },
+    {
+      id: 'many-tabs',
+      title: 'Many tabs',
+      render: () => <EntityHeaderTabsExample fixture={entityHeaderFixtures.manyTabs} idBase="entity-header-many-tabs" />,
+      code: entityHeaderTabsCode(`  title="Acme Corporation"
+  tabs={[
+    { key: 'overview', label: 'Overview' },
+    { key: 'contacts', label: 'Contacts', count: 8 },
+    { key: 'deals', label: 'Deals', count: 12 },
+    { key: 'quotes', label: 'Quotes' },
+    { key: 'orders', label: 'Orders', count: 1240 },
+    { key: 'invoices', label: 'Invoices' },
+    { key: 'activity', label: 'Activity' },
+    { key: 'documents', label: 'Documents' },
+    { key: 'notes', label: 'Notes' },
+    { key: 'history', label: 'History' },
+  ]}
+  activeTabKey={activeTabKey}
+  onTabChange={setActiveTabKey}
+  idBase="customer-sections"`),
+    },
+    {
+      id: 'with-back-link',
+      title: 'With back link',
+      render: () => <EntityHeader {...entityHeaderFixtures.backLink} />,
+      code: entityHeaderCode(`  title="Acme Corporation"
+  subtitle="Customer since March 2021"
+  avatar={{ initials: 'AC' }}
+  backLabel={t(customersListKey)}
+  backHref="/backend/customers"`),
+    },
+    {
+      id: 'list-page',
+      title: 'List page header',
+      render: () => <EntityHeader {...entityHeaderFixtures.listPage} />,
+      code: entityHeaderCode(`  title="Customers"
+  count={total}
+  subtitle="Companies and people your team sells to"
+  actions={[{ key: 'create', label: 'New customer', icon: 'user-plus' }]}
+  primaryActionKey="create"
+  onAction={handleAction}`),
+    },
+    {
+      id: 'record-page',
+      title: 'Record page',
+      render: () => <EntityHeaderTabsExample fixture={entityHeaderFixtures.recordPage} idBase="entity-header-record-page" />,
+      code: entityHeaderTabsCode(`  title="Acme Corporation"
+  subtitle="Customer since March 2021"
+  avatar={{ initials: 'AC' }}
+  badge={{ label: 'Active', tone: 'success' }}
+  meta={[
+    { key: 'owner', label: 'Owner', value: 'Jan Kowalski' },
+    { key: 'segment', label: 'Segment', value: 'Enterprise' },
+    { key: 'city', label: 'City', value: 'Warsaw' },
+  ]}
+  actions={[
+    { key: 'edit', label: 'Edit' },
+    { key: 'share', label: 'Share' },
+    { key: 'delete', label: 'Delete', tone: 'destructive' },
+  ]}
+  primaryActionKey="edit"
+  onAction={handleAction}
+  backLabel={t(customersListKey)}
+  backHref="/backend/customers"
+  tabs={[
+    { key: 'overview', label: 'Overview', icon: 'building2' },
+    { key: 'deals', label: 'Deals', icon: 'handshake', count: 12 },
+    { key: 'activity', label: 'Activity', icon: 'activity' },
+    { key: 'documents', label: 'Documents', icon: 'file-text' },
+  ]}
+  activeTabKey={activeTabKey}
+  onTabChange={setActiveTabKey}
+  idBase="customer-sections"`),
+    },
+    {
+      id: 'loading-with-tabs',
+      title: 'Loading with tabs',
+      render: () => <EntityHeader {...entityHeaderFixtures.loadingWithTabs} />,
+      code: entityHeaderCode(`  title="Acme Corporation"
+  status="loading"
+  avatar={{ initials: 'AC' }}
+  subtitle="Customer since March 2021"
+  backLabel={t(customersListKey)}
+  backHref="/backend/customers"
+  tabs={tabs}
+  activeTabKey={activeTabKey}
+  onTabChange={setActiveTabKey}`),
     },
   ],
 }

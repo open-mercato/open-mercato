@@ -1,2 +1,2 @@
-export { EntityHeader } from './EntityHeader'
-export type { EntityHeaderProps } from '../contracts/entity-header'
+export { EntityHeader, entityHeaderTabIds } from './EntityHeader'
+export type { EntityHeaderProps, EntityHeaderTab } from '../contracts/entity-header'
