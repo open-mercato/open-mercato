@@ -140,6 +140,12 @@ export function resolveCodeDefinitionForInstance(instance: {
  * Find the definition backing a workflow instance: database row by id first,
  * falling back to the in-memory code registry for instances started from an
  * unpersisted code definition.
+ *
+ * With `scope`, the database read also filters by tenant and organization, so a
+ * row outside that scope resolves to nothing. The code fallback is unaffected:
+ * it is built in the instance's own scope, and its UUID gate keeps it from
+ * standing in for a persisted row. Soft-deleted rows still resolve either way,
+ * because in-flight instances stay pinned to them.
  */
 export async function findDefinitionForInstance(
   em: EntityManager,
@@ -149,8 +155,12 @@ export async function findDefinitionForInstance(
     tenantId: string
     organizationId: string
   },
+  scope?: { tenantId: string; organizationId: string },
 ): Promise<WorkflowDefinition | null> {
-  const dbDef = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
+  const dbDef = await em.findOne(WorkflowDefinition, {
+    id: instance.definitionId,
+    ...(scope ? { tenantId: scope.tenantId, organizationId: scope.organizationId } : {}),
+  })
   if (dbDef) return dbDef
   return resolveCodeDefinitionForInstance(instance)
 }

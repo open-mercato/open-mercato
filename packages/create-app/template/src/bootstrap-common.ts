@@ -16,6 +16,7 @@ import { searchModuleConfigs } from '@/.mercato/generated/search.generated'
 import { eventModuleConfigs } from '@/.mercato/generated/events.generated'
 import { registerEventModuleConfigs } from '@open-mercato/shared/modules/events'
 import { analyticsModuleConfigs } from '@/.mercato/generated/analytics.generated'
+import { crudFormSectionServerModules } from '@/.mercato/generated/crud-form-section-facts.generated'
 import { enricherEntries } from '@/.mercato/generated/enrichers.generated'
 import { interceptorEntries } from '@/.mercato/generated/interceptors.generated'
 import { guardEntries } from '@/.mercato/generated/guards.generated'
@@ -58,6 +59,7 @@ export const serverFoundationBootstrapData: ServerFoundationBootstrapData = {
   injectionTables,
   searchModuleConfigs,
   analyticsModuleConfigs,
+  crudFormSectionServerModules,
   enricherEntries,
   interceptorEntries,
   guardEntries,

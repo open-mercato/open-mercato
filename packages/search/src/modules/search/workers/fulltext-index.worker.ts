@@ -153,12 +153,7 @@ async function reportSkippedWithoutIndexing(params: {
       level: 'warn',
       message,
       tenantId: params.tenantId,
-      // No `organizationId`: every other recordIndexerLog call in this handler
-      // omits it, so all existing `source: 'fulltext'` rows persist with
-      // organization_id = NULL - and the unrestricted indexer-status view filters
-      // on `organization_id IS NULL` (query_index/api/status.ts). A non-null org
-      // here would hide this row in exactly the view an operator lands on when
-      // asking "did indexing run?". The value stays in `details` for triage.
+      organizationId: params.organizationId,
       details: {
         jobId: params.jobId,
         jobType: params.jobType,
@@ -315,6 +310,7 @@ export async function handleFulltextIndexJob(
           entityType,
           recordId,
           tenantId,
+          organizationId: organizationId ?? null,
           details: { jobId: jobCtx.jobId },
         },
       )
@@ -367,6 +363,7 @@ export async function handleFulltextIndexJob(
           handler: 'worker:fulltext:batch-index',
           message: `Indexed ${successCount}/${records.length} records to fulltext`,
           tenantId,
+          organizationId: organizationId ?? null,
           details: { jobId: jobCtx.jobId, requestedCount: records.length, successCount, skippedCount },
         },
       )
@@ -461,6 +458,7 @@ export async function handleFulltextIndexJob(
         entityType: entityId,
         recordId,
         tenantId,
+        organizationId: payloadOrganizationId,
         payload: job.payload,
       },
     )

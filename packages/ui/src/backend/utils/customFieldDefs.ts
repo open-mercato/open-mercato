@@ -14,6 +14,7 @@ export type CustomFieldDefDto = {
   multi?: boolean
   filterable?: boolean
   formEditable?: boolean
+  sectionOnly?: true
   listVisible?: boolean
   editor?: string
   input?: string
@@ -206,13 +207,15 @@ export function useCustomFieldDefs<TData = CustomFieldDefDto[]>(
   })
 }
 
-export type CustomFieldVisibility = 'list' | 'form' | 'filter'
+export type CustomFieldVisibility = 'list' | 'form' | 'filter' | 'section-form'
 
 export function isDefVisible(def: CustomFieldDefDto, mode: CustomFieldVisibility): boolean {
   switch (mode) {
     case 'list':
       return def.listVisible !== false
     case 'form':
+      return def.formEditable !== false && def.sectionOnly !== true
+    case 'section-form':
       return def.formEditable !== false
     case 'filter':
       return !!def.filterable

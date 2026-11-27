@@ -387,7 +387,10 @@ export function TaskPicker({
                   </div>
                   {group.items.map((item) => {
                     flatIndex += 1
-                    const isActive = flatIndex === activeIndex
+                    // A recent task is listed twice, so `flat.indexOf(item)` would point
+                    // a hover in its project group at the recents row and scroll there.
+                    const rowIndex = flatIndex
+                    const isActive = rowIndex === activeIndex
                     const hours = formatHours(item.loggedMinutes)
                     return (
                       <button
@@ -397,7 +400,7 @@ export function TaskPicker({
                         aria-selected={item.id === value}
                         data-active={isActive}
                         data-testid={`task-picker-option-${item.id}`}
-                        onMouseEnter={() => setActiveIndex(flat.indexOf(item))}
+                        onMouseEnter={() => setActiveIndex(rowIndex)}
                         onClick={() => choose(item.id)}
                         className={`flex h-9 w-full items-center gap-2 border-b border-border/50 px-2.5 text-left text-sm last:border-b-0 ${
                           isActive ? 'bg-accent' : ''
@@ -439,7 +442,7 @@ export function TaskPicker({
               <Kbd className="ml-1">esc</Kbd>
               {labels.close}
             </span>
-            <span>{labels.count.replace('{shown}', String(flat.length)).replace('{total}', String(items.length))}</span>
+            <span>{labels.count.replace('{shown}', String(filtered.length)).replace('{total}', String(items.length))}</span>
           </div>
         </div>
       ) : null}

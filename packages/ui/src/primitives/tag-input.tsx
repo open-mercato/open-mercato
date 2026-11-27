@@ -82,10 +82,31 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
     const [internalValue, setInternalValue] = React.useState<string[]>([])
     const [internalInputText, setInternalInputText] = React.useState('')
     const [error, setError] = React.useState<string | null>(null)
+    const rootRef = React.useRef<HTMLDivElement>(null)
+    const focusBeforeChange = React.useRef<Element | null>(null)
 
     const isControlled = valueProp !== undefined
     const value = isControlled ? (valueProp as string[]) : internalValue
     const inputText = inputValue ?? internalInputText
+    const limitReached = typeof maxTags === 'number' && value.length >= maxTags
+
+    React.useLayoutEffect(() => {
+      const previous = focusBeforeChange.current
+      focusBeforeChange.current = null
+      const root = rootRef.current
+      if (!previous || !root || disabled) return
+
+      const { activeElement, body } = root.ownerDocument
+      if (activeElement !== previous && activeElement !== body) return
+      const disabledInput = previous.matches('[data-slot="tag-input-field"]:disabled')
+      const removedButton = !previous.isConnected && previous.matches('[data-slot="tag-remove"]')
+      if (!disabledInput && !removedButton) return
+
+      const target = limitReached
+        ? '[data-slot="tag"]:last-child [data-slot="tag-remove"]'
+        : '[data-slot="tag-input-field"]'
+      root.querySelector<HTMLElement>(target)?.focus()
+    }, [disabled, limitReached, value])
 
     const setInputText = (next: string) => {
       if (inputValue === undefined) setInternalInputText(next)
@@ -94,6 +115,9 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
 
     const commitValue = React.useCallback(
       (next: string[]) => {
+        const root = rootRef.current
+        const activeElement = root?.ownerDocument.activeElement
+        focusBeforeChange.current = activeElement && root?.contains(activeElement) ? activeElement : null
         if (!isControlled) setInternalValue(next)
         onChange?.(next)
       },
@@ -108,27 +132,11 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
         if (typeof maxTags === 'number' && current.length >= maxTags) return null
         if (validate) {
           const result = validate(tag)
-          if (result === false) return null
-          if (typeof result === 'string') return { next: current, errorText: result }
+          if (result !== true) return { next: current, errorText: result === false ? null : result }
         }
         return { next: [...current, tag], errorText: null }
       },
       [allowDuplicates, maxTags, validate],
-    )
-
-    const tryAddTag = React.useCallback(
-      (rawTag: string): boolean => {
-        const outcome = appendToList(value, rawTag)
-        if (!outcome) return false
-        if (outcome.errorText !== null) {
-          setError(outcome.errorText)
-          return false
-        }
-        setError(null)
-        if (outcome.next !== value) commitValue(outcome.next)
-        return outcome.next !== value
-      },
-      [appendToList, commitValue, value],
     )
 
     const tryAddManyTags = React.useCallback(
@@ -181,7 +189,12 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
     const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
       if (event.key === 'Enter') {
         event.preventDefault()
-        tryAddTag(inputText)
+        const outcome = appendToList(value, inputText)
+        if (outcome) {
+          setError(outcome.errorText)
+          if (outcome.next === value) return
+          commitValue(outcome.next)
+        }
         setInputText('')
         return
       }
@@ -191,10 +204,8 @@ export const TagInput = React.forwardRef<HTMLInputElement, TagInputProps>(
       }
     }
 
-    const limitReached = typeof maxTags === 'number' && value.length >= maxTags
-
     return (
-      <div className={cn('flex w-full flex-col gap-1', className)} data-slot="tag-input">
+      <div ref={rootRef} className={cn('flex w-full flex-col gap-1', className)} data-slot="tag-input">
         <Input
           ref={ref}
           type="text"
