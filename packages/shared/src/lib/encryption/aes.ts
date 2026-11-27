@@ -58,9 +58,8 @@ export function looksLikeEncryptedPayload(value: unknown): boolean {
   const [iv, ciphertext, tag] = parts as [string, string, string, string]
   return iv.length === 16
     && tag.length === 24
-    && ciphertext.length > 0
     && BASE64_PART.test(iv)
-    && BASE64_PART.test(ciphertext)
+    && (ciphertext === '' || BASE64_PART.test(ciphertext))
     && BASE64_PART.test(tag)
 }
 
@@ -124,7 +123,7 @@ export function isEncryptedPayloadShape(value: unknown): value is string {
     return (
       Buffer.from(ivB64, 'base64').length === AES_GCM_IV_BYTES
       && Buffer.from(tagB64, 'base64').length === AES_GCM_TAG_BYTES
-      && Buffer.from(ciphertextB64, 'base64').length > 0
+      && (ciphertextB64 === '' || Buffer.from(ciphertextB64, 'base64').length > 0)
     )
   } catch {
     return false
@@ -271,7 +270,7 @@ export function decryptWithAesGcmStrict(payload: string, dekBase64: string): str
       'Failed to decode base64 components',
     )
   }
-  if (iv.length !== 12 || tag.length !== 16 || ciphertext.length === 0) {
+  if (iv.length !== AES_GCM_IV_BYTES || tag.length !== AES_GCM_TAG_BYTES || (ciphertext.length === 0 && ciphertextB64 !== '')) {
     throw new TenantDataEncryptionError(
       TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD,
       'Invalid AES-GCM payload: unexpected IV, tag, or ciphertext size',
