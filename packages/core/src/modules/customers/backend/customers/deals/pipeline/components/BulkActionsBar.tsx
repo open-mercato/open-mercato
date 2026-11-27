@@ -25,10 +25,10 @@ function splitAroundCount(text: string): { before: string; after: string } {
 type BulkActionsBarProps = {
   count: number
   totalLabel: string | null
-  onChangeStage: () => void
-  onChangeOwner: () => void
+  onChangeStage?: () => void
+  onChangeOwner?: () => void
   onExportCsv: () => void
-  onDelete: () => void
+  onDelete?: () => void
   onClear: () => void
 }
 
@@ -108,17 +108,19 @@ export function BulkActionsBar({
       </div>
 
       <div className="ml-auto flex items-center gap-1">
-        <SimpleTooltip content={changeOwnerLabel}>
-          <IconButton
-            variant="modifiable"
-            type="button"
-            onClick={onChangeOwner}
-            aria-label={changeOwnerLabel}
-            className={ON_BAR_ICON_BUTTON}
-          >
-            <UserCircle2 aria-hidden="true" />
-          </IconButton>
-        </SimpleTooltip>
+        {onChangeOwner ? (
+          <SimpleTooltip content={changeOwnerLabel}>
+            <IconButton
+              variant="modifiable"
+              type="button"
+              onClick={onChangeOwner}
+              aria-label={changeOwnerLabel}
+              className={ON_BAR_ICON_BUTTON}
+            >
+              <UserCircle2 aria-hidden="true" />
+            </IconButton>
+          </SimpleTooltip>
+        ) : null}
         <SimpleTooltip content={exportLabel}>
           <IconButton
             variant="modifiable"
@@ -130,26 +132,30 @@ export function BulkActionsBar({
             <Download aria-hidden="true" />
           </IconButton>
         </SimpleTooltip>
-        <SimpleTooltip content={deleteLabel}>
-          <IconButton
-            variant="modifiable"
+        {onDelete ? (
+          <SimpleTooltip content={deleteLabel}>
+            <IconButton
+              variant="modifiable"
+              type="button"
+              onClick={onDelete}
+              aria-label={deleteLabel}
+              className={ON_BAR_DELETE_BUTTON}
+            >
+              <Trash2 aria-hidden="true" />
+            </IconButton>
+          </SimpleTooltip>
+        ) : null}
+        {onChangeStage ? (
+          <Button
+            size="sm"
             type="button"
-            onClick={onDelete}
-            aria-label={deleteLabel}
-            className={ON_BAR_DELETE_BUTTON}
+            onClick={onChangeStage}
+            className="ml-2 w-8 bg-white text-neutral-900 shadow-none hover:bg-neutral-100 has-[>svg]:px-0 sm:w-auto sm:has-[>svg]:px-2.5"
           >
-            <Trash2 aria-hidden="true" />
-          </IconButton>
-        </SimpleTooltip>
-        <Button
-          size="sm"
-          type="button"
-          onClick={onChangeStage}
-          className="ml-2 w-8 bg-white text-neutral-900 shadow-none hover:bg-neutral-100 has-[>svg]:px-0 sm:w-auto sm:has-[>svg]:px-2.5"
-        >
-          <Workflow aria-hidden="true" />
-          <span className="sr-only sm:not-sr-only">{changeStageLabel}</span>
-        </Button>
+            <Workflow aria-hidden="true" />
+            <span className="sr-only sm:not-sr-only">{changeStageLabel}</span>
+          </Button>
+        ) : null}
       </div>
     </div>
   )

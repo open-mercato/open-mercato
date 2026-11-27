@@ -491,17 +491,31 @@ describe('ComboboxInput — eager label resolution', () => {
     expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('shows a saved currency when its options arrive after autofocus without changing the stored value', async () => {
-    const onChange = jest.fn()
-    const loadSuggestions = jest.fn(async () => [{ value: 'USD', label: 'USD' }])
-    const { container } = render(
-      <ComboboxInput value="USD" onChange={onChange} autoFocus allowCustomValues={false} loadSuggestions={loadSuggestions} />,
-    )
+  it('loads a saved currency once on autofocus and searches when the user opens suggestions', async () => {
+    jest.useFakeTimers()
+    try {
+      const onChange = jest.fn()
+      const loadSuggestions = jest.fn(async () => [{ value: 'USD', label: 'USD' }])
+      const { container } = render(
+        <ComboboxInput value="USD" onChange={onChange} autoFocus allowCustomValues={false} loadSuggestions={loadSuggestions} />,
+      )
+      const input = getInput(container)
 
-    await waitFor(() => expect(getInput(container).value).toBe('USD'))
-    expect(document.activeElement).toBe(getInput(container))
-    expect(loadSuggestions).toHaveBeenCalledTimes(1)
-    expect(onChange).not.toHaveBeenCalled()
+      await act(async () => { await jest.advanceTimersByTimeAsync(250) })
+      expect(input.value).toBe('USD')
+      expect(document.activeElement).toBe(input)
+      expect(loadSuggestions).toHaveBeenCalledTimes(1)
+      expect(loadSuggestions).toHaveBeenCalledWith()
+
+      fireEvent.keyDown(input, { key: 'ArrowDown' })
+      await act(async () => { await jest.advanceTimersByTimeAsync(250) })
+      expect(input).toHaveAttribute('aria-expanded', 'true')
+      expect(loadSuggestions).toHaveBeenCalledTimes(2)
+      expect(loadSuggestions).toHaveBeenLastCalledWith('USD')
+      expect(onChange).not.toHaveBeenCalled()
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('reverts an invalid query to the saved self-labeled currency on blur', async () => {
@@ -626,33 +640,40 @@ describe('ComboboxInput — eager label resolution', () => {
     expect(getInput(container).value).toBe('')
   })
 
-  it('resumes syncing after a blur, so a later external change is not mistaken for typing', async () => {
-    const options = [
-      { value: 'red', label: 'Red' },
-      { value: 'green', label: 'Green' },
-    ]
-    const { container, rerender } = render(
-      <ComboboxInput value="red" onChange={() => {}} seedOptions={options} allowCustomValues={false} />,
-    )
-    const input = getInput(container)
-    act(() => {
-      input.focus()
-      fireEvent.change(input, { target: { value: 'gre' } })
-    })
-    expect(getInput(container).value).toBe('gre')
+  it('resumes syncing after a blur, so a later external change is not mistaken for typing', () => {
+    jest.useFakeTimers()
+    try {
+      const options = [
+        { value: 'red', label: 'Red' },
+        { value: 'green', label: 'Green' },
+      ]
+      const { container, rerender } = render(
+        <ComboboxInput value="red" onChange={() => {}} seedOptions={options} allowCustomValues={false} />,
+      )
+      const input = getInput(container)
+      act(() => {
+        input.focus()
+        fireEvent.change(input, { target: { value: 'gre' } })
+      })
+      expect(input.value).toBe('gre')
 
-    act(() => {
-      fireEvent.blur(input)
-    })
-    await waitFor(() => expect(getInput(container).value).toBe('Red'))
+      act(() => {
+        input.blur()
+        jest.runOnlyPendingTimers()
+      })
+      expect(input.value).toBe('Red')
 
-    act(() => {
-      getInput(container).focus()
-    })
-    rerender(
-      <ComboboxInput value="green" onChange={() => {}} seedOptions={options} allowCustomValues={false} />,
-    )
-    await waitFor(() => expect(getInput(container).value).toBe('Green'))
+      act(() => {
+        input.focus()
+      })
+      expect(input).toHaveFocus()
+      rerender(
+        <ComboboxInput value="green" onChange={() => {}} seedOptions={options} allowCustomValues={false} />,
+      )
+      expect(input.value).toBe('Green')
+    } finally {
+      jest.useRealTimers()
+    }
   })
 })
 
