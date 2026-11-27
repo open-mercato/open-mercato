@@ -124,7 +124,7 @@ test.describe('TC-CRM-020: Deal Note And Activity Creation', () => {
         expect(createResponse.status()).toBe(201);
         const createdNote = await createResponse.json() as { id?: string; updatedAt?: string };
         noteId = expectId(createdNote.id, 'Note creation returns its ID');
-        expect(createdNote.updatedAt).toEqual(expect.any(String));
+        const createdVersion = expectId(createdNote.updatedAt, 'Note creation returns its version');
 
         await page.getByRole('button', { name: original, exact: true }).click();
         const inlineEditor = page.locator('div.group textarea:visible');
@@ -133,7 +133,8 @@ test.describe('TC-CRM-020: Deal Note And Activity Creation', () => {
         await inlineEditor.press('Control+Enter');
         const saveResponse = await saved;
         expect(saveResponse.status()).toBe(200);
-        expect(saveResponse.request().headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(createdNote.updatedAt);
+        const saveHeaderVersion = expectId(saveResponse.request().headers()[OPTIMISTIC_LOCK_HEADER_NAME], 'Note save sends its loaded version');
+        expect(new Date(saveHeaderVersion).toISOString()).toBe(new Date(createdVersion).toISOString());
         const savedNote = await saveResponse.json() as { updatedAt?: string };
         const savedVersion = expectId(savedNote.updatedAt, 'Note update returns its saved version');
         const editedNote = page.getByRole('button', { name: edited, exact: true });
@@ -152,7 +153,8 @@ test.describe('TC-CRM-020: Deal Note And Activity Creation', () => {
         const deleted = waitForNoteWrite('DELETE');
         await page.getByRole('alertdialog').getByRole('button', { name: 'Confirm', exact: true }).click();
         const deleteResponse = await deleted;
-        expect(deleteResponse.request().headers()[OPTIMISTIC_LOCK_HEADER_NAME]).toBe(savedVersion);
+        const deleteHeaderVersion = expectId(deleteResponse.request().headers()[OPTIMISTIC_LOCK_HEADER_NAME], 'Note delete sends its saved version');
+        expect(new Date(deleteHeaderVersion).toISOString()).toBe(new Date(savedVersion).toISOString());
         if (otherUserEdits) {
           expect(deleteResponse.status()).toBe(409);
           expect(await deleteResponse.json()).toMatchObject({ code: 'optimistic_lock_conflict', expectedUpdatedAt: savedVersion });

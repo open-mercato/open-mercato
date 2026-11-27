@@ -75,8 +75,9 @@ test('TC-CRM-7498: both deal selectors show currency codes once and preserve sav
     await page.getByRole('textbox', { name: 'Deal value', exact: true }).fill('100')
     await page.getByRole('combobox', { name: 'Pipeline', exact: true }).click()
     await page.getByRole('option', { name: pipelineName, exact: true }).click()
-    await page.getByRole('combobox', { name: 'Pipeline stage', exact: true }).click()
-    await page.getByRole('option', { name: stageLabel, exact: false }).click()
+    const stageButton = page.getByRole('button', { name: stageLabel, exact: true })
+    await stageButton.click()
+    await expect(stageButton).toHaveAttribute('aria-pressed', 'true')
     await page.getByRole('searchbox', { name: 'Companies', exact: true }).fill(companyName)
     await page.getByRole('button', { name: companyName, exact: true }).click()
 
