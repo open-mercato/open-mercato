@@ -1205,17 +1205,7 @@ When modifying token storage, follow these column constraints:
 
 ### Inject Tokens Into Messages
 
-When a new chat session starts, the backend injects a system instruction. Follow this pattern:
-
-```typescript
-// packages/ai-assistant/src/modules/ai_assistant/api/chat/route.ts:161-164
-let messageToSend = lastUserMessage
-if (sessionToken) {
-  messageToSend = `[SYSTEM: Your session token is "${sessionToken}". You MUST include "_sessionToken": "${sessionToken}" in EVERY tool call argument object. Without this, tools will fail with authorization errors.]\n\n${lastUserMessage}`
-}
-```
-
-MUST NOT remove or modify the system instruction format — the AI agent depends on this exact phrasing.
+When a new chat session starts, the backend injects the token instruction once, alongside the system prompt. MUST NOT remove the `_sessionToken` tool-call instruction. MUST keep it paired with its non-disclosure/anti-exfiltration directive — the token is a replayable bearer credential in model-visible text, so prompt injection could otherwise steer the model into echoing it (#3807; defense-in-depth only).
 
 ### Inject Tokens Into Tool Schemas
 
