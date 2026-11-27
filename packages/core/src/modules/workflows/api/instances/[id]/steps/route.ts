@@ -90,7 +90,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     // Ordered by when the step was entered so the Gantt and the overlay read the
     // run in execution order. `createdAt` is the tiebreaker because a step
-    // instance is persisted before `enteredAt` is stamped on some paths.
+    // instance is persisted before `enteredAt` is stamped on some paths, and
+    // `id` comes last so steps sharing both timestamps page deterministically.
     const [steps, total] = await em.findAndCount(
       StepInstance,
       {
@@ -99,7 +100,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         ...orgFilter.where,
       },
       {
-        orderBy: [{ enteredAt: 'ASC' }, { createdAt: 'ASC' }],
+        orderBy: [{ enteredAt: 'ASC' }, { createdAt: 'ASC' }, { id: 'ASC' }],
         limit,
         offset,
       }

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/open-mercato/open-mercato/.github/ci-scope.schema.json",
+  "title": "CI scope",
+  "description": "Source of truth for the ci-* labels that steer CI. Read by scripts/ci/resolve-ci-scope.mts. See .ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md (CI labels and the scope file).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["default", "levels", "implies", "areas", "ignoredLabels", "fullSuitePatterns", "docsOnly"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "default": {
+      "description": "Level of a PR with no level label. 'scoped' is the affected-modules run of the prepare job: integration tests of the changed modules, skipped when no module changed.",
+      "enum": ["scoped"]
+    },
+    "levels": {
+      "description": "Level labels, lowest first. A label 'ci-<level>' raises the run to that level.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^ci-[a-z][a-z0-9-]*$" }
+    },
+    "implies": {
+      "description": "Labels that raise the run to at least the given level label. A key may end in '*' to match any label with that prefix (for example 'backport *').",
+      "type": "object",
+      "additionalProperties": { "type": "string", "pattern": "^ci-[a-z][a-z0-9-]*$" }
+    },
+    "areas": {
+      "description": "Area name to module directory names (the folder under <package>/src/modules/). The label 'ci-area:<name>' adds the area's modules and implies the lowest level. A module belongs to at most one area.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "additionalProperties": {
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": { "type": "string", "pattern": "^[a-z][a-z0-9_]*$" }
+      }
+    },
+    "ignoredLabels": {
+      "description": "Existing labels with the ci- prefix that do not steer CI, so they are not reported as unknown.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^ci-" }
+    },
+    "fullSuitePatterns": {
+      "description": "Regular expressions over changed paths (joined with '|', like FULL_SUITE_PATTERN in ci.yml). A match runs the full suite whatever the labels say.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "docsOnly": {
+      "description": "Glob allow-list ('**' any depth, '*' within one path segment). When every changed path matches, the PR takes the docs lane. Never add a blanket '**/*.md'.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}

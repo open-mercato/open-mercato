@@ -1,6 +1,19 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import {
+  envDisablesAutoIndexing,
+  SEARCH_AUTO_INDEX_CONFIG_KEY,
+  SEARCH_AUTO_INDEX_CONFIG_MODULE,
+} from '@open-mercato/shared/lib/search/auto-indexing'
 
 export const setup: ModuleSetupConfig = {
+  instanceConfigDefaults: () => [
+    {
+      name: SEARCH_AUTO_INDEX_CONFIG_KEY,
+      value: !envDisablesAutoIndexing(),
+      legacyStorageNamespace: SEARCH_AUTO_INDEX_CONFIG_MODULE,
+    },
+  ],
+
   defaultRoleFeatures: {
     admin: ['search.*', 'vector.*'],
     // `search.global` only unlocks the Cmd+K palette — the mirror image of the

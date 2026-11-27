@@ -3,6 +3,13 @@ import { dataTableExtensionHost, defineModuleExtensionPoints, injectionExtension
 export const extensionPoints = defineModuleExtensionPoints({
   moduleId: 'entities',
   hosts: {
+    fieldDefinitionActions: injectionExtensionHost({
+      family: 'generic',
+      spotId: 'entities:field-definition:actions',
+      supported: ['render-widget'],
+      source: 'backend/entities/user/[entityId]/page.tsx',
+      contextContract: '{ entityId: string, definition: FieldDefinition }',
+    }),
     systemEntitiesTable: dataTableExtensionHost({ tableId: 'entities.system.list', source: 'components/SystemEntitiesTable.tsx' }),
     userEntitiesTable: dataTableExtensionHost({ tableId: 'entities.user.list', source: 'components/UserEntitiesTable.tsx' }),
     userRecordsTable: injectionExtensionHost({

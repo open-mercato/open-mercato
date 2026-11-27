@@ -8,13 +8,39 @@ import {
   ensureDictionaryEntryScope,
   registerDictionaryEntryCommands,
 } from '@open-mercato/core/modules/dictionaries/commands/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 
-async function ensureDictionary(em: EntityManager, id: string): Promise<Dictionary> {
+function normalizeScopeId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function resolveSelectedOrganizationId(ctx: CommandRuntimeContext): string | null {
+  return normalizeScopeId(ctx.selectedOrganizationId ?? ctx.organizationScope?.selectedId ?? null)
+}
+
+function resolveContextTenantId(ctx: CommandRuntimeContext): string | null {
+  return normalizeScopeId(ctx.organizationScope?.tenantId ?? ctx.auth?.tenantId ?? null)
+}
+
+async function ensureDictionary(
+  em: EntityManager,
+  id: string,
+  ctx: CommandRuntimeContext,
+): Promise<Dictionary> {
+  if (ctx.organizationScope?.selectionRejected) {
+    throw forbidden()
+  }
+  const tenantId = resolveContextTenantId(ctx)
+  const organizationId = resolveSelectedOrganizationId(ctx)
   const dictionary = await em.findOne(Dictionary, {
     id,
     deletedAt: null,
+    ...(tenantId ? { tenantId } : {}),
+    ...(organizationId ? { organizationId } : {}),
   })
   if (!dictionary) {
     throw new CrudHttpError(404, { error: 'Dictionary not found' })
@@ -31,14 +57,25 @@ registerDictionaryEntryCommands({
   ensureScope: ensureDictionaryEntryScope,
   duplicateError: 'An entry with this value already exists.',
   resolveDictionaryForCreate: async ({ em, ctx, parsed }) => {
-    const dictionary = await ensureDictionary(em, parsed.dictionaryId)
+    const dictionary = await ensureDictionary(em, parsed.dictionaryId, ctx)
     const scope = { tenantId: dictionary.tenantId, organizationId: dictionary.organizationId }
     ensureDictionaryEntryScope(ctx, scope)
     return { dictionary, scope }
   },
   resolveEntry: async ({ em, ctx, id }) => {
+    if (ctx.organizationScope?.selectionRejected) {
+      throw forbidden()
+    }
     const entry = await findOneWithDecryption(em, DictionaryEntry, id, { populate: ['dictionary'] })
     if (!entry) {
+      throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
+    }
+    const tenantId = resolveContextTenantId(ctx)
+    const selectedOrganizationId = resolveSelectedOrganizationId(ctx)
+    if (
+      (tenantId && entry.tenantId !== tenantId) ||
+      (selectedOrganizationId && entry.organizationId !== selectedOrganizationId)
+    ) {
       throw new CrudHttpError(404, { error: 'Dictionary entry not found' })
     }
     if (entry.dictionary.deletedAt) {

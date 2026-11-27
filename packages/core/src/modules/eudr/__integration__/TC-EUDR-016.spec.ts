@@ -25,7 +25,7 @@ const POLL_TIMEOUT_MS = 20_000
 const COUNT_INCREASE_TIMEOUT_MS = 15_000
 const POLL_INTERVAL_MS = 1_000
 const STABLE_COUNT_DURATION_MS = 4_000
-const TEST_PASSWORD = 'Valid1!Pass'
+const TEST_PASSWORD = 'QaValid1!Pass'
 
 type NotificationItem = {
   type?: string

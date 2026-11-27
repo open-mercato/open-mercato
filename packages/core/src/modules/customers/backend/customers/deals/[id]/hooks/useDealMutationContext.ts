@@ -57,10 +57,11 @@ export function useDealMutationContext({
   )
 
   const runMutationWithContext = React.useCallback<GuardedMutationRunner>(
-    async (operation, mutationPayload) => {
+    async (operation, mutationPayload, onSuccess) => {
       return runMutation({
         operation,
         mutationPayload,
+        onSuccess,
         context: injectionContext,
       })
     },

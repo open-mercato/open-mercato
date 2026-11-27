@@ -878,10 +878,9 @@ const updatePaymentCommand: CommandHandler<
     )
     ensureSameScope(payment, resolvedOrganizationId, resolvedTenantId)
     const previousOrder = payment.order as SalesOrder | null
-    // Guard the parent order's aggregate version (Gap A): updating a payment
-    // recalculates the order totals, so a stale parent must 409 before mutating.
-    await enforceSalesDocumentOptimisticLock(ctx, previousOrder, SALES_RESOURCE_KIND_ORDER)
+    const previousOrderId = resolveRefId(previousOrder)
     if (input.documentStatusEntryId) {
+      await enforceSalesDocumentOptimisticLock(ctx, previousOrder, SALES_RESOURCE_KIND_ORDER)
       const targetOrder =
         input.orderId && input.orderId !== previousOrder?.id
           ? await findOneWithDecryption(em, SalesOrder, { id: input.orderId }, {}, { tenantId: resolvedTenantId, organizationId: resolvedOrganizationId })
@@ -906,22 +905,25 @@ const updatePaymentCommand: CommandHandler<
     // leave the payment and its allocations partially committed (#2336).
     const scope: PaymentScope = { tenantId: payment.tenantId, organizationId: payment.organizationId }
     const { lockedOrders, orderTotals } = await em.transactional(async (tx) => {
+      const lockedOrders = await lockPaymentOrders(
+        tx,
+        payment,
+        [
+          previousOrderId,
+          input.orderId,
+          (input.allocations ?? []).map((allocation) => allocation.orderId),
+        ],
+        scope,
+      )
+      const lockedPreviousOrder = previousOrderId ? lockedOrders.get(previousOrderId) : null
+      await enforceSalesDocumentOptimisticLock(ctx, lockedPreviousOrder, SALES_RESOURCE_KIND_ORDER)
+      const orderVersions = Array.from(lockedOrders.values(), (order) => ({ order, version: order.updatedAt.getTime() }))
       const status = input.statusEntryId !== undefined
         ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, scope)
         : undefined
       if (input.statusEntryId && !status) {
         throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
       }
-      const lockedOrders = await lockPaymentOrders(
-        tx,
-        payment,
-        [
-          previousOrder?.id,
-          input.orderId,
-          (input.allocations ?? []).map((allocation) => allocation.orderId),
-        ],
-        scope,
-      )
       if (input.orderId !== undefined) {
         if (!input.orderId) {
           payment.order = null
@@ -1111,6 +1113,12 @@ const updatePaymentCommand: CommandHandler<
         }
       }
       const orderTotals = await recomputeLockedOrders(tx, lockedOrders)
+      for (const { order, version } of orderVersions) {
+        if (order.updatedAt.getTime() > version) continue
+        await tx.nativeUpdate(SalesOrder, { id: order.id, ...scope }, {
+          updatedAt: new Date(Math.max(Date.now(), version + 1)),
+        })
+      }
       return { lockedOrders, orderTotals }
     })
     await invalidateOrderCaches(ctx.container, lockedOrders.values(), ctx.auth?.tenantId ?? null)

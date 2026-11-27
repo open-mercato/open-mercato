@@ -17,6 +17,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '../../../../progress/lib/progressService'
 import { BULK_REPLAY_MAX_IDS, getBulkReplayQueue } from '../../../lib/bulk-replay'
+import { tryResolve } from '../../../lib/tryResolve'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -78,21 +79,24 @@ export async function POST(request: Request) {
     }
 
     const ids = Array.from(new Set(parsed.data.ids))
-    const progressService = container.resolve('progressService') as ProgressService
-    const progressJob = await progressService.createJob(
-      {
-        jobType: `workflows.instances.bulk_${parsed.data.action}`,
-        name: JOB_NAMES[parsed.data.action],
-        description: `${ids.length} workflow instances queued`,
-        totalCount: ids.length,
-        cancellable: false,
-        meta: { source: 'workflows.failure-queue', action: parsed.data.action },
-      },
-      { tenantId: auth.tenantId, organizationId: auth.orgId, userId: auth.sub }
-    )
+    const progressService = tryResolve<ProgressService>(container, 'progressService')
+    const progressJob = progressService
+      ? await progressService.createJob(
+          {
+            jobType: `workflows.instances.bulk_${parsed.data.action}`,
+            name: JOB_NAMES[parsed.data.action],
+            description: `${ids.length} workflow instances queued`,
+            totalCount: ids.length,
+            cancellable: false,
+            meta: { source: 'workflows.failure-queue', action: parsed.data.action },
+          },
+          { tenantId: auth.tenantId, organizationId: auth.orgId, userId: auth.sub }
+        )
+      : null
+    const progressJobId = progressJob?.id ?? null
 
     await getBulkReplayQueue().enqueue({
-      progressJobId: progressJob.id,
+      progressJobId,
       action: parsed.data.action,
       ids,
       // The worker re-reads every instance under this scope, so an id from
@@ -103,7 +107,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       responseSchema.parse({
         ok: true,
-        progressJobId: progressJob.id,
+        progressJobId,
         message: 'Bulk replay started.',
       }),
       { status: 202 }

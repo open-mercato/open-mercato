@@ -13,7 +13,7 @@ import {
 
 type CancelBody = { ok?: boolean; jobsRemoved?: number; error?: string }
 
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 const FULLTEXT_CANCEL = '/api/search/reindex/cancel'
 const VECTOR_CANCEL = '/api/search/embeddings/reindex/cancel'
 

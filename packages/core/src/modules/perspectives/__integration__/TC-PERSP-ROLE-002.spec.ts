@@ -33,7 +33,7 @@ test.describe('TC-PERSP-ROLE-002: delete role perspectives for a role', () => {
   test('removes the role perspective and reflects the cleared state to a role member', async ({ request }) => {
     test.slow();
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const memberEmail = `qa-persp-role-002-${stamp}@example.com`;
     const tableId = `qa-persp-role-002-${stamp}`;
     const perspectiveName = `Role View ${stamp}`;

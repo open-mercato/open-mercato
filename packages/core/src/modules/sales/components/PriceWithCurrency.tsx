@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { useOptionalLocale } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { formatCurrency } from '@open-mercato/ui/utils/format'
 
 /**
  * Pass `locale` to format in the application locale (`useLocale()` in client components).
@@ -15,22 +16,9 @@ export function formatPriceWithCurrency(
   fallback = '—',
   locale?: string
 ): string {
-  if (amount === null || amount === undefined) return fallback
-  const parsed = typeof amount === 'string' ? Number(amount) : amount
-  if (Number.isNaN(parsed)) return fallback
-  if (currency) {
-    try {
-      return new Intl.NumberFormat(locale, {
-        style: 'currency',
-        currency,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(parsed)
-    } catch {
-      // fall through to plain number formatting
-    }
-  }
-  return parsed.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  if (amount == null || Number.isNaN(Number(amount))) return fallback
+  const code = currency && /^[a-z]{3}$/i.test(currency) ? currency : null
+  return formatCurrency(amount, code, locale, code ? undefined : 2) ?? fallback
 }
 
 type PriceWithCurrencyProps = {
