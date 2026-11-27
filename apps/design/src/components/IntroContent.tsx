@@ -2,8 +2,9 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ArrowRight, ArrowUpRight, Box, Braces, Columns3, Layers, LayoutGrid, Palette, Rows3, Shapes, Type } from 'lucide-react'
+import { ArrowRight, ArrowUpRight, Bot, Box, Braces, Columns3, Layers, LayoutGrid, Palette, Rows3, Shapes, Type } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { BorderBeam } from '@open-mercato/ui/primitives/border-beam'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import type { EntryGroup } from '@/lib/groups'
@@ -33,6 +34,16 @@ function HomeHero() {
   return (
     <section aria-labelledby="intro-title" className="flex flex-col items-center gap-8 text-center">
       <div className="flex flex-col items-center gap-5">
+        <BorderBeam className="rounded-card border border-border bg-card sm:rounded-full">
+          <a
+            href="/llms.txt"
+            className="flex items-center gap-3 rounded-card px-4 py-2 text-left text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:shadow-focus sm:rounded-full"
+          >
+            <Bot aria-hidden className="size-4 shrink-0 text-accent-indigo" />
+            <span className="min-w-0">{t('design.intro.agentsBody')}</span>
+            <span className="flex shrink-0 items-center gap-1 font-mono text-foreground">llms.txt<ArrowUpRight aria-hidden className="size-4" /></span>
+          </a>
+        </BorderBeam>
         <h1 id="intro-title" className="text-5xl font-normal tracking-tight text-foreground sm:text-6xl">{t('design.home.title')}</h1>
         <p className="max-w-2xl text-lg text-muted-foreground">{t('design.home.lead')}</p>
         <div className="flex flex-wrap items-center justify-center gap-3">
@@ -104,17 +115,12 @@ function LibraryCards({ counts }: { counts: Record<EntryGroup, number> }) {
 }
 
 export function IntroContent({ counts }: { counts: Record<EntryGroup, number> }) {
-  const t = useT()
   return (
     <div className="om-design-intro mx-auto flex max-w-6xl flex-col gap-16 py-8 lg:gap-24 lg:py-12">
       <HomeHero />
       <LivePanel />
       <WhatsNew />
       <LibraryCards counts={counts} />
-      <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-border py-5 text-sm text-muted-foreground">
-        <span>{t('design.intro.agentsBody')}</span>
-        <a href="/llms.txt" className="om-spec-link font-mono text-foreground">llms.txt<ArrowUpRight aria-hidden className="size-4" /></a>
-      </footer>
     </div>
   )
 }
