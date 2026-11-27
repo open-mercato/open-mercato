@@ -73,6 +73,7 @@ import {
 import {
   subscribeSalesDocumentDataRefresh,
 } from '@open-mercato/core/modules/sales/lib/frontend/documentDataEvents'
+import { isEditableDocumentStatus } from '@open-mercato/core/modules/sales/lib/frontend/documentStatusOptions'
 import type { CommentSummary, SectionAction } from '@open-mercato/ui/backend/detail'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@open-mercato/core/modules/customers/lib/markdownPreference'
@@ -1763,6 +1764,7 @@ function MethodInlineEditor({
 }
 
 function StatusInlineEditor({
+  kind,
   label,
   value,
   emptyLabel,
@@ -1776,6 +1778,7 @@ function StatusInlineEditor({
   dictionaryMap,
   appearance = 'plain',
 }: {
+  kind: 'order' | 'quote'
   label: string
   value: string | null | undefined
   emptyLabel: string
@@ -1794,15 +1797,18 @@ function StatusInlineEditor({
   const [draft, setDraft] = React.useState<string | undefined>(value ?? undefined)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
+  const isEditableStatus = React.useCallback((status: string) => isEditableDocumentStatus(kind, status), [kind])
   const fetchStatusOptions = React.useCallback(
     async () =>
-      (await onLoadOptions()).map((option) => ({
-        value: option.value,
-        label: option.label,
-        color: option.color,
-        icon: option.icon,
-      })),
-    [onLoadOptions]
+      (await onLoadOptions())
+        .filter((option) => isEditableStatus(option.value))
+        .map((option) => ({
+          value: option.value,
+          label: option.label,
+          color: option.color,
+          icon: option.icon,
+        })),
+    [isEditableStatus, onLoadOptions]
   )
 
   React.useEffect(() => {
@@ -1813,7 +1819,7 @@ function StatusInlineEditor({
   }, [editing, value])
 
   const handleSave = React.useCallback(async () => {
-    const selected = draft ? options.find((opt) => opt.value === draft) ?? null : null
+    const selected = draft && isEditableStatus(draft) ? options.find((opt) => opt.value === draft) : undefined
     if (draft && !selected) {
       setError(t('sales.documents.detail.statusInvalid', 'Selected status could not be found.'))
       return
@@ -1830,7 +1836,7 @@ function StatusInlineEditor({
     } finally {
       setSaving(false)
     }
-  }, [draft, onSave, options, t])
+  }, [draft, isEditableStatus, onSave, options, t])
 
   return (
     <div
@@ -1873,7 +1879,7 @@ function StatusInlineEditor({
               }}
             >
               <DictionaryEntrySelect
-                value={draft}
+                value={draft && isEditableStatus(draft) ? draft : undefined}
                 onChange={(next) => setDraft(next ?? undefined)}
                 fetchOptions={fetchStatusOptions}
                 allowInlineCreate={false}
@@ -1931,7 +1937,7 @@ function StatusInlineEditor({
           onClick={(event) => {
             event.stopPropagation()
             if (editing) {
-              setDraft(normalizedValue)
+              setDraft(value ?? undefined)
               setError(null)
             }
             setEditing((prev) => !prev)
@@ -2855,12 +2861,6 @@ export default function SalesDocumentDetailPage({
       ),
     [statusOptions]
   )
-  const statusOptionsForEditor = React.useMemo(() => {
-    if (kind === 'order') {
-      return statusOptions.filter((option) => option.value !== 'sent')
-    }
-    return statusOptions
-  }, [kind, statusOptions])
   const number = record?.orderNumber ?? record?.quoteNumber ?? record?.id
   const numberEditorKey = `${record?.id ?? 'unknown'}:${number ?? ''}`
   const customerSnapshot = (record?.customerSnapshot ?? null) as CustomerSnapshot | null
@@ -3827,7 +3827,7 @@ export default function SalesDocumentDetailPage({
     if (!committedCc.ok) {
       setSendCcError(
         committedCc.reason === 'limit'
-          ? t('sales.quotes.send.ccLimit', 'You can add up to {limit} CC addresses', { limit: QUOTE_SEND_CC_LIMIT })
+          ? t('sales.quotes.send.ccLimit', 'You can send copies to up to {limit} addresses', { limit: QUOTE_SEND_CC_LIMIT })
           : t('sales.quotes.send.ccInvalid', 'Enter a valid e-mail address'),
       )
       return
@@ -4388,7 +4388,9 @@ export default function SalesDocumentDetailPage({
           shippingAddressSnapshot={shippingSnapshot ?? null}
           billingAddressSnapshot={billingSnapshot ?? null}
           lockedReason={addressGuardMessage}
+          documentUpdatedAt={record.updatedAt ?? null}
           onUpdated={(patch) => setRecord((prev) => (prev ? { ...prev, ...patch } : prev))}
+          onReload={() => setReloadKey((prev) => prev + 1)}
         />
       )
     }
@@ -4924,10 +4926,11 @@ export default function SalesDocumentDetailPage({
               return (
                 <StatusInlineEditor
                   key={card.key}
+                  kind={kind}
                   label={card.title}
                   value={card.value}
                   emptyLabel={card.emptyLabel ?? t('sales.documents.detail.empty', 'Not set')}
-                  options={statusOptionsForEditor}
+                  options={statusOptions}
                   onSave={handleUpdateStatus}
                   onLoadOptions={loadStatuses}
                   labels={statusLabels}
@@ -5140,10 +5143,13 @@ export default function SalesDocumentDetailPage({
             <DialogTitle>{t('sales.quotes.send.title', 'Send quote to customer')}</DialogTitle>
             <DialogDescription>
               {t('sales.quotes.send.description', 'Email will be sent to:')} {contactEmail ?? t('sales.quotes.send.noEmail', 'No email')}
+              <span className="mt-1 block">
+                {t('sales.quotes.send.ccHint', 'Each copy is sent as a separate email. Only the main recipient gets the link to accept the quote.')}
+              </span>
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label htmlFor={sendCcFieldId}>{t('sales.quotes.send.cc', 'CC')}</Label>
+            <Label htmlFor={sendCcFieldId}>{t('sales.quotes.send.cc', 'Send a copy to')}</Label>
             <TagInput
               id={sendCcFieldId}
               value={sendCc}

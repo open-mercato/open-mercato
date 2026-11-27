@@ -2,6 +2,7 @@ import { describe, it, expect, jest, beforeEach, afterEach } from '@jest/globals
 import { executeCallApi } from '../activity-executor'
 import { workflowsConfig } from '../../workflows'
 import { createTransactionalEntityManagerDouble } from '../../../../test-utils/transactionalEntityManagerDouble'
+import { createApiKeyOneTimeIssuer } from '../../../api_keys/services/oneTimeIssuerService'
 
 /**
  * End-to-end guard for issue #4211: the code-defined checkout demo's
@@ -52,7 +53,15 @@ function makeEm() {
 describe('checkout-demo create_order request body', () => {
   it('POSTs a populated lines + adjustments array from a realistic cart context', async () => {
     const em = makeEm()
-    const container = { resolve: jest.fn((k: string) => (k === 'em' ? em : null)) } as any
+    const apiKeyOneTimeIssuer = createApiKeyOneTimeIssuer(em)
+    const container = {
+      hasRegistration: jest.fn((k: string) => k === 'em' || k === 'apiKeyOneTimeIssuer'),
+      resolve: jest.fn((k: string) => {
+        if (k === 'em') return em
+        if (k === 'apiKeyOneTimeIssuer') return apiKeyOneTimeIssuer
+        return null
+      }),
+    } as any
 
     const checkout = workflowsConfig.workflows.find((w) => w.workflowId === 'workflows.checkout-demo')!
     const createOrder = checkout.definition.transitions

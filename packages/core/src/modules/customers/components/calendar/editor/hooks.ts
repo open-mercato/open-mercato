@@ -12,7 +12,7 @@ import { mapInteractionToCalendarItem } from '../../../lib/calendar/mapItem'
 import { participantActorKey } from '../../../lib/calendar/participantIdentity'
 import { expandOccurrences } from '../../../lib/calendar/recurrence'
 import { getFetchWindow } from '../../../lib/calendar/range'
-import type { CalendarItem } from '../types'
+import type { CalendarItem, CalendarRange } from '../types'
 import { fetchCalendarCandidates } from '../useCalendarItems'
 import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { fetchDealById, fetchRelatedEntityById, findStaffMemberName } from './lookups'
@@ -62,6 +62,26 @@ function formatClock(date: Date): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+export function resolveDraftConflictRange(
+  form: EditorFormState,
+  config: EditorKindConfig,
+): CalendarRange | null {
+  if (!form.date) return null
+  if (config.hasAllDay && form.allDay) {
+    const day = form.timezone ? calendarDayStartInstant(form.date, form.timezone) : new Date(`${form.date}T00:00:00`)
+    if (!day || Number.isNaN(day.getTime())) return null
+    const end = form.timezone ? calendarDayEndInstant(form.date, form.timezone) : endOfDay(day)
+    return end ? { from: form.timezone ? day : startOfDay(day), to: end } : null
+  }
+  if (!form.startTime) return null
+  const start = form.timezone
+    ? calendarWallTimeToInstant(form.date, form.startTime, form.timezone)
+    : new Date(`${form.date}T${form.startTime}:00`)
+  if (!start || Number.isNaN(start.getTime())) return null
+  const durationMinutes = config.hasEnd ? computeDurationMinutes(form) ?? 30 : 30
+  return { from: start, to: new Date(start.getTime() + durationMinutes * 60_000) }
+}
+
 // Debounced save-time conflict probe. Detection uses the SAME `findConflicts`
 // logic the grid uses (overlap + shared owner/participant/resource) against a freshly
 // fetched ±1-day window, so the editor warning is always consistent with the
@@ -76,6 +96,7 @@ export function useConflictProbe(
   scope: ConflictScope,
   currentUserId: string | null,
   draftResources: ReadonlyArray<{ id: string; label: string }> = NO_DRAFT_RESOURCES,
+  providedRange?: CalendarRange | null,
 ): string | null {
   const t = useT()
   const [conflict, setConflict] = React.useState<string | null>(null)
@@ -87,40 +108,12 @@ export function useConflictProbe(
     .map((participant) => participantActorKey(participant) ?? '')
     .join(',')
   React.useEffect(() => {
-    if (!open || !form.date) {
+    const range = providedRange === undefined ? resolveDraftConflictRange(form, config) : providedRange
+    if (!open || !range) {
       setConflict(null)
       return
     }
-    // Resolve the draft's [start, end] span exactly as the grid will after save:
-    // all-day spans startOfDay..endOfDay (matching mapInteractionToCalendarItem),
-    // timed events use the start + computed duration (multi-day endDate included).
-    const isAllDay = config.hasAllDay && form.allDay
-    let start: Date
-    let end: Date
-    if (isAllDay) {
-      const dayDate = form.timezone ? calendarDayStartInstant(form.date, form.timezone) : new Date(`${form.date}T00:00:00`)
-      if (!dayDate || Number.isNaN(dayDate.getTime())) {
-        setConflict(null)
-        return
-      }
-      start = form.timezone ? dayDate : startOfDay(dayDate)
-      const dayEnd = form.timezone ? calendarDayEndInstant(form.date, form.timezone) : endOfDay(dayDate)
-      if (!dayEnd) { setConflict(null); return }
-      end = dayEnd
-    } else {
-      if (!form.startTime) {
-        setConflict(null)
-        return
-      }
-      const draftStart = form.timezone ? calendarWallTimeToInstant(form.date, form.startTime, form.timezone) : new Date(`${form.date}T${form.startTime}:00`)
-      if (!draftStart || Number.isNaN(draftStart.getTime())) {
-        setConflict(null)
-        return
-      }
-      start = draftStart
-      const durationMinutes = config.hasEnd ? computeDurationMinutes(form) ?? 30 : 30
-      end = new Date(start.getTime() + durationMinutes * 60_000)
-    }
+    const { from: start, to: end } = range
     // The same padded window + recurrence expansion the grid uses, so the probe
     // sees the exact candidate set behind the grid's conflict badges/rings. The
     // window pads ±1 day around the FULL draft span so multi-day drafts still
@@ -181,6 +174,6 @@ export function useConflictProbe(
       controller.abort()
     }
     // Re-probe when schedule-relevant inputs change (time window, all-day, attendees, owner, status, scope).
-  }, [open, form.date, form.timezone, form.startTime, form.endDate, form.endTime, form.allDay, form.status, participantsKey, resourcesKey, config.hasAllDay, config.hasEnd, excludeId, draftOwnerUserId, scope, currentUserId, t]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, form.date, form.timezone, form.startTime, form.endDate, form.endTime, form.allDay, form.status, participantsKey, resourcesKey, config.hasAllDay, config.hasEnd, providedRange, excludeId, draftOwnerUserId, scope, currentUserId, t]) // eslint-disable-line react-hooks/exhaustive-deps
   return conflict
 }

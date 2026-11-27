@@ -480,8 +480,10 @@ function DocumentNumberField({ value, setValue, values, t }: DocumentNumberField
   const [error, setError] = React.useState<string | null>(null)
   const autoValueRef = React.useRef<string | null>(null)
   const lastKindRef = React.useRef<DocumentKind | null>(null)
+  const requestIdRef = React.useRef(0)
 
   const requestNumber = React.useCallback(async () => {
+    const requestId = ++requestIdRef.current
     setLoading(true)
     setError(null)
     try {
@@ -490,37 +492,48 @@ function DocumentNumberField({ value, setValue, values, t }: DocumentNumberField
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ kind }),
       })
+      if (requestId !== requestIdRef.current) return
       const nextNumber = typeof call.result?.number === 'string' ? call.result.number : null
       if (call.ok && nextNumber) {
         autoValueRef.current = nextNumber
-        lastKindRef.current = kind
         setValue(nextNumber)
       } else {
         setError(call.result?.error || t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
       }
     } catch (err) {
+      if (requestId !== requestIdRef.current) return
       logger.error('sales.documents.generateNumber', { err })
       setError(t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
     } finally {
-      setLoading(false)
+      if (requestId === requestIdRef.current) setLoading(false)
     }
   }, [kind, setValue, t])
 
-  React.useEffect(() => {
-    const current = typeof value === 'string' ? value.trim() : ''
-    if (!current.length && !lastKindRef.current) {
+  React.useLayoutEffect(() => {
+    if (lastKindRef.current === kind) return
+    lastKindRef.current = kind
+    const current = typeof value === 'string' ? value : ''
+    const wasGenerated = current === autoValueRef.current
+    autoValueRef.current = null
+    if (wasGenerated) setValue('')
+    if (wasGenerated || !current.trim()) {
       void requestNumber()
     } else {
-      lastKindRef.current = kind
+      requestIdRef.current += 1
+      setLoading(false)
+      setError(null)
     }
-  }, [kind, requestNumber, value])
+  }, [kind, requestNumber, setValue, value])
 
   return (
     <div className="space-y-2">
       <div className="flex w-full flex-col gap-2 md:flex-row md:items-center md:gap-3">
         <Input
           value={typeof value === 'string' ? value : ''}
-          onChange={(event) => setValue(event.target.value)}
+          onChange={(event) => {
+            autoValueRef.current = null
+            setValue(event.target.value)
+          }}
           disabled={loading}
           spellCheck={false}
           className="w-full md:flex-1"

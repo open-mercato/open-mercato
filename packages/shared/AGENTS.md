@@ -124,7 +124,7 @@ Both paths require populated `search_tokens` for the entity, encrypted field, an
 
 When fallback would compare with ciphertext, both engines retain the existing warn-once log. Outside production, `meta.ciphertextSearchWarnings` additionally reports entity, field, reason and remediation hint on every affected query/list response, including `no-search-tokens`. No values, hashes or tenant IDs are exposed. Production response metadata is unchanged.
 
-- `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default.
+- `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default; off, plaintext-column token matches are ANDed with folded containment (`lib/search/tokenContainment`).
 - Direct `…WithDecryption` helpers warn outside production about `$like`/`$ilike`/`$re` in encrypted-field ORM predicates (`lib/encryption/likeFilterWarning`); they decrypt returned rows but cannot repair a ciphertext filter.
 
 ### Boolean Parsing — MUST use instead of ad-hoc parsing
@@ -283,6 +283,7 @@ Downstream apps replace or disable any contract a module presents through a sing
 | Notifications / interceptors / enrichers / guards | `applyNotificationTypeOverridesToEntries()`, `applyNotificationHandlerOverridesToEntries()`, `applyApiInterceptorOverridesToEntries()`, `applyCommandInterceptorOverridesToEntries()`, `applyResponseEnricherOverridesToEntries()`, `applyPageGuardOverridesToEntries()` |
 | DI | `applyDiOverridesToContainer()` |
 | Sidebar nav ordering | `applyNavGroupOrderOverrides()`, `getNavGroupOrderOverride()` |
+| CrudForm sections | `applyFormSectionOverrides()`, `composeFormSectionOverrides()` |
 
 MUST rules:
 - `entry.overrides` is the ONLY canonical override surface — never patch upstream module source.
@@ -294,6 +295,8 @@ MUST rules:
 - An `enabledModules` entry gated on a **server-only** env var (anything not `NEXT_PUBLIC_*`) MUST NOT carry `widgets` or `notifications` overrides. The browser re-evaluates `modules.ts` with those reads `undefined`, so the entry is absent there: the server dispatches the override and the client does not, and the widget returns on hydration with nothing logged. Declare such an override on an ungated entry, or gate it on a `NEXT_PUBLIC_` var. Outside production `ClientBootstrap` warns for every module id in `enabled-module-ids.generated` that the browser-evaluated list is missing.
 - Adding a new override domain MUST follow the umbrella spec: typed sub-shape + composer + runtime hook + tests + AGENTS.md/docs update + status-table tick.
 - `nav.groupOrder` **prepends** group ids ahead of the built-in ordering; ids it does not name keep their current position. It is a default, resolved beneath role and per-user sidebar preferences, and an absent override MUST leave ordering byte-identical.
+- Address `forms.sections` entries as `<hostId>/<formVariant>/<formOperation>/<sectionId>`. Preserve `null` through composition so the resolver can restore a base section or omit an addition. Runtime descriptors and registry validation belong outside the shared override composer.
+- Declare facts and loader identities with `defineCrudFormSections` and `lazyCrudFormSectionRuntime` from `@open-mercato/shared/modules/form-sections`. Bind conventional hosts with `defineCrudRouteSectionHost` from `@open-mercato/shared/lib/crud/form-sections/derived-route-host`. Authorization, final-input validation, and target locking belong to the [section policy adapter](../../.ai/docs/module-development.md#crudform-section-policies).
 - Nav ordering state lives on `globalThis` because its reader is `@open-mercato/core` while its writer is app bootstrap; a module-local variable would be invisible across duplicated module instances in standalone builds. The injection-widget `key`⇄`widgetId` alias index is on `globalThis` for the same reason — `@open-mercato/ui` writes it while filtering entries, `@open-mercato/core` reads it while filtering tables.
 
 ### Query Engine Extensibility (UMES)

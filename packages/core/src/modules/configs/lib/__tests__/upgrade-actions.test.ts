@@ -149,6 +149,26 @@ describe('interaction-statuses seed upgrade action', () => {
   })
 })
 
+describe('cross-module upgrade action gating', () => {
+  it.each([
+    ['customers.seed-interaction-statuses', ['customers']],
+    ['attachments.reconcile-organization', ['attachments']],
+    ['devices.seed-push-token-encryption-map', ['devices']],
+    ['phone_calls.seed-call-encryption-maps', ['phone_calls']],
+  ])('gates %s on its owning module', (actionId, expectedModules) => {
+    const action = upgradeActions.find((candidate) => candidate.id === actionId)
+    expect(action?.requiredModules).toEqual(expectedModules)
+  })
+
+  it('declares an owning module for every action whose id names another module', () => {
+    const ungated = upgradeActions
+      .filter((action) => !action.id.startsWith('configs.'))
+      .filter((action) => !action.requiredModules?.length)
+      .map((action) => action.id)
+    expect(ungated).toEqual([])
+  })
+})
+
 describe('deal loss-reasons seed upgrade action', () => {
   const ACTION_ID = 'customers.seed-deal-loss-reasons'
 

@@ -123,6 +123,7 @@ export async function runCommandInterceptorsAfter(
   context: CommandInterceptorContext,
   userFeatures: string[],
   metadataByInterceptor: Map<string, Record<string, unknown>>,
+  onFailure?: () => void,
 ): Promise<{ modifiedResult?: Record<string, unknown> }> {
   const matching = collectMatching(interceptors, commandId, userFeatures)
 
@@ -140,7 +141,8 @@ export async function runCommandInterceptorsAfter(
         currentResult = { ...(currentResult as Record<string, unknown>), ...afterResult.modifiedResult }
       }
     } catch (error) {
-      logger.error('Command interceptor afterExecute failed', { interceptorId: interceptor.id, err: error })
+      if (onFailure) onFailure()
+      else logger.error('Command interceptor afterExecute failed', { interceptorId: interceptor.id, err: error })
     }
   }
 

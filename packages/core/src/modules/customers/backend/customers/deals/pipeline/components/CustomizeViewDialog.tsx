@@ -29,6 +29,7 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
  */
 type CustomizeViewDialogProps = {
   open: boolean
+  canManagePipelines: boolean
   /** Number of lanes the user has manually resized — displayed alongside the reset action */
   resizedLanesCount?: number
   onClose: () => void
@@ -39,6 +40,7 @@ type CustomizeViewDialogProps = {
 
 export function CustomizeViewDialog({
   open,
+  canManagePipelines,
   resizedLanesCount = 0,
   onClose,
   onResetToDefault,
@@ -71,7 +73,7 @@ export function CustomizeViewDialog({
             <span className="text-overline font-semibold uppercase tracking-wider text-muted-foreground">
               {translateWithFallback(t, 'customers.deals.kanban.customize.actions', 'Actions')}
             </span>
-            <Link
+            {canManagePipelines ? <Link
               href="/backend/config/customers/pipeline-stages"
               className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               onClick={() => onClose()}
@@ -93,7 +95,7 @@ export function CustomizeViewDialog({
                 </span>
               </span>
               <ChevronRight className="size-4 text-muted-foreground" aria-hidden="true" />
-            </Link>
+            </Link> : null}
             {onResetColumnWidths ? (
               <Button
                 variant="ghost"

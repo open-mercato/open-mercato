@@ -1,5 +1,8 @@
+import { attachmentPartitionVisibility, indexAttachmentPartitions, resolveAttachmentPartition } from './partitionScope'
 import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access-runner'
 import { throwAttachmentAccessError } from './access-errors'
+import { ensureAttachmentPartitionProtection } from './access-protection'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -172,6 +175,19 @@ export type DescribeManyScopedAttachmentsInput = {
   items: Array<Omit<DescribeScopedAttachmentInput, 'auth'>>
 }
 
+type ListScopedOwnerAttachmentIdsInput = {
+  auth: NonNullable<AuthContext>
+  expectedOwner: AttachmentOwner
+  limit: number
+}
+
+type ReassignScopedAttachmentsInput = {
+  auth: NonNullable<AuthContext>
+  attachmentIds: string[]
+  expectedOwner: AttachmentOwner
+  destination: AttachmentOwner
+}
+
 export type ReleaseScopedAttachmentInput = {
   attachmentId: string
   tenantId: string
@@ -210,6 +226,8 @@ export interface AttachmentService {
    * first item's refusal, as a loop over `describeScoped` would.
    */
   describeManyScoped?(input: DescribeManyScopedAttachmentsInput): Promise<DescribedScopedAttachment[]>
+  listScopedOwnerAttachmentIds?(input: ListScopedOwnerAttachmentIdsInput): Promise<string[]>
+  reassignScopedAttachments?(input: ReassignScopedAttachmentsInput, em: EntityManager): Promise<boolean>
   /**
    * Permanently deletes an attachment row and its stored object once no other row references it,
    * then emits `attachments.attachment.deleted` (with its query-index side effect) after commit.
@@ -440,6 +458,71 @@ export class DefaultAttachmentService implements AttachmentService {
     return toDescribedScopedAttachment(await this.findReadableScoped(input))
   }
 
+  async listScopedOwnerAttachmentIds(input: ListScopedOwnerAttachmentIdsInput): Promise<string[]> {
+    const { auth, expectedOwner } = input
+    if (!auth.tenantId || !auth.orgId) return throwAttachmentAccessError(403)
+    const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+    const limit = Number.isSafeInteger(input.limit) ? Math.max(1, Math.min(input.limit, 100)) : 100
+    const attachments = await findWithDecryption(
+      this.em,
+      Attachment,
+      { ...expectedOwner, ...scope },
+      { fields: ['id'], orderBy: { id: 'asc' }, limit },
+      scope,
+    )
+    const described = await this.describeManyScoped({
+      auth,
+      items: attachments.map(({ id: attachmentId }) => ({ attachmentId, expectedOwner })),
+    })
+    return described.map(({ id }) => id)
+  }
+
+  async reassignScopedAttachments(input: ReassignScopedAttachmentsInput, em: EntityManager): Promise<boolean> {
+    if (!em.isInTransaction()) throw new Error('[internal] Reassigning attachments requires a transaction')
+    const { auth, attachmentIds, expectedOwner, destination } = input
+    if (!auth.tenantId || !auth.orgId) return throwAttachmentAccessError(403)
+    const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+    const attachments = await findWithDecryption(
+      em,
+      Attachment,
+      { id: { $in: attachmentIds }, ...expectedOwner, ...scope },
+      { orderBy: { id: 'asc' }, lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      scope,
+    )
+    if (attachments.length !== attachmentIds.length) return false
+
+    if (attachments.length === 0) return true
+
+    const partitionCodes = [...new Set(attachments.map((attachment) => attachment.partitionCode))]
+    const partitions = await findWithDecryption(
+      em,
+      AttachmentPartition,
+      { code: { $in: partitionCodes } },
+      undefined,
+      scope,
+    )
+    const partitionsByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+    if (partitionCodes.some((code) => !partitionsByCode.has(code))) return throwAttachmentAccessError(404)
+
+    for (const partition of partitions) await ensureAttachmentPartitionProtection(em, partition)
+
+    const context = this.resolveAccessContext?.()
+    for (const attachment of attachments) {
+      const partition = partitionsByCode.get(attachment.partitionCode)!
+      const accessInput = { context, auth, partition, action: 'reassign' as const, requireAuthForPublic: true }
+      const sourceAccess = await evaluateAttachmentAccess({ ...accessInput, attachment })
+      if (!sourceAccess.ok) await throwAttachmentAccessError(sourceAccess.status)
+      const destinationAccess = await evaluateAttachmentAccess({ ...accessInput, attachment: { ...attachment, ...destination } })
+      if (!destinationAccess.ok) await throwAttachmentAccessError(destinationAccess.status)
+    }
+    for (const attachment of attachments) {
+      attachment.entityId = destination.entityId
+      attachment.recordId = destination.recordId
+    }
+    await em.flush()
+    return true
+  }
+
   async describeManyScoped(input: DescribeManyScopedAttachmentsInput): Promise<DescribedScopedAttachment[]> {
     if (input.items.length === 0) return []
     const { auth } = input
@@ -459,16 +542,16 @@ export class DefaultAttachmentService implements AttachmentService {
     const attachmentsById = new Map(attachments.map((attachment) => [attachment.id, attachment]))
     const partitionCodes = [...new Set(attachments.map((attachment) => attachment.partitionCode))]
     const partitions = partitionCodes.length
-      ? await findWithDecryption(this.em, AttachmentPartition, { code: { $in: partitionCodes } }, undefined, decryptionScope)
+      ? await findWithDecryption(this.em, AttachmentPartition, { code: { $in: partitionCodes }, ...attachmentPartitionVisibility(decryptionScope) }, undefined, decryptionScope)
       : []
-    const partitionsByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+    const partitionsByCode = indexAttachmentPartitions(partitions)
 
     const accessContext = this.resolveAccessContext?.()
     const described: DescribedScopedAttachment[] = []
     for (const item of input.items) {
       const attachment = attachmentsById.get(item.attachmentId)
       if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
-      const partition = partitionsByCode.get(attachment.partitionCode)
+      const partition = partitionsByCode(attachment.partitionCode, attachment)
       if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
       await this.assertReadableScoped({ ...item, auth }, attachment, partition, accessContext)
       described.push(toDescribedScopedAttachment(attachment))
@@ -495,13 +578,7 @@ export class DefaultAttachmentService implements AttachmentService {
       { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
     )
     if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
-    const partition = await findOneWithDecryption(
-      this.em,
-      AttachmentPartition,
-      { code: attachment.partitionCode },
-      undefined,
-      { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
-    )
+    const partition = await resolveAttachmentPartition(this.em, attachment.partitionCode, attachment, { decrypt: true })
     if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
     await this.assertReadableScoped(input, attachment, partition, this.resolveAccessContext?.())
     return attachment
