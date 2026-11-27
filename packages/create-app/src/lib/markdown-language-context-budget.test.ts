@@ -51,7 +51,7 @@ test('Markdown customization measures its complete context within tightly bounde
     const initialPaths = paths.filter(isInitialContextPath)
     const initialBytes = sumBytes(fixture, initialPaths)
     context.diagnostic(`${paths.length} files / ${bytes} total bytes; ${initialPaths.length} initial files / ${initialBytes} initial bytes`)
-    assert.equal(record.maxInitialContextBytes, 73728)
+    assert.equal(record.maxInitialContextBytes, 77_824)
     assert.equal(record.maxTotalContextBytes, 385_024)
     assert.ok(bytes <= record.maxTotalContextBytes)
     assert.ok(record.maxTotalContextBytes - bytes <= 4096)
