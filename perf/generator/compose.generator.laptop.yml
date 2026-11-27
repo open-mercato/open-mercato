@@ -1,0 +1,8 @@
+# Tester laptop -> remote SUT over the internet (no generator VPS). k6 stays on the default bridge network,
+# reaches the SUT at BASE_URL directly and the SUT's Prometheus through the laptop's SSH tunnel at
+# host.docker.internal:19090 (Docker Desktop resolves it; host-gateway covers Linux laptops, whose tunnel
+# must then listen on the docker bridge, see perf/README.md "Laptop -> VPS").
+services:
+  k6:
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

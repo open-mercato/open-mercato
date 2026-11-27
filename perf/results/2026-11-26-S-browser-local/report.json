@@ -1,0 +1,593 @@
+{
+  "runId": "2026-11-26-S-browser-local",
+  "scenario": "browser",
+  "profile": "browser",
+  "tier": "S",
+  "source": "k6 CSV output",
+  "steps": [],
+  "tags": [],
+  "overallTags": [],
+  "journeys": [
+    {
+      "journey": "browser.crm",
+      "count": 77,
+      "min": 13533,
+      "avg": 15521.103896103896,
+      "p50": 15515,
+      "p95": 16664.200000000004,
+      "p99": 20401.439999999995,
+      "max": 21109
+    }
+  ],
+  "webVitals": [
+    {
+      "vital": "ttfb",
+      "count": 462,
+      "min": 68.8,
+      "avg": 181.51385281385282,
+      "p50": 143.85,
+      "p95": 364.635,
+      "p99": 501.44499999999977,
+      "max": 956.2
+    },
+    {
+      "vital": "fcp",
+      "count": 462,
+      "min": 128,
+      "avg": 265.8528138528139,
+      "p50": 232,
+      "p95": 491.79999999999995,
+      "p99": 563.1199999999999,
+      "max": 1004
+    },
+    {
+      "vital": "lcp",
+      "count": 385,
+      "min": 128,
+      "avg": 540.0519480519481,
+      "p50": 524,
+      "p95": 1011.1999999999998,
+      "p99": 1313.2799999999997,
+      "max": 1564
+    },
+    {
+      "vital": "fid",
+      "count": 308,
+      "min": 0.1,
+      "avg": 1.5850649350649353,
+      "p50": 0.8,
+      "p95": 5.4,
+      "p99": 7.351000000000005,
+      "max": 21
+    },
+    {
+      "vital": "cls",
+      "count": 77,
+      "min": 0.299141,
+      "avg": 0.5052424935064935,
+      "p50": 0.492252,
+      "p95": 0.6395028,
+      "p99": 0.6598117599999999,
+      "max": 0.681395
+    }
+  ],
+  "counters": {
+    "dropped": 0,
+    "checksPassed": 462,
+    "checksTotal": 462,
+    "excludedRows": 0
+  },
+  "saturation": null,
+  "budget": {
+    "requests": 0,
+    "errorRate": 0,
+    "conflictRate": 0
+  },
+  "resources": {
+    "available": true,
+    "errors": [],
+    "metrics": [
+      {
+        "id": "cpu",
+        "label": "CPU cores",
+        "unit": "cores",
+        "rows": [
+          {
+            "label": "app",
+            "window": "run",
+            "avg": 1.110365630389838,
+            "max": 1.2358709516596038,
+            "samples": 40
+          },
+          {
+            "label": "meilisearch",
+            "window": "run",
+            "avg": 0.002198484263009484,
+            "max": 0.002534937668558928,
+            "samples": 40
+          },
+          {
+            "label": "monitoring (sum)",
+            "window": "run",
+            "avg": 0.046898162346371175,
+            "max": 0.08529022398004601,
+            "samples": 40
+          },
+          {
+            "label": "postgres",
+            "window": "run",
+            "avg": 0.2481878862828335,
+            "max": 0.5975730609040724,
+            "samples": 40
+          },
+          {
+            "label": "redis",
+            "window": "run",
+            "avg": 0.008495044071645511,
+            "max": 0.009686152409122767,
+            "samples": 40
+          },
+          {
+            "label": "tls",
+            "window": "run",
+            "avg": 0.10135540248245496,
+            "max": 0.11455934648219022,
+            "samples": 40
+          },
+          {
+            "label": "worker",
+            "window": "run",
+            "avg": 0.021734673790474612,
+            "max": 0.2865746595252434,
+            "samples": 39
+          }
+        ]
+      },
+      {
+        "id": "memory",
+        "label": "Working set",
+        "unit": "bytes",
+        "rows": [
+          {
+            "label": "app",
+            "window": "run",
+            "avg": 2398523392,
+            "max": 4181291008,
+            "samples": 40
+          },
+          {
+            "label": "meilisearch",
+            "window": "run",
+            "avg": 80405606.4,
+            "max": 90484736,
+            "samples": 40
+          },
+          {
+            "label": "monitoring (sum)",
+            "window": "run",
+            "avg": 1465503232,
+            "max": 1486352384,
+            "samples": 40
+          },
+          {
+            "label": "postgres",
+            "window": "run",
+            "avg": 2562574848,
+            "max": 2606317568,
+            "samples": 40
+          },
+          {
+            "label": "redis",
+            "window": "run",
+            "avg": 27348172.8,
+            "max": 29290496,
+            "samples": 40
+          },
+          {
+            "label": "scheduler",
+            "window": "run",
+            "avg": 6909952,
+            "max": 6909952,
+            "samples": 19
+          },
+          {
+            "label": "tls",
+            "window": "run",
+            "avg": 85721190.4,
+            "max": 94687232,
+            "samples": 40
+          },
+          {
+            "label": "worker",
+            "window": "run",
+            "avg": 744164556.8,
+            "max": 1593233408,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "poolUsed",
+        "label": "DB pool used",
+        "unit": "count",
+        "rows": [
+          {
+            "label": "om-app",
+            "window": "run",
+            "avg": 0.7,
+            "max": 6,
+            "samples": 40
+          },
+          {
+            "label": "om-worker",
+            "window": "run",
+            "avg": 0,
+            "max": 0,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "poolPending",
+        "label": "DB pool pending",
+        "unit": "count",
+        "rows": [
+          {
+            "label": "om-app",
+            "window": "run",
+            "avg": 0,
+            "max": 0,
+            "samples": 40
+          },
+          {
+            "label": "om-worker",
+            "window": "run",
+            "avg": 0,
+            "max": 0,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "poolWaitP95",
+        "label": "DB pool wait p95",
+        "unit": "seconds",
+        "rows": [
+          {
+            "label": "om-app",
+            "window": "run",
+            "avg": 0.0009623044924565515,
+            "max": 0.0009668050541516245,
+            "samples": 25
+          },
+          {
+            "label": "om-scheduler",
+            "window": "run",
+            "avg": null,
+            "max": null,
+            "samples": 0
+          },
+          {
+            "label": "om-worker",
+            "window": "run",
+            "avg": 0.0029166205132640116,
+            "max": 0.007333333333333333,
+            "samples": 24
+          }
+        ]
+      },
+      {
+        "id": "eventLoop",
+        "label": "Event loop utilization",
+        "unit": "ratio",
+        "rows": [
+          {
+            "label": "om-app",
+            "window": "run",
+            "avg": 0.6423204540176213,
+            "max": 0.8306988453951933,
+            "samples": 40
+          },
+          {
+            "label": "om-worker",
+            "window": "run",
+            "avg": 0.006399211030239334,
+            "max": 0.013394710616524268,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "eventLoopDelayP99",
+        "label": "Event loop delay p99",
+        "unit": "seconds",
+        "rows": [
+          {
+            "label": "om-app",
+            "window": "run",
+            "avg": 0.06140313500000002,
+            "max": 0.070844415,
+            "samples": 40
+          },
+          {
+            "label": "om-worker",
+            "window": "run",
+            "avg": 0.0249888758,
+            "max": 0.025149439,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "heap",
+        "label": "V8 heap used",
+        "unit": "bytes",
+        "rows": [
+          {
+            "label": "om-app",
+            "window": "run",
+            "avg": 1561539888.6,
+            "max": 2076685752,
+            "samples": 40
+          },
+          {
+            "label": "om-worker",
+            "window": "run",
+            "avg": 508057931.2,
+            "max": 1035490512,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "queueDepth",
+        "label": "BullMQ waiting",
+        "unit": "count",
+        "rows": []
+      },
+      {
+        "id": "queueActive",
+        "label": "BullMQ active",
+        "unit": "count",
+        "rows": []
+      },
+      {
+        "id": "redisMemory",
+        "label": "Redis memory",
+        "unit": "bytes",
+        "rows": [
+          {
+            "label": "total",
+            "window": "run",
+            "avg": 9404035.2,
+            "max": 10701328,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "pgBackends",
+        "label": "Postgres backends",
+        "unit": "count",
+        "rows": [
+          {
+            "label": "total",
+            "window": "run",
+            "avg": 32.25,
+            "max": 36,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "pgCacheHit",
+        "label": "Postgres cache hit",
+        "unit": "ratio",
+        "rows": [
+          {
+            "label": "total",
+            "window": "run",
+            "avg": 0.9875343764953641,
+            "max": 0.9999294417283564,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "diskBusy",
+        "label": "Disk busy",
+        "unit": "ratio",
+        "rows": [
+          {
+            "label": "total",
+            "window": "run",
+            "avg": 0.021359937887759473,
+            "max": 0.03713925721485512,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "steal",
+        "label": "CPU steal",
+        "unit": "ratio",
+        "rows": [
+          {
+            "label": "total",
+            "window": "run",
+            "avg": 0,
+            "max": 0,
+            "samples": 40
+          }
+        ]
+      },
+      {
+        "id": "serverP95",
+        "label": "Server-side p95 (Caddy)",
+        "unit": "seconds",
+        "rows": [
+          {
+            "label": "total",
+            "window": "run",
+            "avg": 0.42987514836830965,
+            "max": 0.7729166666666656,
+            "samples": 40
+          }
+        ]
+      }
+    ]
+  },
+  "database": {
+    "stats": {
+      "numbackends": 18,
+      "xact_commit": 676713,
+      "xact_rollback": 2,
+      "blks_read": 311413,
+      "blks_hit": 24325307,
+      "cache_hit_ratio": 0.9874,
+      "temp_files": 4,
+      "temp_bytes": 226525184,
+      "deadlocks": 0,
+      "tup_returned": 406207381,
+      "tup_fetched": 8190946,
+      "tup_inserted": 34644,
+      "tup_updated": 3004,
+      "tup_deleted": 865
+    },
+    "topByTotal": [
+      {
+        "queryid": "-8829675414887134388",
+        "calls": 462,
+        "total_exec_time": 14724.61,
+        "mean_exec_time": 31.871,
+        "rows": 1848,
+        "shared_blks_hit": 11074014,
+        "shared_blks_read": 0,
+        "temp_blks_written": 0,
+        "io_time_ms": 0,
+        "callsPerRequest": null,
+        "query": "select \"deal_id\", count(*) as \"count\" from \"customer_interactions\" where \"deal_id\" in ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) and \"organization_id\" = $26 and \"tenant_id\" = $27 and \"deleted_at\" is null and \"status\" not in ($"
+      },
+      {
+        "queryid": "-3048045920252186600",
+        "calls": 121,
+        "total_exec_time": 4671.58,
+        "mean_exec_time": 38.608,
+        "rows": 2420,
+        "shared_blks_hit": 2375955,
+        "shared_blks_read": 1,
+        "temp_blks_written": 0,
+        "io_time_ms": 0.01,
+        "callsPerRequest": null,
+        "query": "select \"c0\".* from \"customer_interactions\" as \"c0\" where \"c0\".\"tenant_id\" = $1 and \"c0\".\"interaction_type\" = $2 and \"c0\".\"organization_id\" in ($3) order by \"c0\".\"created_at\" desc limit $4"
+      },
+      {
+        "queryid": "-29729472750234842",
+        "calls": 102,
+        "total_exec_time": 2372.1,
+        "mean_exec_time": 23.256,
+        "rows": 6,
+        "shared_blks_hit": 2437512,
+        "shared_blks_read": 0,
+        "temp_blks_written": 0,
+        "io_time_ms": 0,
+        "callsPerRequest": null,
+        "query": "select \"deal_id\", count(*) as \"count\" from \"customer_interactions\" where \"deal_id\" in ($1) and \"organization_id\" = $2 and \"tenant_id\" = $3 and \"deleted_at\" is null and \"status\" not in ($4, $5, $6) group by \"deal_id\""
+      },
+      {
+        "queryid": "-1834966430576178371",
+        "calls": 77,
+        "total_exec_time": 2211.84,
+        "mean_exec_time": 28.725,
+        "rows": 0,
+        "shared_blks_hit": 1840069,
+        "shared_blks_read": 0,
+        "temp_blks_written": 0,
+        "io_time_ms": 0,
+        "callsPerRequest": null,
+        "query": "select \"id\", \"entity_id\", \"deal_id\", \"interaction_type\", \"title\", \"body\", \"status\", \"scheduled_at\", \"occurred_at\", \"priority\", \"author_user_id\", \"owner_user_id\", \"external_message_id\", \"appearance_icon\", \"appearance_color\", \"source\", \"timezone\", \"duration_minutes\", \"location\", \"all_day\", \"recurrence"
+      },
+      {
+        "queryid": "8308472885243591271",
+        "calls": 197929,
+        "total_exec_time": 2139.26,
+        "mean_exec_time": 0.011,
+        "rows": 79076,
+        "shared_blks_hit": 792287,
+        "shared_blks_read": 1,
+        "temp_blks_written": 0,
+        "io_time_ms": 0.13,
+        "callsPerRequest": null,
+        "query": "select entity_id, tenant_id, organization_id, fields_json\n      from encryption_maps\n      where entity_id = $1\n        and is_active = $2\n        and deleted_at is null\n        and ((tenant_id is not distinct from $3 and (organization_id = $4 or organization_id is null)) or (tenant_id is null and o"
+      },
+      {
+        "queryid": "-4505896698322519283",
+        "calls": 17,
+        "total_exec_time": 2128.24,
+        "mean_exec_time": 125.191,
+        "rows": 3698,
+        "shared_blks_hit": 252098,
+        "shared_blks_read": 55525,
+        "temp_blks_written": 0,
+        "io_time_ms": 1526.86,
+        "callsPerRequest": null,
+        "query": "select \"entity_id\" from \"search_tokens\" where \"entity_type\" = $1 and \"token_hash\" in ($2, $3, $4) and \"field\" in ($5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) and tenant_id is not distinct from $24 and \"organization_id\" = $25 group by \"entity_id\" having c"
+      },
+      {
+        "queryid": "5362125060465940722",
+        "calls": 68587,
+        "total_exec_time": 1810.41,
+        "mean_exec_time": 0.026,
+        "rows": 617283,
+        "shared_blks_hit": 137174,
+        "shared_blks_read": 0,
+        "temp_blks_written": 0,
+        "io_time_ms": 0,
+        "callsPerRequest": null,
+        "query": "select distinct \"entity_id\" from \"custom_field_defs\""
+      },
+      {
+        "queryid": "4333009774245272910",
+        "calls": 121,
+        "total_exec_time": 1494.96,
+        "mean_exec_time": 12.355,
+        "rows": 605,
+        "shared_blks_hit": 463544,
+        "shared_blks_read": 7,
+        "temp_blks_written": 0,
+        "io_time_ms": 0.32,
+        "callsPerRequest": null,
+        "query": "select \"c0\".*, \"c1\".\"id\" as \"c1__id\", \"c2\".\"id\" as \"c2__id\" from \"customer_entities\" as \"c0\" left join \"customer_people\" as \"c1\" on \"c0\".\"id\" = \"c1\".\"entity_id\" left join \"customer_companies\" as \"c2\" on \"c0\".\"id\" = \"c2\".\"entity_id\" where \"c0\".\"tenant_id\" = $1 and \"c0\".\"deleted_at\" is null and \"c0\".\""
+      },
+      {
+        "queryid": "-1766141586565961298",
+        "calls": 117,
+        "total_exec_time": 1046.03,
+        "mean_exec_time": 8.94,
+        "rows": 585,
+        "shared_blks_hit": 448219,
+        "shared_blks_read": 8,
+        "temp_blks_written": 0,
+        "io_time_ms": 0.5,
+        "callsPerRequest": null,
+        "query": "select \"c0\".*, \"c1\".\"id\" as \"c1__id\", \"c2\".\"id\" as \"c2__id\" from \"customer_entities\" as \"c0\" left join \"customer_people\" as \"c1\" on \"c0\".\"id\" = \"c1\".\"entity_id\" left join \"customer_companies\" as \"c2\" on \"c0\".\"id\" = \"c2\".\"entity_id\" where \"c0\".\"tenant_id\" = $1 and \"c0\".\"deleted_at\" is null and \"c0\".\""
+      },
+      {
+        "queryid": "4932349014677696289",
+        "calls": 122,
+        "total_exec_time": 627.21,
+        "mean_exec_time": 5.141,
+        "rows": 610,
+        "shared_blks_hit": 199958,
+        "shared_blks_read": 0,
+        "temp_blks_written": 0,
+        "io_time_ms": 0,
+        "callsPerRequest": null,
+        "query": "select \"c0\".* from \"customer_deals\" as \"c0\" where \"c0\".\"tenant_id\" = $1 and \"c0\".\"deleted_at\" is null and \"c0\".\"organization_id\" = $2 order by \"c0\".\"created_at\" desc limit $3"
+      }
+    ],
+    "lockWaitCount": 0,
+    "slowStatementCount": 1,
+    "deadlocks": 0
+  }
+}

@@ -1,0 +1,18 @@
+# k6 load generator. Driven by perf/bin/perf run|lint; see perf/docs/contracts.md (k6 section).
+# Overlay by GENERATOR_NETWORK: sut -> compose.generator.local.yml (joins the SUT network), host -> compose.generator.vps.yml
+# (host network, generator VPS or Linux laptop), laptop -> compose.generator.laptop.yml (tester laptop -> remote SUT).
+
+services:
+  k6:
+    image: grafana/k6:1.8.2-with-browser
+    user: "${PERF_UID:-12345}:${PERF_GID:-12345}"
+    shm_size: 1gb
+    working_dir: /perf
+    environment:
+      HOME: /tmp
+      K6_BROWSER_HEADLESS: "true"
+      K6_BROWSER_ARGS: no-sandbox
+      K6_NO_USAGE_REPORT: "true"
+    volumes:
+      - ../:/perf:ro
+      - ${PERF_OUT_DIR:-../.state/k6-out}:/out

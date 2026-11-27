@@ -1,0 +1,9 @@
+apiVersion: 1
+providers:
+  - name: om-perf
+    folder: Open Mercato perf
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards

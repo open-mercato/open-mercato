@@ -40,6 +40,7 @@ import {
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
 } from './lib/interactionCompatibility'
 import { CUSTOMER_CUSTOM_FIELD_SETS } from './customFieldDefaults'
+import { runPerfSeed } from './lib/perfSeed/run'
 import {
   ENTITY_STATUS_DEFAULTS,
   ENTITY_SOURCE_DEFAULTS,
@@ -2852,6 +2853,22 @@ const seedStressTest: ModuleCli = {
   },
 }
 
+const seedPerf: ModuleCli = {
+  command: 'seed-perf',
+  async run(rest) {
+    process.exitCode = await runPerfSeed(rest, {
+      createContainer: () => createRequestContainer(),
+      seedDictionaries: async (em, scope) => {
+        await seedCustomerDictionaries(em, scope)
+        await em.flush()
+      },
+      ensureCustomFieldDefinitions: (em, tenantId) => ensureCustomerCustomFieldDefinitions(em, tenantId),
+      writeLine: (line) => console.log(line),
+      writeError: (line) => console.error(line),
+    })
+  },
+}
+
 async function seedDefaultPipeline(em: EntityManager, { tenantId, organizationId }: SeedArgs): Promise<void> {
   const existing = await em.findOne(CustomerPipeline, { tenantId, organizationId, isDefault: true })
   if (existing) return
@@ -3143,7 +3160,7 @@ const interactionsBackfill: ModuleCli = {
   },
 }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill]
+const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, seedPerf, interactionsBackfill]
 
 export default customersCliCommands
 export async function ensureCustomerCustomFieldDefinitions(

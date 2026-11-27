@@ -1,0 +1,15 @@
+{
+	admin 0.0.0.0:2019
+	http_port 8080
+	https_port 8443
+	email {$PERF_TLS_EMAIL}
+	metrics
+}
+
+{$PERF_TLS_DOMAIN} {
+	reverse_proxy app:3000 {
+		transport http {
+			keepalive 4s
+		}
+	}
+}

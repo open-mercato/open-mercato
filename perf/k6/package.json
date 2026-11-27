@@ -1,0 +1,6 @@
+{
+  "name": "open-mercato-perf-k6",
+  "private": true,
+  "type": "module",
+  "description": "k6 scripts for the CRM performance harness. Not a workspace package; the type field lets node:test import the pure helpers."
+}

@@ -60,6 +60,7 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
       'seed-dictionaries',
       'seed-examples',
       'seed-stresstest',
+      'seed-perf',
       'interactions:backfill',
     ])
     expect(facts.hostTokens.tableIds).toEqual([

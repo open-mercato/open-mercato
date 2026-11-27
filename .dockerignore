@@ -22,9 +22,22 @@ coverage
 .turbo
 **/.turbo
 
-# Generated files (will be regenerated)
-apps/mercato/.mercato/generated
+# Generated files and local runtime state (regenerated or rebuilt in the container).
+# apps/mercato/.mercato holds generated/ (rebuilt by `yarn generate`), next/ (the Next.js distDir with local
+# dev and build caches, rebuilt by `yarn build`), plus local cache/, logs/ and queue/ state. Sending it
+# made `COPY apps/ ./apps/` ship several GB of local caches into the image.
+apps/mercato/.mercato
 packages/core/generated
+
+# Agent and tooling workspaces (never copied by the Dockerfile; only inflate the build context)
+.ai
+.claude
+
+# Perf harness local state and secrets (gitignored; never part of an image)
+perf/.state
+perf/data
+perf/results
+perf/config/*.local.env
 
 # Local development files
 **/.env*
