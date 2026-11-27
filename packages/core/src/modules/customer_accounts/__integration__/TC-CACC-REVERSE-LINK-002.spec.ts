@@ -16,8 +16,11 @@ const schema = `cacc_reverse_${randomUUID().replaceAll('-', '')}`
 const tenantDataEncryption = process.env.TENANT_DATA_ENCRYPTION
 let orm: MikroORM
 
-async function withFixture(run: (fixture: Awaited<ReturnType<typeof createFixture>>) => Promise<void>): Promise<void> {
-  const fixture = await createFixture()
+async function withFixture(
+  run: (fixture: Awaited<ReturnType<typeof createFixture>>) => Promise<void>,
+  emailVerifiedAt: Date | null = new Date(),
+): Promise<void> {
+  const fixture = await createFixture(emailVerifiedAt)
   try {
     await run(fixture)
   } finally {
@@ -28,7 +31,7 @@ async function withFixture(run: (fixture: Awaited<ReturnType<typeof createFixtur
   }
 }
 
-async function createFixture() {
+async function createFixture(emailVerifiedAt: Date | null) {
   const em = orm.em.fork()
   const tenantId = randomUUID()
   const organizationId = randomUUID()
@@ -50,7 +53,7 @@ async function createFixture() {
   const user = em.create(CustomerUser, {
     id: randomUUID(), ...scope, email, emailHash: hashForLookup(email), displayName: 'Reverse user',
     failedLoginAttempts: 0, isActive: true, createdAt: new Date(),
-    personEntityId: null, customerEntityId: null, deletedAt: null,
+    emailVerifiedAt, personEntityId: null, customerEntityId: null, deletedAt: null,
   })
   const entities = [company, person, competingCompany, competingPerson]
   em.persist([...entities, profile, user])
@@ -134,6 +137,14 @@ test.describe('TC-CACC-REVERSE-LINK-002: persisted company recovery and competin
       await handle(payload, context(orm.em.fork()))
       expect(await readLinks(fixture.user)).toEqual(expected)
     })
+  })
+
+  test('leaves a pending registration unlinked when a matching CRM person is created', async () => {
+    await withFixture(async (fixture) => {
+      const payload = { id: fixture.person.id, tenantId: fixture.tenantId, organizationId: fixture.organizationId }
+      await handle(payload, context(orm.em.fork()))
+      expect(await readLinks(fixture.user)).toEqual({ personEntityId: null, customerEntityId: null })
+    }, null)
   })
 
   for (const invalidScope of ['tenant', 'organization', 'deleted'] as const) {

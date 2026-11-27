@@ -1,5 +1,6 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { withRequiredFeatures } from './featureGuard'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
@@ -50,6 +51,12 @@ function resolveScope(
     tenantId: fallback?.tenantId ?? ctx.auth?.tenantId ?? null,
     organizationId: fallback?.organizationId ?? ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
   }
+}
+
+function ensureAssignmentScope(ctx: CommandRuntimeContext, scope: ReturnType<typeof resolveScope>): void {
+  if (!ctx.auth) return
+  if (scope.tenantId) ensureTenantScope(ctx, scope.tenantId)
+  if (scope.organizationId) ensureOrganizationScope(ctx, scope.organizationId)
 }
 
 function resolveEm(ctx: CommandRuntimeContext): EntityManager {
@@ -240,6 +247,7 @@ const unassignWarehouseHandler: CommandHandler<
 
   prepare: async (input, ctx) => {
     const scope = resolveScope(ctx, input)
+    ensureAssignmentScope(ctx, scope)
     const em = resolveEm(ctx)
     const existing = await loadAssignment(em, input.salesOrderId, scope)
     return { before: snapshotAssignment(existing) }
@@ -250,6 +258,7 @@ const unassignWarehouseHandler: CommandHandler<
     if (!scope.tenantId || !scope.organizationId) {
       throw new CrudHttpError(401, { error: 'Unauthorized' })
     }
+    ensureAssignmentScope(ctx, scope)
     const em = resolveEm(ctx)
     const existing = await loadAssignment(em, input.salesOrderId, scope)
 
@@ -283,6 +292,7 @@ const unassignWarehouseHandler: CommandHandler<
     if (!before?.salesOrderId || !before.warehouseId) return
 
     const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    ensureAssignmentScope(ctx, scope)
     const em = resolveEm(ctx)
 
     const existingDeleted = await findOneWithDecryption(
@@ -327,8 +337,8 @@ const unassignWarehouseHandler: CommandHandler<
   },
 }
 
-registerCommand(assignWarehouseHandler)
-registerCommand(unassignWarehouseHandler)
+registerCommand(withRequiredFeatures(assignWarehouseHandler, [['wms.manage_reservations']]))
+registerCommand(withRequiredFeatures(unassignWarehouseHandler, [['wms.manage_reservations']]))
 
 export const reRunReservationInputSchema = z.object({
   salesOrderId: z.string().uuid(),
@@ -342,6 +352,7 @@ const reRunReservationHandler: CommandHandler<ReRunReservationInput, { ok: boole
   isUndoable: false,
   async execute(rawInput, ctx) {
     const input = reRunReservationInputSchema.parse(rawInput)
+    ensureAssignmentScope(ctx, input)
     const eventCtx = {
       resolve: <T>(name: string) => ctx.container.resolve<T>(name),
     }
@@ -374,4 +385,4 @@ const reRunReservationHandler: CommandHandler<ReRunReservationInput, { ok: boole
   },
 }
 
-registerCommand(reRunReservationHandler)
+registerCommand(withRequiredFeatures(reRunReservationHandler, [['wms.manage_reservations']]))

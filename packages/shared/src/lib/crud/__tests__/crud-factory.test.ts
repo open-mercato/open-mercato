@@ -8,11 +8,13 @@ jest.mock('@open-mercato/cache', () => ({
 // tests override `mockTranslate` to prove `handleError` actually routes a CrudHttpError body
 // through the resolved `translate()` instead of forwarding it verbatim (#5727).
 const mockTranslate = jest.fn((key: string, fallback?: string) => fallback ?? key)
+const mockResolveTranslations = jest.fn(async () => ({ t: mockTranslate, translate: mockTranslate }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: async () => ({ t: mockTranslate, translate: mockTranslate }),
+  resolveTranslations: () => mockResolveTranslations(),
 }))
 
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import * as crudCacheHelpers from '@open-mercato/shared/lib/crud/cache'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import {
@@ -328,6 +330,179 @@ describe('CRUD Factory', () => {
         queryKeys: expect.arrayContaining(['page', 'pageSize', 'sortField', 'sortDir']),
       }),
     }))
+  })
+
+  describe('soft-deleted list visibility (#9154)', () => {
+    const liveRow = { id: 'live', title: 'Visible', deleted_at: null }
+    const deletedRow = { id: 'deleted', title: 'Retracted', deleted_at: '2026-01-01T00:00:00Z' }
+
+    function makeDeletedRoute(allowWithDeleted?: boolean, useQueryEngine = true) {
+      return makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: z.object({ withDeleted: z.string().optional() }),
+          allowWithDeleted,
+          ...(useQueryEngine ? { entityId: 'example.todo', fields: ['id', 'title', 'deleted_at'] } : {}),
+          export: { enabled: true, formats: ['json'] },
+        },
+      })
+    }
+
+    function queueDeletedRows() {
+      queryEngine.query.mockImplementationOnce(async (_entityId: string, options: { withDeleted?: boolean }) => {
+        const items = options.withDeleted ? [liveRow, deletedRow] : [liveRow]
+        return { items, total: items.length }
+      })
+    }
+
+    it.each([undefined, false])('ignores withDeleted=true when allowWithDeleted is %s despite the schema declaration', async (allowWithDeleted) => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(allowWithDeleted).GET(new Request('http://x/api/example/todos?withDeleted=true'))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual([liveRow])
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({
+        withDeleted: false,
+        tenantId: defaultTenantId,
+        organizationIds: [defaultOrganizationId],
+      }))
+    })
+
+    it('ignores a raw flag stripped by the default route schema', async () => {
+      queueDeletedRows()
+      const response = await route.GET(new Request('http://x/api/example/todos?withDeleted=true'))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items.map((item: { id: string }) => item.id)).toEqual(['live'])
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({ withDeleted: false }))
+    })
+
+    it.each([
+      ['true', true], ['1', true], ['yes', true], ['on', true],
+      ['false', false], ['0', false], ['no', false], ['off', false], ['', false], ['invalid', false],
+    ])('allows opted-in routes to parse withDeleted=%s as %s', async (token, expected) => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(true).GET(new Request(`http://x/api/example/todos?withDeleted=${token}`))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual(expected ? [liveRow, deletedRow] : [liveRow])
+    })
+
+    it.each([true, 1, ['true'], { value: 'true' }, null])('ignores non-string withDeleted values supplied by an interceptor: %j', async (withDeleted) => {
+      registerApiInterceptors([{
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.rewrite-deletion-flag',
+          targetRoute: 'example/todos',
+          methods: ['GET'],
+          async before() {
+            return { ok: true, query: { withDeleted } }
+          },
+        }],
+      }])
+      const interceptedRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: z.object({ withDeleted: z.unknown().optional() }),
+          allowWithDeleted: true,
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'deleted_at'],
+        },
+      })
+      queueDeletedRows()
+
+      const response = await interceptedRoute.GET(new Request('http://x/api/example/todos?withDeleted=true'))
+
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual([liveRow])
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({ withDeleted: false }))
+    })
+
+    it('keeps deleted rows hidden on an opted-in route when the flag is absent', async () => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(true).GET(new Request('http://x/api/example/todos'))
+      expect(response.status).toBe(200)
+      expect((await response.json()).items).toEqual([liveRow])
+    })
+
+    it.each([false, true])('applies the explicit opt-in policy to full exports (allowWithDeleted=%s)', async (allowWithDeleted) => {
+      queueDeletedRows()
+      const response = await makeDeletedRoute(allowWithDeleted).GET(new Request('http://x/api/example/todos?withDeleted=true&format=json&exportScope=full'))
+      expect(response.status).toBe(200)
+      const exported = await response.json()
+      expect(JSON.stringify(exported)).toContain('Visible')
+      expect(JSON.stringify(exported).includes('Retracted')).toBe(allowWithDeleted)
+      expect(queryEngine.query).toHaveBeenLastCalledWith('example.todo', expect.objectContaining({ withDeleted: allowWithDeleted }))
+    })
+
+    it.each([undefined, false, true])('applies the opt-in policy to the ORM fallback (allowWithDeleted=%s)', async (allowWithDeleted) => {
+      db = {
+        live: { id: 'live', title: 'Visible', organizationId: defaultOrganizationId, tenantId: defaultTenantId },
+        deleted: { id: 'deleted', title: 'Retracted', deletedAt: new Date(), organizationId: defaultOrganizationId, tenantId: defaultTenantId },
+      }
+      const response = await makeDeletedRoute(allowWithDeleted, false).GET(new Request('http://x/api/example/todos?withDeleted=true'))
+      expect(response.status).toBe(200)
+      const body = await response.json()
+      expect(body.items.map((item: { id: string }) => item.id)).toEqual(allowWithDeleted ? ['live', 'deleted'] : ['live'])
+      expect(queryEngine.query).not.toHaveBeenCalled()
+    })
+
+    it('separates opted-in cached results from default-hidden routes and legacy cache keys', async () => {
+      const cacheEnabled = jest.spyOn(crudCacheHelpers, 'isCrudCacheEnabled').mockReturnValue(true)
+      try {
+        queueDeletedRows()
+        queueDeletedRows()
+        const request = new Request('http://x/api/example/todos?withDeleted=true')
+        const allowedResponse = await makeDeletedRoute(true).GET(request)
+        expect((await allowedResponse.json()).items).toEqual([liveRow, deletedRow])
+        const allowedKey = crudCache.get.mock.calls.at(-1)?.[0] ?? ''
+        expect(allowedKey).toContain('deletedPolicy:allowed')
+        const legacyKey = allowedKey.replace('|deletedPolicy:allowed', '')
+        expect(legacyKey).toBeDefined()
+        crudCacheStore.set(legacyKey, { payload: { items: [liveRow, deletedRow], total: 2 } })
+        const hiddenRoute = makeDeletedRoute()
+        const hiddenResponse = await hiddenRoute.GET(request)
+        expect((await hiddenResponse.json()).items).toEqual([liveRow])
+        expect(crudCache.get.mock.calls.at(-1)?.[0]).toContain('deletedPolicy:hidden')
+        const cachedResponse = await hiddenRoute.GET(request)
+        expect((await cachedResponse.json()).items).toEqual([liveRow])
+        expect(queryEngine.query).toHaveBeenCalledTimes(2)
+      } finally {
+        cacheEnabled.mockRestore()
+      }
+    })
+
+    it('keeps cached deleted rows out of a later response when an interceptor disables visibility', async () => {
+      const cacheEnabled = jest.spyOn(crudCacheHelpers, 'isCrudCacheEnabled').mockReturnValue(true)
+      let interceptedFlag = 'true'
+      registerApiInterceptors([{
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.rewrite-deletion-flag',
+          targetRoute: 'example/todos',
+          methods: ['GET'],
+          async before() {
+            return { ok: true, query: { withDeleted: interceptedFlag } }
+          },
+        }],
+      }])
+      const optedInRoute = makeDeletedRoute(true)
+      const request = new Request('http://x/api/example/todos?withDeleted=true')
+      try {
+        queueDeletedRows()
+        const allowed = await optedInRoute.GET(request)
+        expect((await allowed.json()).items).toEqual([liveRow, deletedRow])
+
+        interceptedFlag = 'false'
+        queueDeletedRows()
+        const hidden = await optedInRoute.GET(request)
+        expect((await hidden.json()).items).toEqual([liveRow])
+        expect(queryEngine.query).toHaveBeenCalledTimes(2)
+      } finally {
+        cacheEnabled.mockRestore()
+      }
+    })
   })
 
   it('GET returns an empty page before hooks, cache, query engine, EM, RBAC, or data engine for explicit empty scope', async () => {
@@ -709,6 +884,30 @@ describe('CRUD Factory', () => {
       disableListCache: true,
       ...list,
     } as any,
+  })
+
+  it.each(['secret_column', 'toString', 'constructor', '__proto__'])(
+    'GET ignores unmapped ordinary sort field %s when a map is configured',
+    async (sortField) => {
+      const response = await makeSortedRoute({ defaultSort: { field: 'lineNumber', dir: 'asc' } }).GET(
+        new Request(`http://x/api/example/todos?sortField=${sortField}&sortDir=desc`),
+      )
+
+      expect(response.status).toBe(200)
+      expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([
+        { field: 'line_number', dir: 'asc' },
+      ])
+    },
+  )
+
+  it('GET preserves raw ordinary sort fields when no map is configured', async () => {
+    await makeSortedRoute({ sortFieldMap: undefined }).GET(
+      new Request('http://x/api/example/todos?sortField=created_at&sortDir=desc'),
+    )
+
+    expect(queryEngine.query.mock.calls.at(-1)?.[1]?.sort).toEqual([
+      { field: 'created_at', dir: 'desc' },
+    ])
   })
 
   it('GET forwards list.decryptEncryptedFields=false to the query engine (#5430)', async () => {
@@ -1125,6 +1324,31 @@ describe('CRUD Factory', () => {
     }))
     const lastQueryCall = queryEngine.query.mock.calls.at(-1)
     expect(lastQueryCall?.[1]?.filters).toEqual({ tenant_id: { $eq: '123e4567-e89b-12d3-a456-426614174000' } })
+  })
+
+  it('GET applies row-level buildFilters on a full export for ordinary routes (#9015)', async () => {
+    const ownRowsOnly = jest.fn((_query: z.infer<typeof querySchema>, ctx: CrudCtx) => ({
+      created_by: { $eq: ctx.auth?.sub ?? null },
+    }))
+    const ownRoute = makeCrudRoute({
+      metadata: { GET: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      list: {
+        schema: querySchema,
+        entityId: 'example.todo',
+        fields: ['id', 'title', 'is_done'],
+        sortFieldMap: { id: 'id' },
+        buildFilters: ownRowsOnly,
+      },
+    })
+
+    const res = await ownRoute.GET(new Request('http://x/api/example/todos?format=json&exportScope=full&title=ignored'))
+    expect(res.status).toBe(200)
+    expect(ownRowsOnly).toHaveBeenCalledTimes(1)
+    expect(ownRowsOnly.mock.calls[0]?.[0]).not.toHaveProperty('title')
+    const lastQueryCall = queryEngine.query.mock.calls.at(-1)
+    expect(lastQueryCall?.[1]?.filters).toEqual({ created_by: { $eq: expect.anything() } })
   })
 
   describe('afterList hook ordering on the export paths', () => {
@@ -1580,13 +1804,20 @@ describe('CRUD Factory', () => {
     expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
   })
 
-  it('PUT mutation guard uses route resource identity instead of spoofed lock headers', async () => {
+  it('PUT mutation guard uses server-resolved resource identity and organization scope', async () => {
     crudMutationGuardService = {
       validateMutation: jest.fn().mockResolvedValue({
         ok: true,
-        shouldRunAfterSuccess: false,
+        shouldRunAfterSuccess: true,
       }),
       afterMutationSuccess: jest.fn().mockResolvedValue(undefined),
+    }
+
+    mockOrganizationScopeOverride = {
+      selectedId: defaultOrganizationId,
+      filterIds: [defaultOrganizationId],
+      allowedIds: [defaultOrganizationId],
+      tenantId: defaultTenantId,
     }
 
     const created = em.create(Todo, {
@@ -1612,7 +1843,12 @@ describe('CRUD Factory', () => {
     expect(crudMutationGuardService.validateMutation).toHaveBeenCalledWith(expect.objectContaining({
       resourceKind: 'example.todo',
       resourceId: created.id,
+      organizationScope: mockOrganizationScopeOverride,
       requestHeaders: expect.any(Headers),
+    }))
+    expect(crudMutationGuardService.afterMutationSuccess).toHaveBeenCalledWith(expect.objectContaining({
+      resourceId: created.id,
+      organizationScope: mockOrganizationScopeOverride,
     }))
   })
 
@@ -1981,6 +2217,77 @@ describe('CRUD Factory', () => {
     })
   })
 
+  // `translateZodIssues` (factory.ts) is the opt-in mechanism that routes a `.refine()`/
+  // `superRefine` issue's message through the resolved translate() when the issue's `params`
+  // carries `i18nKey`/`i18nFallback` (see `ledger/data/validators.ts` for the first real schema
+  // to use it, and "Zod .refine()/superRefine messages" in packages/shared/AGENTS.md). Shipped
+  // with no direct test — these two cases cover the opt-in behavior itself and its explicit
+  // non-goal: every issue without an `i18nKey` (including zod's own built-in messages) must
+  // keep flowing through unchanged.
+  describe('translateZodIssues opt-in convention (i18nKey/i18nFallback on a .refine() issue)', () => {
+    const i18nRefineSchema = z.object({ amount: z.string() }).refine(
+      (input) => /^\d+$/.test(input.amount),
+      {
+        message: 'Amount must be a whole number.',
+        params: { i18nKey: 'example.errors.amountNotWhole', i18nFallback: 'Amount must be a whole number.' },
+      },
+    )
+
+    const i18nRefineRoute = () => makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        create: {
+          commandId: 'example.todo.create',
+          schema: i18nRefineSchema,
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const postI18nRefineRequest = (route: ReturnType<typeof i18nRefineRoute>, body: unknown) => route.POST(
+      new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    it('translates a .refine() issue that opted in via params.i18nKey/i18nFallback', async () => {
+      mockTranslate.mockImplementation((key: string, fallback?: string) =>
+        key === 'example.errors.amountNotWhole' ? 'Kwota musi być liczbą całkowitą.' : (fallback ?? key),
+      )
+
+      const res = await postI18nRefineRequest(i18nRefineRoute(), { amount: '12.5' })
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body.error).toBe('Invalid input')
+      expect(body.details).toEqual([
+        expect.objectContaining({ path: [], message: 'Kwota musi być liczbą całkowitą.' }),
+      ])
+      expect(mockTranslate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
+      expect(mockTranslate).toHaveBeenCalledWith('example.errors.amountNotWhole', 'Amount must be a whole number.')
+      expect(mockResolveTranslations).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves an issue with no i18nKey exactly as it was, so every schema that has not opted in keeps its verbatim message', async () => {
+      const res = await postI18nRefineRequest(i18nRefineRoute(), {})
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      // The schema's own base type check (a missing required `amount`) fails before the
+      // `.refine()` even runs, and carries no `params.i18nKey` — `translateZodIssues` must
+      // pass it through untouched. Only the generic envelope message is translated.
+      expect(body.details).toEqual([
+        expect.objectContaining({ path: ['amount'], message: 'Invalid input: expected string, received undefined' }),
+      ])
+      expect(mockTranslate).toHaveBeenCalledTimes(1)
+      expect(mockTranslate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
+    })
+  })
+
   describe('generic error bodies follow the request locale', () => {
     const germanErrors: Record<string, string> = {
       'errors.invalid_input': 'Ungültige Eingabe',
@@ -2305,6 +2612,21 @@ describe('CRUD Factory', () => {
     expect(res.status).toBe(200)
     expect(guardValidate).not.toHaveBeenCalled()
     expect(commandBus.execute).toHaveBeenCalledWith('example.todo.delete', expect.anything())
+  })
+
+  it('keeps request admission at the dispatcher and runs only route hooks inside a real CRUD handler', async () => {
+    const requestAdmission = jest.fn(async () => ({ ok: false, statusCode: 403 }))
+    const routeAdmission = jest.fn(async () => ({ ok: true }))
+    registerApiInterceptors([{ moduleId: 'example', interceptors: [
+      { id: 'example.request', targetRoute: '*', scope: 'request', methods: ['GET'], before: requestAdmission },
+      { id: 'example.route', targetRoute: '*', methods: ['GET'], before: routeAdmission },
+    ] }])
+
+    const response = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(response.status).toBe(200)
+    expect(routeAdmission).toHaveBeenCalledTimes(1)
+    expect(requestAdmission).not.toHaveBeenCalled()
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
   })
 
   it('POST is blocked by interceptor before hook', async () => {

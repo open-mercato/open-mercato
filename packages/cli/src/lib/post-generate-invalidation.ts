@@ -1,6 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { purgeConfiguredCachePatternsAcrossTenantScopes } from '@open-mercato/shared/lib/cache/maintenance'
+import {
+  CacheProviderError,
+  isCacheProviderError,
+  prepareCacheProviderSelection,
+  readSelectedCacheProviderId,
+} from '@open-mercato/shared/lib/cache/providers'
+import { loadCacheProviderManifest } from './cache-provider-manifest'
 
 const STRUCTURAL_CACHE_PATTERNS = [
   'nav:*',
@@ -36,6 +43,26 @@ function touchGeneratedFiles(appDir: string): string[] {
   return touched
 }
 
+/**
+ * Purge the structural patterns through the effective cache selection. With a registered
+ * provider (`CACHE_PROVIDER`) the generated manifest is loaded and the same provider the app
+ * resolves is prepared first; the purge closes its maintenance client itself. Provider
+ * failures are reduced to a `CacheProviderError` so driver messages (which may embed
+ * endpoints or credentials) never reach the CLI diagnostics.
+ */
+async function purgeStructuralCacheEntries(appDir: string): Promise<number> {
+  const providerId = readSelectedCacheProviderId(process.env)
+  if (!providerId) return purgeConfiguredCachePatternsAcrossTenantScopes(STRUCTURAL_CACHE_PATTERNS)
+  try {
+    await loadCacheProviderManifest(appDir)
+    await prepareCacheProviderSelection()
+    return await purgeConfiguredCachePatternsAcrossTenantScopes(STRUCTURAL_CACHE_PATTERNS)
+  } catch (error) {
+    if (isCacheProviderError(error)) throw error
+    throw new CacheProviderError('unavailable', 'Cache provider structural purge failed', { cause: error })
+  }
+}
+
 export async function runPostGenerateStructuralInvalidation(
   appDir: string,
 ): Promise<PostGenerateStructuralInvalidationResult> {
@@ -51,7 +78,7 @@ export async function runPostGenerateStructuralInvalidation(
   }
 
   try {
-    cacheEntriesDeleted = await purgeConfiguredCachePatternsAcrossTenantScopes(STRUCTURAL_CACHE_PATTERNS)
+    cacheEntriesDeleted = await purgeStructuralCacheEntries(appDir)
   } catch (error) {
     cacheError = error
   }

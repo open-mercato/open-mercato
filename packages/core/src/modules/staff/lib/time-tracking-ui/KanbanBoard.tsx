@@ -302,7 +302,7 @@ export function KanbanBoard({
     return Array.from(ids).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   }, [allTasks])
 
-  const assigneeQuery = useAssigneeNames(assigneeIds)
+  const assigneeQuery = useAssigneeNames(assigneeIds, columnQueries.flatMap((query) => query.data?.items ?? []))
 
   const tagIds = React.useMemo(() => {
     const ids = new Set<string>()
