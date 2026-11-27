@@ -417,6 +417,8 @@ async function loadEffectiveProfileForVariant(
      where id = ? and organization_id = ? and tenant_id = ? and deleted_at is null
      limit 1`,
     [catalogVariantId, scope.organizationId, scope.tenantId],
+    'all',
+    em.getTransactionContext(),
   )
   const catalogProductId = rows[0]?.product_id
   if (!catalogProductId) return null
@@ -673,7 +675,7 @@ async function resolveReservationStrategy(
   input: InventoryReservationCreateInput,
   scope: Scope,
 ): Promise<InventoryStrategy> {
-  const profile = await loadProfileForVariant(em, ctx, input.catalogVariantId, scope)
+  const profile = await loadEffectiveProfileForVariant(em, ctx, input.catalogVariantId, scope)
   return resolveReservationStrategyFromProfile(profile, input.strategy)
 }
 
@@ -1529,7 +1531,7 @@ export async function applyInventoryReceiveInTransaction(
   if (locationWarehouseId !== input.warehouseId) {
     throw new CrudHttpError(422, { error: 'invalid_location' })
   }
-  const profile = await loadProfileForVariant(trx, ctx, input.catalogVariantId, scope)
+  const profile = await loadEffectiveProfileForVariant(trx, ctx, input.catalogVariantId, scope)
   const resolvedLotId = await resolveReceiveLotId(trx, ctx, scope, input)
   enforceInventoryTrackingRequirements(profile, {
     lotId: resolvedLotId ?? null,

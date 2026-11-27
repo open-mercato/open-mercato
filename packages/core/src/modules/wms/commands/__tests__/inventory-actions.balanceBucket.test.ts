@@ -92,6 +92,7 @@ function createTrx(calls: string[]) {
     }),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     getConnection: jest.fn(() => ({ execute: jest.fn(async () => []) })),
+    getTransactionContext: jest.fn(() => undefined),
   }
 }
 
@@ -103,6 +104,7 @@ function createEm(calls: string[]) {
       throw new Error('advisory lock must run on the transactional EntityManager')
     }),
     getConnection: jest.fn(() => ({ execute: jest.fn(async () => []) })),
+    getTransactionContext: jest.fn(() => undefined),
     fork: jest.fn(),
     transactional: jest.fn(),
   }

@@ -57,6 +57,8 @@ function createEm() {
     persist: jest.fn(),
     flush: jest.fn(async () => undefined),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
+    getConnection: jest.fn(() => ({ execute: jest.fn(async () => []) })),
+    getTransactionContext: jest.fn(() => undefined),
     fork: jest.fn(),
     transactional: jest.fn(),
   }

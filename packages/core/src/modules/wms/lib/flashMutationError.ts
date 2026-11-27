@@ -34,6 +34,17 @@ const FORBIDDEN_FEATURE_MESSAGE_FALLBACKS: Record<string, string> = {
   'wms.import': "You don't have permission to import inventory.",
 }
 
+const TRACKING_ERROR_MESSAGES = new Map<string, { key: string; fallback: string }>([
+  [
+    'lot_required',
+    { key: 'wms.backend.inventory.receive.errors.lotRequired', fallback: 'Lot number is required for this variant.' },
+  ],
+  [
+    'serial_required',
+    { key: 'wms.backend.inventory.receive.errors.serialRequired', fallback: 'Serial number is required for this variant.' },
+  ],
+])
+
 /**
  * Reads the 403 response's `requiredFeatures` (attached to the thrown error
  * by `raiseCrudError`) and, when the missing feature is a known WMS
@@ -73,6 +84,11 @@ export function flashMutationError(error: unknown, fallbackMessage: string, t?: 
   // ACL body has no mappable feature — prefer the dialog-specific fallback
   // over flashing the untranslated server token.
   const rawMessage = error instanceof Error ? error.message.trim() : ''
+  const trackingMessage = TRACKING_ERROR_MESSAGES.get(rawMessage)
+  if (trackingMessage) {
+    flash(t ? t(trackingMessage.key, trackingMessage.fallback) : trackingMessage.fallback, 'error')
+    return
+  }
   const isGenericForbidden = rawMessage.length === 0 || /^forbidden$/i.test(rawMessage)
   flash(isGenericForbidden ? fallbackMessage : rawMessage, 'error')
 }
