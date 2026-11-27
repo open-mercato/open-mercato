@@ -67,7 +67,7 @@ try {
 try {
   if (!existsSync('.env') && existsSync('.env.example')) {
     writeFileSync('.env', fillEmptyEnvSecrets(fillGeneratedSecrets(readFileSync('.env.example', 'utf8'))))
-    console.log('[setup] Copied .env.example to .env (generated JWT_SECRET, AUTH_SECRET, LOOKUP_HASH_PEPPER)')
+    console.log('📄 Copied .env.example to .env (generated JWT_SECRET, AUTH_SECRET, LOOKUP_HASH_PEPPER)')
   }
   let mode
   try {
@@ -86,7 +86,7 @@ try {
   services = await configureServiceMode({ mode, projectDir: process.cwd() })
   if (interrupted) throw new Error('Setup interrupted before verifying service connections.')
   if (services.noInfra) {
-    console.log(`[setup] ${NO_INFRA_FLAG}: skipping Docker Compose, using ${mode === 'ephemeral' ? 'the ephemeral Testcontainers services' : 'the services configured in .env'}`)
+    console.log(`⚙️ ${NO_INFRA_FLAG}: skipping Docker Compose, using ${mode === 'ephemeral' ? 'the ephemeral Testcontainers services' : 'the services configured in .env'}`)
   } else {
     const infra = await ensureInfra()
     if (!infra.ok) throw new Error('Infrastructure did not become ready.')

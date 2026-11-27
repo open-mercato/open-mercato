@@ -27,7 +27,7 @@ import { createShipment } from './helpers/fixtures'
 test.describe('TC-SHIP-009: RBAC — view feature required for tracking and points', () => {
   test('denies tracking and points for a user without shipping_carriers.view (403)', async ({ request }) => {
     const stamp = Date.now()
-    const password = 'Secret123!'
+    const password = 'QaSecret123!'
     const userEmail = `tc-ship-009-${stamp}@example.com`
 
     let adminToken: string | null = null

@@ -87,6 +87,20 @@ test.describe('TC-SCHED-001: Scheduler runtime queue APIs', () => {
     const invalidQueueBody = (await invalidQueueResponse.json()) as SchedulerErrorResponse
     expect(invalidQueueBody.error ?? '').toMatch(/Invalid queue name/i)
 
+    // #9141: a queue registered by another module is refused exactly like an
+    // unregistered one — queue ownership, not registration, gates the read.
+    // The ownership check precedes the QUEUE_STRATEGY check, so this holds in
+    // both strategies.
+    const foreignQueueResponse = await apiRequest(
+      request,
+      'GET',
+      '/api/scheduler/queue-jobs/non-existent?queue=notifications',
+      { token },
+    )
+    expect(foreignQueueResponse.status()).toBe(400)
+    const foreignQueueBody = (await foreignQueueResponse.json()) as SchedulerErrorResponse
+    expect(foreignQueueBody.error ?? '').toMatch(/Invalid queue name/i)
+
     const validQueueResponse = await apiRequest(
       request,
       'GET',

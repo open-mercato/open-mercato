@@ -175,6 +175,9 @@ export class ResourcesResourceActivity {
   @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+
   @ManyToOne(() => ResourcesResource, { fieldName: 'resource_id' })
   resource!: ResourcesResource
 }

@@ -247,6 +247,7 @@ export class AccessLogService {
               },
               tenantId,
               organizationId,
+              { em: fork },
             )) as RawEncryptedFields)
           : null
         return { tenantId, organizationId, data, fields, context, encrypted }
@@ -326,6 +327,7 @@ export class AccessLogService {
           },
           tenantId,
           organizationId,
+          { em: fork },
         )) as RawEncryptedFields)
       : null
 

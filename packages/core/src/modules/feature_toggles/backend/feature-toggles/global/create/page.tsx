@@ -5,6 +5,7 @@ import { createCrud } from "@open-mercato/ui/backend/utils/crud";
 import { useRouter } from "next/navigation";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { createFormGroups, createFieldDefinitions } from "../../../../components/formConfig";
+import { assertNumberInputParsed } from "../../../../components/LocaleNumberInput";
 import { normalizeDefaultValueForType } from "@open-mercato/core/modules/feature_toggles/lib/defaultValue";
 
 export default function CreateFeatureTogglePage() {
@@ -27,13 +28,14 @@ export default function CreateFeatureTogglePage() {
     <Page>
       <PageBody>
         <CrudForm
-          title="Create Feature Toggle"
+          title={t('feature_toggles.form.title.create', 'Create Feature Toggle')}
           titleHeadingLevel={1}
           backHref="/backend/feature-toggles/global"
           fields={fields}
           groups={formGroups}
           initialValues={initialValues}
           onSubmit={async (values) => {
+            if (values.type === 'number') assertNumberInputParsed(values.defaultValue, 'defaultValue', t)
             const payload: Record<string, unknown> = {
               identifier: values.identifier,
               name: values.name,

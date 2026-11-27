@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { SubscriberContext } from '@open-mercato/events'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 import { refreshCoverageSnapshot } from '../lib/coverage'
@@ -6,12 +7,12 @@ import { purgeIndexScope } from '../lib/purge'
 
 export const metadata = { event: 'query_index.purge', persistent: true }
 
-export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
-  const em = ctx.resolve<EntityManager>('em')
+export default async function handle(payload: { entityType?: unknown }, ctx: SubscriberContext) {
   const entityType = String(payload?.entityType || '')
   if (!entityType) return
-  const orgId = payload?.organizationId ?? null
-  const tenantId = payload?.tenantId ?? null
+  if (!ctx.eventScope) throw new Error('[internal] Query index purge requires trusted event scope')
+  const { tenantId, organizationId: orgId = null } = ctx.eventScope
+  const em = ctx.resolve<EntityManager>('em')
 
   try {
     await recordIndexerLog(

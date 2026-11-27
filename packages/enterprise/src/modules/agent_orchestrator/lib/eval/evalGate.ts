@@ -165,7 +165,12 @@ export async function runEvalGate(
     ctx: commandCtx,
   })
 
-  const finished = await em.findOne(AgentEvalSuiteRun, { id: started.suiteRunId, ...scope })
+  // The error count is the committed value from the completing command — never a
+  // re-read defaulted to 0. A count the gate cannot see is an unmeasured gate, so
+  // it fails closed instead of passing the fixture-replay check on a phantom 0.
+  if (typeof completed.errorCount !== 'number') {
+    throw new Error(`[internal] eval suite run ${started.suiteRunId} completed without an error count`)
+  }
 
   return {
     suiteRunId: started.suiteRunId,
@@ -173,7 +178,7 @@ export async function runEvalGate(
     safetyRegressions: completed.safetyRegressions ?? [],
     outcome: (completed.outcome ?? 'advisory') as EvalGateResult['outcome'],
     caseRunCount: started.caseRunCount,
-    errorCount: finished?.errorCount ?? 0,
+    errorCount: completed.errorCount,
     baselineSuiteRunId: completed.baselineSuiteRunId ?? null,
   }
 }

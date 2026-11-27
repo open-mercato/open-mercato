@@ -45,7 +45,7 @@ const ADDRESSES_PATH = '/api/customers/addresses';
 const COMPANIES_PATH = '/api/customers/companies';
 const PEOPLE_PATH = '/api/customers/people';
 const DEALS_PATH = '/api/customers/deals';
-const PASSWORD = 'Secret123!';
+const PASSWORD = 'QaSecret123!';
 const BASE_URL = process.env.BASE_URL?.trim() || '';
 
 type MapAssociation = { id: string; label: string | null };

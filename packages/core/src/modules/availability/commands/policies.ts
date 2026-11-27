@@ -1,12 +1,15 @@
+import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudUndoSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, badRequest, conflict, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
@@ -158,6 +161,38 @@ async function assertPolicyCatalogTarget(
   throw badRequest(translate(message.key, message.fallback))
 }
 
+async function throwUndoConflict(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'availability.policies.errors.undoConflict',
+      'This policy changed since the action you are undoing. Undo was refused.',
+    ),
+    code: 'availability.policies.errors.undoConflict',
+  })
+}
+
+function withoutTimestamps(snapshot: AvailabilityPolicySnapshot): Omit<AvailabilityPolicySnapshot, 'createdAt' | 'updatedAt'> {
+  const { createdAt: _createdAt, updatedAt: _updatedAt, ...content } = snapshot
+  return content
+}
+
+async function lockUnchangedPolicy(
+  em: EntityManager,
+  after: AvailabilityPolicySnapshot,
+): Promise<{ record: AvailabilityPolicy | null; stale: boolean }> {
+  const record = await findOneWithDecryption(
+    em,
+    AvailabilityPolicy,
+    { id: after.id, tenantId: after.tenantId, organizationId: after.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    { tenantId: after.tenantId, organizationId: after.organizationId },
+  )
+  if (!record) return { record: null, stale: false }
+  const stale = record.deletedAt != null || !isDeepStrictEqual(withoutTimestamps(toSnapshot(record)), withoutTimestamps(after))
+  return { record, stale }
+}
+
 async function flushUndo(em: EntityManager): Promise<void> {
   try {
     await em.flush()
@@ -239,10 +274,15 @@ const createPolicyCommand: CommandHandler<AvailabilityPolicyCreateInput, { polic
     const after = payload?.after ?? null
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(AvailabilityPolicy, { id: after.id })
+    const { record, stale } = await em.transactional(async (tx) => {
+      const locked = await lockUnchangedPolicy(tx, after)
+      if (!locked.record || locked.stale) return locked
+      locked.record.deletedAt = new Date()
+      await tx.flush()
+      return locked
+    })
+    if (stale) await throwUndoConflict()
     if (!record) return
-    record.deletedAt = new Date()
-    await em.flush()
     await emitPolicyUndoSideEffects(ctx, 'deleted', record)
   },
 }
@@ -348,11 +388,18 @@ const updatePolicyCommand: CommandHandler<AvailabilityPolicyUpdateInput, { polic
     const payload = extractUndoPayload<AvailabilityPolicyUndoPayload>(logEntry)
     const before = payload?.before ?? null
     if (!before) return
+    const after = payload?.after ?? null
+    if (!after) return throwUndoConflict()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(AvailabilityPolicy, { id: before.id })
+    const { record, stale } = await em.transactional(async (tx) => {
+      const locked = await lockUnchangedPolicy(tx, after)
+      if (!locked.record || locked.stale) return locked
+      applyUndoSnapshot(locked.record, before)
+      await flushUndo(tx)
+      return locked
+    })
+    if (stale) await throwUndoConflict()
     if (!record) return
-    applyUndoSnapshot(record, before)
-    await flushUndo(em)
     await emitPolicyUndoSideEffects(ctx, 'updated', record)
   },
 }

@@ -1,6 +1,8 @@
 import type { SearchResultVisibilityContext } from '@open-mercato/shared/modules/search'
 import { aiTools } from '../ai-tools'
 
+const HOME_ORG_ID = '20000000-0000-4000-8000-000000000001'
+
 const getTool = aiTools.find((t) => t.name === 'search_get')
 const aggregateTool = aiTools.find((t) => t.name === 'search_aggregate')
 if (!getTool || !aggregateTool) throw new Error('search_get / search_aggregate tools not found in aiTools')
@@ -27,7 +29,7 @@ function makeCtx(
   }
   const ctx = {
     tenantId: 'tenant-1',
-    organizationId: 'org-1',
+    organizationId: HOME_ORG_ID,
     userId: overrides.userId !== undefined ? overrides.userId : 'user-1',
     userFeatures: ['search.view', 'attachments.view'],
     isSuperAdmin: false,

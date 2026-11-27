@@ -24,7 +24,7 @@ async function fetchProductsNeedingSeo(): Promise<ProductSeoIssue[]> {
   const params = new URLSearchParams({
     page: '1',
     pageSize: '25',
-    sortField: 'updated_at',
+    sortField: 'updatedAt',
     sortDir: 'desc',
   })
   const call = await apiCall<{ items?: ProductSummary[] }>(`/api/catalog/products?${params.toString()}`, undefined, {

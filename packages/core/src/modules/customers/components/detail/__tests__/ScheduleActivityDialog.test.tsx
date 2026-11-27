@@ -52,7 +52,7 @@ function createScheduleState(overrides: Record<string, unknown> = {}) {
     setRecurrenceDays: jest.fn(),
     recurrenceEndType: 'never' as const,
     setRecurrenceEndType: jest.fn(),
-    recurrenceCount: 8,
+    recurrenceCount: '8',
     setRecurrenceCount: jest.fn(),
     recurrenceEndDate: '',
     setRecurrenceEndDate: jest.fn(),
@@ -202,7 +202,7 @@ describe('ScheduleActivityDialog', () => {
     mockCatalogItems = []
     mockRetryCatalog.mockReset()
     mockConfirmDialog.mockClear()
-    readApiResultOrThrowMock.mockResolvedValue({ hasConflicts: false, conflicts: [] })
+    readApiResultOrThrowMock.mockResolvedValue({ ok: true, result: { hasConflicts: false, conflicts: [] } })
   })
 
   afterEach(() => {
@@ -421,6 +421,52 @@ describe('ScheduleActivityDialog', () => {
     expect(requestUrl.searchParams.get('timezoneOffsetMinutes')).toBe('120')
   })
 
+  describe('conflict warning envelope unwrap (#8047)', () => {
+    it('shows no conflict when the API returns no conflicts in the standard envelope', async () => {
+      readApiResultOrThrowMock.mockResolvedValue({ ok: true, result: { hasConflicts: false, conflicts: [] } })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await flushConflictCheck()
+
+      expect(setConflictMock).toHaveBeenLastCalledWith(null)
+    })
+
+    it('calls setConflict with the conflict description when the API returns conflicts in the standard {ok,result} envelope (#8047)', async () => {
+      readApiResultOrThrowMock.mockResolvedValue({
+        ok: true,
+        result: {
+          hasConflicts: true,
+          conflicts: [
+            { id: 'aaaa-1111', title: 'Meeting A', startTime: '10:00', endTime: '11:00', type: 'meeting' },
+          ],
+        },
+      })
+
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+
+      await flushConflictCheck()
+
+      expect(setConflictMock).toHaveBeenLastCalledWith(
+        expect.stringContaining('Meeting A'),
+      )
+    })
+  })
+
   it('shows an inline phone error without submitting an invalid call phone', async () => {
     mockScheduleState = createScheduleState({
       activityType: 'call',
@@ -544,6 +590,135 @@ describe('ScheduleActivityDialog', () => {
       })
 
       expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('recurrence ending after a number of occurrences', () => {
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    function renderMeeting(overrides: Record<string, unknown>) {
+      mockScheduleState = createScheduleState({
+        activityType: 'meeting' as const,
+        title: 'Weekly sync',
+        recurrenceEnabled: true,
+        recurrenceDays: [true, false, true, false, false, false, false],
+        recurrenceEndType: 'count' as const,
+        ...overrides,
+      })
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+      return screen.getByRole('button', { name: /^Save activity$/ })
+    }
+
+    it('saves the typed number of occurrences', async () => {
+      const saveButton = renderMeeting({ recurrenceCount: '5' })
+      expect(saveButton).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(lastSavedPayload().recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO,WE;COUNT=5')
+    })
+
+    it.each([
+      ['an empty field', ''],
+      ['zero', '0'],
+      ['a fraction', '2.5'],
+    ])('does not save a series with %s as its number of occurrences', async (_label, draft) => {
+      const saveButton = renderMeeting({ recurrenceCount: draft })
+      expect(saveButton).toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    })
+
+    it('does not save a series that ends before its first date', async () => {
+      const saveButton = renderMeeting({
+        date: '2026-11-13',
+        recurrenceEndType: 'date' as const,
+        recurrenceEndDate: '2026-10-30',
+      })
+      expect(saveButton).toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+    })
+
+    it('saves a series that ends on or after its first date', async () => {
+      const saveButton = renderMeeting({
+        date: '2026-11-13',
+        recurrenceEndType: 'date' as const,
+        recurrenceEndDate: '2026-11-13',
+      })
+      expect(saveButton).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(lastSavedPayload().recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20261113T235959Z')
+    })
+
+    it('ignores the occurrences draft when the series does not end by count', async () => {
+      const saveButton = renderMeeting({ recurrenceCount: '', recurrenceEndType: 'never' as const })
+      expect(saveButton).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(lastSavedPayload().recurrenceRule).toBe('FREQ=WEEKLY;BYDAY=MO,WE')
+    })
+
+    it.each([
+      ['call', 'an empty occurrences count', { recurrenceCount: '' }],
+      ['task', 'an empty occurrences count', { recurrenceCount: '' }],
+      ['call', 'an end date before the first date', { date: '2026-11-13', recurrenceEndType: 'date' as const, recurrenceEndDate: '2026-10-30' }],
+      ['task', 'an end date before the first date', { date: '2026-11-13', recurrenceEndType: 'date' as const, recurrenceEndDate: '2026-10-30' }],
+    ])('saves a %s without recurrence when the hidden series draft has %s', async (activityType, _label, draft) => {
+      mockScheduleState = createScheduleState({
+        activityType,
+        title: 'Follow up',
+        recurrenceEnabled: true,
+        recurrenceDays: [true, false, true, false, false, false, false],
+        recurrenceEndType: 'count' as const,
+        ...draft,
+      })
+      renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+        />,
+      )
+      const saveButton = screen.getByRole('button', { name: /^(Log call|Save task)$/ })
+      expect(saveButton).not.toBeDisabled()
+
+      await act(async () => {
+        fireEvent.click(saveButton)
+      })
+
+      expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+      expect(lastSavedPayload().recurrenceRule).toBeNull()
+      expect(lastSavedPayload().recurrenceEnd).toBeNull()
+      expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'error')
     })
   })
 
@@ -823,6 +998,60 @@ describe('ScheduleActivityDialog', () => {
       })
 
       expect(lastSavedPayload().entityId).toBe('person-1')
+    })
+  })
+
+  describe('call fields and required title', () => {
+    const CALL_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+
+    function lastSavedPayload() {
+      const requestInit = apiCallOrThrowMock.mock.calls.at(-1)?.[1] as { body?: string } | undefined
+      return JSON.parse(String(requestInit?.body ?? '{}')) as Record<string, unknown>
+    }
+
+    function renderCallDialog(editData?: ScheduleActivityEditData) {
+      mockScheduleState = createScheduleState({ activityType: 'call' as const, title: 'Follow-up call' })
+      return renderWithProviders(
+        <ScheduleActivityDialog
+          open
+          onClose={() => undefined}
+          entityId="person-1"
+          entityType="person"
+          editData={editData}
+        />,
+      )
+    }
+
+    it('no longer offers the write-only call outcome chips', () => {
+      renderCallDialog()
+
+      expect(screen.queryByText('Outcome')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Connected' })).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Outbound' })).toBeInTheDocument()
+    })
+
+    it('leaves a stored call outcome out of the edit payload so it is not overwritten', async () => {
+      renderCallDialog({
+        id: CALL_ID,
+        interactionType: 'call',
+        title: 'Follow-up call',
+        customValues: { callDirection: 'inbound', callOutcome: 'voicemail' },
+      })
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /^Update activity$/ }))
+      })
+
+      const customValues = lastSavedPayload().customValues as Record<string, unknown>
+      expect(customValues).toEqual({ callDirection: 'inbound' })
+    })
+
+    it('marks the title as required', () => {
+      renderCallDialog()
+
+      const titleInput = screen.getByPlaceholderText('Activity title...')
+      expect(titleInput).toHaveAttribute('aria-required', 'true')
+      expect(titleInput.closest('div')?.querySelector('label span[aria-hidden="true"]')).toHaveTextContent('*')
     })
   })
 

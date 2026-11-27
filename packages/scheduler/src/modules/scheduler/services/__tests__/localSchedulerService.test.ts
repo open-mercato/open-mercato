@@ -313,6 +313,62 @@ describe('LocalSchedulerService', () => {
       expect(mockEmitSchedulerEvent).not.toHaveBeenCalled()
     })
 
+    it('skips a module-authored schedule whose source module is disabled instead of failing it (#8381)', async () => {
+      const schedule = createSchedule({
+        sourceType: 'module',
+        sourceModule: 'push_notifications',
+        createdByUserId: null,
+        targetQueue: 'push-notifications-reclaim',
+      })
+      const freshSchedule = { ...schedule }
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue(freshSchedule)
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+
+      await service.start()
+
+      expect(mockQueue.enqueue).not.toHaveBeenCalled()
+      expect(mockCommandBusInstance.execute).not.toHaveBeenCalled()
+      const emittedEvents = mockEmitSchedulerEvent.mock.calls.map(([eventId]) => eventId)
+      expect(emittedEvents).toEqual(['scheduler.job.skipped'])
+      expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
+        'scheduler.job.skipped',
+        expect.objectContaining({
+          id: 'test-1',
+          reason: 'Source module is not enabled: push_notifications',
+        }),
+      )
+      expect(loggerError).not.toHaveBeenCalled()
+      expect(freshSchedule.nextRunAt).toBeInstanceOf(Date)
+      expect(mockForkedEm.flush).toHaveBeenCalled()
+    })
+
+    it('skips a disabled source module command target before resolving the command (#8381)', async () => {
+      const schedule = createSchedule({
+        sourceType: 'module',
+        sourceModule: 'warranty_claims',
+        targetType: 'command',
+        targetQueue: null,
+        targetCommand: 'test:command',
+      })
+
+      mockForkedEm.find.mockResolvedValue([schedule])
+      mockForkedEm.findOne.mockResolvedValue({ ...schedule })
+      mockLockStrategy.runWithLock.mockImplementation(async (_key: string, fn: () => Promise<unknown>) => {
+        await fn()
+        return { acquired: true }
+      })
+
+      await service.start()
+
+      expect(mockCommandBusInstance.execute).not.toHaveBeenCalled()
+      expect(mockEmitSchedulerEvent).not.toHaveBeenCalledWith('scheduler.job.failed', expect.anything())
+    })
+
     it('should execute queue target', async () => {
       const schedule = createSchedule()
 

@@ -55,6 +55,8 @@ describe('integrations state PUT route — missing state row', () => {
       create: jest.fn((_Entity: unknown, data: Record<string, unknown>) => ({ ...data })),
       persist: jest.fn(() => em),
       flush: jest.fn(async () => undefined),
+      execute: jest.fn(async () => []),
+      transactional: jest.fn(async (work: (txEm: unknown) => Promise<unknown>) => work(em)),
     }
     const stateService = createIntegrationStateService(em as never)
     ;(createRequestContainer as jest.Mock).mockResolvedValue({

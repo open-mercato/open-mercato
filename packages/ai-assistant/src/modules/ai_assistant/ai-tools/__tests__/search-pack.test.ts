@@ -7,6 +7,11 @@
  */
 import searchAiTools from '../search-pack'
 
+const HOME_ORG_ID = '10000000-0000-4000-8000-000000000001'
+const ALLOWED_ORG_ID = '10000000-0000-4000-8000-000000000002'
+const OTHER_ALLOWED_ORG_ID = '10000000-0000-4000-8000-000000000003'
+const TENANT_A_ORG_ID = '10000000-0000-4000-8000-000000000004'
+
 type SearchCall = {
   query: string
   options: Record<string, unknown>
@@ -33,7 +38,7 @@ function makeCtx(overrides: Partial<ToolContext> = {}): ToolContext {
   }
   return {
     tenantId: 'tenant-1',
-    organizationId: 'org-1',
+    organizationId: HOME_ORG_ID,
     userId: 'user-1',
     container,
     userFeatures: ['search.view'],
@@ -59,7 +64,7 @@ function makeOrgScopeResolver(options: {
   const em = {
     find: jest.fn(async (_entity: unknown, filter: { id?: { $in: string[] } }) => {
       const ids = filter?.id?.$in ?? []
-      const known = new Set(options.knownOrgIds ?? ['org-1', 'org-2', 'org-3'])
+      const known = new Set(options.knownOrgIds ?? [HOME_ORG_ID, ALLOWED_ORG_ID, OTHER_ALLOWED_ORG_ID])
       return ids.filter((id) => known.has(id)).map((id) => ({ id, descendantIds: [] }))
     }),
   }
@@ -130,7 +135,7 @@ describe('search.hybrid_search', () => {
     expect(calls[0].query).toBe('widget')
     expect(calls[0].options).toMatchObject({
       tenantId: 'tenant-1',
-      organizationId: 'org-1',
+      organizationId: HOME_ORG_ID,
       limit: 10,
       strategies: ['fulltext', 'vector'],
       entityTypes: ['catalog:product'],
@@ -291,7 +296,7 @@ describe('search.get_record_context', () => {
     expect(calls[0].query).toBe('rec-42')
     expect(calls[0].options).toMatchObject({
       tenantId: 'tenant-1',
-      organizationId: 'org-1',
+      organizationId: HOME_ORG_ID,
       limit: 5,
       entityTypes: ['catalog:product'],
     })
@@ -323,7 +328,7 @@ describe('search.get_record_context', () => {
 
   it('passes the caller tenant/org and never leaks another tenant', async () => {
     const { service, calls } = makeSearchService([])
-    const ctx = makeCtx({ tenantId: 'tenant-A', organizationId: 'org-A' })
+    const ctx = makeCtx({ tenantId: 'tenant-A', organizationId: TENANT_A_ORG_ID })
     const lookup = permissiveLookup(['x:y'])
     ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
       if (name === 'searchService') return service
@@ -333,7 +338,7 @@ describe('search.get_record_context', () => {
     await tool.handler({ entityId: 'x:y', recordId: 'z' }, ctx as any)
     expect(calls[0].options).toMatchObject({
       tenantId: 'tenant-A',
-      organizationId: 'org-A',
+      organizationId: TENANT_A_ORG_ID,
     })
     expect(calls[0].options).not.toHaveProperty('bypassTenantScope')
   })
@@ -427,7 +432,7 @@ describe('org-allowlist enforcement (issue #7808)', () => {
     const { service, calls } = makeSearchService([
       { entityId: 'catalog:product', recordId: 'c1', score: 0.8, source: 'fulltext' },
     ])
-    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: ['org-2', 'org-3'] })
+    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: [ALLOWED_ORG_ID, OTHER_ALLOWED_ORG_ID] })
     const ctx = makeCtx({ organizationId: null })
     ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
       if (name === 'searchService') return service
@@ -438,7 +443,7 @@ describe('org-allowlist enforcement (issue #7808)', () => {
     })
     const result = (await hybridTool.handler({ q: 'widget' }, ctx as any)) as Record<string, unknown>
     expect(calls).toHaveLength(1)
-    expect(calls[0].options.organizationIds).toEqual(['org-2', 'org-3'])
+    expect(calls[0].options.organizationIds).toEqual([ALLOWED_ORG_ID, OTHER_ALLOWED_ORG_ID])
     expect(result.totalResults).toBe(1)
   })
 
@@ -487,7 +492,7 @@ describe('org-allowlist enforcement (issue #7808)', () => {
     const { service, calls } = makeSearchService([
       { entityId: 'catalog:product', recordId: 'rec-42', score: 1, source: 'fulltext', presenter: { title: 'Widget' } },
     ])
-    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: ['org-2', 'org-3'] })
+    const { em, rbacService } = makeOrgScopeResolver({ aclOrganizations: [ALLOWED_ORG_ID, OTHER_ALLOWED_ORG_ID] })
     const ctx = makeCtx({ organizationId: null })
     ;(ctx.container.resolve as jest.Mock).mockImplementation((name: string) => {
       if (name === 'searchService') return service
@@ -501,7 +506,7 @@ describe('org-allowlist enforcement (issue #7808)', () => {
       ctx as any,
     )) as Record<string, unknown>
     expect(calls).toHaveLength(1)
-    expect(calls[0].options.organizationIds).toEqual(['org-2', 'org-3'])
+    expect(calls[0].options.organizationIds).toEqual([ALLOWED_ORG_ID, OTHER_ALLOWED_ORG_ID])
     expect(result.found).toBe(true)
   })
 
@@ -633,7 +638,7 @@ describe('search viewer for per-record visibility (PR #9648 B-8)', () => {
         sub: 'user-1',
         userId: 'user-1',
         tenantId: 'tenant-1',
-        orgId: 'org-1',
+        orgId: HOME_ORG_ID,
         features: ['search.view'],
         isSuperAdmin: false,
       },

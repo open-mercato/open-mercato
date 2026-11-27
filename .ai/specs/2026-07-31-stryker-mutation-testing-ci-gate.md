@@ -146,7 +146,7 @@ start on a dirty working tree.
 
 ### `scripts/stryker/scope.mjs`
 
-Input: base ref (default `origin/develop`). Output: a GitHub Actions matrix on stdout.
+Input: base ref (default `origin/main`). Output: a GitHub Actions matrix on stdout.
 
 ```jsonc
 { "include": [ { "package": "shared", "mutate": "src/lib/boolean.ts,src/lib/phone.ts" } ] }
@@ -162,11 +162,10 @@ Rules:
 
 ### `.github/workflows/mutation-tests.yml`
 
-A standalone workflow on `pull_request`, separate from `ci.yml` so a mutation failure can never be
-confused with a test failure and so the file can be deleted without touching the main pipeline.
-A `scope` job runs `scope.mjs` and emits the matrix; a `mutate` job fans out over it with
-`fail-fast: false`, `timeout-minutes: 20`, and `continue-on-error` controlled by a single
-`MUTATION_ENFORCE` repository variable — Phase 3 flips one value rather than rewriting the file.
+The standalone workflow runs for pull requests to `main` and supports manual dispatch. The `scope`
+job runs `scope.mjs` and emits the matrix. Each `mutate` job has a 240-minute limit covering setup,
+mutation testing, and report upload. The matrix uses `fail-fast: false` so each package can finish
+independently. The `MUTATION_ENFORCE` repository variable controls `continue-on-error`.
 
 ### Reporting
 
@@ -219,7 +218,7 @@ number for a broken build.
 | File deleted in the diff | Excluded via `--diff-filter=d`; Stryker would otherwise fail on a missing path. |
 | PR changes an in-scope file no test covers yet | `relatedTests.mjs` partitions the mutate list with `jest --listTests --findRelatedTests` before Stryker runs, so the uncovered files are reported as needing tests rather than making the `enableFindRelatedTests` dry run execute zero tests and throw `ConfigError: No tests were executed`. When *every* file in a package is uncovered the mutation step is skipped entirely; both the report and the enforcement step read the partition outputs, so that skip is scored like "no mutants were generated" — reported, never failed — while a genuinely missing report after Stryker did run still fails closed under enforcement. |
 | File renamed | Treated as a new path and mutated; the old path is gone and is not scored. |
-| A widely-imported file is changed | `--findRelatedTests` pulls in a large test set — the pilot measured 530 tests per mutant for `boolean.ts` versus 127 for a leaf file. Bounded by `timeout-minutes: 20`; a timeout is reported as an infrastructure outcome, never as a low score. |
+| A widely-imported file is changed | `--findRelatedTests` can select a large test set. The pilot measured 530 tests per mutant for `boolean.ts` versus 127 for a leaf file. GitHub cancels the package job at 240 minutes, leaving the run without a complete mutation score. |
 | Flaky test in the related set | Can mark a mutant killed or timed out incorrectly. Advisory phases surface it as noise to investigate; Phase 3 must not be enabled while a package has known flaky suites. |
 | Stryker "error" mutants (2 of 32 in the pilot's `boolean.ts` run) | Excluded from the score by Stryker itself; reported in the summary so systematic errors are visible. |
 | Behaviour covered only by another package's tests | A per-package run cannot see them, so the mutant survives and the score understates reality. Observed in the pilot: `phone.ts` is also exercised from `packages/ui`, whose test mocks the helper anyway. Survivors are a triage list, never an automatic verdict — and the same reason enforcement waits for Phase 3. |
@@ -293,8 +292,9 @@ Nothing persists between runs; nothing else depends on it.
    matrix.
 4. Add the local wrapper (`yarn mutation:changed`) with the clean-tree guard and the recovery
    message. **Test:** running it on a dirty tree exits non-zero without invoking Stryker.
-5. Add `.github/workflows/mutation-tests.yml`: `scope` job → `mutate` matrix job, `fail-fast:
-   false`, `timeout-minutes: 20`, `continue-on-error` from `MUTATION_ENFORCE` (default `false`).
+5. Add `.github/workflows/mutation-tests.yml` with a `scope` job and a `mutate` matrix. Set
+   `fail-fast: false`, an initial 20-minute job limit, and `continue-on-error` from
+   `MUTATION_ENFORCE` (default `false`).
    **Test:** the workflow runs on this PR itself and reports a score for the files it changes.
 
 ### Phase 2 — reporting (2 steps)
@@ -352,7 +352,7 @@ Nothing persists between runs; nothing else depends on it.
 > **Status (2026-08-04): attempted, deliberately NOT shipped. Both steps stay open.**
 >
 > This phase is conditional by its own exit criterion — *"Only if Phase 1–3 timings demand it."*
-> They do not, and step 1 turns out not to be reachable without violating Q3. Both were attempted
+> The August measurements did not justify it, and step 1 was blocked by Q3. Both were attempted
 > rather than assumed; the evidence is below so a future attempt starts from facts.
 >
 > **Step 1 — `perTest` coverage: blocked, not deferred.** Running `packages/shared` with
@@ -365,11 +365,11 @@ Nothing persists between runs; nothing else depends on it.
 > `moduleNameMapper` path. The two remaining routes are editing all 19 test files (Q3 forbids it) or
 > replacing the repo-wide Jest `resolver` in `jest.config.base.cjs`, which would put every suite in
 > the repository behind a change made for a mutation-testing optimisation. Neither is justified by a
-> job that currently finishes in about three minutes.
+> pilot run that finished in about three minutes.
 >
-> **Step 2 — `incremental` + cache: not justified, and not free.** The measured `packages/shared`
-> job is roughly 1 min of `yarn install` plus `build:packages` and 1 m 27 s of mutation, against a
-> `timeout-minutes: 20` budget. There is no timing pressure to relieve. Against that, a stale
+> **Step 2 — `incremental` + cache.** The August `packages/shared` probe spent roughly 1 min on
+> `yarn install` plus `build:packages` and 1 m 27 s on mutation under the initial 20-minute limit.
+> Those timings left room for a full run. A stale
 > incremental file makes Stryker report mutants as killed that the current tests do not kill — a
 > false green in the one check whose entire value is trustworthy signal. Shipping it would trade
 > real correctness risk for time nobody needs.
@@ -396,6 +396,12 @@ Nothing persists between runs; nothing else depends on it.
   presentation and arid-mutant suppression as adoption prerequisites
 
 ## 📝 Changelog
+
+### 2026-11-24 — longer job limit for large pull requests (PR #10067)
+
+The mutation job limit increased from 150 to 240 minutes. The previous run had tested 7,955 of
+10,827 mutants at cancellation and estimated 52 minutes of mutation execution remaining.
+[Canceled mutation job](https://github.com/open-mercato/open-mercato/actions/runs/45221726367/job/137858210152)
 
 ### 2026-08-04 — implemented (PR #4932)
 

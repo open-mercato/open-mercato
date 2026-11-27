@@ -135,6 +135,23 @@ test('release cut runs only from main and only by hand', () => {
   assert.doesNotMatch(source, /publish-packages|npm publish/, 'Cutting a line never releases anything')
 })
 
+test('release cut takes an optional green tag and cuts at main\'s tip without one', () => {
+  const { parsed, source } = readWorkflow(cutPath)
+  const input = parsed.on.workflow_dispatch.inputs.green_tag
+  const steps = parsed.jobs.cut.steps
+
+  assert.equal(input.type, 'string')
+  assert.equal(input.required, false)
+  assert.equal(input.default, '', 'No green tags exist yet, so an empty input keeps cutting at main\'s tip')
+  assert.equal(steps.find((step) => step.name === 'Cut the release line').env.GREEN_TAG, '${{ inputs.green_tag }}')
+  assert.match(source, /\$\{GREEN_TAG:\+--at "\$GREEN_TAG"\}/, 'The tag reaches the script through env, never interpolated into the shell')
+  assert.equal(
+    steps.find((step) => step.name === 'Checkout code').with['fetch-depth'],
+    "${{ inputs.green_tag == '' && 1 || 0 }}",
+    'A green-tag cut reads the tag and its PR history; a tip cut stays a shallow checkout',
+  )
+})
+
 test('workflows that open PRs use a release app token so CI runs on them', () => {
   for (const file of [releasePath, publishPath, cutPath, backportPath]) {
     const { source } = readWorkflow(file)

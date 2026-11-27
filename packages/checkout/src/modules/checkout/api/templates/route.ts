@@ -45,7 +45,7 @@ export async function GET(req: Request) {
       CheckoutLinkTemplate,
       where,
       {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'desc', id: 'desc' },
         offset: (page - 1) * pageSize,
         limit: pageSize,
       },
