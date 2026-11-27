@@ -735,7 +735,7 @@ function NotesSectionImpl<C = unknown>({
             appearanceIcon: icon,
             appearanceColor: color,
           }
-          return [newNote, ...prev]
+          return prev.some((note) => note.id === newNote.id) ? prev : [newNote, ...prev]
         })
         setVisibleCount((prev) => Math.max(prev, 1))
         flash(label('success'), 'success')

@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { NotesSection, type NotesDataAdapter } from '../detail/NotesSection'
 import { dismissRecordConflict, getRecordConflictForTest } from '../conflicts'
@@ -35,6 +35,35 @@ const baseProps = (dataAdapter: NotesDataAdapter) => ({
 })
 
 describe('NotesSection', () => {
+  it.each([false, true])('keeps the loaded note when a create response arrives after a refresh (newer edit: %s)', async (newerEdit) => {
+    const adapter = createDataAdapter()
+    const savedNote = {
+      id: 'note-2',
+      body: 'Created during refresh',
+      createdAt: '2026-06-01T00:00:00.000Z',
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    }
+    let finishCreate: (note: typeof savedNote) => void = () => undefined
+    adapter.create = jest.fn(() => new Promise((resolve) => { finishCreate = resolve }))
+    const { rerender } = renderWithProviders(<NotesSection {...baseProps(adapter)} disableMarkdown />)
+    await screen.findByText('Existing note')
+    fireEvent.click(screen.getByRole('button', { name: 'Add note' }))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: savedNote.body } })
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', ctrlKey: true })
+    await waitFor(() => expect(adapter.create).toHaveBeenCalledTimes(1))
+
+    const listedNote = newerEdit
+      ? { ...savedNote, body: 'Edited during refresh', updatedAt: '2026-06-02T00:00:00.000Z' }
+      : savedNote
+    const refreshedAdapter = { ...adapter, list: jest.fn(async () => [listedNote]) }
+    rerender(<NotesSection {...baseProps(refreshedAdapter)} disableMarkdown />)
+    await screen.findByRole('button', { name: listedNote.body, exact: true })
+    await act(async () => { finishCreate(savedNote) })
+
+    expect(screen.getAllByRole('button', { name: listedNote.body, exact: true })).toHaveLength(1)
+    if (newerEdit) expect(screen.queryByRole('button', { name: savedNote.body, exact: true })).not.toBeInTheDocument()
+  })
+
   beforeEach(() => {
     dismissRecordConflict()
     Object.defineProperty(Element.prototype, 'scrollIntoView', {
