@@ -733,6 +733,20 @@ describe('--help never triggers side effects (issue #5581)', () => {
       consoleErrorSpy.mockRestore()
     })
 
+    it('reports that maintenance requires Enterprise and leaves global help available', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+      try {
+        registerCliModules([])
+        expect(await run(['node', 'mercato', '--help'])).toBe(0)
+        expect(await run(['node', 'mercato', 'maintenance', 'status'])).toBe(1)
+        expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('OM_ENABLE_ENTERPRISE_MODULES=true'))
+      } finally {
+        consoleLogSpy.mockRestore()
+        consoleErrorSpy.mockRestore()
+      }
+    })
+
     it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty', '__proto__'])(
       'reports %s as an unknown module instead of matching an inherited prototype key',
       async (inheritedKey) => {

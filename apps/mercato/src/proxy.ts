@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { NextResponse } from 'next/server'
+import { evaluateRequestGates } from '@open-mercato/shared/lib/runtime/request-gate'
 import {
   ensureWarmUp,
   getSharedCustomDomainRouter,
@@ -74,6 +75,23 @@ export async function proxy(req: NextRequest) {
   function withContentSecurityPolicy(response: NextResponse) {
     response.headers.set('Content-Security-Policy', contentSecurityPolicy)
     return response
+  }
+
+  const gateResponse = await evaluateRequestGates({
+    surface: 'page',
+    method: req.method,
+    pathname,
+    headers: req.headers,
+    cookies: { get: (name: string) => req.cookies.get(name)?.value },
+    request: req,
+  })
+  if (gateResponse) {
+    const gated = new NextResponse(gateResponse.body, {
+      status: gateResponse.status,
+      statusText: gateResponse.statusText,
+      headers: gateResponse.headers,
+    })
+    return gated.headers.has('Content-Security-Policy') ? gated : withContentSecurityPolicy(gated)
   }
 
   if (platform) {

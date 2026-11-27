@@ -196,6 +196,19 @@ success nor a passing rehearsal automatically promotes a target or retires custo
 
 ## Create and verify
 
+### Start a maintenance window for a quiesced backup
+
+On Enterprise deployments, enable the [maintenance module](../enterprise/maintenance-mode.mdx) and configure the CLI and all running processes to use the same maintenance store. Replace the example counts with your actual web, worker, and scheduler process counts. Run from the deployed app environment.
+
+```sh
+mercato maintenance on --title "Database backup" --message "Service will resume after the backup." --expect-processes web=2,worker=1,scheduler=1 --wait-drain
+mercato maintenance status
+```
+
+Proceed only after the drain succeeds and status shows that bypass is disabled. Keep the window active for the entire backup. Fence integrations, direct database access, and other writers that run outside the application gate. The backup CLI neither opens nor holds a window, and its quiescence checks still apply. If the Enterprise screen is unavailable, stop and keep all writers stopped before using `--quiesced`.
+
+### Run the backup
+
 Put one to ten age X25519 public recipients in a recipients file. Include an independently controlled offline escrow recipient. Private identities and application DEKs belong in separate custody domains; an archive identity cannot decrypt tenant field ciphertext.
 
 ```sh
@@ -208,6 +221,8 @@ Retain the returned `backupId`, artifact path and `manifestSha256` through an in
 ```sh
 mercato-backup verify --artifact /srv/recovery/output/BACKUP_ID --trusted-manifest-sha256 TRUSTED_DIGEST --identity-file /srv/recovery/private/escrow.identity --json
 ```
+
+After the backup and verification finish, run `mercato maintenance off` if you opened the window for this backup. Check that traffic and workers resume.
 
 Backup chunks, schema and index are encrypted independently of application field-encryption maps. The database values are copied as stored ciphertext, so historic application keys must remain retrievable. File names do not include entity names. Whole-database coverage does not include attachments/object-store files, Vault state, Redis, WAL or cluster-global roles. Unsupported external/foreign relation kinds refuse rather than imply complete coverage.
 
@@ -241,6 +256,8 @@ The challenge binds the target and artifact and expires; obtain a fresh challeng
 An `exercise` adds declarative checks from an owner-only JSON checks file: `artifact-integrity`, `row-count`, `migration-fingerprint` and `encrypted-canary`. Checks are bounded, not SQL/shell execution. Encrypted-canary checks name an entity key, a whitelisted field, exact primary-key values, a custody handle and the expected SHA-256 of a synthetic canary. Supply the historic test DEKs through a separate owner-only `--canary-keys-file` mapping custody handles to base64 keys; do not put key bytes in arguments, artifacts or reports. The implementation uses the platform's authenticated decryption helper. Never substitute synthetic test custody for a deployment's real escrow acceptance.
 
 ## Rotation and retirement
+
+Before changing application keys, open and drain the [Enterprise maintenance window](../enterprise/maintenance-mode.mdx#encryption-key-rotation) on the application deployment. Keep bypass disabled until the operation is complete. The maintenance screen is available only with the Enterprise maintenance module. Follow the separate writer shutdown and recovery requirements for offline protected rotation.
 
 Protected Enterprise rotation requires both a verified quiesced recovery artifact and the separate full data-correctness verifier. Core rotation remains available only through its explicit per-invocation unprotected-risk acknowledgment when Enterprise protection is unavailable. A failed protected operation never silently downgrades.
 

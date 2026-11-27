@@ -273,6 +273,43 @@ describe('LocalSchedulerService', () => {
       expect(loggerDebug).toHaveBeenCalledWith('No due schedules')
     })
 
+    it('should skip the tick while a worker gate pauses the scheduler', async () => {
+      const { registerWorkerGate, unregisterWorkerGate } = jest.requireActual('@open-mercato/shared/lib/runtime/worker-gate')
+      registerWorkerGate({ id: 'scheduler-test-gate', shouldPause: (info: { kind: string }) => info.kind === 'scheduler' })
+      try {
+        mockForkedEm.find.mockResolvedValue([])
+        await service.start()
+        expect(mockForkedEm.find).not.toHaveBeenCalled()
+      } finally {
+        unregisterWorkerGate('scheduler-test-gate')
+      }
+    })
+
+    it('should count the tick in flight while a gate is registered', async () => {
+      const { registerWorkerGate, unregisterWorkerGate } = jest.requireActual('@open-mercato/shared/lib/runtime/worker-gate')
+      let inflight = 0
+      let observed = -1
+      registerWorkerGate({
+        id: 'scheduler-test-gate',
+        shouldPause: () => false,
+        onJobStarted: () => {
+          inflight += 1
+          return () => { inflight -= 1 }
+        },
+      })
+      try {
+        mockForkedEm.find.mockImplementation(async () => {
+          observed = inflight
+          return []
+        })
+        await service.start()
+        expect(observed).toBe(1)
+        expect(inflight).toBe(0)
+      } finally {
+        unregisterWorkerGate('scheduler-test-gate')
+      }
+    })
+
     it('should handle poll errors gracefully', async () => {
       const error = new Error('Database error')
       mockForkedEm.find.mockRejectedValue(error)

@@ -23,6 +23,7 @@ import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/
 import crypto from 'node:crypto'
 import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { ENTER_MAINTENANCE_FLAG, EXIT_MAINTENANCE_FLAG, runEncryptionMaintenance } from '@open-mercato/shared/lib/maintenance/cli'
 import { getCliModules, type Module } from '@open-mercato/shared/modules/registry'
 import { lockUserRoleWriterAuthorizationState } from './lib/authorizationStateLocks'
 
@@ -227,7 +228,8 @@ const rotateEncryptionKey: ModuleCli = {
       console.error('TENANT_DATA_ENCRYPTION is disabled; aborting.')
       return
     }
-    const { resolve } = await createRequestContainer()
+    const container = await createRequestContainer()
+    const { resolve } = container
     const em = resolve<EntityManager>('em')
     const encryptionService = new TenantDataEncryptionService(em as any, { kms: createKmsService() })
     const oldKms = rotate && oldKey ? new DerivedKeyKmsService(oldKey) : null
@@ -252,141 +254,154 @@ const rotateEncryptionKey: ModuleCli = {
       console.error('Unable to access raw connection; aborting.')
       return
     }
-    const meta = (em as any)?.getMetadata?.()?.get?.(User)
-    const tableName = meta?.tableName || 'users'
-    const schema = meta?.schema
-    const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
-    const isEncryptedPayload = (value: unknown): boolean => {
-      if (typeof value !== 'string') return false
-      const parts = value.split(':')
-      return parts.length === 4 && parts[3] === 'v1'
-    }
-    const printedDek = new Set<string>()
-    const oldDekCache = new Map<string, TenantDek | null>()
-    const unrecoverableRows: Array<{ rowId: string; tenantId: string; organizationId: string }> = []
-    const reportUnrecoverableRows = (): void => {
-      if (!unrecoverableRows.length) return
-      const maxListed = 20
-      console.warn(
-        `[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated: their ciphertext opens under neither the previous nor the current tenant key. Those rows were left untouched. Retain the previous keys and re-run with the key that sealed them.`,
-      )
-      for (const row of unrecoverableRows.slice(0, maxListed)) {
-        console.warn(`[internal] auth:user.email row=${row.rowId} tenant=${row.tenantId} org=${row.organizationId}`)
+    await runEncryptionMaintenance(
+      container,
+      {
+        operation: 'encryption.auth.rotate-encryption-key',
+        dryRun,
+        enterMaintenance: parseBooleanToken(String(args[ENTER_MAINTENANCE_FLAG] ?? '')) === true,
+        exitMaintenance: parseBooleanToken(String(args[EXIT_MAINTENANCE_FLAG] ?? '')) === true,
+      },
+      async (maintenance) => {
+      const meta = (em as any)?.getMetadata?.()?.get?.(User)
+      const tableName = meta?.tableName || 'users'
+      const schema = meta?.schema
+      const qualifiedTable = schema ? `"${schema}"."${tableName}"` : `"${tableName}"`
+      const isEncryptedPayload = (value: unknown): boolean => {
+        if (typeof value !== 'string') return false
+        const parts = value.split(':')
+        return parts.length === 4 && parts[3] === 'v1'
       }
-      if (unrecoverableRows.length > maxListed) {
-        console.warn(`[internal] ... and ${unrecoverableRows.length - maxListed} more`)
-      }
-      throw new Error(`[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated. The command did not complete successfully; earlier successful updates remain applied.`)
-    }
-    const processScope = async (scopeTenantId: string, scopeOrganizationId: string): Promise<number> => {
-      if (debug && !printedDek.has(scopeTenantId)) {
-        printedDek.add(scopeTenantId)
-        const [oldDek, newDek] = await Promise.all([
-          oldKms?.getTenantDek(scopeTenantId) ?? Promise.resolve(null),
-          encryptionService.getDek(scopeTenantId),
-        ])
-        console.log('[rotate-encryption-key] dek fingerprints', {
-          tenantId: scopeTenantId,
-          oldKey: fingerprintDek(oldDek),
-          currentKey: fingerprintDek(newDek),
-        })
-      }
-      const rawRows = await conn.execute(
-        `select id, email, email_hash from ${qualifiedTable} where tenant_id = ? and organization_id = ?`,
-        [scopeTenantId, scopeOrganizationId],
-      )
-      const rows: Array<{ id: string; email: string | null; email_hash: string | null }> = Array.isArray(rawRows) ? rawRows : []
-      const pending = rotate
-        ? rows
-        : rows.filter((row) => !isEncryptedPayload(row.email))
-      if (!pending.length) return 0
-      console.log(
-        `Found ${pending.length} auth user records to process for org=${scopeOrganizationId}${dryRun ? ' (dry-run)' : ''}.`
-      )
-      if (dryRun) return 0
-      let currentDek: TenantDek | null | undefined
-      let updated = 0
-      for (const row of pending) {
-        const rawEmail = typeof row.email === 'string' ? row.email : String(row.email ?? '')
-        if (!rawEmail) continue
-        if (rotate && (!isEncryptedPayload(rawEmail) || !oldKms)) {
-          continue
+      const printedDek = new Set<string>()
+      const oldDekCache = new Map<string, TenantDek | null>()
+      const unrecoverableRows: Array<{ rowId: string; tenantId: string; organizationId: string }> = []
+      const reportUnrecoverableRows = (): void => {
+        if (!unrecoverableRows.length) return
+        const maxListed = 20
+        console.warn(
+          `[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated: their ciphertext opens under neither the previous nor the current tenant key. Those rows were left untouched. Retain the previous keys and re-run with the key that sealed them.`,
+        )
+        for (const row of unrecoverableRows.slice(0, maxListed)) {
+          console.warn(`[internal] auth:user.email row=${row.rowId} tenant=${row.tenantId} org=${row.organizationId}`)
         }
-        let plainEmail = rawEmail
-        if (rotate && isEncryptedPayload(rawEmail) && oldKms) {
-          if (debug) {
-            console.log('[rotate-encryption-key] decrypting', {
-              userId: row.id,
-              tenantId: scopeTenantId,
-              organizationId: scopeOrganizationId,
-            })
-          }
-          let oldDek = oldDekCache.get(scopeTenantId) ?? null
-          if (!oldDekCache.has(scopeTenantId)) {
-            oldDek = await oldKms.getTenantDek(scopeTenantId)
-            oldDekCache.set(scopeTenantId, oldDek)
-          }
-          const maybeEmail = decryptWithOldKey(rawEmail, oldDek)
-          if (typeof maybeEmail !== 'string' || isEncryptedPayload(maybeEmail)) {
-            if (currentDek === undefined) currentDek = await encryptionService.getDek(scopeTenantId)
-            if (currentDek && decryptWithAesGcm(rawEmail, currentDek.key) !== null) continue
-            unrecoverableRows.push({ rowId: row.id, tenantId: scopeTenantId, organizationId: scopeOrganizationId })
+        if (unrecoverableRows.length > maxListed) {
+          console.warn(`[internal] ... and ${unrecoverableRows.length - maxListed} more`)
+        }
+        throw new Error(`[internal] ${unrecoverableRows.length} auth user email(s) could not be rotated. The command did not complete successfully; earlier successful updates remain applied.`)
+      }
+      const processScope = async (scopeTenantId: string, scopeOrganizationId: string): Promise<number> => {
+        if (debug && !printedDek.has(scopeTenantId)) {
+          printedDek.add(scopeTenantId)
+          const [oldDek, newDek] = await Promise.all([
+            oldKms?.getTenantDek(scopeTenantId) ?? Promise.resolve(null),
+            encryptionService.getDek(scopeTenantId),
+          ])
+          console.log('[rotate-encryption-key] dek fingerprints', {
+            tenantId: scopeTenantId,
+            oldKey: fingerprintDek(oldDek),
+            currentKey: fingerprintDek(newDek),
+          })
+        }
+        const rawRows = await conn.execute(
+          `select id, email, email_hash from ${qualifiedTable} where tenant_id = ? and organization_id = ?`,
+          [scopeTenantId, scopeOrganizationId],
+        )
+        const rows: Array<{ id: string; email: string | null; email_hash: string | null }> = Array.isArray(rawRows) ? rawRows : []
+        const pending = rotate
+          ? rows
+          : rows.filter((row) => !isEncryptedPayload(row.email))
+        if (!pending.length) return 0
+        console.log(
+          `Found ${pending.length} auth user records to process for org=${scopeOrganizationId}${dryRun ? ' (dry-run)' : ''}.`
+        )
+        if (dryRun) return 0
+        let currentDek: TenantDek | null | undefined
+        let updated = 0
+        for (const row of pending) {
+          const rawEmail = typeof row.email === 'string' ? row.email : String(row.email ?? '')
+          if (!rawEmail) continue
+          if (rotate && (!isEncryptedPayload(rawEmail) || !oldKms)) {
             continue
           }
-          plainEmail = maybeEmail
-        }
-        if (!plainEmail) continue
-        const encrypted = await encryptionService.encryptEntityPayload(
-          'auth:user',
-          { email: plainEmail },
-          scopeTenantId,
-          scopeOrganizationId,
-        )
-        const nextEmail = encrypted.email as string | undefined
-        if (nextEmail && nextEmail !== rawEmail) {
-          const nextEmailHash = encrypted.emailHash ?? computeEmailHash(plainEmail)
-          const result = await conn.execute(
-            `UPDATE ${qualifiedTable} SET email = ?, email_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ? AND organization_id = ? AND email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id`,
-            [nextEmail, nextEmailHash, row.id, scopeTenantId, scopeOrganizationId, row.email, row.email_hash],
-          )
-          if (!Array.isArray(result) || result.length !== 1) {
-            throw new Error('[internal] A row changed concurrently during auth encryption maintenance. The conflicting row was not overwritten; retry after stopping writers.')
+          let plainEmail = rawEmail
+          if (rotate && isEncryptedPayload(rawEmail) && oldKms) {
+            if (debug) {
+              console.log('[rotate-encryption-key] decrypting', {
+                userId: row.id,
+                tenantId: scopeTenantId,
+                organizationId: scopeOrganizationId,
+              })
+            }
+            let oldDek = oldDekCache.get(scopeTenantId) ?? null
+            if (!oldDekCache.has(scopeTenantId)) {
+              oldDek = await oldKms.getTenantDek(scopeTenantId)
+              oldDekCache.set(scopeTenantId, oldDek)
+            }
+            const maybeEmail = decryptWithOldKey(rawEmail, oldDek)
+            if (typeof maybeEmail !== 'string' || isEncryptedPayload(maybeEmail)) {
+              if (currentDek === undefined) currentDek = await encryptionService.getDek(scopeTenantId)
+              if (currentDek && decryptWithAesGcm(rawEmail, currentDek.key) !== null) continue
+              unrecoverableRows.push({ rowId: row.id, tenantId: scopeTenantId, organizationId: scopeOrganizationId })
+              continue
+            }
+            plainEmail = maybeEmail
           }
-          updated += 1
+          if (!plainEmail) continue
+          const encrypted = await encryptionService.encryptEntityPayload(
+            'auth:user',
+            { email: plainEmail },
+            scopeTenantId,
+            scopeOrganizationId,
+          )
+          const nextEmail = encrypted.email as string | undefined
+          if (nextEmail && nextEmail !== rawEmail) {
+            const nextEmailHash = encrypted.emailHash ?? computeEmailHash(plainEmail)
+            const result = await conn.execute(
+              `UPDATE ${qualifiedTable} SET email = ?, email_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND tenant_id = ? AND organization_id = ? AND email IS NOT DISTINCT FROM ? AND email_hash IS NOT DISTINCT FROM ? RETURNING id`,
+              [nextEmail, nextEmailHash, row.id, scopeTenantId, scopeOrganizationId, row.email, row.email_hash],
+            )
+            if (!Array.isArray(result) || result.length !== 1) {
+              throw new Error('[internal] A row changed concurrently during auth encryption maintenance. The conflicting row was not overwritten; retry after stopping writers.')
+            }
+            updated += 1
+          }
         }
+        return updated
       }
-      return updated
-    }
 
-    if (tenantId && organizationId) {
-      const updated = await processScope(String(tenantId), String(organizationId))
+      if (tenantId && organizationId) {
+        await maintenance.assertLive()
+        const updated = await processScope(String(tenantId), String(organizationId))
+        reportUnrecoverableRows()
+        if (!updated) {
+          console.log('All auth user emails already encrypted for the selected scope.')
+        } else {
+          console.log(`Encrypted ${updated} auth user email(s).`)
+        }
+        return
+      }
+
+      const organizations = await em.find(Organization, {})
+      if (!organizations.length) {
+        console.log('No organizations found; nothing to encrypt.')
+        return
+      }
+      let total = 0
+      for (const org of organizations) {
+        const scopeTenantId = org.tenant?.id ? String(org.tenant.id) : org.tenant.id ? String(org.tenant.id) : null
+        const scopeOrganizationId = org.id ? String(org.id) : null
+        if (!scopeTenantId || !scopeOrganizationId) continue
+        await maintenance.assertLive()
+        total += await processScope(scopeTenantId, scopeOrganizationId)
+      }
       reportUnrecoverableRows()
-      if (!updated) {
-        console.log('All auth user emails already encrypted for the selected scope.')
+      if (total > 0) {
+        console.log(`Encrypted ${total} auth user email(s) across all organizations.`)
       } else {
-        console.log(`Encrypted ${updated} auth user email(s).`)
+        console.log('All auth user emails already encrypted across all organizations.')
       }
-      return
-    }
-
-    const organizations = await em.find(Organization, {})
-    if (!organizations.length) {
-      console.log('No organizations found; nothing to encrypt.')
-      return
-    }
-    let total = 0
-    for (const org of organizations) {
-      const scopeTenantId = org.tenant?.id ? String(org.tenant.id) : org.tenant.id ? String(org.tenant.id) : null
-      const scopeOrganizationId = org.id ? String(org.id) : null
-      if (!scopeTenantId || !scopeOrganizationId) continue
-      total += await processScope(scopeTenantId, scopeOrganizationId)
-    }
-    reportUnrecoverableRows()
-    if (total > 0) {
-      console.log(`Encrypted ${total} auth user email(s) across all organizations.`)
-    } else {
-      console.log('All auth user emails already encrypted across all organizations.')
-    }
+      },
+    )
   },
 }
 

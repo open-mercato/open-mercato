@@ -22,6 +22,7 @@ type RotationOptions = {
   tenantId: string | null
   organizationId: string | null
   dryRun: boolean
+  beforeBatch?: () => Promise<void>
 }
 
 type DocumentRow = {
@@ -78,6 +79,7 @@ export async function rotateCustomEntityDocuments(
   let cursor: string | null = null
   let updated = 0
   for (;;) {
+    if (options.beforeBatch) await options.beforeBatch()
     const predicates = [`entity_type in (${entityIds.map(() => '?').join(', ')})`]
     const parameters: unknown[] = [...entityIds]
     if (options.tenantId) {

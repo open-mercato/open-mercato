@@ -1,0 +1,19 @@
+{
+  "maintenance.api.unavailable": "Service temporarily unavailable for maintenance.",
+  "maintenance.banner.title": "Maintenance mode is on — you are bypassing it",
+  "maintenance.banner.until": "The window is expected to end at {until}.",
+  "maintenance.bypass.description": "Enter the bypass token printed by the maintenance command to access the application during this window.",
+  "maintenance.bypass.invalid": "This bypass token is not valid for the current maintenance window.",
+  "maintenance.bypass.submit": "Continue",
+  "maintenance.bypass.title": "Maintenance bypass",
+  "maintenance.bypass.tokenLabel": "Bypass token",
+  "maintenance.bypass.tooManyAttempts": "Too many attempts. Wait a minute and try again.",
+  "maintenance.overlay.message": "Changes cannot be saved right now. Reload the page when maintenance has finished.",
+  "maintenance.overlay.reload": "Reload",
+  "maintenance.overlay.title": "Scheduled maintenance in progress",
+  "maintenance.overlay.until": "Expected back: {until}",
+  "maintenance.page.contactSupport": "Contact support",
+  "maintenance.page.defaultMessage": "The service is temporarily unavailable. Please try again shortly.",
+  "maintenance.page.defaultTitle": "We are performing scheduled maintenance",
+  "maintenance.page.expectedBack": "Expected back:"
+}

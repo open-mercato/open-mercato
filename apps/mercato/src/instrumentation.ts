@@ -44,15 +44,18 @@ export async function register(): Promise<void> {
     }
   }
 
-  if (
-    process.env.NEXT_RUNTIME === 'nodejs'
-    && process.env.NEXT_PHASE !== 'phase-production-build'
-    && parseBooleanWithDefault(process.env.OM_PROCESS_CONTAINER_ROOT, false)
-  ) {
-    const { bootstrap } = await import('./bootstrap-api')
-    bootstrap()
-    const { initializeProcessContainer } = await import('@open-mercato/shared/lib/di/container')
-    await initializeProcessContainer()
+  if (process.env.NEXT_RUNTIME === 'nodejs' && process.env.NEXT_PHASE !== 'phase-production-build') {
+    const { enabledModuleIds } = await import('@/.mercato/generated/enabled-module-ids.generated')
+    if (enabledModuleIds.includes('maintenance')) {
+      await import('@open-mercato/enterprise/modules/maintenance/di')
+    }
+
+    if (parseBooleanWithDefault(process.env.OM_PROCESS_CONTAINER_ROOT, false)) {
+      const { bootstrap } = await import('./bootstrap-api')
+      bootstrap()
+      const { initializeProcessContainer } = await import('@open-mercato/shared/lib/di/container')
+      await initializeProcessContainer()
+    }
   }
 
 }

@@ -14,7 +14,7 @@ Encryption key rotation **must** run inside a drained maintenance window on any 
 
 The mode lives in a new enterprise module, `maintenance`. Open Mercato Core gains only two generic, additive, no-op-by-default seams: a request-gate registry and a `maintenanceCoordinator` DI contract. OSS behavior does not change.
 
-Status: design for review. ⚠ Q2, Q3 and Q9 need human confirmation before implementation.
+Status: implemented (Phases 0–3, #10539). Q2, Q3 and Q9 were confirmed when the maintainer merged the spec and requested implementation.
 
 ## Resolved assumptions (autonomous defaults)
 
@@ -298,7 +298,7 @@ These apply to the planned `backups` module ([CLI spec](2026-11-06-cli-backup-re
 
 The page is a self-contained HTML document:
 
-- inline CSS and no external requests;
+- inline CSS and a same-origin logo by default;
 - no React, no database and no session, so it renders during a restore;
 - no script at all, so the nonce-based production CSP (`script-src-attr 'none'`) needs no exception;
 - optional `<meta http-equiv="refresh">` set to `Retry-After`, capped at 300 s.
@@ -311,6 +311,10 @@ The page is a self-contained HTML document:
 2. Instance template `OM_MAINTENANCE_PAGE_TEMPLATE=<path to .html>`, loaded once at boot and validated for the required placeholders. Placeholders: `{{title}}`, `{{message}}`, `{{until}}`, `{{untilIso}}`, `{{retryAfter}}`, `{{supportUrl}}`, `{{logoUrl}}`, `{{lang}}`. All values are HTML-escaped and there is no raw-HTML placeholder. `{{supportUrl}}` and `{{logoUrl}}` accept only `https:` or `http:` URLs (or a same-origin path); anything else is dropped. Templates containing `<script>`, inline event handlers, or placeholders inside `style` or `href="javascript:` are rejected. If the template is invalid, the built-in page is used and an error is logged.
 3. Instance env `OM_MAINTENANCE_LOGO_URL` and `OM_MAINTENANCE_SUPPORT_URL`.
 4. Built-in defaults from `maintenance/i18n/<locale>.json`. The locale is chosen from `Accept-Language`, limited to the app's supported locales.
+
+**Startup.** The monorepo app and standalone template register the server gate in Node instrumentation when the generated module list includes maintenance. The first page request is gated even when process container initialization is disabled.
+
+**Branding.** The default logo is the login asset at `/open-mercato.svg`, also shipped in the standalone app template. An instance can override it with `OM_MAINTENANCE_LOGO_URL`. The default also supplies `{{logoUrl}}` in custom templates.
 
 **Design system.** The built-in template follows the design system: colors come from the generated DS token values inlined at build time, with no hard-coded status colors. It has the text scale, `role="main"`, `lang`, sufficient contrast, and passes `prefers-color-scheme`.
 
@@ -392,6 +396,33 @@ Illustrative proposals, not accepted designs:
 
 1. Spike: register a gate from enterprise `di.ts` and assert that `proxy.ts` sees it in `yarn dev` and in `yarn build:app && start`. Record the result in this spec and pick the call path.
 2. Audit `packages/*/src/modules/*/cli.ts` for commands that provision keys, invalidate key caches or rewrite ciphertext. Freeze the list in this spec.
+
+#### Phase 0 results (2026-11-24)
+
+- **Proxy path: shared registry.** The Next 16 proxy is pinned to the Node runtime and runs in the same process as the route handlers. The registry is keyed on `globalThis` (`__openMercatoRequestGates__`), so a gate registered by enterprise `di.ts` during bootstrap is visible to `proxy.ts` without a self-call.
+  - A freshly started process serves pages fail-open until its first bootstrap. This is the boot fail-open trade-off from Q9.
+  - Such a process has not installed the gate, so it never heartbeats. The drained-hold inventory therefore blocks on it rather than treating it as drained.
+- **Completion accounting.** The registry exposes `admitRequest()`. API requests through the dispatcher and `api/auth/login` count as in flight from admission until the handler settles.
+  - The proxy cannot observe page or Server Action completion. Pages are therefore evaluated with `evaluateRequestGates()` only.
+  - A drained hold relies on the process inventory and on writer fencing, as § Exclusive hold and drain requires.
+- **Worker pause.** Rather than calling strategy-specific pause APIs, the runner wraps the job handler (`withWorkerGate`). A claimed job waits before it executes, so BullMQ keeps renewing its lock, and executing jobs count as in flight. This behaves the same with the `local` and `async` strategies. The local scheduler skips its poll tick while paused. The BullMQ scheduler only enqueues into gated queues.
+- **Encryption entry points (frozen list):**
+
+  | Command | First mutation |
+  |---|---|
+  | `entities rotate-encryption-key` | Custom-entity document rewrite, then DEK provisioning and row updates |
+  | `entities decrypt-database` | `BEGIN` and row updates; map retirement with `--deactivate-maps` |
+  | `entities backfill-system-encryption` | System DEK provisioning and row updates |
+  | `entities seed-encryption` | `upsertEncryptionMaps` — **out of scope** (see below) |
+  | `auth rotate-encryption-key` | DEK provisioning and `auth:user` row updates |
+
+  `entities rehash-lookups` (hash columns only), `seeds encrypt|decrypt` (files only) and `ai_assistant mcp:ensure-api-key --rotate` are out of scope.
+  `entities seed-encryption` is out of scope as well. It only upserts additive key maps: it rewrites no ciphertext and retires no policy. `mercato init` also runs it programmatically, so requiring a window there would break initialization on every Enterprise install.
+- **Writer fence.** The gate is the fence. A replacement process loads the active state at boot and is gated, its workers pause, and it heartbeats into the inventory.
+  - Store loss makes `assertLive()` fail, which stops the protected operation before its next batch.
+  - The single-host `file` backend refuses drained holds once writers on another host heartbeat.
+  - Redis must report AOF or RDB persistence. Managed Redis can set `OM_MAINTENANCE_REDIS_ASSUME_DURABLE=1` instead.
+- **Policy generation.** A process's loaded generation is its start time. A reopen barrier records the verified-success time of the retirement. `maintenance off` reopens only when every live writer started after that time and the inventory is complete, which proves every writer restarted.
 
 ### Phase 1 (OSS, no behavior change)
 
@@ -482,6 +513,14 @@ Illustrative proposals, not accepted designs:
 The CLI, the coordinator, the gate and the integrations all use the same `windowId`, `epoch` and hold model. Store unavailability is handled consistently: sticky last-known state for traffic, fail closed for operations. Q2, Q3 and Q9 remain open before implementation.
 
 ## Changelog
+
+- 2026-11-24: Implemented Phases 0–3 (#10539); Phase 4 ships with the `backups` module. The maintainer merged the spec PR and requested implementation, which confirms Q2, Q3 and Q9. Deviations from the original text:
+  - **Request gates track completion.** The gate seam adds `admitRequest()`, so a gate can count requests through to completion, and an optional `request` on page contexts, so the bypass form POST can be read.
+  - **Gate pages set their own CSP.** The proxy keeps a gate response's own Content-Security-Policy. The maintenance page pins its inline styles by hash instead of using the app nonce.
+  - **Worker pause point.** Jobs wait inside the handler wrapper rather than through BullMQ `pause()`.
+  - **Overlay polling.** The admin overlay polls every 30 s and on focus. Generic `apiCall` 503 handling stays unchanged, so the overlay does not react to each 503.
+  - **Scope.** `seed-encryption` is out of scope.
+  - **Status route path.** The status route lives at `api/status/route.ts`.
 
 - 2026-11-13: Initial spec. Autonomous defaults Q1–Q11; ⚠ Q2, Q3, Q9.
 - 2026-11-13: Applied the independent review:

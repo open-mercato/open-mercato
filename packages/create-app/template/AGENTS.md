@@ -34,7 +34,7 @@ Broad: `yarn generate && yarn typecheck && yarn lint && yarn ds:check && yarn te
 
 ## Production Deployment
 
-Route production deployment/go-live/security-readiness to `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`; use its inventory. Readiness: only names and comments in checked-in `.env.example`; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or live deployments.
+Route production deployment/go-live/security-readiness/maintenance pages to `architecture` + `.ai/guides/production-deployment.md`. During routing, do not open `.env*`. Read only `.env.example` names and comments; never read or report live `.env` values. Ask before touching credentials, billable infrastructure, or live deployments.
 
 ## Three-Axis Context Assembler
 

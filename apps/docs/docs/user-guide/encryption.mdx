@@ -172,6 +172,8 @@ Previously stored plaintext documents remain readable. Re-save them, or run the 
 
 Use the CLI to encrypt plaintext rows or rotate a previous fallback key to the current KMS/fallback.
 
+The [maintenance screen](../enterprise/maintenance-mode.mdx#encryption-key-rotation) is Enterprise-only. With the Enterprise maintenance module enabled, open a drained window with `yarn mercato maintenance on --wait-drain` before a write, or pass `--enter-maintenance` to the rotation command. Configure `OM_MAINTENANCE_EXPECTED_PROCESSES` with your deployment's actual process counts first. The operation holds the window exclusively and blocks bypass. Verify the result before reopening with `yarn mercato maintenance off`. For the recovery artifact used by protected Enterprise rotation, see [backup and recovery](../deployment/enterprise-backup-recovery.mdx#rotation-and-retirement).
+
 Auth users:
 ```bash
 yarn mercato auth rotate-encryption-key

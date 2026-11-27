@@ -1,0 +1,19 @@
+{
+  "maintenance.api.unavailable": "Usługa jest tymczasowo niedostępna z powodu prac konserwacyjnych.",
+  "maintenance.banner.title": "Tryb konserwacji jest włączony — korzystasz z obejścia",
+  "maintenance.banner.until": "Okno ma się zakończyć o {until}.",
+  "maintenance.bypass.description": "Wpisz token obejścia wyświetlony przez polecenie konserwacji, aby korzystać z aplikacji w trakcie tego okna.",
+  "maintenance.bypass.invalid": "Ten token obejścia nie jest ważny dla bieżącego okna konserwacji.",
+  "maintenance.bypass.submit": "Dalej",
+  "maintenance.bypass.title": "Obejście trybu konserwacji",
+  "maintenance.bypass.tokenLabel": "Token obejścia",
+  "maintenance.bypass.tooManyAttempts": "Zbyt wiele prób. Odczekaj minutę i spróbuj ponownie.",
+  "maintenance.overlay.message": "Nie można teraz zapisać zmian. Odśwież stronę po zakończeniu prac.",
+  "maintenance.overlay.reload": "Odśwież",
+  "maintenance.overlay.title": "Trwają zaplanowane prace konserwacyjne",
+  "maintenance.overlay.until": "Przewidywany powrót: {until}",
+  "maintenance.page.contactSupport": "Skontaktuj się z pomocą techniczną",
+  "maintenance.page.defaultMessage": "Usługa jest tymczasowo niedostępna. Spróbuj ponownie za chwilę.",
+  "maintenance.page.defaultTitle": "Trwają zaplanowane prace konserwacyjne",
+  "maintenance.page.expectedBack": "Przewidywany powrót:"
+}
