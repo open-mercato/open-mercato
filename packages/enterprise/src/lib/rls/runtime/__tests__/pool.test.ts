@@ -49,6 +49,7 @@ it('retires a guarded lease without releasing a client already discarded by its 
     expect(physical.release).not.toHaveBeenCalled()
     await expect(lease.query('select retired')).rejects.toThrow('released')
   })
+  pool.ended = true
   expect(() => boundary.dispose()).not.toThrow()
 })
 

@@ -3,13 +3,13 @@ import { registerDatabaseRuntimeAdapter, runWithDatabaseExecutionContext, type D
 
 const originalOnboardingEnabled = process.env.SELF_SERVICE_ONBOARDING_ENABLED
 const scopeStorage = new AsyncLocalStorage<{ context: DatabaseExecutionContext; active: boolean }>()
-const mockMarkCompleted = jest.fn(async () => undefined)
+const mockMarkCompleted = jest.fn(async () => true)
 const mockAfter = jest.fn()
 const mockDisposals: { kind: string; active: boolean }[] = []
 const mockRequest = {
   id: 'request', tokenHash: 'hash', status: 'processing',
   tenantId: 'tenant', organizationId: 'organization', userId: 'user',
-  expiresAt: new Date(Date.now() + 60_000), processingStartedAt: new Date(), deletedAt: null,
+  expiresAt: new Date(Date.now() + 60_000), processingStartedAt: new Date(Date.now() - 2 * 60_000), deletedAt: null,
 }
 const mockFindById = jest.fn(async () => ({ ...mockRequest }))
 const mockValidate = jest.fn(async (..._args: unknown[]) => runWithDatabaseExecutionContext({ kind: 'identity', tenantId: null, source: 'identity' }, async () => true))

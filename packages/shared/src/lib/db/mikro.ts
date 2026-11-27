@@ -182,6 +182,8 @@ type RecoverablePoolClient = {
 }
 
 type PrimaryPool = Omit<ObservablePool, 'on'> & {
+  ended?: boolean
+  end(): Promise<void>
   on(event: 'error', listener: (err: unknown) => void): unknown
   on(event: 'acquire' | 'connect', listener: (client: RecoverablePoolClient) => void): unknown
   on(event: 'release', listener: (err: unknown, client: RecoverablePoolClient) => void): unknown
@@ -408,7 +410,7 @@ async function initializeOrm(purpose: OrmPurpose, state: OrmState): Promise<AppM
   }
   const clientUrl = resolveDatabaseConnectionUrl(purpose, defaultClientUrl)
   const requiresRuntimeValidation = beginDatabaseInitialization()
-  let createdPool: (ObservablePool & { ended?: boolean; end(): Promise<void> }) | undefined
+  let createdPool: PrimaryPool | undefined
   let runtimeTables: readonly DatabaseTableMetadata[] | undefined
 
   // Parse connection pool settings from environment
@@ -474,7 +476,7 @@ async function initializeOrm(purpose: OrmPurpose, state: OrmState): Promise<AppM
       options: connectionOptions,
       ssl: sslConfig,
       onPoolCreated: (pool: PrimaryPool) => {
-        createdPool = pool as typeof createdPool
+        createdPool = pool
         disposePoolInstrumentation?.()
         attachPoolErrorHandlers(pool)
         attachPrimaryPoolClientRecovery(pool)
