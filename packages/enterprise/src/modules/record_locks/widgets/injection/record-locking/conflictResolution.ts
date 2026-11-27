@@ -1,4 +1,4 @@
-import type { RecordLockUiConflict } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
+import type { RecordLockRetry, RecordLockUiConflict } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -40,4 +40,21 @@ export async function runAcceptIncoming(flow: AcceptIncomingFlow): Promise<Accep
   flow.clearConflictState()
   flow.reload()
   return conflictId ? 'released' : 'reloaded'
+}
+
+export type KeepMineRetryFlow = {
+  operationRetry?: RecordLockRetry
+  submitForm: () => boolean
+  fallbackRetry?: RecordLockRetry
+}
+
+async function runRetry(retry: RecordLockRetry | undefined): Promise<boolean> {
+  if (!retry) return false
+  return Boolean(await Promise.resolve(retry()).catch(() => false))
+}
+
+export async function retryAfterKeepMine(flow: KeepMineRetryFlow): Promise<boolean> {
+  if (flow.operationRetry) return runRetry(flow.operationRetry)
+  if (flow.submitForm()) return true
+  return runRetry(flow.fallbackRetry)
 }

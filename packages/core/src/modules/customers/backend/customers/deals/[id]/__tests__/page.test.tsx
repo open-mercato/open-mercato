@@ -46,6 +46,7 @@ const dealDetailTabsPropsCapture: {
 let activeTabParam: string | null = 'activities'
 let detailRequestCount = 0
 let injectedTabWidgets: Array<Record<string, unknown>> = []
+const guardedMutationContextIds = new Set<string>()
 
 jest.mock('next/link', () => ({
   __esModule: true,
@@ -118,10 +119,13 @@ jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
-  useGuardedMutation: () => ({
-    runMutation: async <T,>({ operation }: { operation: () => Promise<T> }) => operation(),
-    retryLastMutation: async () => true,
-  }),
+  useGuardedMutation: (options: { contextId: string }) => {
+    guardedMutationContextIds.add(options.contextId)
+    return {
+      runMutation: async <T,>({ operation }: { operation: () => Promise<T> }) => operation(),
+      retryLastMutation: async () => true,
+    }
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
@@ -415,6 +419,7 @@ describe('DealDetailPage', () => {
     plannedActivitiesSectionMock.mockClear()
     dealFormMock.mockClear()
     collapsibleZoneLayoutMock.mockClear()
+    guardedMutationContextIds.clear()
 
     updateCrudMock.mockResolvedValue(undefined)
     deleteCrudMock.mockResolvedValue(undefined)
@@ -571,6 +576,23 @@ describe('DealDetailPage', () => {
       initialPipelineStageOptions: [
         { id: 'stage-1', label: 'Discovery', order: 1, color: '#2563eb', icon: 'search' },
       ],
+    }))
+  })
+
+  it('gives the embedded deal form the page mutation context id, so header saves and the form share one record-lock state (#9379)', async () => {
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await waitFor(() => {
+      expect(dealFormMock).toHaveBeenCalled()
+    })
+
+    // The stage button, Won/Lost and delete run through the page's guarded mutation
+    // context. The record_locks widget keeps its baseline per form id, so the form must
+    // use that same id: with its own id it never hears about those saves and its next
+    // save looks like someone else's edit ("Conflict detected").
+    expect(guardedMutationContextIds).toContain('customer-deal:deal-1')
+    expect(dealFormMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      formId: 'customer-deal:deal-1',
     }))
   })
 

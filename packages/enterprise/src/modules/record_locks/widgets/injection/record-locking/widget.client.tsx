@@ -25,6 +25,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/display-helpers'
 import {
   clearRecordLockFormState,
+  getLockedOperationRetry,
   getRecordLockFormState,
   setRecordLockFormState,
   subscribeRecordLockFormState,
@@ -32,7 +33,12 @@ import {
   type RecordLockUiConflict,
   type RecordLockUiView,
 } from '@open-mercato/enterprise/modules/record_locks/lib/clientLockStore'
-import { isUuid, resolveConflictId, runAcceptIncoming } from './conflictResolution'
+import {
+  isUuid,
+  resolveConflictId,
+  retryAfterKeepMine,
+  runAcceptIncoming,
+} from './conflictResolution'
 import { isOptimisticLockFloorConflict } from '@open-mercato/enterprise/modules/record_locks/lib/optimisticLockFloor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -1348,9 +1354,11 @@ export default function RecordLockingWidget({
         if (keepMineRetryVersionRef.current !== keepMineRetryVersion) return
         const currentState = getRecordLockFormState(formId)
         if (currentState?.pendingResolution !== 'accept_mine') return
-        const submitted = submitCrudForm(formId)
-        if (submitted) return
-        const retried = await Promise.resolve(context.retryLastMutation?.()).catch(() => false)
+        const retried = await retryAfterKeepMine({
+          operationRetry: getLockedOperationRetry(formId),
+          submitForm: () => submitCrudForm(formId),
+          fallbackRetry: context.retryLastMutation,
+        })
         if (!retried) {
           flash(
             t(

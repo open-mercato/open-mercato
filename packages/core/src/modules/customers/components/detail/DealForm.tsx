@@ -166,6 +166,13 @@ export type DealFormProps = {
   injectionSpotId?: string
   /** Optimistic-lock version (`deal.updatedAt`) for the embedded CrudForm. */
   optimisticLockUpdatedAt?: string | null
+  /**
+   * Form id for the embedded CrudForm. A host page that also saves the same deal
+   * outside the form (stage button, Won/Lost) passes its guarded-mutation context
+   * id here, so save-time widgets keyed by form id (record locks) see one edit
+   * session instead of two. Omit to let CrudForm generate its own id.
+   */
+  formId?: string
 }
 
 type EntityOption = {
@@ -875,6 +882,7 @@ export function DealForm({
   initialOwnerOption,
   injectionSpotId,
   optimisticLockUpdatedAt,
+  formId,
 }: DealFormProps) {
   const t = useT()
   const [pending, setPending] = React.useState(false)
@@ -1347,6 +1355,7 @@ export function DealForm({
 
   return (
     <CrudForm<Record<string, unknown>>
+      formId={formId}
       embedded={embedded}
       trackDirtyWhenEmbedded={trackDirtyWhenEmbedded}
       title={title}
