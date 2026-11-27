@@ -1047,6 +1047,7 @@
   "wms.backend.putaway.complete.dialog.shortcutHint": "to complete",
   "wms.backend.putaway.complete.dialog.submit": "Complete putaway",
   "wms.backend.putaway.complete.dialog.title": "Complete putaway",
+  "wms.backend.putaway.complete.errors.quantityExceedsTask": "Confirmed quantity cannot exceed the task quantity.",
   "wms.backend.putaway.complete.errors.quantityPositive": "Confirmed quantity must be greater than 0.",
   "wms.backend.putaway.complete.errors.serialMismatch": "The scanned serial does not match this task.",
   "wms.backend.putaway.complete.errors.submit": "Failed to complete putaway task.",

@@ -1,12 +1,10 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import type { AwilixContainer } from 'awilix'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { updateProgressSchema } from '../../../data/validators'
-import type { ProgressJob } from '../../../data/entities'
 import type { ProgressService } from '../../../lib/progressService'
+import { createProgressJobMutationPolicy, progressCancelFeatures } from '../../jobPermissions'
 import {
   hasReadableProgressScope,
   hasWritableProgressScope,
@@ -16,25 +14,12 @@ import {
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['progress.view'] },
   PUT: { requireAuth: true, requireFeatures: ['progress.update'] },
-  DELETE: { requireAuth: true, requireFeatures: ['progress.cancel'] },
+  DELETE: { requireAuth: true, requireFeatures: progressCancelFeatures },
 }
 
 export const metadata = routeMetadata
 
 const jobIdSchema = z.guid()
-
-async function canMutateProgressJob(
-  container: AwilixContainer,
-  auth: NonNullable<AuthContext>,
-  job: Pick<ProgressJob, 'startedByUserId' | 'organizationId'>,
-): Promise<boolean> {
-  if (job.startedByUserId === auth.sub) return true
-  const rbacService = container.resolve('rbacService') as RbacService
-  return rbacService.userHasAllFeatures(auth.sub, ['progress.manage'], {
-    tenantId: auth.tenantId ?? null,
-    organizationId: job.organizationId ?? null,
-  })
-}
 
 function cannotCancelJobResponse() {
   return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
@@ -118,7 +103,8 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   const existing = jobIdSchema.safeParse(params.id).success
     ? await progressService.getJob(params.id, progressContext)
     : null
-  if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
+  const canMutateJob = createProgressJobMutationPolicy(container, auth)
+  if (!existing || !(await canMutateJob(existing))) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
@@ -147,7 +133,8 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   }
   try {
     const existing = await progressService.getJob(params.id, progressContext)
-    if (!existing || !(await canMutateProgressJob(container, auth, existing))) {
+    const canMutateJob = createProgressJobMutationPolicy(container, auth)
+    if (!existing || !(await canMutateJob(existing))) {
       return cannotCancelJobResponse()
     }
     await progressService.cancelJob(params.id, progressContext)

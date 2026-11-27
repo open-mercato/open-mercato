@@ -1047,6 +1047,7 @@
   "wms.backend.putaway.complete.dialog.shortcutHint": "완료",
   "wms.backend.putaway.complete.dialog.submit": "적치 완료",
   "wms.backend.putaway.complete.dialog.title": "적치 완료",
+  "wms.backend.putaway.complete.errors.quantityExceedsTask": "확인 수량은 작업 수량을 초과할 수 없습니다.",
   "wms.backend.putaway.complete.errors.quantityPositive": "확인 수량은 0보다 커야 합니다.",
   "wms.backend.putaway.complete.errors.serialMismatch": "스캔한 시리얼이 이 작업과 일치하지 않습니다.",
   "wms.backend.putaway.complete.errors.submit": "적치 작업을 완료하지 못했습니다.",

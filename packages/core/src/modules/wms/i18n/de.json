@@ -1047,6 +1047,7 @@
   "wms.backend.putaway.complete.dialog.shortcutHint": "zum Abschließen",
   "wms.backend.putaway.complete.dialog.submit": "Einlagerung abschließen",
   "wms.backend.putaway.complete.dialog.title": "Einlagerung abschließen",
+  "wms.backend.putaway.complete.errors.quantityExceedsTask": "Die bestätigte Menge darf die Aufgabenmenge nicht überschreiten.",
   "wms.backend.putaway.complete.errors.quantityPositive": "Die bestätigte Menge muss größer als 0 sein.",
   "wms.backend.putaway.complete.errors.serialMismatch": "Die gescannte Seriennummer stimmt nicht mit dieser Aufgabe überein.",
   "wms.backend.putaway.complete.errors.submit": "Einlagerungsaufgabe konnte nicht abgeschlossen werden.",
