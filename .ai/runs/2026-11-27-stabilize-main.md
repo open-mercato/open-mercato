@@ -71,8 +71,10 @@ The independent investigator 3baae04c never started: the cockpit rejected its re
 ### Phase 3: Independent review and handoff
 
 - [x] 3.1 Dispatch one final read-only cezar review using om-auto-review-pr, validate its verdict, and address findings. — 690958d38a
-- [ ] 3.2 Publish verification, release the claim, mark ready, and add automerge after green exact-head CI.
+- [x] 3.2 Publish verification, release the claim, mark ready, and add automerge after green exact-head CI. — c31be6a3fc
 
 Independent review task d9c429ed approved all seven net files at 690958d38a against main26585de7ef, with no findings. Driver verified the report, exact ancestry, diff checks and zero child source changes. [Authoritative native review](https://github.com/open-mercato/open-mercato/pull/10850#issuecomment-7223838578). GitHub rejected App self-approval with HTTP422; no host approving review exists and no credentials or gates were bypassed. [Human QA instructions](https://github.com/open-mercato/open-mercato/pull/10850#issuecomment-7223853899). The refreshed eight-command local gate passed on690958d38a, and full CI46037346639 passed all15shards plus merged coverage. All reported checks settled green before automerge was applied.
 
 Final source verification: [CI46037346639](https://github.com/open-mercato/open-mercato/actions/runs/46037346639) passed all15integration shards, merge-coverage, unit tests, timezone, Docker, documents and lint on the independently reviewed690958d38a. Every exact-head workflow settled successfully or intentionally skipped. The automerge label was applied only after verifying that state. Any subsequent commits are execution-plan progress only; their CI is still checked before this task finishes. Human QA and a host approving review remain merge gates.
+
+Handoff checkpoint: the existing human-promoted ready state is preserved. Automerge was applied after all source-head checks passed. The final progress-only push is followed immediately by owned-claim cleanup, then a CI-only follow-up on that documentation revision; no further source edits are planned. The final PR body and run-summary comment disclose the actual final-check state and remaining human QA/GitHub approval gates.
