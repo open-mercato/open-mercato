@@ -2,7 +2,7 @@ import { reconcileInventoryForUpdatedOrder } from '../lib/salesOrderInventoryAut
 
 export const metadata = {
   event: 'sales.document.totals.calculated',
-  persistent: false,
+  persistent: true,
   id: 'wms:sales-order-lines-reconcile-reservations',
 }
 

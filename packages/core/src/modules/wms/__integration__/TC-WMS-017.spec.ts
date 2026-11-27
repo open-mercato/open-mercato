@@ -260,7 +260,8 @@ async function fetchOrderStatusId(
  * TC-WMS-017: Sales Order Event-Driven Reservation Lifecycle
  */
 test.describe('TC-WMS-017: Sales Order Event-Driven Reservation Lifecycle', () => {
-  test('should reserve on sales.order.confirmed and release on sales.order.cancelled', async ({ request }) => {
+  test('should reserve on sales.order.confirmed, trim on line changes and release on sales.order.cancelled', async ({ request }) => {
+    test.setTimeout(60_000)
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
     const scope = getTokenScope(adminToken)
@@ -309,12 +310,16 @@ test.describe('TC-WMS-017: Sales Order Event-Driven Reservation Lifecycle', () =
       })
 
       orderId = await createSalesOrderFixture(request, adminToken)
-      await createOrderLineFixture(request, adminToken, orderId, {
+      const linePayload = {
         productId,
         productVariantId: variantId,
-        quantity: 3,
         name: `QA Event Line ${stamp}`,
-      })
+        currencyCode: 'USD',
+        unitPriceNet: 10,
+        unitPriceGross: 12,
+      }
+      const lineId = await createOrderLineFixture(request, adminToken, orderId, { ...linePayload, quantity: 2 })
+      const removedLineId = await createOrderLineFixture(request, adminToken, orderId, { ...linePayload, quantity: 1 })
 
       warehouseId = await createCrudFixture(request, adminToken, '/api/wms/warehouses', {
         organizationId: scope.organizationId,
@@ -397,6 +402,37 @@ test.describe('TC-WMS-017: Sales Order Event-Driven Reservation Lifecycle', () =
         warehouseIds: [warehouseId],
       })
 
+      const readActiveState = async () => {
+        const reservations = await fetchReservationsForOrder(request, adminToken, orderId!)
+        const balance = await fetchBalance(request, adminToken, warehouseId!, variantId)
+        return {
+          activeQuantity: reservations
+            .filter((item) => item.status === 'active')
+            .reduce((sum, item) => sum + toNumber(item.quantity), 0),
+          reservedQuantity: toNumber(balance?.quantity_reserved),
+          availableQuantity: balance?.quantity_available ?? 0,
+        }
+      }
+      const pollOptions = { timeout: 10_000, intervals: [250, 500, 1_000] }
+
+      const lineDelete = await apiRequest(request, 'DELETE', '/api/sales/order-lines', {
+        token: adminToken,
+        data: { id: removedLineId, orderId },
+      })
+      expect(lineDelete.ok(), `Failed DELETE /api/sales/order-lines: ${lineDelete.status()}`).toBeTruthy()
+      await expect
+        .poll(readActiveState, pollOptions)
+        .toEqual({ activeQuantity: 2, reservedQuantity: 2, availableQuantity: 3 })
+
+      const lineUpdate = await apiRequest(request, 'PUT', '/api/sales/order-lines', {
+        token: adminToken,
+        data: { id: lineId, orderId, ...linePayload, quantity: 1 },
+      })
+      expect(lineUpdate.ok(), `Failed PUT /api/sales/order-lines: ${lineUpdate.status()}`).toBeTruthy()
+      await expect
+        .poll(readActiveState, pollOptions)
+        .toEqual({ activeQuantity: 1, reservedQuantity: 1, availableQuantity: 4 })
+
       const cancelResponse = await apiRequest(request, 'PUT', '/api/sales/orders', {
         token: adminToken,
         data: {
@@ -422,7 +458,7 @@ test.describe('TC-WMS-017: Sales Order Event-Driven Reservation Lifecycle', () =
         intervals: [250, 500, 1_000],
       }).toEqual({
         activeCount: 0,
-        releasedQuantity: 3,
+        releasedQuantity: 6,
         reservedQuantity: 0,
         availableQuantity: 5,
       })

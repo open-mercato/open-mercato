@@ -415,7 +415,9 @@ describe('reconcileInventoryForUpdatedOrder', () => {
     status: string
     metadata?: Record<string, unknown>
   }
-  type CommandCall = { input: { reservationId?: string; catalogVariantId?: string; quantity?: number } }
+  type CommandCall = {
+    input: { tenantId?: string; organizationId?: string; reservationId?: string; catalogVariantId?: string; quantity?: number }
+  }
 
   const execute = jest.fn<Promise<{ result: object }>, [string, CommandCall]>()
   let reservations: ReservationFixture[] = []
@@ -463,6 +465,7 @@ describe('reconcileInventoryForUpdatedOrder', () => {
     loadExplicitWarehouseIdForOrderMock.mockReset()
     loadExplicitWarehouseIdForOrderMock.mockResolvedValue(null)
     emitWmsEventMock.mockReset()
+    emitWmsEventMock.mockResolvedValue(undefined)
     execute.mockReset()
     execute.mockImplementation(async (commandId, call) => {
       if (commandId === 'wms.inventory.release') {
@@ -500,6 +503,9 @@ describe('reconcileInventoryForUpdatedOrder', () => {
       ['wms.inventory.release', 'reservation-10'],
       ['wms.inventory.reserve', 2],
     ])
+    for (const [, call] of execute.mock.calls) {
+      expect(call.input).toMatchObject({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    }
   })
 
   it('re-reserves the full remaining quantity when several reservations cover the variant', async () => {
@@ -523,7 +529,7 @@ describe('reconcileInventoryForUpdatedOrder', () => {
       { id: 'reservation-8', catalogVariantId: 'variant-1', quantity: '8', status: 'active' },
       { id: 'reservation-2', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
     ]
-    const releaseFailure = new CrudHttpError(409, { error: 'balance_integrity_violation' })
+    const releaseFailure = new Error('connection lost')
     const defaultImplementation = execute.getMockImplementation()!
     execute.mockImplementation(async (commandId, call) => {
       if (call.input.reservationId === 'reservation-2') throw releaseFailure
@@ -540,18 +546,42 @@ describe('reconcileInventoryForUpdatedOrder', () => {
     ])
   })
 
-  it('never releases an allocated reservation', async () => {
+  it('keeps going and reports drift when a release hits a balance integrity violation', async () => {
     reservations = [
-      { id: 'reservation-allocated', catalogVariantId: 'variant-1', quantity: '3', status: 'active', metadata: { allocationState: 'allocated' } },
-      { id: 'reservation-plain', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
+      { id: 'reservation-8', catalogVariantId: 'variant-1', quantity: '8', status: 'active' },
+      { id: 'reservation-2', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
     ]
-    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '1' }])
+    const defaultImplementation = execute.getMockImplementation()!
+    execute.mockImplementation(async (commandId, call) => {
+      if (call.input.reservationId === 'reservation-8') {
+        throw new CrudHttpError(409, { error: 'balance_integrity_violation' })
+      }
+      return defaultImplementation(commandId, call)
+    })
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '4' }])
 
     await reconcileInventoryForUpdatedOrder(payload, ctx)
 
-    expect(execute.mock.calls.map(([commandId, call]) => [commandId, call.input.reservationId])).toEqual([
-      ['wms.inventory.release', 'reservation-plain'],
+    expect(execute.mock.calls.map(([, call]) => call.input.reservationId ?? call.input.quantity)).toEqual([
+      'reservation-8',
+      'reservation-2',
     ])
+    expect(emitWmsEventMock).toHaveBeenCalledWith(
+      'wms.inventory.balance_drift',
+      expect.objectContaining({ reservationId: 'reservation-8', tenantId: 'tenant-1', organizationId: 'org-1' }),
+    )
+  })
+
+  it('leaves a variant alone while one of its reservations is allocated', async () => {
+    reservations = [
+      { id: 'reservation-allocated', catalogVariantId: 'variant-1', quantity: '2', status: 'active', metadata: { allocationState: 'allocated' } },
+      { id: 'reservation-plain', catalogVariantId: 'variant-1', quantity: '3', status: 'active' },
+    ]
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '4' }])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(execute).not.toHaveBeenCalled()
   })
 
   it('releases every reservation of a variant whose line was removed', async () => {
@@ -587,5 +617,14 @@ describe('reconcileInventoryForUpdatedOrder', () => {
 
     expect(execute).not.toHaveBeenCalled()
     expect(quote.queryEngine.query).not.toHaveBeenCalled()
+  })
+
+  it('skips the order lookup when the order holds no reservations', async () => {
+    const { ctx, queryEngine } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '2' }])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(queryEngine.query).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
   })
 })

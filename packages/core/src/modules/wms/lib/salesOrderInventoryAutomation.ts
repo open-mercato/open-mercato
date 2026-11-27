@@ -519,6 +519,19 @@ export async function reevaluateReservationsAfterStockIncrease(
   }
 }
 
+function emitReleaseBalanceDrift(reservationId: string, scope: Scope): void {
+  void emitWmsEvent('wms.inventory.balance_drift', {
+    id: reservationId,
+    balanceId: reservationId,
+    reservationId,
+    field: 'quantityReserved',
+    attemptedValue: null,
+    clampedValue: null,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  }).catch(() => undefined)
+}
+
 export async function releaseInventoryForCancelledOrder(
   payload: SalesOrderLifecyclePayload,
   ctx: EventContext,
@@ -553,16 +566,7 @@ export async function releaseInventoryForCancelledOrder(
     } catch (error) {
       if (isInvalidReservationStateError(error)) continue
       if (!isBalanceIntegrityViolationError(error)) throw error
-      void emitWmsEvent('wms.inventory.balance_drift', {
-        id: reservation.id,
-        balanceId: reservation.id,
-        reservationId: reservation.id,
-        field: 'quantityReserved',
-        attemptedValue: null,
-        clampedValue: null,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      }).catch(() => undefined)
+      emitReleaseBalanceDrift(reservation.id, scope)
     }
   }
 }
@@ -592,32 +596,35 @@ export async function reconcileInventoryForUpdatedOrder(
     tenantId: payload.tenantId,
     organizationId: payload.organizationId,
   }
+  const em = ctx.resolve<EntityManager>('em').fork()
+  const activeReservations = await loadActiveReservations(em, payload.documentId, scope)
+  if (activeReservations.length === 0) return
+
   const order = await loadOrderViaQueryEngine(ctx, payload.documentId, scope)
   if (!order || typeof order.id !== 'string') return
   if (!isReservableOrderStatus(order.status)) return
 
   const orderId = order.id
-  const em = ctx.resolve<EntityManager>('em').fork()
-  const commandBus = ctx.resolve<CommandBus>('commandBus')
-  const commandCtx = buildCommandContext(ctx, scope)
-  const [lines, activeReservations] = await Promise.all([
-    loadOrderLinesViaQueryEngine(ctx, orderId, scope),
-    loadActiveReservations(em, orderId, scope),
-  ])
+  const lines = await loadOrderLinesViaQueryEngine(ctx, orderId, scope)
   const requiredByVariant = buildRequiredQuantityByVariant(lines)
   const reservedByVariant = buildReservedQuantityByVariant(activeReservations)
+  const allocatedVariantIds = new Set(
+    activeReservations.filter(isAllocatedReservation).map((reservation) => reservation.catalogVariantId),
+  )
   const trimmedVariantIds = new Set<string>()
   for (const [variantId, reservedQuantity] of reservedByVariant.entries()) {
+    if (allocatedVariantIds.has(variantId)) continue
     if (reservedQuantity > (requiredByVariant.get(variantId) ?? 0) + 0.000001) {
       trimmedVariantIds.add(variantId)
     }
   }
   if (trimmedVariantIds.size === 0) return
 
+  const commandBus = ctx.resolve<CommandBus>('commandBus')
+  const commandCtx = buildCommandContext(ctx, scope)
   try {
     for (const reservation of activeReservations) {
       if (!trimmedVariantIds.has(reservation.catalogVariantId)) continue
-      if (isAllocatedReservation(reservation)) continue
       try {
         await commandBus.execute('wms.inventory.release', {
           input: {
@@ -633,7 +640,9 @@ export async function reconcileInventoryForUpdatedOrder(
           ctx: commandCtx,
         })
       } catch (error) {
-        if (!isInvalidReservationStateError(error)) throw error
+        if (isInvalidReservationStateError(error)) continue
+        if (!isBalanceIntegrityViolationError(error)) throw error
+        emitReleaseBalanceDrift(reservation.id, scope)
       }
     }
   } finally {
