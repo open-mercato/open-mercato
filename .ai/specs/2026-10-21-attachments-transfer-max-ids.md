@@ -193,7 +193,7 @@ Implemented on top of #8571. Merge still needs the `security` label and the main
 
 ### 2026-11-27
 
-- Merged `main` again. `main` raised OMH-030's `maxTotalContextBytes` to 137702, which covers the `#7672` record, so this PR no longer changes `cases.json`. New `main` records left OMH-007 and OMH-064 12 bytes over their 135168-byte cap with the `#7672` record, so the record was shortened by 21 bytes; its meaning is unchanged.
+- Merged `main` again. `main` raised OMH-030's `maxTotalContextBytes` to 137702, which covers the `#7672` record, so this PR no longer changes `cases.json`. New `main` records left OMH-007 and OMH-064 12 bytes over their 135168-byte cap with the `#7672` record, so the record was shortened by 21 bytes; its meaning is unchanged. The record still left OMH-243 (Markdown customization) 164 bytes over its 356480-byte cap, so `maxTotalContextBytes` moved to 357504 (860 bytes of slack, within the 4096-byte unused-budget invariant), with the matching assertion in `markdown-language-context-budget.test.ts`.
 
 ### 2026-11-20
 
