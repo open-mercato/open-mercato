@@ -38,6 +38,10 @@ Runner: local (no running compose app found). Immutable install completed with o
 
 The complete local gate initially passed 50 of 51 test workspaces; create-app additionally required its exact pinned infrastructure-provider phrase. Restore that phrase without raising any budget (4afefa0a82): all 33 instruction-contract/budget checks pass on the new baseline. Other local retries hit host disk exhaustion and an obsolete task-local dependency symlink above resolver fixtures. Remove that link and isolate temporary files/npm cache in memory; all 73 affected CLI tests pass unchanged. The configured gate is restarting on the ledger baseline. CI run 46026625168 passed 13 integration shards, with shard 9 blocked only by the repaired ledger fixtures and shard 1 completing its additional auth-rate checks. Its unit failure is only the repaired provider phrase; timezone, lint, Docker and multi-instance document checks passed. These results do not substitute for the final head.
 
+CI's separate script suite on 5d56b0864b found another concrete workflow regression: the newly landed webhook durability setup, execution and artifact-upload steps used `!cancelled()`/`always()` without checking the failed audit gate. Add the same audit outcome condition used by neighboring steps (1407f520fe). The semantic regression confirms failed-audit denial and preserves ordinary-failure/cancellation evidence; all 79 focused workflow tests pass. Shard 9 now passes, confirming the ledger fixtures.
+
+The complete configured local gate now passes all eight commands, in order: build packages, generate, rebuild packages, translation sync/usage, typecheck, all 51 test workspaces, and production app build. The failed unit command was rerun under the short `/tmp` directory before the app build; no assertion or sandbox policy was weakened. The app build completed successfully in 150 seconds. A nonfatal cache compaction warning did not change its exit status. Final exact-head CI and independent review remain pending.
+
 ## Run identity
 Claim-Run: 48d644e3-9ed1-4059-a436-23d9b0aad094
 Claim-Lock-SHA: 7f1e98a080e27d83670e0539b4be50092247c6e2
