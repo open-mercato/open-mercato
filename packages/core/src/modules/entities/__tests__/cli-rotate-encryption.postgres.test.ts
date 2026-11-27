@@ -116,6 +116,32 @@ describePostgres('encryption maintenance compares original PostgreSQL JSON value
   })
 
   test.each([
+    ['object integer', '{"number":9007199254740993}', ['number'], '9007199254740993'],
+    ['array integer', '[9007199254740993]', ['0'], '9007199254740993'],
+    ['object decimal', '{"number":0.123456789012345678901234567890}', ['number'], '0.123456789012345678901234567890'],
+  ])('preserves exact %s through old-key rotation and new-key decryption', async (_description, plaintext, jsonPath, expected) => {
+    const oldKey = pbkdf2Sync(createHash('sha256').update(oldRoot).digest(), tenantId, 310_000, 32, 'sha512').toString('base64')
+    const ciphertext = encryptWithAesGcm(String(plaintext), oldKey).value
+    await pool.query('INSERT INTO access_logs VALUES ($1, $2, $3, $4, $5)',
+      ['row-1', tenantId, organizationId, JSON.stringify(ciphertext), JSON.stringify(ciphertext)])
+
+    await run('rotate-encryption-key', ['--allow-unsafe-old-key', '--old-key', oldRoot])
+
+    const rotated = (await pool.query('SELECT context_json, legacy_json FROM access_logs')).rows[0]
+    for (const envelope of [rotated.context_json, rotated.legacy_json]) {
+      expect(decryptWithAesGcm(envelope, mockKey)).toBe(plaintext)
+      expect(decryptWithAesGcm(envelope, oldKey)).toBeNull()
+    }
+
+    await run('decrypt-database', ['--confirm', tenantId])
+
+    expect((await pool.query(
+      'SELECT context_json #>> $1::text[] AS jsonb_number, legacy_json #>> $1::text[] AS json_number FROM access_logs',
+      [jsonPath],
+    )).rows).toEqual([{ jsonb_number: expected, json_number: expected }])
+  })
+
+  test.each([
     ['ordinary text', 'hello world', 'hello world'],
     ['JSON boolean text', 'true', 'true'],
     ['JSON null text', 'null', 'null'],

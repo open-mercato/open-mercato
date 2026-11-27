@@ -28,7 +28,6 @@ import {
 } from '@open-mercato/shared/lib/encryption/aes'
 import {
   TenantDataEncryptionService,
-  parseDecryptedFieldValue,
   resolveEncryptionKeyId,
 } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
@@ -779,7 +778,7 @@ const rotateEncryptionKey: ModuleCli = {
             if (typeof value !== 'string' || !isEncryptedPayloadShape(value)) continue
             const decrypted = decryptWithOldKey(value, oldDek)
             if (decrypted !== null) {
-              payload[rule.field] = parseDecryptedFieldValue(decrypted)
+              payload[rule.field] = decrypted
               continue
             }
             // The old key did not open it. If the current key does, the row was already

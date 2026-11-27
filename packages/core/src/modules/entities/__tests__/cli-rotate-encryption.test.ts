@@ -61,12 +61,6 @@ jest.mock('@open-mercato/shared/lib/encryption/tenantDataEncryptionService', () 
   })),
   resolveEncryptionKeyId: (entityId: string, keyScope: string | undefined, tenantId: string | null | undefined) =>
     (keyScope === 'system' ? `system:${entityId}` : tenantId ?? null),
-  parseDecryptedFieldValue: (decrypted: string) => {
-    if (decrypted.length === 0) return decrypted
-    const first = decrypted[0]
-    if (first !== '{' && first !== '[') return decrypted
-    try { return JSON.parse(decrypted) } catch { return decrypted }
-  },
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -162,6 +156,32 @@ describe('entities rotate-encryption-key CLI', () => {
       encryptedValue,
       JSON.stringify(encryptedValue),
     ])
+  })
+
+  it.each([
+    '{"number":9007199254740993}',
+    '[9007199254740993]',
+    '{"number":0.123456789012345678901234567890}',
+    ' { "number": 9007199254740993 } ',
+  ])('preserves the original decrypted JSON text during rotation: %s', async (plaintext) => {
+    const rotate = cli.find((candidate) => candidate.command === 'rotate-encryption-key')!
+    const ciphertext = shapeValidCiphertext('cipher')
+    singleMapFixture()
+    execute.mockResolvedValueOnce([
+      { id: 'row-1', resource_id: null, context_json: JSON.stringify(ciphertext) },
+    ])
+    jest.mocked(decryptWithAesGcm).mockReturnValueOnce(plaintext)
+
+    await rotate.run(['--allow-unsafe-old-key', '--old-key', 'old-secret', '--tenant', 'tenant-1', '--org', 'org-1'])
+
+    expect(encryptEntityPayload).toHaveBeenCalledWith(
+      'audit_logs:access_log',
+      { context_json: plaintext },
+      'tenant-1',
+      'org-1',
+      { createMissingDek: true },
+    )
+    expect(execute.mock.calls[1][1][0]).toBe(JSON.stringify(`enc:${plaintext}`))
   })
 
   // Regression for #5951: a row sealed under neither --old-key nor the current tenant key
