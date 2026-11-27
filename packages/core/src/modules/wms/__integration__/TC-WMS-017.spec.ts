@@ -458,7 +458,11 @@ test.describe('TC-WMS-017: Sales Order Event-Driven Reservation Lifecycle', () =
         intervals: [250, 500, 1_000],
       }).toEqual({
         activeCount: 0,
-        releasedQuantity: 6,
+        // The two earlier line edits each trimmed the existing reservation
+        // in place (it stayed active with a lower quantity) rather than
+        // releasing it and creating a replacement, so only the final
+        // cancel-time release ever flips a reservation to "released".
+        releasedQuantity: 1,
         reservedQuantity: 0,
         availableQuantity: 5,
       })
