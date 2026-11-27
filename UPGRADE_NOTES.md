@@ -2980,6 +2980,22 @@ not a member of (and does not manage) now gets `404` instead of `200`. This was 
 treat it as the fix it is, not as a behavior to route around. No route path, request shape, or
 response schema changed for an authorized caller.
 
+### Gmail connect requires a resolvable mailbox address (#9498)
+
+Gmail OAuth connect now fails with `exchange_failed` (the translated "Failed to connect channel."
+message) when neither Google userinfo nor the Gmail profile returns the mailbox address. Before, it
+saved a channel with no address, which never matched a Pub/Sub push and sent as `From: me`.
+Userinfo is still tried first; when it fails or has no email, the adapter reads `emailAddress` from
+`users.getProfile`. With the default scopes this only happens when both Google calls fail, and
+retrying the connect is enough.
+
+**Action for operators with custom Gmail scopes:** a scope set that allows neither the userinfo
+email nor `users.getProfile`, such as send-only (`gmail.send`), can no longer connect. Add `email`
+(or `https://www.googleapis.com/auth/userinfo.email`), or one of `mail.google.com`, `gmail.modify`,
+`gmail.compose`, `gmail.readonly` or `gmail.metadata`, then reconnect. Channels already saved
+without an address are not repaired. No database migration or API change is needed;
+`GmailApiClient.getProfile` only gains an optional `options` argument.
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)
@@ -4687,15 +4703,16 @@ the environment fallback instead. `SYSTEM_EMAIL_CHANNEL_ID` narrows the lookup t
 without lifting that boundary: the pinned row must be the sending organization's own or the
 tenant-wide (`organization_id IS NULL`) one, and a pin never falls back to the environment.
 
-**The table above describes a (tenant, organization) pair, not a tenant.** A send that carries no
-`organizationId` — a password reset for a user whose `organization_id` is null, which superadmins
-can be — probes only the tenant-wide (`organization_id IS NULL`) channel. The per-organization rows
-the env preset seeds are not visible to it, so such a send lands on the last row of the table and
-uses instance-wide environment credentials with the usual logged warning, even on a tenant that has
-finished configuring its own provider. This is deliberate: a send with no organization has no
-organization's credentials to reach for. If you want every send on a tenant to use that tenant's
-provider, give the tenant a tenant-wide channel row (`organization_id IS NULL`) as well as the
-per-organization ones, or pass `organizationId` from the caller.
+**Tenant-scoped delivery resolves credentials for a tenant and organization pair.** A send with a
+`tenantId` and no `organizationId` probes the tenant-wide (`organization_id IS NULL`) channel. To
+use a tenant provider for that mail, add a tenant-wide channel row alongside the per-organization
+rows. For mail tied to a specific organization, pass its `organizationId` from the caller.
+
+**Password resets and invitations for superadmins use the instance provider.** Configure the
+provider selected by `SYSTEM_EMAIL_PROVIDER` (default `resend`), its deployment credentials, and
+an instance sender address such as `EMAIL_FROM`. This delivery path bypasses tenant channel
+settings, including `SYSTEM_EMAIL_CHANNEL_ID`. Previously issued links retain their original
+expiry.
 
 **An explicit `from` is always honoured.** When the caller passes `from` to `sendEmail`, that
 address is used verbatim; only a send that left `from` to the instance default

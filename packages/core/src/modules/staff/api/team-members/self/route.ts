@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -56,6 +57,7 @@ const selfMemberResponseSchema = z.object({
       id: z.string().uuid(),
       displayName: z.string(),
       userId: z.string().uuid().nullable(),
+      organizationId: z.string().uuid().optional(),
       teamId: z.string().uuid().nullable(),
       availabilityRuleSetId: z.string().uuid().nullable(),
     })
@@ -66,21 +68,39 @@ export async function GET(req: Request) {
   try {
     const { ctx } = await buildContext(req)
     const auth = ctx.auth
-    if (!auth?.sub) return NextResponse.json({ member: null })
-    const em = (ctx.container.resolve('em') as any)
-    const member = await findOneWithDecryption(
+    const organizationScope = ctx.organizationScope
+    const tenantId = organizationScope?.tenantId
+    if (!auth?.sub || !tenantId) return NextResponse.json({ member: null })
+    const allowedIds = organizationScope.allowedIds === null
+      ? null
+      : organizationScope.allowedIds ?? ctx.organizationIds ?? []
+    const selectedId = ctx.selectedOrganizationId
+    const preferredId = selectedId && (allowedIds === null || allowedIds.includes(selectedId)) ? selectedId : null
+    const remainingIds = allowedIds?.filter((id) => id !== preferredId) ?? null
+    const em = ctx.container.resolve<EntityManager>('em')
+    const memberFilter = { userId: auth.sub, tenantId, deletedAt: null }
+    const preferred = preferredId ? await findOneWithDecryption(
       em,
       StaffTeamMember,
-      { userId: auth.sub, deletedAt: null },
+      { ...memberFilter, organizationId: preferredId },
       undefined,
-      { tenantId: auth.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? null },
-    )
+      { tenantId, organizationId: preferredId },
+    ) : null
+    const fallbackOrganization = remainingIds ? { $in: remainingIds } : preferredId ? { $ne: preferredId } : null
+    const member = preferred ?? (remainingIds?.length === 0 ? null : await findOneWithDecryption(
+      em,
+      StaffTeamMember,
+      { ...memberFilter, ...(fallbackOrganization ? { organizationId: fallbackOrganization } : {}) },
+      { orderBy: { id: 'asc' } },
+      { tenantId },
+    ))
     if (!member) return NextResponse.json({ member: null })
     return NextResponse.json({
       member: {
         id: member.id,
         displayName: member.displayName,
         userId: member.userId ?? null,
+        organizationId: member.organizationId,
         teamId: member.teamId ?? null,
         availabilityRuleSetId: member.availabilityRuleSetId ?? null,
       },
