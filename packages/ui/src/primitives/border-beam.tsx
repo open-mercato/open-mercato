@@ -78,11 +78,12 @@ type BeamProps = {
   item: BorderBeamItem
   defaults: Required<Pick<BorderBeamItem, 'color' | 'size' | 'lineWidth'>> & { outset?: BorderBeamLength }
   radius: string
+  maxThickness: number | null
   duration: number
   phase: number
 }
 
-function Beam({ item, defaults, radius, duration, phase }: BeamProps) {
+function Beam({ item, defaults, radius, maxThickness, duration, phase }: BeamProps) {
   const beamRef = React.useRef<HTMLSpanElement>(null)
   const lineWidth = toLength(item.lineWidth ?? defaults.lineWidth)
   const size = toLength(item.size ?? defaults.size)
@@ -124,6 +125,7 @@ function Beam({ item, defaults, radius, duration, phase }: BeamProps) {
         className="absolute aspect-square"
         style={{
           width: size,
+          height: maxThickness === null ? undefined : `min(${size}, ${maxThickness}px)`,
           background: borderBeamGradient(item.color ?? defaults.color),
           offsetPath: `rect(0 auto auto 0 round ${radius})`,
           offsetAnchor: '90% 50%',
@@ -153,6 +155,7 @@ export const BorderBeam = React.forwardRef<HTMLDivElement, BorderBeamProps>(func
 ) {
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const [radius, setRadius] = React.useState('0px')
+  const [maxThickness, setMaxThickness] = React.useState<number | null>(null)
   const setRefs = React.useCallback(
     (node: HTMLDivElement | null) => {
       containerRef.current = node
@@ -165,7 +168,11 @@ export const BorderBeam = React.forwardRef<HTMLDivElement, BorderBeamProps>(func
   React.useLayoutEffect(() => {
     const node = containerRef.current
     if (!node || typeof window === 'undefined') return
-    const read = () => setRadius(window.getComputedStyle(node).borderTopLeftRadius || '0px')
+    const read = () => {
+      setRadius(window.getComputedStyle(node).borderTopLeftRadius || '0px')
+      const shortSide = Math.min(node.offsetWidth, node.offsetHeight)
+      setMaxThickness(shortSide > 0 ? shortSide / 2 : null)
+    }
     read()
     if (typeof ResizeObserver !== 'function') return
     const observer = new ResizeObserver(read)
@@ -195,7 +202,7 @@ export const BorderBeam = React.forwardRef<HTMLDivElement, BorderBeamProps>(func
         style={{ borderRadius: 'inherit' }}
       >
         {beams.map((item, index) => (
-          <Beam key={index} item={item} defaults={defaults} radius={radius} duration={duration} phase={index / beams.length} />
+          <Beam key={index} item={item} defaults={defaults} radius={radius} maxThickness={maxThickness} duration={duration} phase={index / beams.length} />
         ))}
       </span>
     </Comp>
