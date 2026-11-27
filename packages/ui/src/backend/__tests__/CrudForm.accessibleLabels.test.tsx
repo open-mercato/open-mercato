@@ -46,6 +46,27 @@ describe('CrudForm accessible field labels (#5360)', () => {
     expect(document.activeElement).toBe(input)
   })
 
+  it('renders password autocomplete and associates the requirements with the input', () => {
+    const requirements = 'Use at least twelve characters'
+    const fields: CrudField[] = [
+      { id: 'currentPassword', label: 'Current password', type: 'password', autoComplete: 'current-password' },
+      { id: 'password', label: 'New password', type: 'password', autoComplete: 'new-password', description: requirements },
+      { id: 'confirmPassword', label: 'Confirm new password', type: 'password', autoComplete: 'new-password' },
+      { id: 'otherPassword', label: 'Other password', type: 'password' },
+    ]
+    const { getByLabelText } = renderWithProviders(
+      <CrudForm title="Form" fields={fields} onSubmit={() => {}} />,
+      { dict },
+    )
+
+    expect(getByLabelText('Current password')).toHaveAttribute('autocomplete', 'current-password')
+    expect(getByLabelText('New password')).toHaveAttribute('autocomplete', 'new-password')
+    expect(getByLabelText('New password')).toHaveAccessibleDescription(requirements)
+    expect(getByLabelText('Confirm new password')).toHaveAttribute('autocomplete', 'new-password')
+    expect(getByLabelText('Confirm new password')).not.toHaveAttribute('aria-describedby')
+    expect(getByLabelText('Other password')).not.toHaveAttribute('autocomplete')
+  })
+
   it('associates a decimal field label with its input via htmlFor/id', () => {
     const fields: CrudField[] = [{ id: 'rate', label: 'Exchange Rate', type: 'decimal' }]
     const { getByLabelText } = renderWithProviders(
