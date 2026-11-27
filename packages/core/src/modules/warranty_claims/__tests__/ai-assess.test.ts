@@ -8,6 +8,7 @@ import {
   ATTACHMENT_CONVERSION_FAILED_CODE,
   extractProofOfPurchase,
   WarrantyAiNotConfiguredError,
+  WarrantyAiUnavailableError,
 } from '../lib/aiAssist'
 import { aiTools } from '../ai-tools'
 import { setClaimLineAssessmentCommand } from '../commands/claim-lines'
@@ -636,7 +637,7 @@ describe('warranty claim AI assessment packet', () => {
       expect(commandExecuteMock).not.toHaveBeenCalled()
       expect(reportErrorMock).toHaveBeenCalledTimes(2)
       expect(ERROR_CODE_SHAPE.test(ATTACHMENT_CONVERSION_FAILED_CODE)).toBe(true)
-      expect(reportErrorMock).toHaveBeenCalledWith(conversionError, {
+      expect(reportErrorMock).toHaveBeenCalledWith(expect.any(WarrantyAiUnavailableError), {
         module: 'warranty_claims',
         code: ATTACHMENT_CONVERSION_FAILED_CODE,
         attributes: { attachmentId: ATTACHMENT_ID },
@@ -644,9 +645,12 @@ describe('warranty claim AI assessment packet', () => {
       expect(warnSpy).toHaveBeenCalledTimes(2)
       expect(warnSpy).toHaveBeenCalledWith('warranty_claims.ai.attachment_conversion_failed', {
         attachmentId: ATTACHMENT_ID,
-        errorName: 'TypeError',
-        errorCode: 'ERR_INVALID_URL',
       })
+      for (const [reportedError] of reportErrorMock.mock.calls) {
+        expect(reportedError.message).toBe('[internal] warranty ai attachment conversion failed')
+        expect(reportedError.cause).toBeUndefined()
+        expect(reportedError).not.toHaveProperty('input')
+      }
       expect(JSON.stringify(warnSpy.mock.calls)).not.toContain('SECRET-SIGNATURE')
     } finally {
       warnSpy.mockRestore()
