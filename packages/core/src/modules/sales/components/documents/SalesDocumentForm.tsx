@@ -518,6 +518,7 @@ function DocumentNumberField({ id, value, setValue, values, t }: DocumentNumberF
       <div className="flex w-full flex-col gap-2 md:flex-row md:items-center md:gap-3">
         <Input
           id={id}
+          aria-label={t('sales.documents.form.number', 'Document number')}
           value={typeof value === 'string' ? value : ''}
           onChange={(event) => setValue(event.target.value)}
           disabled={loading}

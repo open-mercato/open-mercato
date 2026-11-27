@@ -59,7 +59,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
     return (
       <div>
         <div data-testid="doc-number">
-          <label htmlFor="documentNumber">{docField?.label}</label>
+          <label>{docField?.label}</label>
           {docField ? docField.component({ ...fieldProps, id: 'documentNumber' }) : null}
         </div>
         <div data-testid="billing">
