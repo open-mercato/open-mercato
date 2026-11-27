@@ -25,10 +25,6 @@ type MfaVerificationServiceLike = {
   }>
 }
 
-type MfaEnforcementServiceLike = {
-  isEnforced: (tenantId: string, orgId?: string) => Promise<{ enforced: boolean }>
-}
-
 function readClaims(token: string): JwtClaims | null {
   const payload = verifyJwt(token)
   if (!payload || typeof payload !== 'object') return null
@@ -55,22 +51,6 @@ function resolveMfaVerificationService(container: { resolve: (name: string) => u
       return null
     }
     return resolved as MfaVerificationServiceLike
-  } catch {
-    return null
-  }
-}
-
-function resolveMfaEnforcementService(container: { resolve: (name: string) => unknown }): MfaEnforcementServiceLike | null {
-  try {
-    const resolved = container.resolve('mfaEnforcementService')
-    if (
-      !resolved
-      || typeof resolved !== 'object'
-      || typeof (resolved as { isEnforced?: unknown }).isEnforced !== 'function'
-    ) {
-      return null
-    }
-    return resolved as MfaEnforcementServiceLike
   } catch {
     return null
   }
@@ -125,7 +105,6 @@ export const interceptors: ApiInterceptor[] = [
         return {}
       }
 
-      const mfaEnforcementService = resolveMfaEnforcementService(context.container as { resolve: (name: string) => unknown })
       const mfaVerificationService = resolveMfaVerificationService(context.container as { resolve: (name: string) => unknown })
       if (!mfaVerificationService) {
         // Fail closed: without the MFA service we cannot know whether this account needs a
@@ -137,25 +116,6 @@ export const interceptors: ApiInterceptor[] = [
           'MFA verification service unavailable during auth/login; denying login',
         )
         throw unavailableError
-      }
-
-      // Enforce inherited, tenant-scoped MFA policy before issuing a challenge.
-      // If enforcement service is unavailable we fall back to previous behavior to avoid breaking tests.
-      if (mfaEnforcementService) {
-        const tenantId = claims.tenantId ?? ''
-        if (!tenantId) {
-          const scopeError = new Error('[internal] Missing tenant context for MFA enforcement')
-          reportMfaLoginFailure(
-            scopeError,
-            'security.mfa_challenge_creation_failed',
-            'MFA enforcement requires tenant context; denying login',
-          )
-          throw scopeError
-        }
-        const { enforced } = await mfaEnforcementService.isEnforced(tenantId, claims.orgId ?? undefined)
-        if (!enforced) {
-          return {}
-        }
       }
 
       try {
@@ -184,19 +144,10 @@ export const interceptors: ApiInterceptor[] = [
           },
         }
       } catch (error) {
-        if (mfaEnforcementService) {
-          if (isNoMfaMethodsConfiguredError(error)) {
-            const noFactorsError = new Error('[internal] MFA enforcement active but no eligible factors for user')
-            reportMfaLoginFailure(
-              noFactorsError,
-              'security.mfa_challenge_creation_failed',
-              'MFA enforcement active with no eligible factors; denying login',
-            )
-            throw noFactorsError
-          }
-        } else {
-          if (isNoMfaMethodsConfiguredError(error)) return {}
-        }
+        // Only a verified no-MFA account may proceed with the pre-issued token. Any other
+        // failure (reading methods, persisting the challenge, provider resolution) must
+        // abort the login instead of returning the full JWT and refresh token.
+        if (isNoMfaMethodsConfiguredError(error)) return {}
         reportMfaLoginFailure(
           error,
           'security.mfa_challenge_creation_failed',
