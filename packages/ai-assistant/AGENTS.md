@@ -346,7 +346,7 @@ The unified AI runtime picks the first configured provider from `llmProviderRegi
 |----------|----------|---------------|-------------------|
 | `ANTHROPIC_API_KEY` | Anthropic (Claude) | `claude-haiku-4-5-20251001` | N/A (Messages-protocol relays only — set `baseURL` on the agent or pass `baseUrlOverride` to `runAiAgentText`) |
 | `OPENAI_API_KEY` | OpenAI | `gpt-5-mini` | `OPENAI_BASE_URL` |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-3-flash-preview` | N/A (pass `baseUrlOverride` to `runAiAgentText` when using a Vertex AI proxy) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google | `gemini-3-flash-preview` | N/A (Vertex AI proxy: pass `baseUrlOverride` to `runAiAgentText`) |
 | `DEEPINFRA_API_KEY` | DeepInfra | `zai-org/GLM-5.1` | `DEEPINFRA_BASE_URL` |
 | `ATLASCLOUD_API_KEY` | Atlas Cloud | `qwen/qwen3.7-plus` | `ATLASCLOUD_BASE_URL` |
 | `GROQ_API_KEY` | Groq | `llama-3.3-70b-versatile` | `GROQ_BASE_URL` |
