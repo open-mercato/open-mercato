@@ -1959,6 +1959,8 @@ Preferred doc locations:
 
 ## Migration & Backward Compatibility
 
+The response-schema repair for #9851 documents existing payment-status and administrative checkout-link responses, including exact-decimal companion fields. It changes only OpenAPI metadata: routes, guards, serialized payloads and mutation behavior stay compatible.
+
 Phase A keeps core changes minimal, but it does introduce one **additive** contract surface in `payment_gateways`: a generic provider-descriptor registry/service/API for session settings, supported currencies, payment types, and presentation capabilities.
 
 - **Auto-discovery conventions**: additive only; new package/module files follow existing conventions
@@ -2101,3 +2103,6 @@ None identified.
 
 ### 2026-10-29
 - Recorded @haxiorz’s human approval of the security exception for all 18 administrative fields and acknowledgment of the client/operator migration; independent review and QA remain required.
+
+### 2026-11-25
+- Declared the existing GET/POST success response schemas for payment status and checkout links, with generated-document and serializer parity regressions (#9851).

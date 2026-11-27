@@ -1,5 +1,7 @@
 /** @jest-environment node */
-import { GET, POST } from '../status/route'
+import { GET, POST, openApi } from '../status/route'
+import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi/generator'
+import type { Module } from '@open-mercato/shared/modules/registry'
 
 const mockResolve = jest.fn()
 const mockGetAuth = jest.fn()
@@ -84,6 +86,56 @@ describe('payment_gateways status route', () => {
     })
     mockValidateGuard.mockResolvedValue(null)
     mockRunGuardAfter.mockResolvedValue(undefined)
+  })
+
+  it.each(['GET', 'POST'] as const)('documents the actual %s success response', async (method) => {
+    const response = method === 'GET'
+      ? await GET(getRequest())
+      : await POST(postRequest({ transactionId: TRANSACTION_ID }))
+    const body: unknown = await response.json()
+    const schema = openApi.methods[method].responses[0].schema!
+    expect(schema.parse(body)).toEqual(body)
+    expect(schema.safeParse({ amount: '100' }).success).toBe(false)
+    const modules: Module[] = [{
+      id: 'payment_gateways',
+      apis: [{
+        path: '/payment_gateways/status',
+        handlers: { GET, POST },
+        docs: openApi,
+      }],
+    }]
+    const document = buildOpenApiDocument(modules)
+    const operation = document.paths['/payment_gateways/status'][method.toLowerCase()] as {
+      responses: Record<string, { content: { 'application/json': { schema: {
+        properties: Record<string, unknown>
+        required: string[]
+      } } } }>
+    }
+    const generated = operation.responses['200'].content['application/json'].schema
+    expect(generated.properties).toMatchObject({
+      transactionId: { type: 'string', format: 'uuid' },
+      paymentId: { type: 'string', format: 'uuid' },
+      amount: { type: 'number' },
+      createdAt: { type: 'string' },
+      updatedAt: { type: 'string' },
+    })
+    expect(Object.keys(generated.properties).sort()).toEqual(Object.keys(body as object).sort())
+    expect(generated.required).toEqual(expect.arrayContaining(['amount', 'amountExact', 'status', 'updatedAt']))
+    expect(JSON.stringify(generated)).not.toContain('Schema not declared')
+  })
+
+  it.each(['GET', 'POST'] as const)('documents omitted provider identifiers in the %s response', async (method) => {
+    service.findTransaction.mockResolvedValue({
+      ...makeTransaction(),
+      providerSessionId: undefined,
+      gatewayStatus: undefined,
+      redirectUrl: undefined,
+    })
+    const response = method === 'GET'
+      ? await GET(getRequest())
+      : await POST(postRequest({ transactionId: TRANSACTION_ID }))
+    const body: unknown = await response.json()
+    expect(openApi.methods[method].responses[0].schema!.parse(body)).toEqual(body)
   })
 
   describe('GET (read-only)', () => {
