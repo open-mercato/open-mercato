@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createInboundEmailContactLookup, findPeopleByAddresses, normalizeAddresses } from '../findPeopleByAddresses'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
@@ -130,6 +131,21 @@ describe('findPeopleByAddresses', () => {
 describe('createInboundEmailContactLookup', () => {
   const em = {} as EntityManager
   const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+  const unreadableEmail = [Buffer.alloc(12), Buffer.alloc(10), Buffer.alloc(16), 'v1']
+    .map((part) => typeof part === 'string' ? part : part.toString('base64'))
+    .join(':')
+
+  function mockEncryption() {
+    return {
+      isEnabled: jest.fn(() => true),
+      getEncryptedFieldNames: jest.fn(async () => ['primary_email']),
+      getDek: jest.fn(async (tenantId: string): Promise<TenantDek | null> => ({
+        tenantId,
+        key: Buffer.alloc(32).toString('base64'),
+        fetchedAt: Date.now(),
+      })),
+    }
+  }
 
   beforeEach(() => {
     findWithDecryptionMock.mockReset()
@@ -208,13 +224,40 @@ describe('createInboundEmailContactLookup', () => {
     await expect(lookup('alice@example.com', scope)).resolves.toBe('person-1')
   })
 
-  it('rejects a lookup when decryption still returns an encrypted envelope', async () => {
-    const unreadableEmail = [Buffer.alloc(12), Buffer.alloc(10), Buffer.alloc(16)]
-      .map((part) => part.toString('base64'))
-      .join(':') + ':v1'
-    findWithDecryptionMock.mockResolvedValue([{ id: 'person-1', primaryEmail: unreadableEmail }])
+  it('continues matching readable contacts when individual rows cannot decrypt', async () => {
+    findWithDecryptionMock.mockResolvedValue([
+      { id: 'person-1', primaryEmail: unreadableEmail },
+      { id: 'person-2', primaryEmail: unreadableEmail },
+      { id: 'person-3', primaryEmail: 'alice@example.com' },
+    ])
+    const encryption = mockEncryption()
+    const lookup = createInboundEmailContactLookup(em, encryption)
 
-    const lookup = createInboundEmailContactLookup(em)
-    await expect(lookup('alice@example.com', scope)).rejects.toThrow('CRM contact email could not be decrypted')
+    await expect(lookup('alice@example.com', scope)).resolves.toBe('person-3')
+    await expect(lookup('unknown@example.com', scope)).resolves.toBeUndefined()
+    expect(encryption.getDek).toHaveBeenCalledTimes(1)
+    expect(encryption.getDek).toHaveBeenCalledWith(scope.tenantId)
+  })
+
+  it('retries the lookup after the tenant key becomes available', async () => {
+    findWithDecryptionMock
+      .mockResolvedValueOnce([{ id: 'person-1', primaryEmail: unreadableEmail }])
+      .mockResolvedValueOnce([{ id: 'person-1', primaryEmail: 'alice@example.com' }])
+    const encryption = mockEncryption()
+    encryption.getDek.mockImplementationOnce(async () => null)
+    const lookup = createInboundEmailContactLookup(em, encryption)
+
+    await expect(lookup('alice@example.com', scope)).rejects.toThrow('CRM contact email decryption is unavailable')
+    await expect(lookup('alice@example.com', scope)).resolves.toBe('person-1')
+  })
+
+  it('keeps unresolved ciphertext retryable when the email decryption policy is missing', async () => {
+    findWithDecryptionMock.mockResolvedValue([{ id: 'person-1', primaryEmail: unreadableEmail }])
+    const encryption = mockEncryption()
+    encryption.getEncryptedFieldNames.mockResolvedValueOnce(['display_name'])
+    const lookup = createInboundEmailContactLookup(em, encryption)
+
+    await expect(lookup('alice@example.com', scope)).rejects.toThrow('CRM contact email decryption is unavailable')
+    expect(encryption.getDek).not.toHaveBeenCalled()
   })
 })

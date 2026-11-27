@@ -234,6 +234,8 @@ Ordinary inbound email now imports senders who match a CRM person in the receivi
 
 Operators can still import historical email explicitly. Existing imported messages remain accessible.
 
+A missing CRM email decryption policy or unavailable tenant key leaves the affected inbound message queued for retry. When the policy and key are available, unreadable contact rows are skipped and reported without logging email addresses. Repair those contact records to restore first-time sender matching.
+
 ## New module: `assisted_selling` with per-store settings (assisted selling spec, step AS1)
 
 **Additive (`@open-mercato/core`).** The `assisted_selling` module is registered and enabled in the app (it requires `cart`; it stays commented out in the `create-mercato-app` template with the rest of the commerce suite). It adds one table, `assisted_selling_store_settings`, and `GET/PUT /api/assisted_selling/settings/:storeId`. A store's `mode` defaults to `off` and the Release 5 API accepts `rep` or `off` only. There is no settings page yet. The six new ACL features (`assisted_selling.threads.view`, `.threads.participate`, `.messages.post`, `.proposals.author`, `.attributions.view`, `.settings.manage`) gate only the settings API until the conversation routes land. `admin` gets `assisted_selling.*`; `employee` gets `threads.view`, `threads.participate`, `messages.post` and `cart.proposals.view`.
