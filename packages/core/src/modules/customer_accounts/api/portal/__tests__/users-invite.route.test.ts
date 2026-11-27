@@ -2,6 +2,7 @@
 
 import { hashToken } from '../../../lib/tokenGenerator'
 
+const mockEmitCustomerAccountsEvent = jest.fn()
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
 const mockRollbackInvitation = jest.fn()
@@ -52,6 +53,16 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({
+    translate: () => 'This invitation cannot be sent. Contact your administrator.',
+  })),
+}))
+
+jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
+  emitCustomerAccountsEvent: (...args: unknown[]) => mockEmitCustomerAccountsEvent(...args),
+}))
+
 function makeInviteRequest(roles = [roleId]): Request {
   return new Request('http://localhost/api/customer_accounts/portal/users-invite', {
     method: 'POST',
@@ -67,6 +78,7 @@ function makeInviteRequest(roles = [roleId]): Request {
 describe('portal customer account user invite route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockEmitCustomerAccountsEvent.mockResolvedValue(undefined)
     mockCheckAuthRateLimit.mockResolvedValue({ error: null, compoundKey: null })
     mockRequireCustomerFeature.mockResolvedValue(undefined)
     mockGetCustomerAuthFromRequest.mockResolvedValue({
@@ -120,6 +132,32 @@ describe('portal customer account user invite route', () => {
       email: 'buyer@example.com',
       rawToken: 'raw-invite-token',
     })
+  })
+
+  it('returns a generic 409 for a bundle-safe ownership conflict without sending email or emitting an event', async () => {
+    const conflict = { [Symbol.for('@open-mercato/CustomerInvitationOwnershipConflictError')]: true }
+    mockCreateInvitation.mockRejectedValueOnce(conflict)
+    const { POST, openApi } = await import('../users-invite')
+
+    const response = await POST(makeInviteRequest())
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({
+      ok: false, error: 'This invitation cannot be sent. Contact your administrator.',
+    })
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
+    expect(mockRollbackInvitation).not.toHaveBeenCalled()
+    expect(mockEmitCustomerAccountsEvent).not.toHaveBeenCalled()
+    expect(openApi.methods?.POST?.errors).toContainEqual(expect.objectContaining({ status: 409 }))
+  })
+
+  it('propagates unexpected service errors', async () => {
+    const failure = new Error('database unavailable')
+    mockCreateInvitation.mockRejectedValueOnce(failure)
+    const { POST } = await import('../users-invite')
+
+    await expect(POST(makeInviteRequest())).rejects.toBe(failure)
+    expect(mockSendCustomerInvitationEmail).not.toHaveBeenCalled()
   })
 
   it('keeps customerAssignable validation for portal-selected roles', async () => {
