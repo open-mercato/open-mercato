@@ -26,6 +26,11 @@ type RbacServiceLike = {
     principalId: string,
     scope: { tenantId: string | null; organizationId: string | null },
   ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations?: string[] | null }>
+  resolveFeatureOrganizationAccess: (
+    principalId: string,
+    requiredFeatures: readonly string[],
+    scope: { tenantId: string | null },
+  ) => Promise<{ unrestricted: boolean }>
 }
 
 const EMPTY_ACL: InvokerAcl = {
@@ -80,13 +85,18 @@ export async function loadInvokerAcl(
   container: AwilixContainer,
   invoker: AgentInvoker,
   scope: InvokerScope,
+  requiredFeatures?: readonly string[],
 ): Promise<InvokerAcl> {
   try {
     const rbac = container.resolve('rbacService') as RbacServiceLike
-    const loaded = await rbac.loadAcl(principalIdForInvoker(invoker), {
+    const principalId = principalIdForInvoker(invoker)
+    const loaded = await rbac.loadAcl(principalId, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     })
+    const featureAccess = requiredFeatures?.length
+      ? await rbac.resolveFeatureOrganizationAccess(principalId, requiredFeatures, { tenantId: scope.tenantId })
+      : null
     const isSuperAdmin = loaded.isSuperAdmin === true
     const organizations = loaded.organizations ?? null
     if (
@@ -100,8 +110,9 @@ export async function loadInvokerAcl(
     return {
       features: Array.isArray(loaded.features) ? loaded.features : [],
       isSuperAdmin,
-      hasUnrestrictedOrganizationVisibility:
-        isSuperAdmin || loaded.organizations === null || loaded.organizations?.includes('__all__') === true,
+      hasUnrestrictedOrganizationVisibility: featureAccess
+        ? featureAccess.unrestricted === true
+        : loaded.organizations === null || loaded.organizations?.includes('__all__') === true,
     }
   } catch (err) {
     logger.warn('failed to load invoker ACL; treating as no grants', {

@@ -7113,3 +7113,15 @@ MCP hides Code Mode `execute` when the mutation mode is unset, including reads t
 `GET /api/search/index` requires the view features declared by each returned entity in addition to `search.view`. A request for an unreadable entity returns an empty page. Clients can continue using the existing response shape and paging parameters. Select an authorized organization when entity features are scoped to an organization.
 
 Operators should grant the owning module's view features to diagnostic users and keys that need them. Custom searchable entities declare these features in their `search.ts` configuration. The first-party pgvector driver applies the scope before pagination. Custom vector drivers can honor the additive `entityAccess` list predicate to keep pagination over readable entries. The API filters returned rows regardless of driver support. No database migration or reindex is required.
+
+## Tenant-wide agent settings require tenant-wide grants (#10700)
+
+The trace-capture and OTel-export settings endpoints and their undo/redo commands now
+deny organization-restricted administrators, even when their merged role list includes
+the write features or another role provides broad organization visibility. Existing
+organization-scoped roles that previously changed these tenant-wide settings will
+receive HTTP 403. To restore access, assign each required feature through a role whose
+organization scope is tenant-wide (`organizations: null` or `__all__`), or use a global
+super-admin. A super-admin role scoped to one organization is not sufficient. No stored
+settings or database schema are changed. The security exception requires a named human
+maintainer acknowledgement before merge; it is pending. See the [security spec](.ai/specs/enterprise/2026-11-27-tenant-wide-agent-settings-authorization.md).

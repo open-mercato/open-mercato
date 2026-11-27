@@ -764,3 +764,7 @@ STABLE superadmin reset and invite email uses the instance provider. Tenant fall
 ## 2026-11-27 — Staff and organization boundaries (#10503, #10543)
 
 STABLE APIs §7 require organization grants and return `403` for explicitly empty scope. Grant scope and handle `403`. `PUT /api/auth/profile` requires current-password proof for email changes. Send proof and reauthenticate. ADDITIVE-ONLY schema §8 uses owner-unique partition codes. Rehome incompatible references. Bridging prior behavior retains unscoped access or unverified changes. [Migration and specs](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-27 — Tenant-wide agent settings authorization (#10700)
+
+STABLE API/command behavior: organization-restricted grants can no longer change or replay tenant-wide trace-capture and OTel-export settings. A bridge would retain the cross-organization settings write. Operators must grant the exact required features tenant-wide (`organizations: null` or `__all__`) or use a global super-admin. [Migration](UPGRADE_NOTES.md#tenant-wide-agent-settings-require-tenant-wide-grants-10700) · [Spec](.ai/specs/enterprise/2026-11-27-tenant-wide-agent-settings-authorization.md). Named maintainer acknowledgement for the security exception is pending.

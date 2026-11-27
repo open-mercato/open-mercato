@@ -75,13 +75,16 @@ function makeContainer(options: {
     features: options.features ?? [],
     organizations: options.organizations ?? null,
   }))
+  const resolveFeatureOrganizationAccess = jest.fn(async () => ({
+    unrestricted: options.organizations == null || options.organizations.includes('__all__'),
+  }))
   const execute = options.execute ?? jest.fn()
   const container = {
     resolve: (token: string) => {
       if (token === 'moduleConfigService') {
         return { getRecord: store.getRecord, setValue: store.setValue, invalidate: store.invalidate }
       }
-      if (token === 'rbacService') return { loadAcl }
+      if (token === 'rbacService') return { loadAcl, resolveFeatureOrganizationAccess }
       if (token === 'commandBus') return { execute }
       throw new Error(`Unexpected DI token in test: ${token}`)
     },
