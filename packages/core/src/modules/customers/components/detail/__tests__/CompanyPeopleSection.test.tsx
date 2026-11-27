@@ -15,6 +15,7 @@ const apiCallOrThrowMock = jest.fn()
 const readApiResultOrThrowMock = jest.fn()
 const mockScopedHeaders = jest.fn()
 let mockGrantedFeatures: string[] = []
+let mockCalendarTimezone: string | undefined
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
@@ -37,6 +38,14 @@ jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
   ...jest.requireActual('@open-mercato/ui/backend/BackendChromeProvider'),
   useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures } }),
 }))
+
+jest.mock('../../../lib/calendar/timezone', () => {
+  const actual = jest.requireActual<typeof calendarTimezone>('../../../lib/calendar/timezone')
+  return {
+    ...actual,
+    defaultCalendarTimezone: () => mockCalendarTimezone ?? actual.defaultCalendarTimezone(),
+  }
+})
 
 jest.mock('@open-mercato/ui/primitives/date-picker', () => ({
   DatePicker: ({ 'aria-label': label, onChange, maxDate }: { 'aria-label': string; onChange: (date: Date) => void; maxDate?: Date }) => (
@@ -934,7 +943,7 @@ describe('CompanyPeopleSection', () => {
 
   describe('employment date picker calendar day', () => {
     afterEach(() => {
-      jest.restoreAllMocks()
+      mockCalendarTimezone = undefined
       jest.useRealTimers()
     })
 
@@ -943,7 +952,7 @@ describe('CompanyPeopleSection', () => {
       { now: '2026-11-25T00:30:00Z', timezone: 'America/New_York', expected: '2026-11-24' },
     ])('caps departures at $expected in $timezone at $now', ({ now, timezone, expected }) => {
       jest.useFakeTimers({ now: new Date(now) })
-      jest.spyOn(calendarTimezone, 'defaultCalendarTimezone').mockReturnValue(timezone)
+      mockCalendarTimezone = timezone
       renderWithProviders(
         <EndEmploymentDialog
           companyId="company-123"
