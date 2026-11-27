@@ -1010,6 +1010,8 @@ Channel payloads can contain HTML (Slack rich-text, email MIME, future channel t
 
 **Canonical sanitizer**: `packages/core/src/modules/communication_channels/lib/sanitize-channel-html.ts`. The hub owns this `sanitize-html` allowlist. The server-side message-channel enricher applies it to email bodies and exposes `sanitizedHtml`; the client widget never imports the sanitizer or renders raw `channelPayload.html`.
 
+**Email body containment (#10614).** The sanitizer drops out-of-range inline font sizes, spacing, border widths, and corner radii. The widget confines painting to the email body and lets readers scroll wide email tables horizontally within it.
+
 **Image privacy (#7819)**: The sanitizer removes active network image sources before the HTML reaches a browser. Validated HTTP(S) URLs are stored in an inert `data-channel-remote-src` attribute, regenerated from `src` so a sender cannot forge it. Protocol-relative sources are normalized to HTTPS and deferred. Uncontrolled relative, CID, and unsupported schemes remain blocked. Safe base64 PNG, JPEG, GIF, and WebP images retain their source and render without a request; resolving attached CID images is outside this existing path.
 
 The email widget displays a translated privacy notice and **Load remote images** action only when deferred images exist. Explicit consent activates the validated URLs with `referrerPolicy="no-referrer"`. Consent is local to that message rendering and resets when the message ID or sanitized content changes. Opening another message or reopening the widget requires consent again. The raw payload, API fields, exported sanitizer signature, and database schema remain unchanged.
@@ -1022,6 +1024,7 @@ The email widget displays a translated privacy notice and **Load remote images**
 - Allowed tags (`<table>`, `<img src="data:image/png;…">`, `<a href="mailto:...">`) preserved verbatim
 - Integration test: post an HTML payload containing a malicious snippet through the inbound webhook → assert the rendered DOM in `/backend/messages/[id]` contains neither `<script>` nor any `on*` attribute
 - Image privacy regression: sanitizer and enricher tests assert no active remote `src` escapes to the browser, safe embedded raster images survive, and forged deferred attributes are removed. `TC-CHANNEL-EMAIL-032-remote-images.spec.ts` mounts the production widget and i18n provider in Chromium with server-sanitized HTML, intercepts image requests, and proves no request before consent, loading after consent, inline-image rendering, omitted referrers, and consent reset across messages/content changes. This component-browser test does not require seeded data or an application server.
+- Body containment regression: sanitizer tests check style limits and preservation of ordinary formatting. The browser fixture verifies that wide email tables scroll inside the message body without widening the page. `TC-CHANNEL-EMAIL-020.spec.ts` verifies the sanitized detail response and the inbox widget through the application routes.
 
 The email integration spec ([2026-05-21-email-integration-foundation.md](../2026-05-21-email-integration-foundation.md)) gates its Phase 1 acceptance on this helper being present in the hub.
 
