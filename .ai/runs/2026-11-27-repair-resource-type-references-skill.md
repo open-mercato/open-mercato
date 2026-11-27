@@ -19,6 +19,12 @@ Preserve scoped preview, explicit apply, resource version updates, projection ef
 
 Apply changes historical data. The skill requires a preview and operator approval for the exact scope.
 
+## Validation and handoff
+
+The full local gate passed, including all 51 workspace test tasks and the production app build. The 135 targeted resources tests included disposable PostgreSQL. The standalone preview also ran against a disposable database.
+
+Independent code review identified the event queue acknowledgement gap fixed in 62a8ab56f5. GitHub cannot record formal approval from the PR author, so the replacement remains a draft pending a GitHub reviewer. PR #10647 was closed unmerged after the replacement was published.
+
 ## Progress
 PR: #10887
 
