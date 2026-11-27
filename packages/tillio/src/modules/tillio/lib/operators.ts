@@ -1,4 +1,5 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { TillioApiError } from './errors'
 import { createTillioClient } from './client'
@@ -255,7 +256,13 @@ export async function detachOperator(
       })
       if (!options.force) {
         const raw = await deps.credentialsService.getRaw(TILLIO_OPERATORS_INTEGRATION_ID, deps.scope)
-          .catch(() => null)
+          .catch((readError: unknown) => {
+            getTelemetryRuntime()?.reportError(readError, {
+              module: 'tillio',
+              code: 'tillio.operator_detach_confirmation_failed',
+            })
+            return null
+          })
         const current = operatorsBlobSchema.safeParse(raw)
         if (Array.isArray(raw?.operators) && current.success && !current.data.operators.some(
           (entry) => entry.id === operatorId || entry.token === operator.token,

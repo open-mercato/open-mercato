@@ -14,6 +14,12 @@ jest.mock('../lib/client', () => ({
   createTillioClient: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
+const mockReportError = jest.fn()
 const createTillioClientMock = createTillioClient as jest.MockedFunction<typeof createTillioClient>
 
 const scope = { tenantId: 'tn', organizationId: 'org' }
@@ -314,6 +320,30 @@ describe('detachOperator', () => {
     release()
 
     await expect(pending).rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+    expect(service.save).not.toHaveBeenCalled()
+  })
+
+  it('preserves the provider failure when the confirmation read rejects', async () => {
+    mockReportError.mockClear()
+    const { deleteConfig, release } = gatedDeleteConfig(new TillioApiError('nope', 422, 'invalid'))
+    mockClient({ deleteConfig })
+    const { service } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const readError = new Error('[internal] operator read failed')
+    const pending = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    jest.mocked(service.getRaw).mockRejectedValueOnce(readError)
+    release()
+
+    await expect(pending).rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+    expect(mockReportError).toHaveBeenCalledWith(readError, {
+      module: 'tillio',
+      code: 'tillio.operator_detach_confirmation_failed',
+    })
+    expect(service.getRaw).toHaveBeenLastCalledWith(TILLIO_OPERATORS_INTEGRATION_ID, scope)
     expect(service.save).not.toHaveBeenCalled()
   })
 
