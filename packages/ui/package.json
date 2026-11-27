@@ -35,6 +35,18 @@
       "types": "./src/blocks/form-save-bar/index.ts",
       "default": "./dist/blocks/form-save-bar/index.js"
     },
+    "./blocks/decision-panel": {
+      "types": "./src/blocks/decision-panel/index.ts",
+      "default": "./dist/blocks/decision-panel/index.js"
+    },
+    "./blocks/record-list": {
+      "types": "./src/blocks/record-list/index.ts",
+      "default": "./dist/blocks/record-list/index.js"
+    },
+    "./blocks/section": {
+      "types": "./src/blocks/section/index.ts",
+      "default": "./dist/blocks/section/index.js"
+    },
     "./blocks/kanban": {
       "types": "./src/blocks/kanban/index.ts",
       "default": "./dist/blocks/kanban/index.js"
@@ -47,6 +59,10 @@
       "types": "./src/blocks/list-toolbar/index.ts",
       "default": "./dist/blocks/list-toolbar/index.js"
     },
+    "./blocks/stat-strip": {
+      "types": "./src/blocks/stat-strip/index.ts",
+      "default": "./dist/blocks/stat-strip/index.js"
+    },
     "./blocks/stack": {
       "types": "./src/blocks/stack/index.ts",
       "default": "./dist/blocks/stack/index.js"
@@ -54,6 +70,14 @@
     "./blocks/timeline": {
       "types": "./src/blocks/timeline/index.ts",
       "default": "./dist/blocks/timeline/index.js"
+    },
+    "./blocks/comment-thread": {
+      "types": "./src/blocks/comment-thread/index.ts",
+      "default": "./dist/blocks/comment-thread/index.js"
+    },
+    "./blocks/stage-path": {
+      "types": "./src/blocks/stage-path/index.ts",
+      "default": "./dist/blocks/stage-path/index.js"
     },
     "./blocks/wizard": {
       "types": "./src/blocks/wizard/index.ts",
