@@ -1,9 +1,8 @@
 "use client"
 
 import * as React from 'react'
-import { Download, Trash2, Workflow, UserCircle2, X } from 'lucide-react'
-import { Button } from '@open-mercato/ui/primitives/button'
-import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { BulkActionBar } from '@open-mercato/ui/blocks/bulk-action-bar'
+import type { BlockAction } from '@open-mercato/ui/blocks/contracts/shared'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
@@ -17,6 +16,12 @@ type BulkActionsBarProps = {
   onClear: () => void
 }
 
+const CHANGE_STAGE_KEY = 'change-stage'
+const CHANGE_OWNER_KEY = 'change-owner'
+const EXPORT_CSV_KEY = 'export-csv'
+const DELETE_KEY = 'delete'
+const VISIBLE_ACTIONS = 4
+
 export function BulkActionsBar({
   count,
   totalLabel,
@@ -27,143 +32,60 @@ export function BulkActionsBar({
   onClear,
 }: BulkActionsBarProps): React.ReactElement | null {
   const t = useT()
-  // Global ESC clears the selection — matches the Gmail/Asana/Notion convention. The
-  // listener is only mounted while at least one deal is selected so we don't intercept
-  // ESC anywhere else on the kanban (e.g. inside dialogs/popovers, which all stopPropagation
-  // before their own ESC handlers fire). `count` is the only thing that gates "is the bar
-  // currently rendered?", and `onClear` is the page-level handler that empties the Set.
-  React.useEffect(() => {
-    if (count === 0) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      // Defer if the focus is inside an editable surface — typing ESC to abort a value
-      // edit shouldn't also clear the bulk selection.
-      const active = document.activeElement as HTMLElement | null
-      if (active) {
-        const tag = active.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA' || active.isContentEditable) return
-      }
-      event.preventDefault()
-      onClear()
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [count, onClear])
 
-  if (count === 0) return null
+  const actions = React.useMemo<BlockAction[]>(
+    () => [
+      {
+        key: CHANGE_STAGE_KEY,
+        label: translateWithFallback(t, 'customers.deals.kanban.bulk.changeStage', 'Change stage'),
+        icon: 'workflow',
+      },
+      {
+        key: CHANGE_OWNER_KEY,
+        label: translateWithFallback(t, 'customers.deals.kanban.bulk.changeOwner', 'Change owner'),
+        icon: 'user-circle-2',
+      },
+      {
+        key: EXPORT_CSV_KEY,
+        label: translateWithFallback(t, 'customers.deals.kanban.bulk.exportCsv', 'Export CSV'),
+        icon: 'download',
+      },
+      {
+        key: DELETE_KEY,
+        label: translateWithFallback(t, 'customers.deals.kanban.bulk.delete', 'Delete'),
+        icon: 'trash-2',
+        tone: 'destructive',
+      },
+    ],
+    [t],
+  )
+
+  const handleAction = React.useCallback(
+    (actionKey: string): void => {
+      if (actionKey === CHANGE_STAGE_KEY) onChangeStage()
+      else if (actionKey === CHANGE_OWNER_KEY) onChangeOwner()
+      else if (actionKey === EXPORT_CSV_KEY) onExportCsv()
+      else if (actionKey === DELETE_KEY) onDelete()
+    },
+    [onChangeStage, onChangeOwner, onExportCsv, onDelete],
+  )
+
+  const summary = totalLabel
+    ? translateWithFallback(t, 'customers.deals.kanban.bulk.totalValue', 'Total {value}', { value: totalLabel })
+    : undefined
 
   return (
-    <div
-      role="region"
-      aria-label={translateWithFallback(
-        t,
-        'customers.deals.kanban.bulk.aria.bar',
-        'Bulk actions',
-      )}
-      className="fixed bottom-6 left-1/2 z-toast flex w-[min(960px,calc(100%-2rem))] -translate-x-1/2 items-center gap-3 rounded-lg bg-foreground px-4 py-3 text-background shadow-xl"
-    >
-      <IconButton
-        variant="ghost"
-        size="xs"
-        onClick={onClear}
-        aria-label={translateWithFallback(
-          t,
-          'customers.deals.kanban.bulk.aria.clear',
-          'Clear selection',
-        )}
-        className="inline-flex size-6 items-center justify-center rounded-md transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
-      >
-        <X className="size-4" aria-hidden="true" />
-      </IconButton>
-
-      <span className="inline-flex size-7 items-center justify-center rounded-md bg-background/10 text-xs font-semibold">
-        {count}
-      </span>
-      <span className="text-sm font-medium">
-        {translateWithFallback(
-          t,
-          'customers.deals.kanban.bulk.selectedCount',
-          'selected',
-        )}
-      </span>
-      {totalLabel ? (
-        <span className="hidden text-sm text-background/80 sm:inline">
-          {translateWithFallback(
-            t,
-            'customers.deals.kanban.bulk.totalValue',
-            'Total {value}',
-            { value: totalLabel },
-          )}
-        </span>
-      ) : null}
-
-      <div className="ml-auto flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          type="button"
-          onClick={onChangeStage}
-          className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
-        >
-          <Workflow className="size-4" aria-hidden="true" />
-          <span>
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.bulk.changeStage',
-              'Change stage',
-            )}
-          </span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          type="button"
-          onClick={onChangeOwner}
-          className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
-        >
-          <UserCircle2 className="size-4" aria-hidden="true" />
-          <span>
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.bulk.changeOwner',
-              'Change owner',
-            )}
-          </span>
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          type="button"
-          onClick={onExportCsv}
-          className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm transition-colors hover:bg-background/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
-        >
-          <Download className="size-4" aria-hidden="true" />
-          <span>
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.bulk.exportCsv',
-              'Export CSV',
-            )}
-          </span>
-        </Button>
-        <Button
-          variant="destructive-ghost"
-          size="sm"
-          type="button"
-          onClick={onDelete}
-          className="inline-flex items-center gap-1 rounded-md px-3 py-1 text-sm text-status-error-text transition-colors hover:bg-status-error-bg/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-foreground"
-        >
-          <Trash2 className="size-4" aria-hidden="true" />
-          <span>
-            {translateWithFallback(
-              t,
-              'customers.deals.kanban.bulk.delete',
-              'Delete',
-            )}
-          </span>
-        </Button>
-      </div>
-    </div>
+    <BulkActionBar
+      selectedCount={count}
+      summary={summary}
+      actions={actions}
+      maxVisibleActions={VISIBLE_ACTIONS}
+      destructivePlacement="inline"
+      onAction={handleAction}
+      onClear={onClear}
+      ariaLabel={translateWithFallback(t, 'customers.deals.kanban.bulk.aria.bar', 'Bulk actions')}
+      className="z-toast! max-w-4xl"
+    />
   )
 }
 
