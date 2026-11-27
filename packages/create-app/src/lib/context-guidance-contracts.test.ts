@@ -365,6 +365,24 @@ const ROOT_INSTRUCTION_SOURCES = [
   { label: 'template/AGENTS.md', read: () => readPackage('create-app/template/AGENTS.md') },
 ] as const
 
+test('both standalone roots route infrastructure provider registration to the shared convention', () => {
+  for (const { label, read } of ROOT_INSTRUCTION_SOURCES) {
+    const instructions = read()
+    assert.match(
+      instructions,
+      /`src\/providers\/` for \[cache, queue, and KMS\]\(\.ai\/guides\/infrastructure-providers\.md\)/,
+      `${label} must identify the infrastructure provider directory and link the provider guide`,
+    )
+  }
+
+  const guide = readAgentic('guides/infrastructure-providers.md')
+  for (const file of ['cache.ts', 'queue.example.ts', 'kms.example.ts']) {
+    assert.ok(guide.includes(`](../../src/providers/${file})`), `the provider guide must link the shipped ${file}`)
+  }
+  assert.match(guide, /web app, workers, scheduler, and CLI/)
+  assert.match(guide, /explicit lazy npm loaders/)
+})
+
 test('every emitted root states the ordered spec-first gate exactly once', () => {
   for (const { label, read } of ROOT_INSTRUCTION_SOURCES) {
     const root = read()
@@ -402,8 +420,18 @@ test('every emitted root states the ordered spec-first gate exactly once', () =>
     // One-way handoff: the root routes, the module skill owns the procedure.
     assert.match(
       root,
-      /Then `om-module-scaffold` starts at `src\/modules\/example\/README\.md`/,
-      `${label} must hand approved module work to om-module-scaffold at the canonical example README`,
+      /New modules start at `src\/modules\/example\/README\.md`/,
+      `${label} must keep the canonical example README for new module work`,
+    )
+    assert.match(
+      root,
+      /`architecture` \| Find, scaffold a module starter, publish, or link an app module \| [^\n]*new code loads `om-module-scaffold`/,
+      `${label} must route new module work to om-module-scaffold`,
+    )
+    assert.match(
+      root,
+      /CrudForm section policy: `umes` → `extension-branches` → `form-sections\.ts`\. Hide\/default\/mask only: `umes`\./,
+      `${label} must send existing form-policy changes to the section policy reference`,
     )
     assert.doesNotMatch(
       root,
@@ -565,7 +593,7 @@ test('progressive references pin reviewed standalone runtime contracts', () => {
 test('router distinguishes durable multi-stage state from one-step schedules', () => {
   const root = readAgentic('shared/AGENTS.md.template')
   assert.match(root, /Multi-stage waits\/cancel\/restart are durable/)
-  assert.match(root, /reminders and renewal\/batch schedules are `module-data`/)
+  assert.match(root, /Reminders, renewals and batch schedules = `module-data`/)
   assert.match(root, /spreadsheet\/CSV\/file I\/O, sync\/webhook\/storage/)
   assert.match(root, /imports = `integration`/)
 })

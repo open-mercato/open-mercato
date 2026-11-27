@@ -132,6 +132,12 @@ describe('scopeAvailabilityPolicyWriteInput', () => {
     ).resolves.toMatchObject({ organizationId: OTHER_ORG })
   })
 
+  it('rejects an explicit organization outside the actor scope', async () => {
+    await expect(
+      scopeAvailabilityPolicyWriteInput({ organizationId: OTHER_ORG, tenantId: TENANT_ID }, ctxFor(SELECTED_ORG, SELECTED_ORG)),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+
   it('rejects "All organizations" with a message instead of an organizationId field error (#7080)', async () => {
     const result = scopeAvailabilityPolicyWriteInput({ organizationId: null, tenantId: TENANT_ID }, ctxFor(null, null))
 

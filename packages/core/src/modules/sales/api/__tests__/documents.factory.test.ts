@@ -29,6 +29,32 @@ import { getEnrichersForEntity, registerResponseEnrichers } from '@open-mercato/
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 
 describe('buildDocumentCrudOptions', () => {
+  describe('document number update input', () => {
+    it.each(['order', 'quote'] as const)('passes an unchanged %s number to the scoped command', async (kind) => {
+      const options = buildDocumentCrudOptions({
+        kind,
+        entity: kind === 'order' ? SalesOrder : SalesQuote,
+        entityId: kind === 'order' ? E.sales.sales_order : E.sales.sales_quote,
+        numberField: kind === 'order' ? 'orderNumber' : 'quoteNumber',
+        createCommandId: 'sales.' + kind + 's.create',
+        updateCommandId: 'sales.' + kind + 's.update',
+        deleteCommandId: 'sales.' + kind + 's.delete',
+        manageFeature: 'sales.' + kind + 's.manage',
+        viewFeature: 'sales.' + kind + 's.view',
+      })
+      const numberField = kind === 'order' ? 'orderNumber' : 'quoteNumber'
+      const raw = { id: '11111111-1111-4111-8111-111111111111', [numberField]: 'DOC-1' }
+      const ctx = {
+        auth: { sub: 'user-1', tenantId: '22222222-2222-4222-8222-222222222222', orgId: '33333333-3333-4333-8333-333333333333' },
+        selectedOrganizationId: '33333333-3333-4333-8333-333333333333',
+        container: { resolve: () => undefined },
+      }
+      const input = await options.actions.update.mapInput({ raw, ctx } as never)
+      expect(input).toEqual(expect.objectContaining(raw))
+      expect(options.actions.update.commandId).toBe('sales.' + kind + 's.update')
+    })
+  })
+
   describe('buildFilters', () => {
     const orderBinding = {
       kind: 'order' as const,

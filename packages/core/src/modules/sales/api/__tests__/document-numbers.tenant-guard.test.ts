@@ -74,6 +74,17 @@ describe('document-numbers route tenant guard (issue #7877)', () => {
     expect(mockGenerate).not.toHaveBeenCalled()
   })
 
+  it('rejects an organization outside the actor scope before generating a number', async () => {
+    const req = buildPaddedRequest({
+      kind: 'order',
+      tenantId: ACTOR_TENANT_ID,
+      organizationId: '00000000-0000-4000-8000-0000000000bb',
+    })
+    const res = await POST(req)
+    expect(res.status).toBe(403)
+    expect(mockGenerate).not.toHaveBeenCalled()
+  })
+
   it('still generates a number for the actor own tenant, oversized body notwithstanding', async () => {
     const req = buildPaddedRequest({ kind: 'order', tenantId: ACTOR_TENANT_ID, organizationId: ORG_ID })
     const res = await POST(req)

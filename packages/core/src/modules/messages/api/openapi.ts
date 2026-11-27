@@ -217,6 +217,7 @@ export const conversationMutationResponseSchema = z.object({
 export const composeResponseSchema = z.object({
   id: z.string().uuid(),
   threadId: z.string().uuid().nullable().optional(),
+  deliveryEnqueueStatus: z.literal('unconfirmed').optional(),
 })
 
 export const messageAttachmentResponseSchema = z.object({

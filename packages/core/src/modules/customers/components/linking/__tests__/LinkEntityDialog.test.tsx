@@ -66,6 +66,48 @@ describe('LinkEntityDialog', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows a failed search and retries the same query without losing a selection', async () => {
+    const selectedDeal = { id: 'selected', label: 'Selected deal' }
+    const matchingDeal = { id: 'matching', label: 'Matching deal' }
+    const searchPage = jest.fn(async (query: string) => ({
+      items: query ? [matchingDeal] : [selectedDeal],
+      totalPages: 1,
+      total: 1,
+    }))
+    const adapter = buildAdapter({ kind: 'deal', confirmButtonLabel: 'Link deal', searchPage })
+    const onConfirm = jest.fn(async () => undefined)
+    renderWithProviders(
+      <LinkEntityDialog
+        open
+        onOpenChange={() => undefined}
+        adapter={adapter}
+        initialSelectedIds={[]}
+        onConfirm={onConfirm}
+      />,
+    )
+
+    await screen.findByText('Selected deal')
+    fireEvent.click(getSearchResultRow('Selected deal'))
+    searchPage.mockRejectedValueOnce(new Error('Network unavailable'))
+    const input = screen.getByRole('textbox', { name: 'Search…' })
+    fireEvent.change(input, { target: { value: 'matching' } })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Could not load search results.')
+    expect(screen.queryByText('0 results')).not.toBeInTheDocument()
+    expect(screen.queryByText('No results.')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(await screen.findByText('Matching deal')).toBeInTheDocument()
+    expect(searchPage).toHaveBeenNthCalledWith(2, 'matching', 1, undefined)
+    expect(searchPage).toHaveBeenNthCalledWith(3, 'matching', 1, undefined)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(input).toHaveValue('matching')
+    fireEvent.click(screen.getByRole('button', { name: 'Link deal', exact: true }))
+    await waitFor(() => expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ nextSelectedIds: ['selected'] }),
+    ))
+  })
+
   // Regression guard for #7495: the dialog host is `p-0` + `overflow-hidden`, so the
   // primitive's default bordered footer (`-mx-6`) would push the count and actions
   // past the clipped edges. The footer must keep its own inset instead.

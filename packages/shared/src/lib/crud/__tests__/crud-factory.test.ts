@@ -8,8 +8,9 @@ jest.mock('@open-mercato/cache', () => ({
 // tests override `mockTranslate` to prove `handleError` actually routes a CrudHttpError body
 // through the resolved `translate()` instead of forwarding it verbatim (#5727).
 const mockTranslate = jest.fn((key: string, fallback?: string) => fallback ?? key)
+const mockResolveTranslations = jest.fn(async () => ({ t: mockTranslate, translate: mockTranslate }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: async () => ({ t: mockTranslate, translate: mockTranslate }),
+  resolveTranslations: () => mockResolveTranslations(),
 }))
 
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
@@ -466,6 +467,37 @@ describe('CRUD Factory', () => {
         expect(crudCache.get.mock.calls.at(-1)?.[0]).toContain('deletedPolicy:hidden')
         const cachedResponse = await hiddenRoute.GET(request)
         expect((await cachedResponse.json()).items).toEqual([liveRow])
+        expect(queryEngine.query).toHaveBeenCalledTimes(2)
+      } finally {
+        cacheEnabled.mockRestore()
+      }
+    })
+
+    it('keeps cached deleted rows out of a later response when an interceptor disables visibility', async () => {
+      const cacheEnabled = jest.spyOn(crudCacheHelpers, 'isCrudCacheEnabled').mockReturnValue(true)
+      let interceptedFlag = 'true'
+      registerApiInterceptors([{
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.rewrite-deletion-flag',
+          targetRoute: 'example/todos',
+          methods: ['GET'],
+          async before() {
+            return { ok: true, query: { withDeleted: interceptedFlag } }
+          },
+        }],
+      }])
+      const optedInRoute = makeDeletedRoute(true)
+      const request = new Request('http://x/api/example/todos?withDeleted=true')
+      try {
+        queueDeletedRows()
+        const allowed = await optedInRoute.GET(request)
+        expect((await allowed.json()).items).toEqual([liveRow, deletedRow])
+
+        interceptedFlag = 'false'
+        queueDeletedRows()
+        const hidden = await optedInRoute.GET(request)
+        expect((await hidden.json()).items).toEqual([liveRow])
         expect(queryEngine.query).toHaveBeenCalledTimes(2)
       } finally {
         cacheEnabled.mockRestore()
@@ -2182,6 +2214,77 @@ describe('CRUD Factory', () => {
     await expect(res.json()).resolves.toEqual({
       error: 'A conflicting record already exists.',
       conflictingId: 'todo-9',
+    })
+  })
+
+  // `translateZodIssues` (factory.ts) is the opt-in mechanism that routes a `.refine()`/
+  // `superRefine` issue's message through the resolved translate() when the issue's `params`
+  // carries `i18nKey`/`i18nFallback` (see `ledger/data/validators.ts` for the first real schema
+  // to use it, and "Zod .refine()/superRefine messages" in packages/shared/AGENTS.md). Shipped
+  // with no direct test — these two cases cover the opt-in behavior itself and its explicit
+  // non-goal: every issue without an `i18nKey` (including zod's own built-in messages) must
+  // keep flowing through unchanged.
+  describe('translateZodIssues opt-in convention (i18nKey/i18nFallback on a .refine() issue)', () => {
+    const i18nRefineSchema = z.object({ amount: z.string() }).refine(
+      (input) => /^\d+$/.test(input.amount),
+      {
+        message: 'Amount must be a whole number.',
+        params: { i18nKey: 'example.errors.amountNotWhole', i18nFallback: 'Amount must be a whole number.' },
+      },
+    )
+
+    const i18nRefineRoute = () => makeCrudRoute({
+      metadata: { POST: { requireAuth: true } },
+      orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+      indexer: { entityType: 'example.todo' },
+      actions: {
+        create: {
+          commandId: 'example.todo.create',
+          schema: i18nRefineSchema,
+          response: () => ({ ok: true }),
+        },
+      },
+    })
+
+    const postI18nRefineRequest = (route: ReturnType<typeof i18nRefineRoute>, body: unknown) => route.POST(
+      new Request('http://x/api/example/todos/command', {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    it('translates a .refine() issue that opted in via params.i18nKey/i18nFallback', async () => {
+      mockTranslate.mockImplementation((key: string, fallback?: string) =>
+        key === 'example.errors.amountNotWhole' ? 'Kwota musi być liczbą całkowitą.' : (fallback ?? key),
+      )
+
+      const res = await postI18nRefineRequest(i18nRefineRoute(), { amount: '12.5' })
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      expect(body.error).toBe('Invalid input')
+      expect(body.details).toEqual([
+        expect.objectContaining({ path: [], message: 'Kwota musi być liczbą całkowitą.' }),
+      ])
+      expect(mockTranslate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
+      expect(mockTranslate).toHaveBeenCalledWith('example.errors.amountNotWhole', 'Amount must be a whole number.')
+      expect(mockResolveTranslations).toHaveBeenCalledTimes(1)
+    })
+
+    it('leaves an issue with no i18nKey exactly as it was, so every schema that has not opted in keeps its verbatim message', async () => {
+      const res = await postI18nRefineRequest(i18nRefineRoute(), {})
+
+      expect(res.status).toBe(400)
+      const body = await res.json()
+      // The schema's own base type check (a missing required `amount`) fails before the
+      // `.refine()` even runs, and carries no `params.i18nKey` — `translateZodIssues` must
+      // pass it through untouched. Only the generic envelope message is translated.
+      expect(body.details).toEqual([
+        expect.objectContaining({ path: ['amount'], message: 'Invalid input: expected string, received undefined' }),
+      ])
+      expect(mockTranslate).toHaveBeenCalledTimes(1)
+      expect(mockTranslate).toHaveBeenCalledWith('errors.invalid_input', 'Invalid input')
     })
   })
 

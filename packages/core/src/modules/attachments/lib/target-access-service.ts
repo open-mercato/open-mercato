@@ -1,7 +1,8 @@
+import { resolveAttachmentPartition } from './partitionScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Attachment, AttachmentPartition } from '../data/entities'
+import { Attachment } from '../data/entities'
 import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access-runner'
 import { readAttachmentMetadata } from './metadata'
 
@@ -39,13 +40,7 @@ export class AttachmentTargetAccessService {
     )
     if (!attachment) return false
 
-    const partition = await this.em.findOne(AttachmentPartition, {
-      code: attachment.partitionCode,
-      $or: [
-        { tenantId: null, organizationId: null },
-        { tenantId: input.tenantId, organizationId: input.organizationId },
-      ],
-    })
+    const partition = await resolveAttachmentPartition(this.em, attachment.partitionCode, attachment)
     if (!partition) return false
     const access = await evaluateAttachmentAccess({
       auth: input.auth, attachment, partition, action: 'read',

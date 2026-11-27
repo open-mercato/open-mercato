@@ -96,6 +96,11 @@ describe.each(routes)('$name create route scope', ({ commandId, fields, schema }
     expect(schema.safeParse(input).success).toBe(true)
   })
 
+  it('rejects an explicit organization outside the actor scope', async () => {
+    await expect(mapCreateInput({ ...fields, organizationId: explicitOrganizationId }))
+      .rejects.toMatchObject({ status: 403 })
+  })
+
   // withScopedPayload now rejects a non-superadmin's foreign tenantId unconditionally
   // (issue #7877) — this is the universal backstop the explicit-tenantId path converges
   // on, so it fires here before `ensureCurrencyCommandScope`'s own command-level check

@@ -1,5 +1,5 @@
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError, forbidden, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
@@ -26,6 +26,7 @@ export type ScopedPayloadMessages = {
 
 export type ScopedPayloadOptions = {
   requireOrganization?: boolean
+  maskOrganizationDenial?: boolean
   messages?: ScopedPayloadMessages
   organizationForbiddenError?: () => CrudHttpError
 }
@@ -80,14 +81,17 @@ export function withScopedPayload<T extends Record<string, unknown>>(
   }
 
   if (requestedOrg) {
-    if (ctx.request && !ctx.organizationScope && !currentOrg && !authIsSuperAdmin(ctx.auth)) {
-      throw options.organizationForbiddenError?.() ?? forbidden()
-    }
     try {
+      if ((ctx.auth || ctx.request) && !ctx.organizationScope && !currentOrg && !authIsSuperAdmin(ctx.auth)) {
+        throw new CrudHttpError(403, { error: translate('api.errors.forbidden', 'Forbidden') })
+      }
       ensureOrganizationScope(ctx, requestedOrg)
     } catch (error) {
       if (isCrudHttpError(error) && error.status === 403) {
-        throw options.organizationForbiddenError?.() ?? error
+        if (options.organizationForbiddenError) throw options.organizationForbiddenError()
+        if (options.maskOrganizationDenial) {
+          throw new CrudHttpError(404, { error: translate('api.errors.notFound', 'Not found') })
+        }
       }
       throw error
     }

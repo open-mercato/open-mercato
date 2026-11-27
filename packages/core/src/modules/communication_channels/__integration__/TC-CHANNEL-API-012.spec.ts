@@ -92,7 +92,7 @@ test.describe('TC-CHANNEL-API-012: me/channels reports automatic sync per organi
       })
 
       const userEmail = `qa-channel-api-012-${stamp}@acme.com`
-      const userPassword = 'Valid1!Pass'
+      const userPassword = 'QaValid1!Pass'
       userId = await createUserFixture(request, adminToken, {
         email: userEmail,
         password: userPassword,
