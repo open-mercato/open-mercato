@@ -1,3 +1,4 @@
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 
 type RegisteredCommand = {
@@ -175,6 +176,25 @@ describe('messages.messages.update_draft command send transition', () => {
       expect.objectContaining({ messageId, sendViaEmail: false }),
       { persistent: true },
     )
+  })
+
+  it('rejects a stale mailbox draft before delegating delivery', async () => {
+    const { command, draft, emFork, ctx } = createHarness({
+      visibility: 'public',
+      externalEmail: 'customer@example.com',
+      updatedAt: new Date('2026-11-01T11:00:00.000Z'),
+    })
+    const request = new Request('https://example.com/api/messages/' + messageId, {
+      method: 'PATCH',
+      headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-11-01T10:00:00.000Z' },
+    })
+
+    await expect(command.execute(updateInput({ senderChannelId: mailboxId }), { ...ctx, request }))
+      .rejects.toMatchObject({ status: 409 })
+    expect(draft.isDraft).toBe(true)
+    expect(emFork.rollback).toHaveBeenCalledTimes(1)
+    expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
   })
 
   it('leaves the saved draft editable when the selected mailbox is rejected', async () => {

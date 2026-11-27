@@ -5,7 +5,7 @@ import { registerCommand, type CommandHandler, type CommandRuntimeContext } from
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -600,7 +600,7 @@ const updateDraftCommand: CommandHandler<unknown, { ok: true; id: string }> = {
       message = await requireMessageById(em, input, input.messageId, true)
       if (message.senderUserId !== input.userId) throw new Error('Access denied')
       if (!message.isDraft) throw new Error('Only draft messages can be edited')
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND,
         resourceId: message.id,
         current: message.updatedAt,
