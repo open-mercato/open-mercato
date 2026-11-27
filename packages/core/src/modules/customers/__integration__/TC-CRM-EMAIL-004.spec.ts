@@ -74,7 +74,7 @@ test.describe('TC-CRM-EMAIL-004: inbound with no matching Person', () => {
         expect(aclResp.ok(), 'PUT ACL should succeed').toBeTruthy();
 
         const userEmail = `qa-crm-email-004-${stamp}@acme.com`;
-        const userPassword = 'Valid1!Pass';
+        const userPassword = 'QaValid1!Pass';
         userId = await createUserFixture(request, adminToken, {
           email: userEmail,
           password: userPassword,

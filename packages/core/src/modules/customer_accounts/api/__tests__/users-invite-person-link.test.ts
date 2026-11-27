@@ -8,6 +8,7 @@ const inviteCompoundConfig: RateLimitConfig = { points: 5, duration: 60, blockDu
 const mockCheckAuthRateLimit = jest.fn()
 const mockCreateInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
+const mockFindInvitationRoles = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockEmit = jest.fn(async () => undefined)
 const mockIsOwnedCompanyEntity = jest.fn()
@@ -32,6 +33,10 @@ const mockContainer = {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => mockFindInvitationRoles(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -72,6 +77,7 @@ describe('admin users-invite — person link + company ownership (#4362)', () =>
     jest.clearAllMocks()
     mockCheckAuthRateLimit.mockResolvedValue({ error: null, compoundKey: null })
     mockUserHasAllFeatures.mockResolvedValue(true)
+    mockFindInvitationRoles.mockResolvedValue([{ id: roleId, customerAssignable: true }])
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'staff-1', tenantId, orgId: organizationId })
     mockIsOwnedCompanyEntity.mockResolvedValue(true)
     mockIsOwnedPersonEntity.mockResolvedValue(true)

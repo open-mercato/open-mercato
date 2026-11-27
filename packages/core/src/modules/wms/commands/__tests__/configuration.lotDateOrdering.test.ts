@@ -24,6 +24,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 const TENANT = '11111111-1111-4111-8111-111111111111'
 const ORG = '22222222-2222-4222-8222-222222222222'
 const LOT_ID = '33333333-3333-4333-8333-333333333333'
+const ACTOR_ID = '44444444-4444-4444-8444-444444444444'
 
 type LotRecord = {
   id: string
@@ -51,12 +52,22 @@ function createLotStore(dates: Pick<LotRecord, 'manufacturedAt' | 'bestBeforeAt'
     findOne: jest.fn(async (_entity: unknown, filters: { id?: string }) => (filters.id === record.id ? record : null)),
     flush: jest.fn(async () => undefined),
   }
+  const grantedFeatures = new Set(['wms.manage_inventory'])
+  const rbacService = {
+    userHasAllFeatures: async (
+      userId: string,
+      features: string[],
+      scope: { tenantId: string | null; organizationId: string | null },
+    ) => userId === ACTOR_ID && scope.tenantId === TENANT && scope.organizationId === ORG &&
+      features.every((feature) => grantedFeatures.has(feature)),
+  }
   const ctx = {
-    auth: { tenantId: TENANT, orgId: ORG },
+    auth: { sub: ACTOR_ID, tenantId: TENANT, orgId: ORG },
     selectedOrganizationId: ORG,
     container: {
       resolve: (name: string) => {
         if (name === 'em') return { fork: () => em }
+        if (name === 'rbacService') return rbacService
         throw new Error(`[internal] unexpected resolve: ${name}`)
       },
     },

@@ -105,6 +105,13 @@ export type IndexBatchOptions = {
   ) => Promise<Record<string, unknown> | null | undefined>
   /** Query engine handed to the entity's `shouldIndex` gates before its search tokens are written. */
   searchTokenGateQueryEngine?: QueryEngine
+  /**
+   * Whether the token writer must skip ciphertext-shaped fields, evaluated per row straight after
+   * that row's `decryptDoc`, so a Vault that recovers mid-batch cannot clear the guard for rows
+   * decrypted while it was down. Pass `() => resolveCiphertextGuard(encryption)` with the service
+   * `decryptDoc` uses. A row whose `decryptDoc` throws is always guarded.
+   */
+  ciphertextGuard?: () => boolean
 }
 
 function normalizeId(value: unknown): string {
@@ -123,6 +130,7 @@ type IndexRowPayload = {
   tenant_id: string | null
   doc: Record<string, unknown>
   tokenDoc: Record<string, unknown>
+  guardCiphertext?: boolean
   index_version: number
 }
 
@@ -296,6 +304,7 @@ export async function upsertIndexBatch(
     const scopeTenant = built.tenantId
     let doc = built.doc
     let tokenDoc: Record<string, unknown> = doc
+    let guardCiphertext: boolean | undefined
     if (typeof options.encryptDoc === 'function') {
       try {
         const encrypted = await options.encryptDoc(entityType, doc, {
@@ -336,6 +345,7 @@ export async function upsertIndexBatch(
         // Only affects the search tokens built below; the indexed document itself is
         // unharmed, so the row still counts as written.
         logger.warn('Failed to decrypt index document for search tokens', { entityType, recordId })
+        guardCiphertext = true
         await recordIndexerError(
           { db },
           {
@@ -350,6 +360,7 @@ export async function upsertIndexBatch(
         ).catch(() => undefined)
       }
     }
+    guardCiphertext ??= options.ciphertextGuard?.()
     basePayloads.push({
       entity_type: entityType,
       entity_id: recordId,
@@ -357,6 +368,7 @@ export async function upsertIndexBatch(
       tenant_id: scopeTenant ?? null,
       doc,
       tokenDoc,
+      ...(guardCiphertext === undefined ? {} : { guardCiphertext }),
       index_version: 1,
     })
     if (debugEnabled) {
@@ -410,6 +422,7 @@ export async function upsertIndexBatch(
     organizationId: payload.organization_id,
     tenantId: payload.tenant_id,
     doc: payload.tokenDoc,
+    ...(payload.guardCiphertext === undefined ? {} : { guardCiphertext: payload.guardCiphertext }),
   }))
 
   const writeSearchTokens = async (payloads = tokenPayloads): Promise<void> => {

@@ -52,6 +52,28 @@ describe('messages sent subscriber', () => {
     process.env.QUEUE_STRATEGY = queueStrategy
   })
 
+  it('skips the in-app notification but still enqueues email when notifications is disabled (#9201)', async () => {
+    const ctxWithoutNotifications = {
+      resolve: jest.fn(() => ({
+        fork: () => ({}),
+        getMetadata: () => ({ find: () => false }),
+      })),
+    }
+
+    await handle({
+      messageId: 'message-1',
+      senderUserId: 'sender-1',
+      recipientUserIds: ['u1'],
+      sendViaEmail: true,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    }, ctxWithoutNotifications)
+
+    expect(resolveNotificationServiceMock).not.toHaveBeenCalled()
+    expect(createBatchMock).not.toHaveBeenCalled()
+    expect(enqueueMock).toHaveBeenCalledWith(expect.objectContaining({ type: 'recipient', recipientUserId: 'u1' }))
+  })
+
   it('skips enqueue when sendViaEmail is false', async () => {
     await handle({
       messageId: 'message-1',

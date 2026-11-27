@@ -100,13 +100,29 @@ export function useInteractions({
   const [isMutating, setIsMutating] = React.useState(false)
   const [pendingId, setPendingId] = React.useState<string | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const knownUpdatedAtRef = React.useRef<Map<string, string>>(new Map())
 
   const mapResponse = React.useCallback((payload: InteractionsListResponse) => {
     const mapped = Array.isArray(payload.items) ? payload.items : []
+    for (const item of mapped) {
+      if (typeof item.updatedAt === 'string' && item.updatedAt.trim().length > 0) {
+        knownUpdatedAtRef.current.set(item.id, item.updatedAt)
+      }
+    }
     setNextCursor(typeof payload.nextCursor === 'string' && payload.nextCursor.trim().length > 0 ? payload.nextCursor : null)
     setError(null)
     return mapped
   }, [])
+
+  const resolveExpectedUpdatedAt = React.useCallback(
+    (id: string): string | null => {
+      const remembered = knownUpdatedAtRef.current.get(id)
+      if (remembered) return remembered
+      const current = interactions.find((entry) => entry.id === id)?.updatedAt
+      return typeof current === 'string' && current.trim().length > 0 ? current : null
+    },
+    [interactions],
+  )
 
   const fetchPage = React.useCallback(
     async (cursor?: string | null): Promise<InteractionsListResponse> => {
@@ -135,6 +151,7 @@ export function useInteractions({
 
   const refresh = React.useCallback(async () => {
     if (!entityId) {
+      knownUpdatedAtRef.current.clear()
       setInteractions([])
       setNextCursor(null)
       return
@@ -170,6 +187,10 @@ export function useInteractions({
       setIsLoadingMore(false)
     }
   }, [entityId, fetchPage, isLoadingMore, mapResponse, nextCursor, t])
+
+  React.useEffect(() => {
+    knownUpdatedAtRef.current.clear()
+  }, [entityId])
 
   React.useEffect(() => {
     if (!entityId) {
@@ -230,13 +251,14 @@ export function useInteractions({
       setIsMutating(true)
       // Send the optimistic-lock header (target's loaded `updatedAt`) so a stale
       // edit — including a task/activity edited from another tab — surfaces the
-      // conflict bar instead of silently overwriting (#2055). A stale edit after
-      // the record was deleted elsewhere maps to the same 409 via the server's
-      // enforceRecordGoneIsConflict, instead of a bare "Interaction not found" 404.
-      const target = interactions.find((entry) => entry.id === id)
+      // conflict bar instead of silently overwriting (#2055). Retain the last
+      // loaded version even after a conflict refresh removes a deleted record
+      // from `interactions`, so repeated saves keep hitting the server's
+      // enforceRecordGoneIsConflict 409 instead of a bare "Interaction not found" 404.
+      const expectedUpdatedAt = resolveExpectedUpdatedAt(id)
       try {
         await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          buildOptimisticLockHeader(expectedUpdatedAt),
           () => apiCallOrThrow(
             '/api/customers/interactions',
             {
@@ -255,17 +277,17 @@ export function useInteractions({
         setIsMutating(false)
       }
     },
-    [interactions, refresh, t],
+    [refresh, resolveExpectedUpdatedAt, t],
   )
 
   const completeInteraction = React.useCallback(
     async (id: string) => {
       setIsMutating(true)
       setPendingId(id)
-      const target = interactions.find((entry) => entry.id === id)
+      const expectedUpdatedAt = resolveExpectedUpdatedAt(id)
       try {
         await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          buildOptimisticLockHeader(expectedUpdatedAt),
           () => apiCallOrThrow(
             '/api/customers/interactions/complete',
             {
@@ -285,17 +307,17 @@ export function useInteractions({
         setIsMutating(false)
       }
     },
-    [interactions, refresh, t],
+    [refresh, resolveExpectedUpdatedAt, t],
   )
 
   const cancelInteraction = React.useCallback(
     async (id: string) => {
       setIsMutating(true)
       setPendingId(id)
-      const target = interactions.find((entry) => entry.id === id)
+      const expectedUpdatedAt = resolveExpectedUpdatedAt(id)
       try {
         await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          buildOptimisticLockHeader(expectedUpdatedAt),
           () => apiCallOrThrow(
             '/api/customers/interactions/cancel',
             {
@@ -315,16 +337,16 @@ export function useInteractions({
         setIsMutating(false)
       }
     },
-    [interactions, refresh, t],
+    [refresh, resolveExpectedUpdatedAt, t],
   )
 
   const deleteInteraction = React.useCallback(
     async (id: string) => {
       setIsMutating(true)
-      const target = interactions.find((entry) => entry.id === id)
+      const expectedUpdatedAt = resolveExpectedUpdatedAt(id)
       try {
         await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(target?.updatedAt ?? null),
+          buildOptimisticLockHeader(expectedUpdatedAt),
           () =>
             apiCallOrThrow(
               `/api/customers/interactions?id=${encodeURIComponent(id)}`,
@@ -334,6 +356,7 @@ export function useInteractions({
               { errorMessage: t('customers.interactions.delete.error', 'Failed to delete interaction.') },
             ),
         )
+        knownUpdatedAtRef.current.delete(id)
         await refresh()
       } catch (err) {
         // A stale delete (the record was changed/deleted in another tab) surfaces
@@ -346,7 +369,7 @@ export function useInteractions({
         setIsMutating(false)
       }
     },
-    [interactions, refresh, t],
+    [refresh, resolveExpectedUpdatedAt, t],
   )
 
   const hasMore = entityId != null && nextCursor != null

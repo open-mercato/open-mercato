@@ -99,3 +99,16 @@ describe('useGroupOrder', () => {
     expect(screen.getByTestId('order').textContent).toContain('b,a')
   })
 })
+
+it('keeps hidden legacy entries when saving a policy scope order', () => {
+  localStorage.clear()
+  const legacyOrder = JSON.stringify(['private', 'first', 'second'])
+  localStorage.setItem('om:group-order:showcase', legacyOrder)
+  const mount = () => renderHook(() => useGroupOrder('showcase', ['first', 'second', 'added'], 'crud-form:test.record/showcase/update'))
+  const { result, unmount } = mount()
+  act(() => result.current.reorder(2, 0))
+  expect(result.current.orderedIds).toEqual(['added', 'first', 'second'])
+  expect(localStorage.getItem('om:group-order:showcase')).toBe(legacyOrder)
+  unmount()
+  expect(mount().result.current.orderedIds).toEqual(['added', 'first', 'second'])
+})

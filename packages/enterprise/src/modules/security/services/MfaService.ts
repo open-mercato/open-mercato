@@ -3,7 +3,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { compare, hash } from 'bcryptjs'
 import { ZodError } from 'zod'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { EnforcementScope, MfaEnforcementPolicy, MfaRecoveryCode, UserMfaMethod } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type { MfaProviderRegistry } from '../lib/mfa-provider-registry'
@@ -84,6 +85,7 @@ export class MfaService {
       type: providerType,
       isActive: false,
       secret: result.setupId,
+      secretHash: hashForLookup(result.setupId),
       providerMetadata: null,
       createdAt: now,
       updatedAt: now,
@@ -101,14 +103,21 @@ export class MfaService {
     providerType?: string,
     context?: MfaProviderRuntimeContext,
   ): Promise<{ recoveryCodes?: string[] }> {
+    const user = await this.findUserById(userId)
+    if (!user?.tenantId) {
+      throw new MfaServiceError('User not found', 404)
+    }
+    const userScope = { tenantId: user.tenantId, organizationId: user.organizationId ?? null }
     const method = await this.em.transactional(async (em) => {
       await em.execute('select pg_advisory_xact_lock(hashtextextended(?::text, 0))', [`security:mfa:enrollment:${userId}`])
       const method = await findOneWithDecryption(em, UserMfaMethod, {
         userId,
+        tenantId: userScope.tenantId,
+        organizationId: userScope.organizationId,
         isActive: false,
         deletedAt: null,
-        secret: setupId,
-      }, { refresh: true }, {})
+        $or: [{ secretHash: { $in: lookupHashCandidates(setupId) } }, { secretHash: null, secret: setupId }],
+      }, { refresh: true }, userScope)
       if (!method) {
         throw new MfaServiceError('MFA setup session not found', 404)
       }
@@ -149,6 +158,7 @@ export class MfaService {
 
       method.providerMetadata = confirmation.metadata
       method.secret = confirmation.secret ?? null
+      method.secretHash = confirmation.secret ? hashForLookup(confirmation.secret) : null
       method.label = resolvedLabel
       method.isActive = true
       method.updatedAt = new Date()
@@ -170,7 +180,8 @@ export class MfaService {
   }
 
   async getUserMethods(userId: string): Promise<UserMfaMethod[]> {
-    return this.em.find(
+    return findWithDecryption(
+      this.em,
       UserMfaMethod,
       {
         userId,

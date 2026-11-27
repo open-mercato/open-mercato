@@ -15,7 +15,7 @@ export const integrationMeta = {
   dependsOnModules: ['directory', 'auth', 'customers'],
 }
 
-test('TC-DIR-023: feature narrowing preserves stale organization refusals on reads and writes', async ({ request }) => {
+test('TC-DIR-023: feature narrowing preserves invalid organization refusals on reads and writes', async ({ request }) => {
   const administratorToken = await getAuthToken(request, 'superadmin')
   const tenantId = expectId(getTokenContext(administratorToken).tenantId, 'Tenant context is required')
   const fixtureId = randomUUID()
@@ -48,7 +48,7 @@ test('TC-DIR-023: feature narrowing preserves stale organization refusals on rea
     })
     const token = await getAuthToken(request, email, password)
 
-    for (const rejectedOrganizationId of [otherOrganizationId, randomUUID()]) {
+    for (const rejectedOrganizationId of [otherOrganizationId, randomUUID(), 'all']) {
       const listResponse = await apiRequestWithSelectedOrg(request, 'GET', '/api/customers/companies?pageSize=1', {
         token,
         selectedOrgId: rejectedOrganizationId,

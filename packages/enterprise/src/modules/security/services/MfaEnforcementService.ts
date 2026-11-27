@@ -326,31 +326,66 @@ export class MfaEnforcementService {
   }
 
   async checkUserCompliance(userId: string): Promise<UserCompliance> {
-    const policy = await this.getEffectivePolicyForUser(userId)
-    if (!policy || !policy.isEnforced) {
+    const [compliance] = await this.em.execute<Array<{
+      enforced: boolean
+      compliant: boolean
+      deadline_ms: number | null
+    }>>(`
+      select coalesce(policy.is_enforced, false) as enforced,
+             (extract(epoch from policy.enforcement_deadline) * 1000)::double precision as deadline_ms,
+             case when policy.is_enforced then exists (
+               select 1
+               from user_mfa_methods as method
+               where method.user_id = account.id
+                 and method.tenant_id = account.tenant_id
+                 and method.is_active = true
+                 and method.deleted_at is null
+                 and (
+                   coalesce(jsonb_array_length(nullif(policy.allowed_methods, 'null'::jsonb)), 0) = 0
+                   or jsonb_exists(policy.allowed_methods, method.type)
+                 )
+             ) else true end as compliant
+      from users as account
+      left join lateral (
+        select is_enforced, enforcement_deadline, allowed_methods
+        from mfa_enforcement_policies
+        where account.tenant_id is not null and deleted_at is null and (
+          (scope = ? and tenant_id = account.tenant_id and organization_id = account.organization_id)
+          or (scope = ? and tenant_id = account.tenant_id and organization_id is null)
+          or (scope = ? and tenant_id is null and organization_id is null)
+        )
+        order by case scope when ? then 0 when ? then 1 else 2 end, updated_at desc
+        limit 1
+      ) as policy on true
+      where account.id = ? and account.deleted_at is null
+    `, [
+      EnforcementScope.ORGANISATION,
+      EnforcementScope.TENANT,
+      EnforcementScope.PLATFORM,
+      EnforcementScope.ORGANISATION,
+      EnforcementScope.TENANT,
+      userId,
+    ])
+    if (!compliance) {
+      throw new MfaEnforcementServiceError('User not found', 404)
+    }
+    if (!compliance.enforced) {
       return { compliant: true, enforced: false }
     }
 
-    const methodFilter = this.buildAllowedMethodsFilter(policy.allowedMethods ?? null)
-    const methodCount = await this.em.count(UserMfaMethod, {
-      userId,
-      isActive: true,
-      deletedAt: null,
-      ...methodFilter,
-    })
-
     return {
-      compliant: methodCount > 0,
+      compliant: compliance.compliant,
       enforced: true,
-      deadline: policy.enforcementDeadline ?? undefined,
+      deadline: compliance.deadline_ms === null ? undefined : new Date(compliance.deadline_ms),
     }
   }
 
   async getEffectivePolicyForUser(userId: string): Promise<MfaEnforcementPolicy | null> {
     const user = await this.findUserById(userId)
-    if (!user?.tenantId) {
+    if (!user) {
       throw new MfaEnforcementServiceError('User not found', 404)
     }
+    if (!user.tenantId) return null
 
     return this.resolveEffectivePolicy(user.tenantId, user.organizationId ?? undefined)
   }

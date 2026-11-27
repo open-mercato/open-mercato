@@ -1,9 +1,10 @@
+import { resolveAttachmentPartition } from '../lib/partitionScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { z } from 'zod'
-import { Attachment, AttachmentPartition } from '../data/entities'
+import { Attachment } from '../data/entities'
 import {
   enqueueDocumentStructureExtraction,
   type DocumentStructureQueueContainer,
@@ -58,13 +59,7 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       scope,
     )
     if (!attachment) return
-    const partition = await findOneWithDecryption(
-      em,
-      AttachmentPartition,
-      { code: attachment.partitionCode },
-      undefined,
-      scope,
-    )
+    const partition = await resolveAttachmentPartition(em, attachment.partitionCode, attachment, { decrypt: true })
     if (!partition || !partition.extractDocumentStructure) return
     await enqueueDocumentStructureExtraction(toQueueContainer(ctx), {
       attachmentId: attachment.id,

@@ -227,6 +227,20 @@ describe('evalRuns.complete — outcome', () => {
     expect(result.outcome).toBe('failed')
   })
 
+  it('returns the committed error count so a gate never re-reads it', async () => {
+    const { em } = createFakeEm({
+      suiteRuns: [suite({ evalSetVersion: 'v1' })],
+      caseRuns: [
+        { id: 'cr-1', suiteRunId: CASE_A, ...SCOPE, status: 'passed', score: 1 },
+        { id: 'cr-2', suiteRunId: CASE_A, ...SCOPE, status: 'error', score: null },
+        { id: 'cr-3', suiteRunId: CASE_A, ...SCOPE, status: 'error', score: null },
+      ],
+    })
+    const result = await completeEvalRunCommand.execute({ ...SCOPE, suiteRunId: CASE_A }, ctxFor(em))
+    expect(result.errorCount).toBe(2)
+    expect(result.outcome).toBe('passed')
+  })
+
   it('is idempotent on an already-terminal run', async () => {
     const { em } = createFakeEm({
       suiteRuns: [suite({ status: 'completed', outcome: 'advisory', passScore: 1 })],
@@ -329,11 +343,13 @@ describe('evalRuns.complete — baseline and safety regressions', () => {
         passScore: 0.5,
         safetyRegressions: ['no_pii'],
         baselineSuiteRunId: BASE,
+        errorCount: 3,
       }],
     })
     const result = await completeEvalRunCommand.execute({ ...SCOPE, suiteRunId: CASE_A }, ctxFor(em))
     expect(result.safetyRegressions).toEqual(['no_pii'])
     expect(result.baselineSuiteRunId).toBe(BASE)
+    expect(result.errorCount).toBe(3)
   })
 })
 

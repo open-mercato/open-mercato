@@ -6,18 +6,19 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 
 export function EntitySettingsManager(): React.ReactElement {
   const t = useT()
   const [loading, setLoading] = React.useState(true)
   const [loadError, setLoadError] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
+  const [saveError, setSaveError] = React.useState<string | null>(null)
   const [restricted, setRestricted] = React.useState(false)
   const [updatedAt, setUpdatedAt] = React.useState<string | null>(null)
 
@@ -51,6 +52,7 @@ export function EntitySettingsManager(): React.ReactElement {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSaveError(null)
     setSaving(true)
     try {
       const headers = buildOptimisticLockHeader(updatedAt)
@@ -73,6 +75,7 @@ export function EntitySettingsManager(): React.ReactElement {
             )
 
             if (res.ok && res.result) {
+              setSaveError(null)
               setUpdatedAt(res.result.updatedAt)
               flash(t('entities.settings.flash.saved', 'Settings saved'), 'success')
             }
@@ -89,7 +92,12 @@ export function EntitySettingsManager(): React.ReactElement {
         setLoading(true)
         await loadSettings()
       } else {
-        flash(t('entities.settings.errors.saveFailed', 'Failed to save settings'), 'error')
+        reportTelemetryError(err, { module: 'entities', code: 'entities.settings_save_failed' })
+        const fallback = t('entities.settings.errors.saveFailed', 'Failed to save settings')
+        const serviceMessage = err instanceof Error && 'status' in err && err.status === 503
+          ? err.message.trim()
+          : ''
+        setSaveError(serviceMessage || fallback)
       }
     } finally {
       setSaving(false)
@@ -149,6 +157,7 @@ export function EntitySettingsManager(): React.ReactElement {
         </div>
       </div>
 
+      {saveError ? <ErrorMessage label={saveError} /> : null}
       <div className="flex items-center justify-end gap-3 border-t pt-4">
         <Button type="submit" disabled={saving}>
           {saving ? <Spinner className="mr-2 h-4 w-4" /> : null}

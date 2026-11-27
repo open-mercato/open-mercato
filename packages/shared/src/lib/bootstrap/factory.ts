@@ -1,3 +1,5 @@
+import { buildCrudFormSectionSinkEnrichers } from '../crud/form-sections/extension-sinks'
+import { getCrudFormSectionManifest, registerCrudFormSectionManifest } from '../crud/form-sections/manifest'
 import type { BootstrapData, BootstrapOptions } from './types'
 import { registerOrmEntities } from '../db/mikro'
 import { registerAppDiRegistrar, registerDiRegistrars } from '../di/container'
@@ -6,6 +8,7 @@ import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
 import { registerSearchModuleConfigs } from '../../modules/search'
 import { registerAnalyticsModuleConfigs } from '../../modules/analytics'
+import { registerEventModuleConfigs } from '../../modules/events'
 import { registerCodeWorkflowEntries } from '../../modules/workflows/code-registry'
 import { registerResponseEnrichers } from '../crud/enricher-registry'
 import { registerApiInterceptors } from '../crud/interceptor-registry'
@@ -49,6 +52,7 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
 
     // === 2. Modules registry (required by i18n, query engine, dashboards, CLI) ===
     registerModules(data.modules)
+    if (data.eventModuleConfigs) registerEventModuleConfigs(data.eventModuleConfigs)
     clearRegisteredIntegrations()
     for (const module of data.modules) {
       if (module.integrations?.length) {
@@ -107,6 +111,12 @@ export function createBootstrap(data: BootstrapData, options: BootstrapOptions =
     // === 6f. Command interceptors (for command bus lifecycle) ===
     if (data.commandInterceptorEntries) {
       registerCommandInterceptors(data.commandInterceptorEntries)
+    }
+
+    if (data.crudFormSectionServerModules) {
+      registerCrudFormSectionManifest(data.crudFormSectionServerModules)
+      const sinkEnrichers = buildCrudFormSectionSinkEnrichers(getCrudFormSectionManifest())
+      if (sinkEnrichers.length) registerResponseEnrichers([...(data.enricherEntries ?? []), ...sinkEnrichers])
     }
 
     // === 6f.1. Command loaders (for lazy command handler registration) ===

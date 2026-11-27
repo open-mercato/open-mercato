@@ -3,6 +3,7 @@ import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { seedResourcesActivityTypes, seedResourcesAddressTypes, seedResourcesCapacityUnits, seedResourcesResourceExamples, type ResourcesSeedScope } from './lib/seeds'
+import { isDictionariesModuleEnabled } from './lib/optionalModules'
 
 function parseArgs(rest: string[]) {
   return parseModuleCliOptions(rest, { flagValue: undefined })
@@ -16,6 +17,10 @@ const seedCapacityUnitsCommand: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
       console.error('Usage: mercato resources seed-capacity-units --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    if (!isDictionariesModuleEnabled()) {
+      console.log('Dictionaries module is disabled; skipping resources capacity units.')
       return
     }
     const container = await createRequestContainer()
@@ -45,6 +50,10 @@ const seedActivityTypesCommand: ModuleCli = {
       console.error('Usage: mercato resources seed-activity-types --tenant <tenantId> --org <organizationId>')
       return
     }
+    if (!isDictionariesModuleEnabled()) {
+      console.log('Dictionaries module is disabled; skipping resources activity types.')
+      return
+    }
     const container = await createRequestContainer()
     const scope: ResourcesSeedScope = { tenantId, organizationId }
     try {
@@ -70,6 +79,10 @@ const seedAddressTypesCommand: ModuleCli = {
     const organizationId = String(args.organizationId ?? args.org ?? args.orgId ?? '')
     if (!tenantId || !organizationId) {
       console.error('Usage: mercato resources seed-address-types --tenant <tenantId> --org <organizationId>')
+      return
+    }
+    if (!isDictionariesModuleEnabled()) {
+      console.log('Dictionaries module is disabled; skipping resources address types.')
       return
     }
     const container = await createRequestContainer()
@@ -98,6 +111,9 @@ const seedExamplesCommand: ModuleCli = {
     if (!tenantId || !organizationId) {
       console.error('Usage: mercato resources seed-examples --tenant <tenantId> --org <organizationId>')
       return
+    }
+    if (!isDictionariesModuleEnabled()) {
+      console.log('Dictionaries module is disabled; skipping resources activity types.')
     }
     const container = await createRequestContainer()
     const scope: ResourcesSeedScope = { tenantId, organizationId }
