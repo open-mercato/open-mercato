@@ -681,13 +681,6 @@ export function LineItemDialog({
   const resetForm = React.useCallback(
     (next?: Partial<LineFormState>) => {
       const base = { ...defaultForm(currencyCode), ...next };
-      const defaultRate = defaultTaxRateRef.current;
-      if (!base.taxRateId && defaultRate) {
-        base.taxRateId = defaultRate.id;
-        base.taxRate = Number.isFinite(defaultRate.rate ?? null)
-          ? (defaultRate.rate as number)
-          : base.taxRate;
-      }
       setInitialValues(base);
       setLineMode(base.lineMode);
       selectedProductIdRef.current = null;
@@ -1491,7 +1484,10 @@ export function LineItemDialog({
     loadLineStatuses().catch(() => {});
     return () => {
       cancelled = true;
-      if (taxRatesRequestRef.current === request) taxRatesRequestRef.current = null;
+      taxRatesRequestRef.current = null;
+      taxRatesRef.current = [];
+      defaultTaxRateRef.current = null;
+      setTaxRates([]);
     };
   }, [loadLineStatuses, loadTaxRates, open]);
 
