@@ -41,10 +41,11 @@ the PR: (1) current-head triage is done, and (2) for an external PR, a human has
    `.github/workflows/pr-triage-labels.yml` automatically adds `needs-triage` to every non-draft
    external PR (excluding same-repo `stabilize/` branches and `prTriage.trustedBots`) when it opens,
    reopens or is marked ready for review, unless it already carries `human-triage-accepted`. A human
-   listed in `.github/core-team.json` records the decision by adding `human-triage-accepted` (which
-   removes `needs-triage`), requesting changes, or closing with a one-line reason.
-   `human-triage-accepted` replaces the old `accepted` label. Labels or approvals from bots or
-   automation accounts — including `prTriage.trustedBots` — never count as that decision: when a
+   listed in `.github/core-team.json` records the decision by adding `human-triage-accepted` (when
+   applied by a non-bot login in `.github/core-team.json`, the workflow automatically removes
+   `needs-triage` to clear the acceptance gate), requesting changes, or closing with a one-line
+   reason. `human-triage-accepted` replaces the old `accepted` label. Labels or approvals from bots
+   or automation accounts — including `prTriage.trustedBots` — never count as that decision: when a
    non-core account or any bot applies `human-triage-accepted`, the workflow removes it again and
    comments why. An external PR also still needs a human approval to merge. Core-team PRs are
    accepted by default and skip the acceptance step.

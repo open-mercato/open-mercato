@@ -301,6 +301,33 @@ test('run executes addLabels, removeLabel, and unauthorized-acceptance rejection
       ['listLabelsOnIssue', 'removeLabel'],
     )
   }
+
+  // 5. Valid human-triage-accepted by a non-bot core-team login -> removes needs-triage without commenting (ready and draft)
+  for (const draft of [false, true]) {
+    const { github, calls } = fakeGithub([NEEDS_TRIAGE_LABEL, HUMAN_TRIAGE_ACCEPTED_LABEL])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'labeled',
+        label: { name: HUMAN_TRIAGE_ACCEPTED_LABEL },
+        pull_request: makePr({ draft }),
+        sender: { login: 'Kapsik89', type: 'User' },
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'remove-label', `draft=${draft}`)
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'removeLabel'],
+    )
+    assert.deepEqual(calls[1].params, {
+      owner: REPO.owner,
+      repo: REPO.repo,
+      issue_number: 42,
+      name: NEEDS_TRIAGE_LABEL,
+    })
+  }
 })
 
 test('parseCoreTeamLogins error paths: malformed JSON, missing or invalid logins', () => {
