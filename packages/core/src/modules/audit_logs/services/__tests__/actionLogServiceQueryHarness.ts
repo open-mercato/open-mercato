@@ -55,6 +55,10 @@ function matchesFilter(row: ActionLogQueryRow, filter: Record<PropertyKey, unkno
 
     const actual = row[key]
     if (expected !== null && typeof expected === 'object') {
+      if ('$in' in expected && Array.isArray(expected.$in)) {
+        if (!expected.$in.includes(actual)) return false
+        continue
+      }
       if ('$ne' in expected) {
         if (actual === (expected as { $ne: unknown }).$ne) return false
         continue

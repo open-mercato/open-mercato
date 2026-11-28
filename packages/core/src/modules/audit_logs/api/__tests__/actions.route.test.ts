@@ -175,6 +175,19 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     expect(contextJson.extensions.erp.supplier).toBe(snapshot)
   })
 
+  it('keeps the in-flight redo state out of the public action log response', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+    mockActionLogs.list.mockResolvedValue({
+      items: [makeActionLogEntry({ executionState: 'redoing', undoToken: null })],
+      total: 1, page: 1, pageSize: 50, totalPages: 1,
+    })
+
+    const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ items: [{ executionState: 'redone', undoToken: null }] })
+  })
+
   // Regression for issue #8887 — the route used to serialize decrypted CRM
   // interaction snapshots verbatim, exposing private email subjects/bodies to
   // any viewer with audit_logs.view_tenant regardless of CRM ownership.
