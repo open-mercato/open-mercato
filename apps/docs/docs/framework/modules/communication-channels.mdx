@@ -104,7 +104,7 @@ Polling needs the `scheduler` module. The hub registers its poll tick and the Gm
 
 ```
 @open-mercato/scheduler "poll-tick" (every OM_HUB_POLL_SCHEDULER_TICK_SECONDS, 60 s by default)
-     │   enqueues channels whose poll interval is due (OM_HUB_POLL_DEFAULT_SECONDS, 5 minutes by default)
+     │   enqueues channels that are due based on their configured poll interval
      ▼
 poll-channel worker (per channel)
      │
@@ -288,9 +288,6 @@ The hub reads a small set of env vars; most have sensible defaults, but a few mu
 | Variable | Default | Purpose |
 |---|---|---|
 | `OM_HUB_OAUTH_STATE_KEY` | falls back to `KMS_MASTER_KEY`, then to `JWT_SECRET` (non-production only) | AES-256-GCM key used to encrypt the OAuth state cookie. **Required in production** — set this or `KMS_MASTER_KEY`, or the per-user OAuth connect flow fails closed. **Rotate this on a schedule** — see runbook below. |
-| `OM_HUB_OAUTH_STATE_TTL_SECONDS` | `300` (5 minutes) | TTL on the state cookie. OAuth callbacks older than this are rejected. |
-| `OM_HUB_POLL_DEFAULT_SECONDS` | `300` (5 minutes) | Default poll cadence applied to channels that don't set `poll_interval_seconds`. |
-| `OM_HUB_POLL_CONCURRENCY` | `10` | Max parallel poll-channel worker jobs per process. Bound by your DB connection pool. |
 | `OM_HUB_OUTBOUND_RETRY_MAX` | `5` | Outbound delivery retries before marking the Message `delivery_failed`. |
 | `OM_HUB_POLL_SCHEDULER_TICK_SECONDS` | `60` | Interval between `poll-tick` scheduler runs that enumerate due channels and fan out to per-channel `poll` jobs. Lower-bounded at 10 s. |
 | `OM_CHANNEL_IMAP_HARD_CAP_PER_POLL` | `200` | Maximum number of IMAP UIDs fetched per `fetchHistory` page. When more remain, the adapter sets `hasMore: true` and the hub re-enqueues immediately. Tune lower if a single page's wall-clock budget is too tight; never set above ~500 (DB transaction size). |
@@ -302,6 +299,8 @@ The hub reads a small set of env vars; most have sensible defaults, but a few mu
 | `OM_PUSH_RENEWAL_GMAIL_LEAD_HOURS` | `24` | Renewal lead time for `gmail.users.watch`. Lower means we renew earlier; higher means we cut closer to the 7-day expiration. |
 | `OM_IMPORT_HISTORY_MAX_SINCE_DAYS` | `3650` (10 years) | Deployment-wide ceiling on the operator-triggered "Import History" `sinceDays` field. Can only raise the ceiling, never below the `30`-day default. Per-provider ceilings (e.g. IMAP's `365`) still apply on top of this. |
 | `OM_IMPORT_HISTORY_MAX_MESSAGES` | `50000` | Deployment-wide ceiling on the operator-triggered "Import History" `maxMessages` field. Can only raise the ceiling, never below the `1000`-message default. Per-provider ceilings (e.g. IMAP's `5000`) still apply on top of this. |
+
+OAuth state cookies expire after five minutes. The Gmail integration health check verifies the OAuth client configuration and whether the hub can resolve a state-cookie secret.
 
 ## Deploy runbook
 
