@@ -107,6 +107,8 @@ type ReservationMetadata = {
   releasedReason?: string
   releasedAt?: string
   allocatedAt?: string
+  lastTrimmedReason?: string
+  lastTrimmedAt?: string
   [key: string]: unknown
 }
 
@@ -1167,48 +1169,85 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
         throw new CrudHttpError(409, { error: 'invalid_reservation_state' })
       }
       const metadata = extractReservationMetadata(reservation)
-      const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
       const allocationState = metadata.allocationState ?? 'reserved'
-      const touchedBalances: InventoryBalance[] = []
-      for (const bucket of buckets) {
-        const balance = await findReservationBucketBalance(
-          trx,
-          scope,
-          reservation,
-          bucket,
-        )
-        if (!balance) continue
-        if (allocationState === 'allocated') {
-          enforceNonNegativeBalance(
-            balance,
-            'quantityAllocated',
-            toNumber(balance.quantityAllocated) - bucket.quantity,
-            reservation.id,
-            scope,
-          )
-        } else {
-          enforceNonNegativeBalance(
-            balance,
-            'quantityReserved',
-            toNumber(balance.quantityReserved) - bucket.quantity,
-            reservation.id,
-            scope,
-          )
-        }
-        touchedBalances.push(balance)
+      /**
+       * Re-reads allocation state from the row this lock just fetched, so a picker who
+       * allocated the reservation after the caller last read its metadata (and before this
+       * lock was taken) is caught here rather than having their picked stock released out
+       * from under them.
+       */
+      if (input.rejectIfAllocated && allocationState === 'allocated') {
+        throw new CrudHttpError(409, { error: 'invalid_reservation_state' })
       }
-      reservation.status = 'released'
-      reservation.metadata = {
-        ...metadata,
-        releasedReason: input.reason,
-        releasedAt: new Date().toISOString(),
+      const buckets = Array.isArray(metadata.allocatedBuckets) ? (metadata.allocatedBuckets as AllocationBucket[]) : []
+      const reservationQuantity = toNumber(reservation.quantity)
+      const releaseQuantity = input.quantity ?? reservationQuantity
+      if (releaseQuantity > reservationQuantity + 0.000001) {
+        throw new CrudHttpError(422, { error: 'invalid_release_quantity' })
+      }
+      const isPartial = releaseQuantity < reservationQuantity - 0.000001
+      const touchedBalances: InventoryBalance[] = []
+      const remainingBuckets: AllocationBucket[] = []
+      let remainingToRelease = releaseQuantity
+      /**
+       * Trim the most recently added bucket first so the earliest (usually most preferred)
+       * warehouse/lot allocation stays intact when this is a partial release.
+       */
+      for (let index = buckets.length - 1; index >= 0; index -= 1) {
+        const bucket = buckets[index]
+        const bucketRelease = remainingToRelease > 0 ? Math.min(bucket.quantity, remainingToRelease) : 0
+        if (bucketRelease > 0) {
+          const balance = await findReservationBucketBalance(trx, scope, reservation, bucket)
+          if (balance) {
+            if (allocationState === 'allocated') {
+              enforceNonNegativeBalance(
+                balance,
+                'quantityAllocated',
+                toNumber(balance.quantityAllocated) - bucketRelease,
+                reservation.id,
+                scope,
+              )
+            } else {
+              enforceNonNegativeBalance(
+                balance,
+                'quantityReserved',
+                toNumber(balance.quantityReserved) - bucketRelease,
+                reservation.id,
+                scope,
+              )
+            }
+            touchedBalances.push(balance)
+          }
+          remainingToRelease -= bucketRelease
+        }
+        const keptQuantity = bucket.quantity - bucketRelease
+        if (keptQuantity > 0.000001) {
+          remainingBuckets.unshift({ ...bucket, quantity: keptQuantity })
+        }
+      }
+
+      if (isPartial) {
+        reservation.quantity = toNumericString(reservationQuantity - releaseQuantity)
+        reservation.metadata = {
+          ...metadata,
+          allocatedBuckets: remainingBuckets,
+          lastTrimmedReason: input.reason,
+          lastTrimmedAt: new Date().toISOString(),
+        }
+      } else {
+        reservation.status = 'released'
+        reservation.metadata = {
+          ...metadata,
+          releasedReason: input.reason,
+          releasedAt: new Date().toISOString(),
+        }
       }
       await trx.flush()
       return {
         reservationId: reservation.id,
         warehouseId: typeof reservation.warehouse === 'string' ? reservation.warehouse : reservation.warehouse.id,
         catalogVariantId: reservation.catalogVariantId,
-        quantity: reservation.quantity,
+        quantity: isPartial ? toNumericString(releaseQuantity) : reservation.quantity,
         tenantId: reservation.tenantId,
         organizationId: reservation.organizationId,
         reservationEntity: reservation,

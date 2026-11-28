@@ -20,6 +20,7 @@ import { emitWmsEvent } from '../../events'
 import { loadExplicitWarehouseIdForOrder } from '../salesOrderWarehouseAssignment'
 import {
   isSalesOrderCancelled,
+  reconcileInventoryForUpdatedOrder,
   releaseInventoryForCancelledOrder,
   reserveInventoryForConfirmedOrder,
 } from '../salesOrderInventoryAutomation'
@@ -287,6 +288,80 @@ describe('reserveInventoryForConfirmedOrder', () => {
       }),
     )
   })
+
+  it('pages through more than 1000 order lines so demand beyond the first page is not dropped', async () => {
+    loadExplicitWarehouseIdForOrderMock.mockResolvedValue(null)
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === InventoryReservation) return []
+      if (entity === InventoryBalance) {
+        return [
+          {
+            catalogVariantId: 'variant-1',
+            quantityOnHand: '10',
+            quantityReserved: '0',
+            quantityAllocated: '0',
+            warehouse: { id: 'warehouse-1' },
+          },
+        ]
+      }
+      return []
+    })
+
+    const fillerLines = Array.from({ length: 1000 }, (_, index) => ({
+      id: `filler-${index}`,
+      kind: 'product',
+      product_variant_id: 'variant-filler',
+      quantity: '0',
+      line_number: index + 1,
+    }))
+
+    const queryEngine = {
+      query: jest
+        .fn()
+        .mockResolvedValueOnce({ items: [{ id: 'order-1', order_number: 'SO-PAGE' }] })
+        .mockResolvedValueOnce({ items: fillerLines })
+        .mockResolvedValueOnce({
+          items: [
+            {
+              id: 'line-1001',
+              kind: 'product',
+              product_variant_id: 'variant-1',
+              quantity: '3',
+              line_number: 1001,
+            },
+          ],
+        }),
+    }
+
+    const em = { fork: () => ({}) }
+    const featureTogglesService = {
+      getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+      invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+    }
+
+    await reserveInventoryForConfirmedOrder(
+      {
+        orderId: 'order-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      },
+      {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          if (name === 'commandBus') return { execute }
+          if (name === 'queryEngine') return queryEngine
+          if (name === 'featureTogglesService') return featureTogglesService
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+    )
+
+    expect(queryEngine.query).toHaveBeenCalledTimes(3)
+    expect(execute).toHaveBeenCalledWith(
+      'wms.inventory.reserve',
+      expect.objectContaining({ input: expect.objectContaining({ catalogVariantId: 'variant-1', quantity: 3 }) }),
+    )
+  })
 })
 
 describe('cancelled sales orders (issue #4521)', () => {
@@ -403,5 +478,285 @@ describe('releaseInventoryForCancelledOrder', () => {
         input: expect.objectContaining({ reservationId: 'reservation-still-active' }),
       }),
     )
+  })
+})
+
+describe('reconcileInventoryForUpdatedOrder', () => {
+  type ReservationFixture = {
+    id: string
+    catalogVariantId: string
+    quantity: string
+    status: string
+    metadata?: Record<string, unknown>
+  }
+  type CommandCall = {
+    input: {
+      tenantId?: string
+      organizationId?: string
+      reservationId?: string
+      catalogVariantId?: string
+      quantity?: number
+      rejectIfAllocated?: boolean
+    }
+  }
+
+  const execute = jest.fn<Promise<{ result: object }>, [string, CommandCall]>()
+  let reservations: ReservationFixture[] = []
+
+  function buildCtx(order: { status: string }, lines: Array<{ variantId: string; quantity: string }>) {
+    const queryEngine = {
+      query: jest.fn(async (_entity: string, options: { fields: string[] }) => {
+        if (options.fields.includes('order_number')) {
+          return { items: [{ id: 'order-1', order_number: 'SO-1', status: order.status }] }
+        }
+        return {
+          items: lines.map((line, index) => ({
+            id: `line-${index + 1}`,
+            kind: 'product',
+            product_variant_id: line.variantId,
+            quantity: line.quantity,
+            line_number: index + 1,
+          })),
+        }
+      }),
+    }
+    const featureTogglesService = {
+      getBoolConfig: jest.fn().mockResolvedValue({ ok: true, value: true }),
+      invalidateIsEnabledCacheByKey: jest.fn().mockResolvedValue(undefined),
+    }
+    return {
+      queryEngine,
+      ctx: {
+        resolve: (name: string) => {
+          if (name === 'em') return { fork: () => ({}) }
+          if (name === 'commandBus') return { execute }
+          if (name === 'queryEngine') return queryEngine
+          if (name === 'featureTogglesService') return featureTogglesService
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+    }
+  }
+
+  const payload = { documentKind: 'order', documentId: 'order-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+
+  // Mirrors the release command's own behavior: a bare release marks the
+  // reservation released, a `quantity` trims it in place and keeps it active.
+  function defaultReleaseImplementation() {
+    return async (commandId: string, call: CommandCall) => {
+      if (commandId === 'wms.inventory.release') {
+        const reservation = reservations.find((item) => item.id === call.input.reservationId)
+        if (reservation) {
+          if (typeof call.input.quantity === 'number') {
+            reservation.quantity = String(Number(reservation.quantity) - call.input.quantity)
+          } else {
+            reservation.status = 'released'
+          }
+        }
+      }
+      return { result: {} }
+    }
+  }
+
+  beforeEach(() => {
+    reservations = []
+    findWithDecryptionMock.mockReset()
+    loadExplicitWarehouseIdForOrderMock.mockReset()
+    loadExplicitWarehouseIdForOrderMock.mockResolvedValue(null)
+    emitWmsEventMock.mockReset()
+    execute.mockReset()
+    execute.mockImplementation(defaultReleaseImplementation())
+    findWithDecryptionMock.mockImplementation(async (_em, entity) => {
+      if (entity === InventoryReservation) {
+        return reservations.filter((item) => item.status === 'active') as unknown as InventoryReservation[]
+      }
+      if (entity === InventoryBalance) {
+        return ['variant-1', 'variant-2'].map((catalogVariantId) => ({
+          catalogVariantId,
+          quantityOnHand: '20',
+          quantityReserved: '0',
+          quantityAllocated: '0',
+          warehouse: { id: 'warehouse-1' },
+        })) as unknown as InventoryBalance[]
+      }
+      return []
+    })
+  })
+
+  it('trims only the excess off a reservation in place, instead of releasing it and re-reserving', async () => {
+    reservations = [{ id: 'reservation-10', catalogVariantId: 'variant-1', quantity: '10', status: 'active' }]
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '2' }])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledWith(
+      'wms.inventory.release',
+      expect.objectContaining({
+        input: expect.objectContaining({
+          reservationId: 'reservation-10',
+          quantity: 8,
+          rejectIfAllocated: true,
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+        }),
+      }),
+    )
+  })
+
+  it('releases the smaller reservation in full and trims only the rest off the larger one', async () => {
+    reservations = [
+      { id: 'reservation-2', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
+      { id: 'reservation-8', catalogVariantId: 'variant-1', quantity: '8', status: 'active' },
+    ]
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '4' }])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(
+      execute.mock.calls.map(([commandId, call]) => [commandId, call.input.reservationId, call.input.quantity]),
+    ).toEqual([
+      ['wms.inventory.release', 'reservation-2', undefined],
+      ['wms.inventory.release', 'reservation-8', 4],
+    ])
+  })
+
+  it('stops trimming as soon as a release hits an unexpected error, leaving the rest untouched', async () => {
+    reservations = [
+      { id: 'reservation-8', catalogVariantId: 'variant-1', quantity: '8', status: 'active' },
+      { id: 'reservation-2', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
+    ]
+    const releaseFailure = new Error('connection lost')
+    execute.mockImplementation(async () => {
+      throw releaseFailure
+    })
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '4' }])
+
+    await expect(reconcileInventoryForUpdatedOrder(payload, ctx)).rejects.toBe(releaseFailure)
+
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledWith(
+      'wms.inventory.release',
+      expect.objectContaining({ input: expect.objectContaining({ reservationId: 'reservation-8', quantity: 6 }) }),
+    )
+    expect(reservations.find((item) => item.id === 'reservation-8')?.quantity).toBe('8')
+  })
+
+  it('finishes the trim on a retry after a transient failure left it only partially done', async () => {
+    reservations = [
+      { id: 'reservation-8', catalogVariantId: 'variant-1', quantity: '8', status: 'active' },
+      { id: 'reservation-2', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
+    ]
+    const defaultImplementation = defaultReleaseImplementation()
+    let shouldFailNext = true
+    execute.mockImplementation(async (commandId, call) => {
+      if (shouldFailNext && call.input.reservationId === 'reservation-8') {
+        shouldFailNext = false
+        throw new Error('connection lost')
+      }
+      return defaultImplementation(commandId, call)
+    })
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '4' }])
+
+    await expect(reconcileInventoryForUpdatedOrder(payload, ctx)).rejects.toThrow('connection lost')
+    expect(reservations.find((item) => item.id === 'reservation-8')?.quantity).toBe('8')
+    expect(reservations.find((item) => item.id === 'reservation-2')?.quantity).toBe('2')
+
+    // The event bus retries the handler from a fresh read; the retry sees
+    // the same unresolved excess and finishes the trim without double-
+    // counting what (nothing, in this case) a prior partial attempt did.
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(reservations.find((item) => item.id === 'reservation-8')?.quantity).toBe('2')
+    expect(reservations.find((item) => item.id === 'reservation-2')?.status).toBe('active')
+    expect(reservations.find((item) => item.id === 'reservation-2')?.quantity).toBe('2')
+  })
+
+  it('keeps going when a release hits an invalid reservation state or a balance integrity violation', async () => {
+    reservations = [
+      { id: 'reservation-8', catalogVariantId: 'variant-1', quantity: '8', status: 'active' },
+      { id: 'reservation-2', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
+    ]
+    execute.mockImplementation(async (_commandId, call) => {
+      const error = call.input.reservationId === 'reservation-8' ? 'balance_integrity_violation' : 'invalid_reservation_state'
+      throw new CrudHttpError(409, { error })
+    })
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '4' }])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(execute.mock.calls.map(([, call]) => call.input.reservationId)).toEqual(['reservation-8', 'reservation-2'])
+  })
+
+  it('trims only the variant that has excess, leaving an exactly-matched variant alone', async () => {
+    reservations = [
+      { id: 'reservation-10', catalogVariantId: 'variant-1', quantity: '10', status: 'active' },
+      { id: 'reservation-5', catalogVariantId: 'variant-2', quantity: '5', status: 'active' },
+    ]
+    const { ctx } = buildCtx({ status: 'confirmed' }, [
+      { variantId: 'variant-1', quantity: '2' },
+      { variantId: 'variant-2', quantity: '5' },
+    ])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(execute.mock.calls.map(([, call]) => call.input.reservationId)).toEqual(['reservation-10'])
+  })
+
+  it('leaves a variant alone while one of its reservations is allocated', async () => {
+    reservations = [
+      { id: 'reservation-allocated', catalogVariantId: 'variant-1', quantity: '2', status: 'active', metadata: { allocationState: 'allocated' } },
+      { id: 'reservation-plain', catalogVariantId: 'variant-1', quantity: '3', status: 'active' },
+    ]
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '4' }])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('releases every reservation of a variant whose line was removed', async () => {
+    reservations = [
+      { id: 'reservation-kept', catalogVariantId: 'variant-1', quantity: '2', status: 'active' },
+      { id: 'reservation-removed', catalogVariantId: 'variant-2', quantity: '4', status: 'active' },
+    ]
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '2' }])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(execute.mock.calls.map(([commandId, call]) => [commandId, call.input.reservationId])).toEqual([
+      ['wms.inventory.release', 'reservation-removed'],
+    ])
+  })
+
+  it('leaves reservations alone when the line quantity grows', async () => {
+    reservations = [{ id: 'reservation-10', catalogVariantId: 'variant-1', quantity: '10', status: 'active' }]
+    const { ctx } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '12' }])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('ignores quotes and orders that are not confirmed', async () => {
+    reservations = [{ id: 'reservation-10', catalogVariantId: 'variant-1', quantity: '10', status: 'active' }]
+    const cancelled = buildCtx({ status: 'canceled' }, [{ variantId: 'variant-1', quantity: '2' }])
+    await reconcileInventoryForUpdatedOrder(payload, cancelled.ctx)
+
+    const quote = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '2' }])
+    await reconcileInventoryForUpdatedOrder({ ...payload, documentKind: 'quote' }, quote.ctx)
+
+    expect(execute).not.toHaveBeenCalled()
+    expect(cancelled.queryEngine.query).toHaveBeenCalledTimes(1)
+    expect(quote.queryEngine.query).not.toHaveBeenCalled()
+  })
+
+  it('skips the order lookup when the order holds no reservations', async () => {
+    const { ctx, queryEngine } = buildCtx({ status: 'confirmed' }, [{ variantId: 'variant-1', quantity: '2' }])
+
+    await reconcileInventoryForUpdatedOrder(payload, ctx)
+
+    expect(queryEngine.query).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
   })
 })

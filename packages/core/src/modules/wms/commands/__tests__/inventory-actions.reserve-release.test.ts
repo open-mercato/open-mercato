@@ -657,4 +657,173 @@ describe('wms inventory release command', () => {
       expect.objectContaining({ balanceId: BALANCE_ID, field: 'quantityReserved' }),
     )
   })
+
+  it('trims only the requested quantity off the newest bucket and keeps the reservation active', async () => {
+    const em = createEm()
+    const olderBalance = makeBalance({ id: 'balance-older', location: { id: LOCATION_A }, quantityReserved: '3' })
+    const newerBalance = makeBalance({ id: 'balance-newer', location: { id: LOCATION_B }, quantityReserved: '2' })
+    const reservation = makeReservation({
+      quantity: '5',
+      metadata: {
+        allocatedBuckets: [
+          { balanceId: 'balance-older', locationId: LOCATION_A, lotId: null, serialNumber: null, quantity: 3 },
+          { balanceId: 'balance-newer', locationId: LOCATION_B, lotId: null, serialNumber: null, quantity: 2 },
+        ],
+        allocationState: 'reserved',
+      },
+    })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return reservation
+      if (entity === InventoryBalance) {
+        if (where?.id === 'balance-older') return olderBalance
+        if (where?.id === 'balance-newer') return newerBalance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    const result = await handler!.execute!(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        reservationId: RESERVATION_ID,
+        reason: 'sales.order.lines_changed',
+        quantity: 1,
+        rejectIfAllocated: true,
+        performedBy: USER_ID,
+      },
+      createCtx(em),
+    )
+
+    expect(result).toMatchObject({ reservationId: RESERVATION_ID })
+    expect(reservation.status).toBe('active')
+    expect(reservation.quantity).toBe('4')
+    expect(Number(olderBalance.quantityReserved)).toBe(3)
+    expect(Number(newerBalance.quantityReserved)).toBe(1)
+    expect(reservation.metadata).toMatchObject({
+      allocatedBuckets: [
+        { balanceId: 'balance-older', locationId: LOCATION_A, lotId: null, serialNumber: null, quantity: 3 },
+        { balanceId: 'balance-newer', locationId: LOCATION_B, lotId: null, serialNumber: null, quantity: 1 },
+      ],
+    })
+    expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('rejects trimming an allocated reservation when the caller asks to reject on allocation', async () => {
+    const em = createEm()
+    const balance = makeBalance({ quantityReserved: '0', quantityAllocated: '5' })
+    const reservation = makeReservation({
+      metadata: {
+        allocatedBuckets: [
+          { balanceId: BALANCE_ID, locationId: LOCATION_A, lotId: null, serialNumber: null, quantity: 5 },
+        ],
+        allocationState: 'allocated',
+        allocatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return reservation
+      if (entity === InventoryBalance) {
+        if (where?.id === BALANCE_ID || where?.location === LOCATION_A) return balance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    await expect(
+      handler!.execute!(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          reservationId: RESERVATION_ID,
+          reason: 'sales.order.lines_changed',
+          quantity: 2,
+          rejectIfAllocated: true,
+          performedBy: USER_ID,
+        },
+        createCtx(em),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'invalid_reservation_state' },
+    } satisfies Partial<CrudHttpError>)
+
+    expect(balance.quantityAllocated).toBe('5')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('still allows releasing an allocated reservation when the caller does not ask to reject on allocation', async () => {
+    const em = createEm()
+    const balance = makeBalance({ quantityReserved: '0', quantityAllocated: '5' })
+    const reservation = makeReservation({
+      metadata: {
+        allocatedBuckets: [
+          { balanceId: BALANCE_ID, locationId: LOCATION_A, lotId: null, serialNumber: null, quantity: 5 },
+        ],
+        allocationState: 'allocated',
+        allocatedAt: '2024-01-01T00:00:00.000Z',
+      },
+    })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return reservation
+      if (entity === InventoryBalance) {
+        if (where?.id === BALANCE_ID || where?.location === LOCATION_A) return balance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    const result = await handler!.execute!(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        reservationId: RESERVATION_ID,
+        reason: 'manual_release',
+        performedBy: USER_ID,
+      },
+      createCtx(em),
+    )
+
+    expect(result).toMatchObject({ reservationId: RESERVATION_ID })
+    expect(reservation.status).toBe('released')
+    expect(Number(balance.quantityAllocated)).toBe(0)
+  })
+
+  it('rejects a release quantity greater than what the reservation holds', async () => {
+    const em = createEm()
+    const reservation = makeReservation({ quantity: '5' })
+    const balance = makeBalance({ quantityReserved: '5' })
+
+    findOneWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: Record<string, unknown>) => {
+      if (entity === InventoryReservation) return reservation
+      if (entity === InventoryBalance) {
+        if (where?.id === BALANCE_ID || where?.location === LOCATION_A) return balance
+      }
+      return null
+    })
+
+    const handler = commandRegistry.get('wms.inventory.release')
+    await expect(
+      handler!.execute!(
+        {
+          organizationId: ORG,
+          tenantId: TENANT,
+          reservationId: RESERVATION_ID,
+          reason: 'sales.order.lines_changed',
+          quantity: 9,
+          performedBy: USER_ID,
+        },
+        createCtx(em),
+      ),
+    ).rejects.toMatchObject({
+      status: 422,
+      body: { error: 'invalid_release_quantity' },
+    } satisfies Partial<CrudHttpError>)
+
+    expect(balance.quantityReserved).toBe('5')
+    expect(em.flush).not.toHaveBeenCalled()
+  })
 })

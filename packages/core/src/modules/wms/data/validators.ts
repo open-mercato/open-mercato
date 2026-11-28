@@ -273,6 +273,17 @@ export const inventoryReservationReleaseSchema = scopedSchema.extend({
   reservationId: uuid(),
   reason: z.string().trim().min(1).max(120),
   reasonCode: z.string().trim().max(80).optional(),
+  /**
+   * Partial release: trims this quantity off the reservation in place instead of releasing
+   * it in full. Omit (or pass the full reservation quantity) to release it entirely, as before.
+   */
+  quantity: positiveQuantity.optional(),
+  /**
+   * Re-checks allocation state under the same pessimistic lock the release takes on the
+   * reservation row, and rejects instead of releasing stock a picker has already allocated
+   * since the caller last read the reservation.
+   */
+  rejectIfAllocated: z.boolean().optional(),
   metadata: metadataSchema,
 })
 

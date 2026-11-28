@@ -171,21 +171,30 @@ export async function isSalesOrderCancelled(
   return isCancelledOrderStatus(order?.status)
 }
 
+const ORDER_LINE_PAGE_SIZE = 1000
+
 async function loadOrderLinesViaQueryEngine(
   ctx: EventContext,
   orderId: string,
   scope: Scope,
 ): Promise<SalesOrderLineRow[]> {
   const queryEngine = ctx.resolve<QueryEngine>('queryEngine')
-  const result = await queryEngine.query<SalesOrderLineRow>(E.sales.sales_order_line, {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    filters: { order_id: { $eq: orderId } },
-    fields: ['id', 'kind', 'product_variant_id', 'quantity', 'line_number'],
-    sort: [{ field: 'line_number', dir: 'asc' as never }],
-    page: { page: 1, pageSize: 1000 },
-  })
-  return result.items
+  const lines: SalesOrderLineRow[] = []
+  let page = 1
+  for (;;) {
+    const result = await queryEngine.query<SalesOrderLineRow>(E.sales.sales_order_line, {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      filters: { order_id: { $eq: orderId } },
+      fields: ['id', 'kind', 'product_variant_id', 'quantity', 'line_number'],
+      sort: [{ field: 'line_number', dir: 'asc' as never }],
+      page: { page, pageSize: ORDER_LINE_PAGE_SIZE },
+    })
+    lines.push(...result.items)
+    if (result.items.length < ORDER_LINE_PAGE_SIZE) break
+    page += 1
+  }
+  return lines
 }
 
 async function loadActiveReservations(
@@ -561,6 +570,94 @@ export async function releaseInventoryForCancelledOrder(
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       }).catch(() => undefined)
+    }
+  }
+}
+
+type SalesDocumentTotalsPayload = {
+  documentKind?: string | null
+  documentId?: string | null
+  tenantId?: string | null
+  organizationId?: string | null
+}
+
+function isAllocatedReservation(reservation: InventoryReservation): boolean {
+  const metadata = reservation.metadata
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false
+  return (metadata as { allocationState?: unknown }).allocationState === 'allocated'
+}
+
+export async function reconcileInventoryForUpdatedOrder(
+  payload: SalesDocumentTotalsPayload,
+  ctx: EventContext,
+): Promise<void> {
+  if (payload.documentKind !== 'order') return
+  if (!payload.documentId || !payload.tenantId || !payload.organizationId) return
+  if (!(await isInventoryAutomationEnabled(ctx, payload.tenantId))) return
+
+  const scope: Scope = {
+    tenantId: payload.tenantId,
+    organizationId: payload.organizationId,
+  }
+  const em = ctx.resolve<EntityManager>('em').fork()
+  const activeReservations = await loadActiveReservations(em, payload.documentId, scope)
+  if (activeReservations.length === 0) return
+
+  const order = await loadOrderViaQueryEngine(ctx, payload.documentId, scope)
+  if (!order || typeof order.id !== 'string') return
+  if (!isReservableOrderStatus(order.status)) return
+
+  const orderId = order.id
+  const lines = await loadOrderLinesViaQueryEngine(ctx, orderId, scope)
+  const requiredByVariant = buildRequiredQuantityByVariant(lines)
+  const reservedByVariant = buildReservedQuantityByVariant(activeReservations)
+  const allocatedVariantIds = new Set(
+    activeReservations.filter(isAllocatedReservation).map((reservation) => reservation.catalogVariantId),
+  )
+  const excessByVariant = new Map<string, number>()
+  for (const [variantId, reservedQuantity] of reservedByVariant.entries()) {
+    if (allocatedVariantIds.has(variantId)) continue
+    const excess = reservedQuantity - (requiredByVariant.get(variantId) ?? 0)
+    if (excess > 0.000001) excessByVariant.set(variantId, excess)
+  }
+  if (excessByVariant.size === 0) return
+
+  const commandBus = ctx.resolve<CommandBus>('commandBus')
+  const commandCtx = buildCommandContext(ctx, scope)
+  /**
+   * Trim each over-reserved reservation down to exactly what the order still needs instead
+   * of releasing it in full and re-reserving the remainder: a full release would drop the
+   * still-needed stock for the moment between the release and the replacement reservation,
+   * during which another order (or a picker allocating this very reservation) could take it.
+   * Passing `rejectIfAllocated` makes the release command recheck allocation state under the
+   * same lock it takes on the reservation row, so a reservation that gets allocated in that
+   * window is left alone rather than released.
+   */
+  for (const reservation of activeReservations) {
+    const excessRemaining = excessByVariant.get(reservation.catalogVariantId) ?? 0
+    if (excessRemaining <= 0.000001) continue
+
+    const reservationQuantity = toNumber(reservation.quantity)
+    const trimQuantity = Math.min(reservationQuantity, excessRemaining)
+    try {
+      await commandBus.execute('wms.inventory.release', {
+        input: {
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          reservationId: reservation.id,
+          reason: 'sales.order.lines_changed',
+          quantity: trimQuantity < reservationQuantity ? trimQuantity : undefined,
+          rejectIfAllocated: true,
+          metadata: {
+            automation: 'sales.document.totals.calculated',
+            orderId,
+          },
+        },
+        ctx: commandCtx,
+      })
+      excessByVariant.set(reservation.catalogVariantId, excessRemaining - trimQuantity)
+    } catch (error) {
+      if (!isInvalidReservationStateError(error) && !isBalanceIntegrityViolationError(error)) throw error
     }
   }
 }

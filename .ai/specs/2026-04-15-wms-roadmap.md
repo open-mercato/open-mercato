@@ -236,7 +236,7 @@ Some source modules or event streams may not exist yet on a given deployment (e.
 
 | Toggle identifier | Events gated | Default | Notes |
 |-------------------|--------------|---------|--------|
-| `wms_integration_sales_order_inventory` | `sales.order.confirmed`, `sales.order.cancelled` | `true` | Disable only if reservations must be API-only (e.g. migration window). |
+| `wms_integration_sales_order_inventory` | `sales.order.confirmed`, `sales.order.cancelled`, `sales.document.totals.calculated` | `true` | Disable only if reservations must be API-only (e.g. migration window). |
 | `wms_integration_procurement_goods_receipt` | `procurement.goods_receipt.created` | `false` | Enable when Procurement emits this event. |
 | `wms_integration_shipping_shipments` | emission of `wms.packing.label_requested` | `true` | Already seeded. Kill switch for label requests. Does not allocate stock and does not decrement on-hand. The never-seeded id `wms_integration_shipping_shipment_lifecycle` is not used. |
 | `wms_integration_freight_shipment_eta` | `freight.shipment.eta_updated` | `false` | Enable when Freight module exists and emits ETAs. |
