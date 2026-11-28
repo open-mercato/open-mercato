@@ -5,6 +5,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCommunicationChannelsEvent } from '../events'
+import type { SendMessageResult } from '../lib/adapter'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { classifyOutboundError, isReauthError } from '../lib/error-classification'
 import {
@@ -357,6 +358,7 @@ const deliverOutboundMessageCommand: CommandHandler<
       })
     }
 
+    let failedSendResult: SendMessageResult | undefined
     // (5) + (6) Convert + send.
     try {
       const outboundPayload = (link.channelPayload as Record<string, unknown> | null) ?? {}
@@ -367,7 +369,8 @@ const deliverOutboundMessageCommand: CommandHandler<
         ? 'html'
         : ((message.bodyFormat as 'text' | 'markdown' | 'html') ?? 'text')
 
-      let baseMetadata = link.channelMetadata ?? {}
+      const { lastErrorMetadata: _lastErrorMetadata, ...storedMetadata } = link.channelMetadata ?? {}
+      let baseMetadata = storedMetadata
       const replyRecipient = message.externalEmail
       if (
         baseMetadata.to == null &&
@@ -509,6 +512,7 @@ const deliverOutboundMessageCommand: CommandHandler<
       })
 
       if (sendResult.status === 'failed') {
+        failedSendResult = sendResult
         throw new Error(sendResult.error ?? `Adapter '${adapter.providerKey}' reported send failure`)
       }
 
@@ -648,9 +652,15 @@ const deliverOutboundMessageCommand: CommandHandler<
       // (8) Failure path — classify, persist, emit, return.
       const classification = classifyOutboundError(sendErr)
       const requiresReauth = isReauthError(classification)
+      const { lastErrorMetadata: _lastErrorMetadata, ...previousMetadata } = link.channelMetadata ?? {}
+      const externalMessageId = stringOrUndefined(failedSendResult?.externalMessageId)
+      const messageId = stripBrackets(stringOrUndefined(failedSendResult?.metadata?.messageId) ?? externalMessageId)
       link.deliveryStatus = 'failed'
       link.channelMetadata = {
-        ...((link.channelMetadata as Record<string, unknown> | undefined) ?? {}),
+        ...previousMetadata,
+        ...(failedSendResult?.metadata ? { lastErrorMetadata: omitRawMessage(failedSendResult.metadata) } : {}),
+        ...(externalMessageId ? { externalMessageId } : {}),
+        ...(messageId ? { messageId } : {}),
         lastError: classification.message,
         lastErrorAt: new Date().toISOString(),
         transient: classification.transient,

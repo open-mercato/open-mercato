@@ -160,7 +160,7 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
   type Created = { entity: unknown; data: Record<string, any> }
 
   function makeCtx(opts: {
-    sendResult?: { status: string; externalMessageId?: string; error?: string }
+    sendResult?: { status: string; externalMessageId?: string; error?: string; metadata?: Record<string, unknown> }
     channelStatus?: string
   }) {
     const created: Created[] = []
@@ -306,9 +306,57 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     expect((link.channelMetadata as Record<string, unknown>).messageId).toBe('rfc-abc@example.com')
   })
 
+  it('preserves partial SMTP delivery details and a reply-matchable message ID on the failed link', async () => {
+    const error = 'SMTP_SEND_PARTIALLY_REJECTED: relay rejected 1 of 2 recipients'
+    const providerMetadata = {
+      accepted: ['accepted@example.com'],
+      rejected: ['rejected@example.com'],
+    }
+    const link = {
+      id: 'link-1',
+      deliveryStatus: 'pending',
+      channelPayload: null,
+      channelMetadata: { subject: 'Hello' },
+    }
+    const { ctx, channel, created } = makeCtx({
+      sendResult: {
+        status: 'failed',
+        error,
+        externalMessageId: '<smtp-1@example.com>',
+        metadata: { ...providerMetadata, rawMessage: Buffer.from('MIME-Version: 1.0') },
+      },
+    })
+    primeFinds(channel, link)
+
+    const result = await deliverOutboundMessageCommand.execute(
+      { messageId: MSG, scope: { tenantId: TENANT, organizationId: ORG } },
+      ctx,
+    )
+
+    expect(result).toMatchObject({ status: 'failed', error, transient: false, requiresReauth: false })
+    expect(link.deliveryStatus).toBe('failed')
+    expect(link.channelMetadata).toMatchObject({
+      subject: 'Hello',
+      externalMessageId: '<smtp-1@example.com>',
+      messageId: 'smtp-1@example.com',
+      lastError: error,
+    })
+    expect(link.channelMetadata).toHaveProperty('lastErrorMetadata', providerMetadata)
+    expect(created.some(({ entity }) => entity === ExternalMessage)).toBe(false)
+    expect(mockEmit).toHaveBeenCalledWith(
+      'communication_channels.message.delivery_failed',
+      expect.objectContaining({ error, transient: false }),
+      expect.anything(),
+    )
+  })
+
   it('flips the channel to requires_reauth and emits the event on a 401 (H2)', async () => {
-    const link: Record<string, any> = { id: 'link-1', deliveryStatus: 'pending', channelPayload: null, channelMetadata: null }
-    const { ctx, channel } = makeCtx({ sendResult: { status: 'failed', error: '401 Unauthorized' }, channelStatus: 'connected' })
+    const lastErrorMetadata = { response: 'Previous failure' }
+    const link = { id: 'link-1', deliveryStatus: 'failed', channelPayload: null, channelMetadata: { lastErrorMetadata } }
+    const { ctx, channel, adapter } = makeCtx({
+      sendResult: { status: 'failed', externalMessageId: '', error: '401 Unauthorized' },
+      channelStatus: 'connected',
+    })
     primeFinds(channel, link)
 
     const result = await deliverOutboundMessageCommand.execute(
@@ -319,6 +367,12 @@ describe('deliverOutboundMessageCommand — link integrity + reauth', () => {
     expect((result as any).status).toBe('failed')
     expect((result as any).requiresReauth).toBe(true)
     expect(channel.status).toBe('requires_reauth')
+    expect(adapter.convertOutbound).toHaveBeenCalledWith(expect.objectContaining({
+      channelMetadata: expect.not.objectContaining({ lastErrorMetadata }),
+    }))
+    expect(link.channelMetadata).not.toHaveProperty('lastErrorMetadata')
+    expect(link.channelMetadata).not.toHaveProperty('externalMessageId')
+    expect(link.channelMetadata).not.toHaveProperty('messageId')
     expect(mockEmit).toHaveBeenCalledWith(
       'communication_channels.channel.requires_reauth',
       expect.objectContaining({ channelId: 'ch-1' }),
