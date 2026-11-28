@@ -3,8 +3,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ProgressJob } from '@open-mercato/core/modules/progress/data/entities'
 import type { ProgressService } from '@open-mercato/core/modules/progress/lib/progressService'
+import type { IntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
 import { getSyncQueue } from '@open-mercato/core/modules/data_sync/lib/queue'
 import type { SyncRunService } from '@open-mercato/core/modules/data_sync/lib/sync-run-service'
 import {
@@ -72,14 +74,22 @@ export async function POST(req: Request) {
   }
 
   const container = await createRequestContainer()
-  const em = container.resolve('em') as EntityManager
-  const progressService = container.resolve('progressService') as ProgressService
   const scope = {
     organizationId: auth.orgId,
     tenantId: auth.tenantId,
     userId: auth.sub,
   }
+  const integrationStateService = container.resolve<IntegrationStateService>('integrationStateService')
+  if (!(await integrationStateService.isEnabled('sync_akeneo', scope))) {
+    const { t } = await resolveTranslations()
+    return NextResponse.json(
+      { ok: false, error: t('sync_akeneo.firstImport.integrationDisabled') },
+      { status: 409 },
+    )
+  }
 
+  const em = container.resolve('em') as EntityManager
+  const progressService = container.resolve('progressService') as ProgressService
   const [activeJob] = await findWithDecryption(
     em,
     ProgressJob,
