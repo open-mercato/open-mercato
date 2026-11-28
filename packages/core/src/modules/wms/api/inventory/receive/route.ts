@@ -17,9 +17,10 @@ export async function POST(request: Request) {
       resourceKind: 'wms.inventory',
       resourceId: `${input.warehouseId}:${input.locationId}:${input.catalogVariantId}`,
     }),
-    mapSuccess: (result: { movementId: string }) => ({
+    mapSuccess: (result: { movementId: string; lotId: string | null }) => ({
       ok: true,
       movementId: result.movementId,
+      lotId: result.lotId,
     }),
   })
 }
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
 const successSchema = z.object({
   ok: z.literal(true),
   movementId: z.string().uuid(),
+  lotId: z.string().uuid().nullable(),
 })
 const errorSchema = z.object({ error: z.string() })
 

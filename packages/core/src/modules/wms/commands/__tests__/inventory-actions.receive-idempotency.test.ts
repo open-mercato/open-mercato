@@ -153,7 +153,7 @@ describe('wms inventory receive idempotent replay', () => {
       ctx as never,
     )
 
-    expect(result).toEqual({ movementId: MOVEMENT_ID })
+    expect(result).toEqual({ movementId: MOVEMENT_ID, lotId: null })
     expect(balance.quantityOnHand).toBe('10')
     expect(em.create).not.toHaveBeenCalled()
   })
@@ -232,7 +232,7 @@ describe('wms inventory receive idempotent replay', () => {
       ctx as never,
     )
 
-    expect(result).toEqual({ movementId: MOVEMENT_ID })
+    expect(result).toEqual({ movementId: MOVEMENT_ID, lotId: null })
     expect(balance.quantityOnHand).toBe('10')
   })
 })

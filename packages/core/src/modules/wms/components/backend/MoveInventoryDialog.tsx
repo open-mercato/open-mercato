@@ -72,6 +72,7 @@ type MoveInventoryDialogProps = {
   initialFromLocationId?: string
   initialLotId?: string
   initialAvailable?: number | null
+  initialQuantity?: number
   lockSourceContext?: boolean
   movementType?: 'putaway' | 'transfer'
 }
@@ -103,6 +104,7 @@ export function MoveInventoryDialog({
   initialFromLocationId,
   initialLotId,
   initialAvailable,
+  initialQuantity,
   lockSourceContext = false,
   movementType = 'transfer',
 }: MoveInventoryDialogProps) {
@@ -236,10 +238,11 @@ export function MoveInventoryDialog({
     lotIdRef.current = lotId || undefined
     if (!catalogVariantId && !warehouseId && !fromLocationId) return
 
+    const requestedQuantity = initialQuantity != null && initialQuantity > 0 ? initialQuantity : 1
     const presetQuantity =
       initialAvailable != null && initialAvailable > 0
-        ? Math.min(1, initialAvailable)
-        : 1
+        ? Math.min(requestedQuantity, initialAvailable)
+        : requestedQuantity
 
     setForm({
       ...EMPTY_FORM,
@@ -259,6 +262,7 @@ export function MoveInventoryDialog({
     initialCatalogVariantId,
     initialFromLocationId,
     initialLotId,
+    initialQuantity,
     initialWarehouseId,
     open,
     resetDialog,

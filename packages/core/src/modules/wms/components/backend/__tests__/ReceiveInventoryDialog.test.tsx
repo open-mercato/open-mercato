@@ -195,4 +195,33 @@ describe('ReceiveInventoryDialog', () => {
       expect(flash).toHaveBeenCalledWith('Failed to receive inventory.', 'error'),
     )
   })
+
+  it('passes the received lot and quantity to onSuccess', async () => {
+    mockRunMutation.mockResolvedValue({ ok: true, movementId: 'movement-1', lotId: 'lot-1' })
+    const onSuccess = jest.fn()
+
+    render(
+      <ReceiveInventoryDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+        onSuccess={onSuccess}
+      />,
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('Search variant or SKU'), {
+      target: { value: '11111111-1111-4111-8111-111111111111' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Select warehouse'), {
+      target: { value: '22222222-2222-4222-8222-222222222222' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Select location'), {
+      target: { value: '33333333-3333-4333-8333-333333333333' },
+    })
+    fireEvent.submit(document.querySelector('form')!)
+
+    await waitFor(() =>
+      expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ lotId: 'lot-1', quantity: 1 })),
+    )
+  })
 })

@@ -59,11 +59,12 @@ export function InventoryOperationsSection({
     catalogVariantId: string
     warehouseId: string
     locationId: string
+    lotId?: string
     quantity: number
   } | null>(null)
 
   const handleReceiveSuccess = React.useCallback(
-    (ctx: { catalogVariantId: string; warehouseId: string; locationId: string; quantity: number }) => {
+    (ctx: { catalogVariantId: string; warehouseId: string; locationId: string; lotId?: string; quantity: number }) => {
       if (access.canMove) {
         setPutawayContext(ctx)
         setMoveOpen(true)
@@ -165,6 +166,8 @@ export function InventoryOperationsSection({
           initialCatalogVariantId={putawayContext?.catalogVariantId}
           initialWarehouseId={putawayContext?.warehouseId}
           initialFromLocationId={putawayContext?.locationId}
+          initialLotId={putawayContext?.lotId}
+          initialQuantity={putawayContext?.quantity}
           movementType={putawayContext ? 'putaway' : 'transfer'}
           lockSourceContext={Boolean(putawayContext)}
         />
