@@ -83,7 +83,7 @@ export async function POST(req: Request) {
   if (!(await integrationStateService.isEnabled('sync_akeneo', scope))) {
     const { t } = await resolveTranslations()
     return NextResponse.json(
-      { ok: false, error: t('sync_akeneo.firstImport.integrationDisabled') },
+      { ok: false, error: t('sync_akeneo.firstImport.integrationDisabled'), code: 'integrationDisabled' },
       { status: 409 },
     )
   }

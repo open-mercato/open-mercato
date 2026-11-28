@@ -4,7 +4,7 @@ import { getSyncQueue } from '@open-mercato/core/modules/data_sync/lib/queue'
 
 const scope = { organizationId: 'org-1', tenantId: 'tenant-1', userId: 'user-1' }
 const mockIsEnabled = jest.fn(async () => true)
-const mockFindWithDecryption = jest.fn(async () => [])
+const mockFindWithDecryption = jest.fn<Promise<Array<{ id: string }>>, []>(async () => [])
 const mockCreateJob = jest.fn(async () => ({ id: 'sequence-job-1' }))
 const mockEnqueue = jest.fn()
 
@@ -46,9 +46,24 @@ describe('Akeneo first import admission', () => {
     const response = await POST(new Request('http://localhost/api/sync_akeneo/first-import', { method: 'POST' }))
 
     expect(response.status).toBe(409)
-    expect(await response.json()).toEqual({ ok: false, error: 'sync_akeneo.firstImport.integrationDisabled' })
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'sync_akeneo.firstImport.integrationDisabled',
+      code: 'integrationDisabled',
+    })
     expect(mockIsEnabled).toHaveBeenCalledWith('sync_akeneo', scope)
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
+    expect(mockCreateJob).not.toHaveBeenCalled()
+    expect(getSyncQueue).not.toHaveBeenCalled()
+  })
+
+  it('keeps the existing conflict response when an enabled import is already running', async () => {
+    mockFindWithDecryption.mockResolvedValueOnce([{ id: 'active-job-1' }])
+
+    const response = await POST(new Request('http://localhost/api/sync_akeneo/first-import', { method: 'POST' }))
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toEqual({ ok: false, error: 'The first full Akeneo import is already running.' })
     expect(mockCreateJob).not.toHaveBeenCalled()
     expect(getSyncQueue).not.toHaveBeenCalled()
   })

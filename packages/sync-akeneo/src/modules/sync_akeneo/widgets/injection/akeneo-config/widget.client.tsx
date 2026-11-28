@@ -858,17 +858,17 @@ export default function AkeneoConfigWidget({ context, data }: InjectionWidgetCom
 
     try {
       await persistMappings(state)
-      const result = await apiCall<{ ok?: boolean; progressJobId?: string; error?: string }>('/api/sync_akeneo/first-import', {
+      const result = await apiCall<{ ok?: boolean; progressJobId?: string; error?: string; code?: string }>('/api/sync_akeneo/first-import', {
         method: 'POST',
       })
 
       if (!result.ok) {
-        if (result.status === 409) {
+        if (result.status === 409 && result.result?.code !== 'integrationDisabled') {
           await loadFirstImportStatus()
           return
         }
         throw new Error(
-          (result.result as { error?: string } | null)?.error
+          result.result?.error
             ?? t('sync_akeneo.firstImport.errors.start', 'Failed to start the sync run.'),
         )
       }
