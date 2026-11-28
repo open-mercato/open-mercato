@@ -13,6 +13,8 @@ type UseMessageDetailsQueriesInput = {
   t: TranslateFn
   scopeVersion: unknown
   queryClient: QueryClient
+  enabled: () => boolean
+  getRefreshSignal: () => AbortSignal
 }
 
 export function useMessageDetailsQueries({
@@ -20,6 +22,8 @@ export function useMessageDetailsQueries({
   t,
   scopeVersion,
   queryClient,
+  enabled,
+  getRefreshSignal,
 }: UseMessageDetailsQueriesInput) {
   const detailQueryKey = React.useMemo(
     () => ['messages', 'detail', id, scopeVersion],
@@ -34,11 +38,12 @@ export function useMessageDetailsQueries({
 
   const detailQuery = useQuery<MessageDetail | null>({
     queryKey: detailQueryKey,
-    queryFn: async () => {
+    enabled,
+    queryFn: async ({ signal }) => {
       const detailUrl = suppressAutoMarkReadRef.current
         ? `/api/messages/${encodeURIComponent(id)}?skipMarkRead=1`
         : `/api/messages/${encodeURIComponent(id)}`
-      const call = await apiCall<MessageDetail>(detailUrl)
+      const call = await apiCall<MessageDetail>(detailUrl, { signal })
       if (call.status === 404) {
         return null
       }
@@ -63,9 +68,11 @@ export function useMessageDetailsQueries({
 
   const attachmentsQuery = useQuery<MessageAttachment[]>({
     queryKey: ['messages', 'detail', id, 'attachments', scopeVersion],
-    queryFn: async () => {
+    enabled,
+    queryFn: async ({ signal }) => {
       const call = await apiCall<{ attachments?: MessageAttachment[] }>(
         `/api/messages/${encodeURIComponent(id)}/attachments`,
+        { signal },
       )
 
       if (call.status === 404) {
@@ -84,11 +91,25 @@ export function useMessageDetailsQueries({
   })
 
   const attachments = attachmentsQuery.data
+  const { refetch } = detailQuery
+
+  const refetchDetail = React.useCallback(async () => {
+    if (enabled()) await refetch()
+  }, [enabled, refetch])
 
   const refreshDetailWithoutAutoMarkRead = React.useCallback(async () => {
+    if (!enabled()) return queryClient.getQueryData<MessageDetail | null>(detailQueryKey) ?? null
+
+    const signal = getRefreshSignal()
     const call = await apiCall<MessageDetail>(
       `/api/messages/${encodeURIComponent(id)}?skipMarkRead=1`,
-    )
+      { signal },
+    ).catch((error: unknown) => {
+      if (signal.aborted) return null
+      throw error
+    })
+
+    if (!call || signal.aborted) return queryClient.getQueryData<MessageDetail | null>(detailQueryKey) ?? null
 
     if (call.status === 404) {
       queryClient.setQueryData(detailQueryKey, null)
@@ -104,7 +125,7 @@ export function useMessageDetailsQueries({
 
     queryClient.setQueryData(detailQueryKey, call.result)
     return call.result
-  }, [detailQueryKey, id, queryClient, t])
+  }, [detailQueryKey, enabled, getRefreshSignal, id, queryClient, t])
 
   const suppressAutoMarkRead = React.useCallback(() => {
     suppressAutoMarkReadRef.current = true
@@ -123,6 +144,7 @@ export function useMessageDetailsQueries({
     loadErrorMessage,
     attachmentsQuery,
     attachments,
+    refetchDetail,
     refreshDetailWithoutAutoMarkRead,
     suppressAutoMarkRead,
     listItemComponentKey,

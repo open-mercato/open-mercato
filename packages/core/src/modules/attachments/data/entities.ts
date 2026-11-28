@@ -11,7 +11,10 @@ import type {
 import type { AttachmentAccessRequirement } from '../lib/access-types'
 
 @Entity({ tableName: 'attachment_partitions' })
-@Unique({ name: 'attachment_partitions_code_unique', properties: ['code'] })
+@Index({
+  name: 'attachment_partitions_scope_code_unique',
+  expression: 'create unique index "attachment_partitions_scope_code_unique" on "attachment_partitions" ("code", "tenant_id", "organization_id") nulls not distinct',
+})
 export class AttachmentPartition {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'extractDocumentStructure' | 'indexDocumentSections'
 

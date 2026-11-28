@@ -8,6 +8,7 @@ import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 export interface CheckAuthRateLimitOptions {
   req: Request
   ipConfig: RateLimitConfig
+  ipCheck?: 'trusted-only' | 'untrusted-only'
   compoundConfig?: RateLimitConfig
   isolateByIdentifierWithoutTrustedIp?: boolean
   /** Raw identifier for compound key (e.g., email). Hashed internally before use. */
@@ -39,6 +40,9 @@ export async function checkAuthRateLimit(options: CheckAuthRateLimitOptions): Pr
     if (!rateLimiterService) return { error: null, compoundKey: null }
 
     const clientIp = getClientIp(options.req, rateLimiterService.trustProxyDepth)
+    if (options.ipCheck === 'trusted-only' && !clientIp) {
+      return { error: null, compoundKey: null }
+    }
     const clientKey = clientIp ?? RATE_LIMIT_FALLBACK_KEY
 
     const { translate } = await resolveTranslations()
@@ -50,8 +54,10 @@ export async function checkAuthRateLimit(options: CheckAuthRateLimitOptions): Pr
     const ipKey = !clientIp && options.isolateByIdentifierWithoutTrustedIp && compoundKey
       ? `identifier:${compoundKey}`
       : clientKey
-    const ipError = await checkRateLimit(rateLimiterService, options.ipConfig, ipKey, errorMessage)
-    if (ipError) return { error: ipError, compoundKey: null }
+    if (options.ipCheck !== 'untrusted-only' || !clientIp) {
+      const ipError = await checkRateLimit(rateLimiterService, options.ipConfig, ipKey, errorMessage)
+      if (ipError) return { error: ipError, compoundKey: null }
+    }
 
     if (options.compoundConfig && compoundKey) {
       const compoundError = await checkRateLimit(rateLimiterService, options.compoundConfig, compoundKey, errorMessage)

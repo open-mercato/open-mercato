@@ -7,7 +7,9 @@ on:
 # Takes `merge-queue` off a pull request as soon as it carries a blocking label
 # (`qa-failed`, `changes-requested`, `blocked`, `do-not-merge`, or
 # `needs-human-qa` without `qa-approved`) and explains why in a one-line
-# comment. The rule lives in scripts/ci/merge-queue-guard.mts and is unit-tested
+# comment. When anyone else removes `merge-queue` (a person or a skill), the run
+# only records who and when in its job summary and log; it never re-adds the
+# label and never comments. The rule lives in scripts/ci/merge-queue-guard.mts and is unit-tested
 # in scripts/__tests__/merge-queue-guard.test.ts, which also pins the safety
 # properties below.
 #
@@ -31,7 +33,6 @@ jobs:
   guard:
     if: >-
       ${{ !github.event.repository.fork &&
-      !(github.event.action == 'unlabeled' && github.event.label.name == 'merge-queue') &&
       contains(fromJSON('["merge-queue","qa-failed","changes-requested","blocked","do-not-merge","needs-human-qa","qa-approved"]'), github.event.label.name) }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
@@ -56,10 +57,13 @@ jobs:
           fetch-depth: 1
 
       # Pinned by SHA: this action receives the app token.
-      - name: Remove merge-queue when a blocking label is present
+      # Every run writes a job summary: PR, event, decision and reason.
+      - name: Check merge-queue against blocking labels
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          GUARD_APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const { run } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/merge-queue-guard.mts`);
-            await run({ github, context, core });
+            await run({ github, context, core, guardAppSlug: process.env.GUARD_APP_SLUG });

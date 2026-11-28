@@ -4,7 +4,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -41,6 +41,9 @@ export async function resolveDictionariesRouteContext(req: Request): Promise<Dic
   }
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  if (scope?.selectionRejected) {
+    throw forbidden()
+  }
   const em = (container.resolve('em') as EntityManager)
   const tenantId: string = scope?.tenantId ?? auth.tenantId
   const organizationId = resolveSingleOrganizationIdOrDeny(scope, auth) ?? null
@@ -57,14 +60,14 @@ export async function resolveDictionariesRouteContext(req: Request): Promise<Dic
     if (normalized) candidateIds.add(normalized)
   }
 
-  pushCandidate(organizationId)
-  if (Array.isArray(scope?.filterIds)) {
+  const selectedOrganizationId = normalizeId(scope?.selectedId)
+  if (selectedOrganizationId) {
+    pushCandidate(selectedOrganizationId)
+  } else if (Array.isArray(scope?.filterIds)) {
     for (const id of scope.filterIds) pushCandidate(id)
+  } else if (organizationId) {
+    pushCandidate(organizationId)
   }
-  if (Array.isArray(scope?.allowedIds)) {
-    for (const id of scope.allowedIds) pushCandidate(id)
-  }
-  pushCandidate(auth.orgId ?? null)
 
   const readableOrganizationIds = new Set<string>()
   try {
@@ -101,7 +104,7 @@ export async function resolveDictionariesRouteContext(req: Request): Promise<Dic
     auth,
     organizationScope: scope,
     selectedOrganizationId: organizationId,
-    organizationIds: scope?.filterIds ?? (auth.orgId ? [auth.orgId] : null),
+    organizationIds: scope?.filterIds ?? (organizationId ? [organizationId] : null),
     request: req,
   }
 

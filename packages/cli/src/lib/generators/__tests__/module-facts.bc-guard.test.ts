@@ -72,7 +72,7 @@ describe('module-facts BC resolve guard (T2)', () => {
     expect(legacySecurity?.kind === 'component-override' ? legacySecurity.details.mode : null).toBe('replace')
     expect(v2Security?.kind === 'component-override' ? v2Security.details.mode : null).toBe('wrapper')
 
-    const recoveredContribution = 'catalog.injection.product-bulk-delete@data-table:catalog.products.list:bulk-actions'
+    const recoveredContribution = 'catalog.injection.product-seo@crud-form:catalog.catalog_product'
     expect(legacyFactsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
       .not.toContain(recoveredContribution)
     expect(factsByModule.catalog.extensionSurfaces?.contributions.map((entry) => entry.id))
@@ -196,12 +196,14 @@ describe('module-facts BC resolve guard (T2)', () => {
     // so uniform growth across all four is the evidence that this is repo size,
     // not a duplicated payload. The headroom ratio is kept at the ~1.15 the
     // previous raise used, so the guard keeps the same detection power it had.
+    // Re-measured on the merged tree (`yarn jest module-facts.bc-guard`), which
+    // carries both the catalog AI categorization surfaces (routes, pages,
+    // bulk-action widget, worker, subscriber, events, ACL feature) and
+    // whatever `main` had accumulated since this branch forked:
+    //   completeJson 5,573,265 · legacy delta 2,438,777 · markdown 2,110,921 ·
+    //   directory markdown 2,300,284.
+    // The caps below keep the usual ~15% headroom over that measurement.
     expect(Buffer.byteLength(completeJson)).toBeLessThan(6_380_000)
-    // Measured on the current merged tree (`yarn jest module-facts.bc-guard`):
-    //   completeJson 5,547,284 · legacy delta 2,425,489 · markdown 2,100,437 ·
-    //   directory markdown 2,289,693.
-    // The four measures grew uniformly since the previous baseline
-    // (+15.0% / +14.9% / +15.4% / +15.3%), preserving the linear-growth signal.
     expect(Buffer.byteLength(completeJson) - Buffer.byteLength(legacyJson)).toBeLessThan(2_790_000)
     // Markdown cap raised with the source-link contract: entities, events, ACL
     // features, DI tokens, search entities, notifications, UMES hosts and UMES

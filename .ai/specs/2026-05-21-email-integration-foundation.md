@@ -1517,9 +1517,9 @@ Only `{ attachmentId, owner, filename? }` is persisted, under the hub-owned `cha
 
 ### Not in scope
 
-- The messages composer keeps refusing attachments on the mailbox path (`composeSenderDelegation`): it would need the composer's upload owner and the decision whether a mailbox send re-parents the files to the message (#6261 follow-up).
+- Issue #6261 adds mailbox composer attachments separately. Uploads move to the sent message before the existing outbound delivery reads them.
 - Replies routed by the outbound bridge still carry no attachments.
-- The platform `Message` that `send-as-user` creates does not list the files it sent: the refs live only in `MessageChannelLink.channel_metadata`, so the thread in Open Mercato shows the message without them. Linking them to the message is part of the same #6261 decision.
+- Direct `send-as-user` attachment references still retain their original owner and live on the outbound link. The mailbox composer uses temporary uploads that it can move to its sent message.
 
 ### Implementation Status
 

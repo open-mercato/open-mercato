@@ -58,7 +58,7 @@ test('TC-CRM-EMAIL-VISIBILITY-005: private email mutation authorization follows 
         'customers.email.share_conversation',
       ],
     })
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
     const ownerEmail = `qa-email-mutation-owner-${stamp}@acme.com`
     const managerEmail = `qa-email-mutation-manager-${stamp}@acme.com`
     ownerId = await createUserFixture(request, adminToken, {
@@ -256,7 +256,7 @@ async function withSchedulingFixture(
         'customers.email.share_conversation',
       ],
     })
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
     const ownerEmail = `qa-conflict-owner-${stamp}@example.com`
     const viewerEmail = `qa-conflict-viewer-${stamp}@example.com`
     const ownerId = await createUserFixture(request, adminToken, {

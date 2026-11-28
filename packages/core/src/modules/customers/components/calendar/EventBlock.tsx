@@ -150,6 +150,7 @@ export type EventBlockProps = {
   insetInlineStart: string
   width: string
   conflicted: boolean
+  conflictDescription?: string
   highlighted: boolean
   selected?: boolean
   nowMs: number
@@ -165,6 +166,7 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
     insetInlineStart,
     width,
     conflicted,
+    conflictDescription,
     highlighted,
     selected,
     nowMs,
@@ -194,7 +196,8 @@ export const EventBlock = React.forwardRef<HTMLButtonElement, EventBlockProps>(f
       type="button"
       variant="ghost"
       aria-label={fullLabel}
-      title={fullLabel}
+      aria-description={conflictDescription}
+      title={conflictDescription ? `${fullLabel} · ${conflictDescription}` : fullLabel}
       className={cn(
         'pointer-events-auto absolute h-auto flex-col items-start justify-start gap-0.5 whitespace-normal overflow-hidden rounded-md ps-3 pe-1.5 text-start outline-none hover:bg-muted/70',
         !compact && 'sm:gap-1 sm:ps-4 sm:pe-3',
