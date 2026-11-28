@@ -9,11 +9,14 @@ import {
 } from '@open-mercato/shared/lib/commands'
 import { registerCommandInterceptors } from '@open-mercato/shared/lib/commands/command-interceptor-store'
 import type { CommandInterceptor, CommandInterceptorContext } from '@open-mercato/shared/lib/commands/command-interceptor'
+import { bindMatchedApiRoutePath } from '@open-mercato/shared/lib/modules/api-route-identity'
+import { registerApiRouteManifests } from '@open-mercato/shared/modules/registry'
 
 describe('CommandBus', () => {
   afterEach(() => {
     commandRegistry.clear()
     registerCommandInterceptors([])
+    registerApiRouteManifests([])
   })
 
   it('executes registered command and logs action metadata', async () => {
@@ -93,6 +96,156 @@ describe('CommandBus', () => {
     expect(claimForUndo).not.toHaveBeenCalled()
     expect(undo).not.toHaveBeenCalled()
     expect(markUndone).not.toHaveBeenCalled()
+  })
+
+  it('rechecks the command feature before claiming an undo log', async () => {
+    const undo = jest.fn(async () => undefined)
+    const claimForUndo = jest.fn(async () => true)
+    const logEntry = {
+      id: 'log-feature-guarded',
+      commandId: 'test.command.feature-guarded',
+      commandPayload: { __redoInput: { id: 'record-1' } },
+      contextJson: { requiredFeatures: ['customers.people.manage'], requiredFeaturesResolved: true },
+      tenantId: 'tenant-1',
+      organizationId: null,
+    }
+    registerCommand({ id: 'test.command.feature-guarded', execute: jest.fn(), undo })
+    const userHasAllFeatures = jest.fn(async () => false)
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({
+        findByUndoToken: jest.fn(async () => logEntry),
+        claimForUndo,
+        markUndone: jest.fn(),
+      }),
+      rbacService: asValue({ userHasAllFeatures }),
+    })
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await expect(new CommandBus().undo('undo-token', ctx)).rejects.toMatchObject({ status: 403 })
+
+    expect(userHasAllFeatures).toHaveBeenCalledWith(
+      'user-1',
+      ['customers.people.manage'],
+      { tenantId: 'tenant-1', organizationId: null },
+    )
+    expect(claimForUndo).not.toHaveBeenCalled()
+    expect(undo).not.toHaveBeenCalled()
+  })
+
+  it('rechecks the command feature before claiming or executing a redo', async () => {
+    const execute = jest.fn(async () => ({ ok: true }))
+    const claimForRedo = jest.fn(async () => true)
+    registerCommand({
+      id: 'test.command.redo-feature-guarded',
+      requiredFeatures: ['customers.people.manage'],
+      execute,
+      undo: jest.fn(),
+    })
+    const userHasAllFeatures = jest.fn(async () => false)
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({ claimForRedo, log: jest.fn() }),
+      rbacService: asValue({ userHasAllFeatures }),
+    })
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await expect(new CommandBus().execute('test.command.redo-feature-guarded', {
+      input: { id: 'record-1' },
+      ctx,
+      redoLogEntry: {
+        id: 'source-log',
+        commandId: 'test.command.redo-feature-guarded',
+        contextJson: { requiredFeatures: ['customers.people.manage'] },
+        tenantId: 'tenant-1',
+        organizationId: null,
+      },
+    })).rejects.toMatchObject({ status: 403 })
+
+    expect(claimForRedo).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('declines replay of a legacy action log with no established feature requirements', async () => {
+    const claimForUndo = jest.fn(async () => true)
+    const undo = jest.fn(async () => undefined)
+    const logEntry = {
+      id: 'legacy-log',
+      commandId: 'test.command.legacy-feature-unknown',
+      commandPayload: { __redoInput: { id: 'record-1' } },
+      contextJson: null,
+      tenantId: 'tenant-1',
+      organizationId: null,
+    }
+    registerCommand({ id: 'test.command.legacy-feature-unknown', execute: jest.fn(), undo })
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({
+        findByUndoToken: jest.fn(async () => logEntry),
+        claimForUndo,
+        markUndone: jest.fn(),
+      }),
+    })
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+    }
+
+    await expect(new CommandBus().undo('legacy-token', ctx)).rejects.toMatchObject({ status: 403 })
+
+    expect(claimForUndo).not.toHaveBeenCalled()
+    expect(undo).not.toHaveBeenCalled()
+  })
+
+  it('snapshots flat route metadata requireFeatures into a new action log', async () => {
+    const log = jest.fn(async () => ({ id: 'route-log' }))
+    registerCommand({
+      id: 'test.command.flat-route-feature',
+      isUndoable: true,
+      execute: jest.fn(async () => ({ ok: true })),
+      buildLog: jest.fn(() => ({ resourceKind: 'test.route', resourceId: 'record-1' })),
+    })
+    registerApiRouteManifests([{
+      moduleId: 'test',
+      kind: 'legacy',
+      path: '/test/flat-feature-route',
+      method: 'POST',
+      methods: ['POST'],
+      load: async () => ({ metadata: { requireFeatures: ['test.records.manage'] } }),
+    }])
+    const request = new Request('http://localhost/api/test/flat-feature-route', { method: 'POST' })
+    expect(bindMatchedApiRoutePath(request, '/test/flat-feature-route', {})).toBe(true)
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({ actionLogService: asValue({ log }) })
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: null },
+      organizationScope: null,
+      selectedOrganizationId: null,
+      organizationIds: null,
+      request,
+    }
+
+    await new CommandBus().execute('test.command.flat-route-feature', { input: {}, ctx })
+
+    expect(log).toHaveBeenCalledWith(expect.objectContaining({
+      context: { requiredFeatures: ['test.records.manage'], requiredFeaturesResolved: true },
+    }))
   })
 
   it('authorizes redo before snapshots, mutations, or log writes', async () => {

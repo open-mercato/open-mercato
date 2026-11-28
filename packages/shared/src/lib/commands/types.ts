@@ -258,6 +258,12 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
   readonly id: string
   readonly isUndoable?: boolean
   /**
+   * Feature requirements for replay when the command has no authenticated API
+   * route context. Route-backed executions snapshot their route requirements in
+   * the action log automatically; this declaration is an additional fallback.
+   */
+  readonly requiredFeatures?: string[]
+  /**
    * Opts replay into the command bus's transaction-bound lifecycle. The source
    * action-log transition, handler mutation, and any new replay log share one
    * EntityManager and commit or roll back together. Handlers that enable this
