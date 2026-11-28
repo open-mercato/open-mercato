@@ -75,8 +75,28 @@ import {
   type DecimalInput,
 } from "@open-mercato/shared/lib/decimal";
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('sales')
+
+function DefaultLineTaxRate({
+  enabled,
+  defaultRate,
+  values,
+  setFormValue,
+}: {
+  enabled: boolean;
+  defaultRate: TaxRateOption | null;
+  values: FieldRenderProps["values"];
+  setFormValue: FieldRenderProps["setFormValue"];
+}) {
+  React.useEffect(() => {
+    if (!enabled || !defaultRate || values?.taxRateId || values?.taxRate != null) return;
+    setFormValue?.("taxRateId", defaultRate.id);
+    setFormValue?.("taxRate", defaultRate.rate ?? null);
+  }, [defaultRate, enabled, setFormValue, values]);
+  return null;
+}
 
 type ProductOption = {
   id: string;
@@ -566,6 +586,7 @@ export function LineItemDialog({
   const selectedProductIdRef = React.useRef<string | null>(null);
   const taxRatesRef = React.useRef<TaxRateOption[]>([]);
   const defaultTaxRateRef = React.useRef<TaxRateOption | null>(null);
+  const taxRatesRequestRef = React.useRef<Promise<TaxRateOption[] | null> | null>(null);
   const dialogContentRef = React.useRef<HTMLDivElement | null>(null);
 
   const resourcePath = React.useMemo(
@@ -660,13 +681,6 @@ export function LineItemDialog({
   const resetForm = React.useCallback(
     (next?: Partial<LineFormState>) => {
       const base = { ...defaultForm(currencyCode), ...next };
-      const defaultRate = defaultTaxRateRef.current;
-      if (!base.taxRateId && defaultRate) {
-        base.taxRateId = defaultRate.id;
-        base.taxRate = Number.isFinite(defaultRate.rate ?? null)
-          ? (defaultRate.rate as number)
-          : base.taxRate;
-      }
       setInitialValues(base);
       setLineMode(base.lineMode);
       selectedProductIdRef.current = null;
@@ -686,29 +700,33 @@ export function LineItemDialog({
     resetForm();
   }, [onOpenChange, resetForm]);
 
-  const loadTaxRates = React.useCallback(async () => {
+  const loadTaxRates = React.useCallback(async (isCurrent: () => boolean) => {
     try {
       const response = await apiCall<{
         items?: Array<Record<string, unknown>>;
       }>("/api/sales/tax-rates?pageSize=100", undefined, {
         fallback: { items: [] },
       });
+      if (!response.ok) return null;
       const items = Array.isArray(response.result?.items)
         ? response.result.items
         : [];
       const parsed = items
         .map<TaxRateOption | null>((item) => mapTaxRateOption(item))
         .filter((entry): entry is TaxRateOption => Boolean(entry));
+      if (!isCurrent()) return parsed;
       taxRatesRef.current = parsed;
       defaultTaxRateRef.current = parsed.find((rate) => rate.isDefault) ?? null;
       setTaxRates(parsed);
       return parsed;
     } catch (err) {
+      if (!isCurrent()) return null;
       logger.error('sales.tax-rates.fetch', { err });
+      reportTelemetryError(err, { module: 'sales', code: 'sales.tax_rates_fetch_failed' });
       taxRatesRef.current = [];
       defaultTaxRateRef.current = null;
       setTaxRates([]);
-      return [];
+      return null;
     }
   }, []);
 
@@ -1460,8 +1478,17 @@ export function LineItemDialog({
 
   React.useEffect(() => {
     if (!open) return;
-    loadTaxRates().catch(() => {});
+    let cancelled = false;
+    const request = loadTaxRates(() => !cancelled);
+    taxRatesRequestRef.current = request;
     loadLineStatuses().catch(() => {});
+    return () => {
+      cancelled = true;
+      taxRatesRequestRef.current = null;
+      taxRatesRef.current = [];
+      defaultTaxRateRef.current = null;
+      setTaxRates([]);
+    };
   }, [loadLineStatuses, loadTaxRates, open]);
 
   const handleFormSubmit = React.useCallback(
@@ -1633,13 +1660,25 @@ export function LineItemDialog({
         values.catalogSnapshot
           ? values.catalogSnapshot
           : null;
+      let taxSelection = { taxRateId: values.taxRateId, taxRate: values.taxRate };
+      if (!initialLine && !hasTaxMetadata(taxSelection)) {
+        const request = taxRatesRequestRef.current;
+        const rates = request ? await request : null;
+        if (!rates || taxRatesRequestRef.current !== request) {
+          throw createCrudFormError(
+            t("sales.config.taxRates.errors.load", "Failed to load tax rates."),
+          );
+        }
+        const defaultRate = rates.find((rate) => rate.isDefault);
+        if (defaultRate) taxSelection = { taxRateId: defaultRate.id, taxRate: defaultRate.rate };
+      }
       const selectedTaxRateId =
-        typeof values.taxRateId === "string" && values.taxRateId.trim().length
-          ? values.taxRateId
+        typeof taxSelection.taxRateId === "string" && taxSelection.taxRateId.trim().length
+          ? taxSelection.taxRateId
           : null;
-      const resolvedTaxRate = Number.isFinite(values.taxRate)
-        ? (values.taxRate as number)
-        : normalizeNumber(values.taxRate);
+      const resolvedTaxRate = Number.isFinite(taxSelection.taxRate)
+        ? (taxSelection.taxRate as number)
+        : normalizeNumber(taxSelection.taxRate);
       const normalizedTaxRate = Number.isFinite(resolvedTaxRate)
         ? resolvedTaxRate
         : 0;
@@ -1789,6 +1828,7 @@ export function LineItemDialog({
       documentKey,
       documentUpdatedAt,
       editingId,
+      hasTaxMetadata,
       initialLine,
       isShippedOrderLine,
       loadDecimalPlacesForCurrency,
@@ -2458,6 +2498,12 @@ export function LineItemDialog({
           };
           return (
             <div className="flex items-center gap-2">
+              <DefaultLineTaxRate
+                enabled={open && !initialLine}
+                defaultRate={defaultTaxRateRef.current}
+                values={values}
+                setFormValue={setFormValue}
+              />
               <Select
                 value={resolvedValue || undefined}
                 onValueChange={(value) => handleChange({ target: { value } } as React.ChangeEvent<HTMLSelectElement>)}
@@ -2788,6 +2834,8 @@ export function LineItemDialog({
     t,
     taxRateMap,
     taxRates,
+    open,
+    initialLine,
     resolveTaxSelection,
     selectPriceAfterRefresh,
     hasTaxMetadata,

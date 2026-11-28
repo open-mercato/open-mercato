@@ -6,7 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -15,6 +15,8 @@ import { NoProjectAccess } from '../../../../../../lib/time-tracking-ui/NoProjec
 import { readItems, readString } from '../../../../../../lib/time-tracking-ui/kanbanBoardData'
 
 const PROJECTS_HREF = '/backend/staff/time-tracking/projects'
+
+type ProjectResult = { id: string; name: string } | { notFound: true } | null
 
 /** The project board of screen 6 — the same screen, with the project already known. */
 export default function ProjectBoardPage({ params }: { params?: { id?: string | string[] } }) {
@@ -26,7 +28,7 @@ export default function ProjectBoardPage({ params }: { params?: { id?: string | 
   const projectId = Array.isArray(rawId) ? rawId[0] ?? null : rawId ?? null
 
   const projectKey = projectId ?? 'none'
-  const projectQuery = useQuery<{ id: string; name: string } | null>({
+  const projectQuery = useQuery<ProjectResult>({
     queryKey: ['staff', 'time-tracking', 'board', 'project', `scope:${scopeVersion}`, projectKey],
     enabled: !!projectId,
     staleTime: 60_000,
@@ -45,18 +47,18 @@ export default function ProjectBoardPage({ params }: { params?: { id?: string | 
       const call = await apiCall<Record<string, unknown>>(
         `/api/staff/timesheets/time-projects?ids=${encodeURIComponent(projectId)}&pageSize=1`,
       )
-      if (!call.ok) return null
+      if (!call.ok) {
+        if (call.status === 404 && call.result?.reason === 'no_project_access') return null
+        if (call.status === 404) return { notFound: true }
+        throw new Error(t('staff.timesheets.projects.errors.load', 'Failed to load project.'))
+      }
       const row = readItems(call.result)[0]
-      if (!row) return null
+      if (!row) return { notFound: true }
       const id = readString(row, 'id')
-      if (!id) return null
+      if (!id) return { notFound: true }
       return { id, name: readString(row, 'name') ?? id }
     },
   })
-
-  if (!projectId) {
-    return <NoProjectAccess />
-  }
 
   if (projectQuery.isLoading) {
     return (
@@ -69,8 +71,39 @@ export default function ProjectBoardPage({ params }: { params?: { id?: string | 
     )
   }
 
-  if (!projectQuery.data) {
+  if (projectQuery.isError) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage
+            label={t('staff.timesheets.projects.errors.load', 'Failed to load project.')}
+            action={
+              <Button type="button" variant="outline" size="sm" onClick={() => { void projectQuery.refetch() }}>
+                {t('common.retry', 'Retry')}
+              </Button>
+            }
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (projectId && projectQuery.data === null) {
     return <NoProjectAccess timeProjectId={projectId} />
+  }
+
+  if (!projectId || !projectQuery.data || 'notFound' in projectQuery.data) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('staff.timesheets.projects.errors.notFound', 'Project not found.')}
+            backHref={PROJECTS_HREF}
+            backLabel={t('staff.timesheets.projects.actions.backToList', 'Back to projects')}
+          />
+        </PageBody>
+      </Page>
+    )
   }
 
   return (

@@ -241,10 +241,10 @@ const TAX_RATES = [
 const STANDARD_LABEL = '23% VAT • VAT-23 • 23%'
 const ZERO_LABEL = '0% VAT • VAT-0 • 0%'
 
-const renderDialog = (initialLine: SalesLineRecord | null) => (
+const renderDialog = (initialLine: SalesLineRecord | null, kind: 'order' | 'quote' = 'order', open = true) => (
   <LineItemDialog
-    open
-    kind="order"
+    open={open}
+    kind={kind}
     documentId="order-1"
     currencyCode="PLN"
     organizationId="org-1"
@@ -337,7 +337,7 @@ describe('LineItemDialog keeps the stored tax rate of an API-created line (issue
 
   it('does not preselect the default class for a stored rate that matches no class', async () => {
     const view = render(renderDialog(null))
-    await waitFor(() => expect(taxDisplay()).toContain('No tax class selected'))
+    await waitFor(() => expect(taxDisplay()).toContain(STANDARD_LABEL))
 
     view.rerender(
       renderDialog(
@@ -353,5 +353,139 @@ describe('LineItemDialog keeps the stored tax rate of an API-created line (issue
     expect(payload.taxRate).toBe(7)
     expect(payload.metadata).not.toHaveProperty('taxRateId')
     expect(payload.unitPriceNet).toBe('100')
+  })
+
+  it.each(['order', 'quote'] as const)('applies a delayed default to the first new %s line without resetting typed values', async (kind) => {
+    let resolveRates!: (response: unknown) => void
+    mockApiCall.mockImplementation((url: string) => url.startsWith('/api/sales/tax-rates')
+      ? new Promise((resolve) => { resolveRates = resolve })
+      : Promise.resolve({ ok: true, result: { items: [] } }))
+    render(renderDialog(null, kind))
+    await waitFor(() => expect(resolveRates).toBeDefined())
+    fireEvent.click(screen.getByRole('button', { name: 'Custom line' }))
+    const priceInput = screen.getByTestId('field-unitPrice').querySelector('input')!
+    fireEvent.change(priceInput, { target: { value: '123' } })
+
+    await act(async () => { resolveRates({ ok: true, result: { items: TAX_RATES } }) })
+
+    await waitFor(() => expect(formValues.taxRateId).toBe('rate-23'))
+    expect(taxDisplay()).toContain(STANDARD_LABEL)
+    expect(formValues.taxRate).toBe(23)
+    expect(formValues.unitPrice).toBe('123')
+    await act(async () => { await capturedSubmit?.({ ...formValues, name: 'Custom item' }) })
+    expect(mockCreateCrud).toHaveBeenCalledWith(
+      kind === 'order' ? 'sales/order-lines' : 'sales/quote-lines',
+      expect.objectContaining({ taxRate: 23, unitPriceGross: '123', unitPriceNet: '100' }),
+      expect.any(Object),
+    )
+  })
+
+  it('keeps a stored zero tax while the default loads', async () => {
+    let resolveRates!: (response: unknown) => void
+    mockApiCall.mockImplementation((url: string) => url.startsWith('/api/sales/tax-rates')
+      ? new Promise((resolve) => { resolveRates = resolve })
+      : Promise.resolve({ ok: true, result: { items: [] } }))
+    render(renderDialog(buildApiLine({ taxRate: 0 })))
+    await act(async () => { resolveRates({ ok: true, result: { items: TAX_RATES } }) })
+    await waitFor(() => expect(formValues.taxRate).toBe(0))
+    expect(taxDisplay()).not.toContain(STANDARD_LABEL)
+  })
+
+  it('leaves a new line empty when there is no default', async () => {
+    mockApiCall.mockResolvedValue({ ok: true, result: { items: TAX_RATES.map((rate) => ({ ...rate, is_default: false })) } })
+    render(renderDialog(null))
+    await waitFor(() => expect(taxDisplay()).toContain('No tax class selected'))
+    expect(formValues.taxRateId).toBeNull()
+    expect(formValues.taxRate).toBeNull()
+  })
+
+  it('ignores a response from a closed opening', async () => {
+    const pending: Array<(response: unknown) => void> = []
+    mockApiCall.mockImplementation((url: string) => url.startsWith('/api/sales/tax-rates')
+      ? new Promise((resolve) => { pending.push(resolve) })
+      : Promise.resolve({ ok: true, result: { items: [] } }))
+    const view = render(renderDialog(null))
+    view.rerender(renderDialog(null, 'order', false))
+    view.rerender(renderDialog(null))
+    await act(async () => { pending[1]({ ok: true, result: { items: [] } }) })
+    await act(async () => { pending[0]({ ok: true, result: { items: TAX_RATES } }) })
+    expect(formValues.taxRateId).toBeNull()
+    expect(taxDisplay()).not.toContain(STANDARD_LABEL)
+  })
+
+  it('waits for the current lookup after an earlier opening loaded a default', async () => {
+    const pending: Array<(response: unknown) => void> = []
+    mockApiCall.mockImplementation((url: string) => url.startsWith('/api/sales/tax-rates')
+      ? new Promise((resolve) => { pending.push(resolve) })
+      : Promise.resolve({ ok: true, result: { items: [] } }))
+    const view = render(renderDialog(null))
+    await act(async () => { pending[0]({ ok: true, result: { items: TAX_RATES } }) })
+    expect(formValues.taxRateId).toBe('rate-23')
+
+    view.rerender(renderDialog(null, 'order', false))
+    view.rerender(renderDialog(null))
+    fireEvent.click(screen.getByRole('button', { name: 'Custom line' }))
+    let submission: Promise<void> | undefined
+    act(() => { submission = capturedSubmit?.({ ...formValues, name: 'Reopened item', unitPrice: '123' }) })
+    await act(async () => { await Promise.resolve() })
+    expect(mockCreateCrud).not.toHaveBeenCalled()
+
+    await act(async () => {
+      pending[1]({ ok: false, status: 503, result: { items: [] } })
+      await expect(submission).rejects.toThrow('Failed to load tax rates.')
+    })
+    expect(mockCreateCrud).not.toHaveBeenCalled()
+  })
+
+  it.each(['order', 'quote'] as const)('waits for the default before submitting a new %s line', async (kind) => {
+    let resolveRates!: (response: unknown) => void
+    mockApiCall.mockImplementation((url: string) => url.startsWith('/api/sales/tax-rates')
+      ? new Promise((resolve) => { resolveRates = resolve })
+      : Promise.resolve({ ok: true, result: { items: [] } }))
+    render(renderDialog(null, kind))
+    fireEvent.click(screen.getByRole('button', { name: 'Custom line' }))
+    fireEvent.change(screen.getByTestId('field-unitPrice').querySelector('input')!, { target: { value: '123' } })
+    let submission: Promise<void> | undefined
+    act(() => { submission = capturedSubmit?.({ ...formValues, name: 'Fast custom item' }) })
+    await act(async () => { await Promise.resolve() })
+    expect(mockCreateCrud).not.toHaveBeenCalled()
+
+    await act(async () => {
+      resolveRates({ ok: true, result: { items: TAX_RATES } })
+      await submission
+    })
+    expect(mockCreateCrud).toHaveBeenCalledWith(
+      kind === 'order' ? 'sales/order-lines' : 'sales/quote-lines',
+      expect.objectContaining({ taxRate: 23, unitPriceGross: '123', unitPriceNet: '100' }),
+      expect.any(Object),
+    )
+  })
+
+  it.each(['order', 'quote'] as const)('rejects a new %s line if the default lookup fails', async (kind) => {
+    mockApiCall.mockResolvedValue({ ok: false, status: 503, result: { items: [] } })
+    render(renderDialog(null, kind))
+    fireEvent.click(screen.getByRole('button', { name: 'Custom line' }))
+    await act(async () => {
+      await expect(capturedSubmit?.({ ...formValues, name: 'Custom item', unitPrice: '123' }))
+        .rejects.toThrow('Failed to load tax rates.')
+    })
+    expect(mockCreateCrud).not.toHaveBeenCalled()
+  })
+
+  it('rejects a pending submission after its opening is closed', async () => {
+    let resolveRates!: (response: unknown) => void
+    mockApiCall.mockImplementation((url: string) => url.startsWith('/api/sales/tax-rates')
+      ? new Promise((resolve) => { resolveRates = resolve })
+      : Promise.resolve({ ok: true, result: { items: [] } }))
+    const view = render(renderDialog(null))
+    fireEvent.click(screen.getByRole('button', { name: 'Custom line' }))
+    let submission: Promise<void> | undefined
+    act(() => { submission = capturedSubmit?.({ ...formValues, name: 'Custom item', unitPrice: '123' }) })
+    view.rerender(renderDialog(null, 'order', false))
+    await act(async () => {
+      resolveRates({ ok: true, result: { items: TAX_RATES } })
+      await expect(submission).rejects.toThrow('Failed to load tax rates.')
+    })
+    expect(mockCreateCrud).not.toHaveBeenCalled()
   })
 })

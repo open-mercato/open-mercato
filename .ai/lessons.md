@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 198 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 199 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -17,6 +17,8 @@ This catalog indexes 198 focused lessons. Route the task first, then read only r
 - Run `yarn lessons:check` before committing.
 
 ## Catalog
+
+- [Invalidate async dialog defaults between openings](lessons/invalidate-async-dialog-defaults-between-openings.md) — area:backend-ui,testing; module:sales; topic:async-defaults,dialog-lifecycle,race-conditions,regression-testing
 
 - [Inspect all test reporters before classifying a truncated run](lessons/inspect-all-test-reporters-before-classifying-truncation.md) — area:testing,debugging; module:create_app; topic:validation-evidence,test-reporters,timeouts,test-prerequisites
 
