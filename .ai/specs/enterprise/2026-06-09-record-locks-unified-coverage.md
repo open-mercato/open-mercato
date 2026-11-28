@@ -647,6 +647,10 @@ Per `BACKWARD_COMPATIBILITY.md`, the command seam touches a STABLE shared helper
 - The merge dialog retries the guarded action that reported the conflict through the active record-lock session. A conflict from a form still resubmits that form. After a successful stage retry, the deal header reloads the saved stage.
 - The browser regression checks the stage-only payload and `accept_mine` resolution with the deal form expanded and collapsed. The server-side acceptance of a verified retry carrying a stale `updated_at` is tracked in [PR #10489](https://github.com/open-mercato/open-mercato/pull/10489).
 
+### 2026-11-25 (command snapshot conflict details, #3651)
+- The fallback diff compares nested action-log snapshots at the field level and matches a flat form value to an unambiguous incoming snapshot path when a recorded diff is unavailable.
+- The merge dialog shows the original, incoming, and submitted values with readable field labels. Existing explicit action-log change maps still take precedence.
+
 ### 2026-10-28 (staff time-tracking task drawer — exempt; #8045, #8101)
 - **Decision: `staff:StaffTimeTask` and `staff:StaffTimeTaskComment` are exempt (OSS `updated_at` floor only).** The task drawer has no presence mount and saves each property on its own (time-tracking consulting-suite spec, Phase 3: "properties saved on blur"; the mockup's drawer has no Save action). Its guarded writes used to pass `resourceKind`/`resourceId`, so the `backend-mutation:global` widget took a lock after every save that nothing refreshed or released, and whose base never moved with the user's own saves.
 - **Failures this removed.** #8101: a single editor was refused from the third save on, because the lock base stayed at the first save once the client lost the base between saves. #8045: after another user's change, the refused save left a pending conflict the drawer could not resolve, so every later save failed until the lock expired (300 s), even after a reload.

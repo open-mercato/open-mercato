@@ -114,7 +114,8 @@ test.describe('TC-LOCK-CRM-company: record locks on the CRM v2 company screen', 
         notifyOnConflict: true,
       });
 
-      companyId = await createCompanyFixture(request, adminToken, `QA TC-LOCK-CRM-company Opt ${Date.now()}`);
+      const baseName = `QA TC-LOCK-CRM-company Opt ${Date.now()}`;
+      companyId = await createCompanyFixture(request, adminToken, baseName);
 
       const acquire = await acquireRecordLock(
         request,
@@ -133,17 +134,27 @@ test.describe('TC-LOCK-CRM-company: record locks on the CRM v2 company screen', 
       const incomingUpdate = await updateCompany(request, adminToken, companyId, incomingName);
       expect(incomingUpdate.status).toBe(200);
 
+      const mineName = `QA TC-LOCK-CRM-company Mine ${Date.now()}`;
       const staleUpdate = await updateCompany(
         request,
         superadminToken,
         companyId,
-        `QA TC-LOCK-CRM-company Mine ${Date.now()}`,
+        mineName,
         { token: ownerLockToken, baseLogId, resolution: 'normal' },
         superadminScopeHeaders,
       );
       expect(staleUpdate.status).toBe(409);
       expect(staleUpdate.body?.code).toBe('record_lock_conflict');
-      const conflictId = (staleUpdate.body?.conflict as { id?: string } | undefined)?.id ?? null;
+      const conflict = staleUpdate.body?.conflict as { id?: string; changes?: unknown[] } | undefined;
+      expect(conflict?.changes).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          field: 'entity.displayName',
+          baseValue: baseName,
+          incomingValue: incomingName,
+          mineValue: mineName,
+        }),
+      ]));
+      const conflictId = conflict?.id ?? null;
       expect(conflictId).toBeTruthy();
 
       const resolution = await releaseRecordLock(
