@@ -3,6 +3,7 @@
 import {
   InventoryBalance,
   InventoryLot,
+  ProductInventoryProfile,
   Warehouse,
   WarehouseLocation,
 } from '../../data/entities'
@@ -67,6 +68,13 @@ function mockWarehouseLocationVariant(currentOnHand = 0) {
   queryEngine.query.mockResolvedValue({
     items: [{ id: VARIANT_ID, sku: 'SKU-001' }],
   })
+}
+
+function mockTrackingProfile(profile: { trackLot: boolean; trackSerial: boolean }) {
+  const lookup = findOneWithDecryption.getMockImplementation()
+  findOneWithDecryption.mockImplementation(async (em: unknown, entity: unknown, ...rest: unknown[]) =>
+    entity === ProductInventoryProfile ? profile : lookup?.(em, entity, ...rest),
+  )
 }
 
 describe('validateInventoryImport', () => {
@@ -310,6 +318,36 @@ describe('validateInventoryImport', () => {
     expect(result.rows[0]?.status).toBe('valid')
     expect(result.rows[0]?.errors).toHaveLength(0)
     expect(result.rows[0]?.resolved?.delta).toBe(2.5)
+  })
+
+  it.each([
+    ['lot_required', { trackLot: true, trackSerial: false }],
+    ['serial_required', { trackLot: false, trackSerial: true }],
+  ] as const)('flags %s when the row would create an untracked bucket for a tracked variant', async (error, profile) => {
+    mockWarehouseLocationVariant(0)
+    mockTrackingProfile(profile)
+    const result = await validateInventoryImport(createCtx(), {
+      tenantId: TENANT,
+      organizationId: ORG,
+      rows: [{ warehouseCode: 'WH-MAIN', locationCode: 'BIN-1', sku: 'SKU-001', quantity: '3' }],
+    })
+
+    expect(result.rows[0]?.status).toBe('error')
+    expect(result.rows[0]?.errors).toEqual([error])
+    expect(result.ok).toBe(false)
+  })
+
+  it('accepts a tracked variant row when its untracked bucket already exists', async () => {
+    mockWarehouseLocationVariant(4)
+    mockTrackingProfile({ trackLot: true, trackSerial: false })
+    const result = await validateInventoryImport(createCtx(), {
+      tenantId: TENANT,
+      organizationId: ORG,
+      rows: [{ warehouseCode: 'WH-MAIN', locationCode: 'BIN-1', sku: 'SKU-001', quantity: '3' }],
+    })
+
+    expect(result.rows[0]?.status).toBe('valid')
+    expect(result.rows[0]?.resolved?.delta).toBe(3)
   })
 })
 

@@ -8,6 +8,7 @@ import { E } from '#generated/entities.ids.generated'
 import {
   InventoryBalance,
   InventoryLot,
+  ProductInventoryProfile,
   Warehouse,
   WarehouseLocation,
 } from '../data/entities'
@@ -18,6 +19,7 @@ import type {
   InventoryImportValidateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from '../commands/shared'
+import { resolveInventoryTrackingError } from './inventoryTrackingValidation'
 import type { InventoryImportRawRow } from './inventoryImportCsv'
 
 type ImportScope = {
@@ -268,7 +270,7 @@ async function loadCurrentOnHand(
     lotId?: string
     serialNumber?: string
   },
-): Promise<number> {
+): Promise<number | null> {
   const balance = await findOneWithDecryption(
     em,
     InventoryBalance,
@@ -283,7 +285,17 @@ async function loadCurrentOnHand(
     undefined,
     scope,
   )
-  return balance ? toNumber(balance.quantityOnHand) : 0
+  return balance ? toNumber(balance.quantityOnHand) : null
+}
+
+async function loadTrackingProfile(em: EntityManager, scope: ImportScope, catalogVariantId: string) {
+  return findOneWithDecryption(
+    em,
+    ProductInventoryProfile,
+    { catalogVariantId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    undefined,
+    scope,
+  )
 }
 
 async function verifyApplyRowDeltas(
@@ -312,13 +324,13 @@ async function verifyApplyRowDeltas(
   // against the current balance to guard against staleness between validate/apply.
   const recalculated: InventoryImportApplyRowInput[] = []
   for (const row of rows) {
-    const currentOnHand = await loadCurrentOnHand(em, scope, {
+    const currentOnHand = (await loadCurrentOnHand(em, scope, {
       warehouseId: row.warehouseId,
       locationId: row.locationId,
       catalogVariantId: row.catalogVariantId,
       lotId: row.lotId,
       serialNumber: row.serialNumber,
-    })
+    })) ?? 0
     const serverDelta = row.quantity - currentOnHand
     if (Math.abs(serverDelta - row.delta) > 0.000001) {
       throw new CrudHttpError(400, {
@@ -409,13 +421,14 @@ export async function validateInventoryImport(
     }
 
     const serialNumber = raw.serialNumber?.trim() || undefined
-    const currentOnHand = await loadCurrentOnHand(em, scope, {
+    const existingOnHand = await loadCurrentOnHand(em, scope, {
       warehouseId: warehouse.id,
       locationId: location.id,
       catalogVariantId: variant.id,
       lotId: lot?.id,
       serialNumber,
     })
+    const currentOnHand = existingOnHand ?? 0
     const bucketKey = buildBucketKey({
       warehouseId: warehouse.id,
       locationId: location.id,
@@ -470,6 +483,18 @@ export async function validateInventoryImport(
       }
       if (currentOnHand > 0 && Math.sign(delta) !== 0) {
         warnings.push('overwriting_existing_balance')
+      }
+    }
+
+    if (existingOnHand === null && Math.abs(delta) >= 0.000001) {
+      const trackingError = resolveInventoryTrackingError(await loadTrackingProfile(em, scope, variant.id), {
+        lotId: lot?.id,
+        serialNumber,
+      })
+      if (trackingError) {
+        errors.push(trackingError)
+        rows.push({ rowNumber, status: 'error', errors, warnings, input: raw })
+        continue
       }
     }
 
