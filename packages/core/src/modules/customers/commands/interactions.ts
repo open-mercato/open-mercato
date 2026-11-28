@@ -111,6 +111,7 @@ type InteractionSnapshot = {
     interactionType: string
     title: string | null
     body: string | null
+    bodyFormat?: CustomerInteraction['bodyFormat']
     status: string
     scheduledAt: Date | null
     occurredAt: Date | null
@@ -251,6 +252,7 @@ async function loadInteractionSnapshot(em: EntityManager, id: string, ctx?: Comm
       interactionType: interaction.interactionType,
       title: interaction.title ?? null,
       body: interaction.body ?? null,
+      bodyFormat: interaction.bodyFormat ?? null,
       status: interaction.status,
       scheduledAt: interaction.scheduledAt ?? null,
       occurredAt: interaction.occurredAt ?? null,
@@ -509,6 +511,7 @@ type InteractionGraphValues = {
   interactionType: string
   title: string | null
   body: string | null
+  bodyFormat: CustomerInteraction['bodyFormat']
   status: string
   scheduledAt: Date | null
   occurredAt: Date | null
@@ -546,6 +549,7 @@ function buildInteractionGraph(em: EntityManager, values: InteractionGraphValues
     interactionType: values.interactionType,
     title: values.title,
     body: values.body,
+    bodyFormat: values.bodyFormat,
     status: values.status,
     scheduledAt: values.scheduledAt,
     occurredAt: values.occurredAt,
@@ -629,6 +633,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         interactionType: parsed.interactionType,
         title: parsed.title ?? null,
         body: parsed.body ?? null,
+        bodyFormat: parsed.body ? parsed.bodyFormat ?? null : null,
         status: parsed.status ?? INTERACTION_STATUS_PLANNED,
         scheduledAt: parsed.scheduledAt ?? null,
         occurredAt: parsed.occurredAt ?? null,
@@ -763,6 +768,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
           interactionType: after.interaction.interactionType,
           title: after.interaction.title,
           body: after.interaction.body,
+          bodyFormat: after.interaction.bodyFormat ?? null,
           status: after.interaction.status,
           scheduledAt: after.interaction.scheduledAt,
           occurredAt: after.interaction.occurredAt,
@@ -792,6 +798,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         interaction.interactionType = after.interaction.interactionType
         interaction.title = after.interaction.title
         interaction.body = after.interaction.body
+        interaction.bodyFormat = after.interaction.bodyFormat ?? null
         interaction.status = after.interaction.status
         interaction.scheduledAt = after.interaction.scheduledAt
         interaction.occurredAt = after.interaction.occurredAt
@@ -1003,7 +1010,12 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       if (nextEntity) interaction.entity = nextEntity
       if (parsed.interactionType !== undefined) interaction.interactionType = parsed.interactionType
       if (parsed.title !== undefined) interaction.title = parsed.title ?? null
-      if (parsed.body !== undefined) interaction.body = parsed.body ?? null
+      if (parsed.body !== undefined) {
+        if (!parsed.body || parsed.bodyFormat !== undefined || parsed.body !== interaction.body) {
+          interaction.bodyFormat = parsed.body ? parsed.bodyFormat ?? null : null
+        }
+        interaction.body = parsed.body
+      }
       if (parsed.status !== undefined) interaction.status = parsed.status
       if (parsed.scheduledAt !== undefined) interaction.scheduledAt = parsed.scheduledAt ?? null
       if (parsed.timezone !== undefined) interaction.timezone = canonicalCalendarTimezone(parsed.timezone) ?? null
@@ -1132,6 +1144,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
           interactionType: before.interaction.interactionType,
           title: before.interaction.title,
           body: before.interaction.body,
+          bodyFormat: before.interaction.bodyFormat ?? null,
           status: before.interaction.status,
           scheduledAt: before.interaction.scheduledAt,
           occurredAt: before.interaction.occurredAt,
@@ -1162,6 +1175,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
         interaction.interactionType = before.interaction.interactionType
         interaction.title = before.interaction.title
         interaction.body = before.interaction.body
+        interaction.bodyFormat = before.interaction.bodyFormat ?? null
         interaction.status = before.interaction.status
         interaction.scheduledAt = before.interaction.scheduledAt
         interaction.occurredAt = before.interaction.occurredAt
@@ -1620,6 +1634,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
             interactionType: before.interaction.interactionType,
             title: before.interaction.title,
             body: before.interaction.body,
+            bodyFormat: before.interaction.bodyFormat ?? null,
             status: before.interaction.status,
             scheduledAt: before.interaction.scheduledAt,
             occurredAt: before.interaction.occurredAt,
@@ -1651,6 +1666,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
           interaction.interactionType = before.interaction.interactionType
           interaction.title = before.interaction.title
           interaction.body = before.interaction.body
+          interaction.bodyFormat = before.interaction.bodyFormat ?? null
           interaction.status = before.interaction.status
           interaction.scheduledAt = before.interaction.scheduledAt
           interaction.occurredAt = before.interaction.occurredAt

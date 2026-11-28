@@ -1,4 +1,5 @@
 import * as React from 'react'
+import type { InteractionBodyFormat } from '../../../data/validators'
 import type { ActivityType } from './fieldConfig'
 import { isDateRequired, resolveScheduleActivityType } from './fieldConfig'
 
@@ -33,6 +34,7 @@ export type ScheduleActivityEditData = {
   interactionType?: string
   title?: string | null
   body?: string | null
+  bodyFormat?: InteractionBodyFormat | null
   scheduledAt?: string | null
   /**
    * Historical timestamp for completed activities (status `done`). Required for
@@ -150,7 +152,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
   const [duration, setDuration] = React.useState(30)
   const [allDay, setAllDay] = React.useState(false)
   const [description, setDescription] = React.useState('')
-  const [markdownEnabled, setMarkdownEnabled] = React.useState(true)
+  const [markdownEnabled, setMarkdownEnabled] = React.useState(() => editData?.bodyFormat !== 'text')
   const [location, setLocation] = React.useState('')
   const [reminderMinutes, setReminderMinutes] = React.useState(15)
   const [visibility, setVisibility] = React.useState('team')
@@ -167,6 +169,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
 
   React.useEffect(() => {
     if (open) {
+      setMarkdownEnabled(editData?.bodyFormat !== 'text')
       if (editData) {
         // Edit mode: populate from existing interaction
         const rawType = editData.interactionType ?? 'meeting'

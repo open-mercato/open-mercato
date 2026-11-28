@@ -37,6 +37,7 @@ const MESSAGE_LINK_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const CHANNEL_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 
 const DETAIL_KEYS = [
+  'bodyFormat',
   'externalMessageId',
   'channelProviderKey',
   'channelId',
@@ -162,6 +163,7 @@ const MEETING = baseInteraction(MEETING_ID, {
 })
 
 const NOTE = baseInteraction(NOTE_ID, { title: 'Plain note' })
+const MARKDOWN_NOTE = baseInteraction(NOTE_ID, { body: 'Follow up&#x20;', bodyFormat: 'markdown' })
 
 function createFakeEm(kind: Kind, options: { existing?: boolean; interactions?: Record<string, unknown>[] } = {}) {
   const profileCtor = kind === 'person' ? CustomerPersonProfile : CustomerCompanyProfile
@@ -378,6 +380,13 @@ describe.each<Kind>(['person', 'company'])('customers %s delete → undo restore
       if (key === 'pinned') expect(note.pinned).toBe(false)
       else expect(note[key]).toBeNull()
     }
+  })
+
+  it('restores a Markdown note with its original body and format', async () => {
+    const log = await captureDeleteLog(kind, [MARKDOWN_NOTE])
+    const restored = await undoDelete(kind, log.payload.undo.before.interactions)
+
+    expect(restored.get(NOTE_ID)).toMatchObject({ body: 'Follow up&#x20;', bodyFormat: 'markdown' })
   })
 
   it('takes scope from the restored record, never from the interaction entry', async () => {

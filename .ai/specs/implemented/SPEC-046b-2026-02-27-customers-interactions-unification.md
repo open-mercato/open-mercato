@@ -159,6 +159,7 @@ New table: `customer_interactions`
 - `interaction_type`: text, required (dictionary-backed, normalized)
 - `title`: text, nullable
 - `body`: text, nullable
+- `body_format`: nullable text. `markdown` identifies Markdown source and `text` identifies explicit plaintext. A null value uses the legacy plaintext preview contract.
 - `status`: text enum (`planned`, `done`, `canceled`), required
 - `scheduled_at`: timestamptz, nullable (planning axis)
 - `occurred_at`: timestamptz, nullable (actual completion axis)
@@ -196,9 +197,10 @@ Legacy tables:
   - `limit` max: `100` (default `25`)
   - keyset cursor mode (`cursor`) is canonical for scale
 - Response: keyset list of `CustomerInteraction` + `nextCursor`.
+- Canonical and compatibility activity summaries may include `bodyFormat` when stored. The `body` field carries the original source string.
 
 #### `POST /api/customers/interactions`
-- Body: `entityId`, `interactionType`, optional `title`, `body`, `scheduledAt`, `ownerUserId`, `priority`, `dealId`.
+- Body: `entityId`, `interactionType`, optional `title`, `body`, `bodyFormat`, `scheduledAt`, `ownerUserId`, `priority`, `dealId`.
 - Response: `{ id: "<uuid>" }` + undo metadata header.
 - Notes:
   - No provider-specific required fields in canonical contract.
@@ -207,6 +209,7 @@ Legacy tables:
 #### `PUT /api/customers/interactions`
 - Body: `id` + mutable fields.
 - Response: `{ ok: true }`.
+- Omitting `body` preserves its format. Replacing the body without a format uses the plaintext default. Sending a null body clears the format.
 
 #### `POST /api/customers/interactions/complete`
 - Body: `id`, optional `occurredAt`.
@@ -258,7 +261,7 @@ Legacy tables:
    - read: `requireAuth`, `requireFeatures: ['customers.view']`
    - write: `requireAuth`, `requireFeatures: ['customers.create'|'customers.edit'|'customers.delete']` as applicable
 3. Custom write handlers (non-CRUD factory routes like `complete`/`cancel`) must run mutation guard hooks before/after success.
-4. Interaction `title`/`body` are treated as plain text; UI rendering forbids unsafe raw HTML injection.
+4. Interaction titles and unmarked bodies are displayed as plaintext. Activity previews parse only explicitly marked Markdown bodies and render the resulting text with React. Existing bodies are never inferred or backfilled by pattern because a literal plaintext entity can have the same stored bytes as a Markdown escape.
 5. Integration secrets/tokens are never stored in interaction payloads and never logged by customers module routes/commands.
 6. Error payloads must not reveal provider credentials or internal stack traces.
 7. Persistence/query layer uses ORM parameterized queries only; no dynamic SQL string interpolation for user input.
@@ -602,6 +605,9 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - **Fully compliant**: Approved for implementation planning.
 
 ## Changelog
+### 2026-11-25
+- Record the format when the activity dialog writes a note body and apply it in legacy and V2 activity previews (#10328). Browser coverage checks a Markdown edit, trailing whitespace, and literal entity text across person, company, and deal views.
+
 ### 2026-10-29
 - Preserve verified historical authors during legacy activity promotion and unchanged update references, with focused command and HTTP regressions. New assignments still require live same-tenant users.
 

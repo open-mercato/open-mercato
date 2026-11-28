@@ -151,6 +151,15 @@ beforeEach(() => {
 })
 
 describe('interactions list — decrypts every encryption-map field (#5945)', () => {
+  test('returns body format without interpreting or changing the decrypted body', async () => {
+    listRows = [ciphertextRow({ body_format: 'markdown' })]
+    decryptedInteractions = [decryptedInteraction({ body: 'Follow up&#x20;' })]
+
+    const [item] = await listItems()
+
+    expect(item).toMatchObject({ body: 'Follow up&#x20;', bodyFormat: 'markdown' })
+  })
+
   test('a map extended beyond title/body returns plaintext for the added fields', async () => {
     mockGetEncryptedFieldNames.mockImplementation(async () => ['title', 'body', 'location', 'participants'])
 

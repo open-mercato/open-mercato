@@ -162,6 +162,7 @@ export async function hydrateCanonicalInteractions({
       interactionType: interaction.interactionType,
       title: interaction.title ?? null,
       body: interaction.body ?? null,
+      bodyFormat: interaction.bodyFormat ?? null,
       status: interaction.status,
       scheduledAt: interaction.scheduledAt ? interaction.scheduledAt.toISOString() : null,
       occurredAt: interaction.occurredAt ? interaction.occurredAt.toISOString() : null,

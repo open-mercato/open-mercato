@@ -33,6 +33,7 @@ export function mapInteractionRecordToActivitySummary(interaction: InteractionRe
     activityType: interaction.interactionType,
     subject: interaction.title ?? null,
     body: interaction.body ?? null,
+    bodyFormat: interaction.bodyFormat ?? null,
     occurredAt: interaction.occurredAt ?? interaction.scheduledAt ?? null,
     createdAt: interaction.createdAt,
     appearanceIcon: interaction.appearanceIcon ?? null,

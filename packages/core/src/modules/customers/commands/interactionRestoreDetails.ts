@@ -7,6 +7,7 @@ import type { CustomerInteraction } from '../data/entities'
  * do not contain them.
  */
 export type InteractionRestoreDetails = {
+  bodyFormat?: CustomerInteraction['bodyFormat']
   externalMessageId?: string | null
   channelProviderKey?: string | null
   channelId?: string | null
@@ -24,6 +25,7 @@ export type InteractionRestoreDetails = {
 }
 
 const INTERACTION_RESTORE_DETAIL_KEYS = [
+  'bodyFormat',
   'externalMessageId',
   'channelProviderKey',
   'channelId',
@@ -42,6 +44,7 @@ const INTERACTION_RESTORE_DETAIL_KEYS = [
 
 export function captureInteractionRestoreDetails(interaction: CustomerInteraction): Required<InteractionRestoreDetails> {
   return {
+    bodyFormat: interaction.bodyFormat ?? null,
     externalMessageId: interaction.externalMessageId ?? null,
     channelProviderKey: interaction.channelProviderKey ?? null,
     channelId: interaction.channelId ?? null,
@@ -75,6 +78,7 @@ export function restoreInteractionRestoreDetails(
 ) {
   const { recurrenceEnd } = reviveSnapshotDates({ recurrenceEnd: snapshot.recurrenceEnd ?? null }, ['recurrenceEnd'])
   return {
+    bodyFormat: snapshot.bodyFormat ?? null,
     externalMessageId: snapshot.externalMessageId ?? null,
     channelProviderKey: snapshot.channelProviderKey ?? null,
     channelId: snapshot.channelId ?? null,

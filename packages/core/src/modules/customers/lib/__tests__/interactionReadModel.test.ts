@@ -1,4 +1,5 @@
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
+import { mapInteractionRecordToActivitySummary } from '../interactionCompatibility'
 
 describe('InteractionRecord.customValues normalization contract', () => {
   it('strips the cf_ prefix produced by loadCustomFieldValues', () => {
@@ -39,5 +40,22 @@ describe('InteractionRecord.customValues normalization contract', () => {
     expect(normalizeCustomFieldResponse(null)).toBeUndefined()
     expect(normalizeCustomFieldResponse(undefined)).toBeUndefined()
     expect(normalizeCustomFieldResponse({})).toBeUndefined()
+  })
+})
+
+describe('activity compatibility body format', () => {
+  it.each(['markdown', 'text', null] as const)('carries the raw body and format %s', (bodyFormat) => {
+    const body = 'Follow up&#x20;'
+    const summary = mapInteractionRecordToActivitySummary({
+      id: 'interaction-id',
+      interactionType: 'note',
+      status: 'done',
+      entityId: 'customer-id',
+      createdAt: '2026-11-25T00:00:00.000Z',
+      body,
+      bodyFormat,
+    })
+
+    expect(summary).toMatchObject({ body, bodyFormat })
   })
 })

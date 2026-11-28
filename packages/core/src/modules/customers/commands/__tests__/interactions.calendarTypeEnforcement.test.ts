@@ -62,6 +62,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { calendarEventTypes } from '../../calendar-event-types'
+import type { InteractionBodyFormat } from '../../data/validators'
 import '../interactions'
 
 const TENANT = '11111111-1111-4111-8111-111111111111'
@@ -80,6 +81,8 @@ function makeContext() {
     organizationId: ORG,
     entity: { id: ENTITY },
     interactionType: 'meeting',
+    body: null as string | null,
+    bodyFormat: null as InteractionBodyFormat | null,
     updatedAt: new Date('2026-09-01T00:00:00.000Z'),
     durationMinutes: 30,
     timezone: 'Europe/Warsaw' as string | null,
@@ -118,6 +121,49 @@ beforeEach(() => {
     options.fieldset ? new Map() : new Map([['outcome', []]]))
   loadCustomFieldSnapshotMock.mockResolvedValue({ outcome: 'Visited' })
   lockMock.mockResolvedValue(undefined)
+})
+
+describe('interaction body format', () => {
+  it('persists the Markdown source and its explicit format together', async () => {
+    const { em, context } = makeContext()
+    const create = registeredCommands.get('customers.interactions.create')!
+    const body = 'Follow up\\&#x20;&#x20;'
+
+    await create.execute({ tenantId: TENANT, organizationId: ORG, entityId: ENTITY, interactionType: 'note', body, bodyFormat: 'markdown' }, context)
+
+    expect(em.create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ body, bodyFormat: 'markdown' }))
+  })
+
+  it('keeps the format on title-only edits and unchanged writes from older clients', async () => {
+    const { interaction, context } = makeContext()
+    const body = 'Follow up&#x20;'
+    Object.assign(interaction, { interactionType: 'note', body, bodyFormat: 'markdown' })
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    const update = registeredCommands.get('customers.interactions.update')!
+
+    await update.execute({ id: INTERACTION, title: 'New title' }, context)
+    expect(interaction).toMatchObject({ body, bodyFormat: 'markdown', title: 'New title' })
+
+    await update.execute({ id: INTERACTION, body }, context)
+    expect(interaction).toMatchObject({ body, bodyFormat: 'markdown' })
+  })
+
+  it('clears the format when an older client replaces the body or the body is removed', async () => {
+    const { interaction, context } = makeContext()
+    Object.assign(interaction, { interactionType: 'note', body: 'Follow up&#x20;', bodyFormat: 'markdown' })
+    findOneWithDecryptionMock.mockResolvedValue(interaction)
+    const update = registeredCommands.get('customers.interactions.update')!
+    const body = 'Literal &#x20;'
+
+    await update.execute({ id: INTERACTION, body }, context)
+    expect(interaction).toMatchObject({ body, bodyFormat: null })
+
+    await update.execute({ id: INTERACTION, body, bodyFormat: 'markdown' }, context)
+    expect(interaction).toMatchObject({ body, bodyFormat: 'markdown' })
+
+    await update.execute({ id: INTERACTION, body: null }, context)
+    expect(interaction).toMatchObject({ body: null, bodyFormat: null })
+  })
 })
 
 describe('interaction calendar-type command enforcement', () => {

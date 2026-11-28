@@ -21,7 +21,7 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CustomerDeal, CustomerInteraction } from '../../data/entities'
 import { interactionUserKey, loadInteractionAuthors } from '../../lib/interactionUsers'
-import { calendarTimezoneSchema, interactionCreateSchema, interactionUpdateSchema } from '../../data/validators'
+import { calendarTimezoneSchema, interactionBodyFormatSchema, interactionCreateSchema, interactionUpdateSchema, type InteractionBodyFormat } from '../../data/validators'
 import { parseScopedCommandInput } from '../utils'
 import {
   createCustomersCrudOpenApi,
@@ -182,6 +182,7 @@ type InteractionListRow = {
   interaction_type: string
   title: string | null
   body: string | null
+  body_format: InteractionBodyFormat | null
   status: string
   scheduled_at: Date | null
   occurred_at: Date | null
@@ -328,6 +329,7 @@ const INTERACTION_LIST_COLUMNS = [
   'interaction_type',
   'title',
   'body',
+  'body_format',
   'status',
   'scheduled_at',
   'occurred_at',
@@ -806,6 +808,7 @@ export async function GET(req: Request, context?: { auth: AuthContext }) {
       interactionType: row.interaction_type,
       title: row.title ?? null,
       body: row.body ?? null,
+      bodyFormat: row.body_format ?? null,
       status: row.status,
       scheduledAt: toIsoString(row.scheduled_at),
       occurredAt: toIsoString(row.occurred_at),
@@ -888,6 +891,7 @@ const interactionListItemSchema = z
     interactionType: z.string(),
     title: z.string().nullable(),
     body: z.string().nullable(),
+    bodyFormat: interactionBodyFormatSchema.nullish(),
     status: z.string(),
     scheduledAt: z.string().nullable(),
     occurredAt: z.string().nullable(),

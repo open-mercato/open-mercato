@@ -272,6 +272,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
       interactionType: activity.interactionType,
       title: activity.title ?? null,
       body: activity.body ?? null,
+      bodyFormat: activity.bodyFormat,
       scheduledAt: activity.scheduledAt ?? null,
       occurredAt: activity.occurredAt ?? null,
       durationMinutes: activity.duration ?? null,
