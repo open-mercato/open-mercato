@@ -13,6 +13,7 @@ import { LockMode } from '@mikro-orm/core'
 import { StaffTimeEntry, StaffTimeEntrySegment } from '../../../../../../data/entities'
 import { staffTimeEntrySegmentUpdateSchema } from '../../../../../../data/validators'
 import { getStaffMemberByUserId } from '../../../../../../lib/staffMemberResolver'
+import { assertTimeEntrySegmentRangeOrdered } from '../../../../../../lib/timesheets/timeEntrySegmentRange'
 import { emitStaffEvent } from '../../../../../../events'
 import { runTimesheetInterceptors } from '../../../../_shared/withTimesheetInterceptors'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -155,6 +156,14 @@ export async function PATCH(req: Request) {
         throw new CrudHttpError(404, { error: 'Segment not found' })
       }
 
+      if (parsed.data.startedAt !== undefined || parsed.data.endedAt !== undefined) {
+        await assertTimeEntrySegmentRangeOrdered(
+          parsed.data.startedAt ?? lockedSegment.startedAt,
+          parsed.data.endedAt !== undefined ? parsed.data.endedAt : lockedSegment.endedAt,
+          parsed.data.endedAt === undefined ? 'startedAt' : 'endedAt',
+        )
+      }
+
       if (parsed.data.startedAt !== undefined) {
         lockedSegment.startedAt = parsed.data.startedAt
       }
@@ -240,7 +249,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Segment updated successfully', schema: segmentResponseSchema },
       ],
       errors: [
-        { status: 400, description: 'Invalid payload or missing segment id', schema: errorSchema },
+        { status: 400, description: 'Invalid payload, missing segment id, or an endedAt earlier than startedAt', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Segment not found', schema: errorSchema },
       ],
