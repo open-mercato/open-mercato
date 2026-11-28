@@ -995,7 +995,9 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
 
   it('requestOverride baseURL is resolved when runtimeOverrides are allowed', () => {
     const provider = makeProvider()
-    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider, {
+      AI_RUNTIME_BASEURL_ALLOWLIST: 'custom.example.com',
+    }))
     const resolution = factory.resolveModel({
       requestOverride: { baseURL: 'https://custom.example.com/v1' },
     })
@@ -1004,7 +1006,9 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
 
   it('tenantOverride baseURL sits below requestOverride but above agentDefaultBaseUrl', () => {
     const provider = makeProvider()
-    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider))
+    const factory = createModelFactory({} as AwilixContainer, makeFactoryDeps(provider, {
+      AI_RUNTIME_BASEURL_ALLOWLIST: 'tenant.example.com',
+    }))
     const resolution = factory.resolveModel({
       tenantOverride: { baseURL: 'https://tenant.example.com/v1' },
       agentDefaultBaseUrl: 'https://agent.example.com/v1',
@@ -1020,6 +1024,64 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
       requestOverride: { baseURL: 'https://blocked.example.com/v1' },
     })
     expect(resolution.baseURL).toBeUndefined()
+  })
+
+  describe('provider-scoped runtime base URLs', () => {
+    const baseURL = 'https://model-proxy.example.invalid/v1'
+    const request = { providerId: 'fixture-primary', baseURL }
+    const createPrimaryModel = jest.fn()
+    const createSecondaryModel = jest.fn()
+    const { registry } = makeMultiProviderRegistry([
+      makeProvider({ id: 'fixture-primary', createModel: createPrimaryModel }),
+      makeProvider({ id: 'fixture-secondary', createModel: createSecondaryModel }),
+    ])
+
+    beforeEach(() => {
+      createPrimaryModel.mockClear()
+      createSecondaryModel.mockClear()
+    })
+
+    function makeScopedFactory() {
+      return createModelFactory({} as AwilixContainer, {
+        registry,
+        env: { AI_RUNTIME_BASEURL_ALLOWLIST: 'fixture-primary=https://model-proxy.example.invalid' },
+      })
+    }
+
+    it('passes a matching request URL to the selected adapter', () => {
+      expect(makeScopedFactory().resolveModel({ requestOverride: request }).baseURL).toBe(baseURL)
+      expect(createPrimaryModel).toHaveBeenCalledWith(expect.objectContaining({ baseURL }))
+    })
+
+    it.each([
+      { requestOverride: { ...request, modelId: 'fixture-secondary/model' } },
+      {
+        requestOverride: request,
+        tenantAllowlist: { allowedProviders: ['fixture-secondary'], allowedModelsByProvider: {} },
+      },
+    ])('rejects a request when model selection changes the effective provider (%j)', (input) => {
+      expect(() => makeScopedFactory().resolveModel(input)).toThrow(
+        'AI_RUNTIME_BASEURL_ALLOWLIST for the effective provider',
+      )
+      expect(createPrimaryModel).not.toHaveBeenCalled()
+      expect(createSecondaryModel).not.toHaveBeenCalled()
+    })
+
+    it('checks an inherited stored URL after request-time provider selection', () => {
+      const factory = makeScopedFactory()
+      expect(factory.resolveModel({ tenantOverride: request }).baseURL).toBe(baseURL)
+      expect(factory.resolveModel({
+        requestOverride: { providerId: 'fixture-secondary' },
+        tenantOverride: request,
+        agentDefaultBaseUrl: 'https://agent-default.example.invalid/v1',
+      })).toMatchObject({
+        providerId: 'fixture-secondary',
+        baseURL: 'https://agent-default.example.invalid/v1',
+      })
+      expect(createSecondaryModel).toHaveBeenCalledWith(
+        expect.objectContaining({ baseURL: 'https://agent-default.example.invalid/v1' }),
+      )
+    })
   })
 
   describe('Phase 1780-5 — OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER>', () => {

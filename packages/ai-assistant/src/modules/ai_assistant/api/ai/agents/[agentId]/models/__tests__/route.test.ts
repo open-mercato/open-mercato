@@ -1,3 +1,4 @@
+import type { AwilixContainer } from 'awilix'
 import type { AiAgentDefinition } from '../../../../../../lib/ai-agent-definition'
 import {
   resetAgentRegistryForTests,
@@ -166,11 +167,32 @@ describe('GET /api/ai_assistant/ai/agents/[agentId]/models', () => {
     )
   })
 
-  describe('with the real AI_RUNTIME_BASEURL_ALLOWLIST helper (issue #7228)', () => {
+  describe('stored base URL filtering', () => {
     const originalAllowlist = process.env.AI_RUNTIME_BASEURL_ALLOWLIST
 
+    const modelFactory = jest.requireActual<typeof import('../../../../../../lib/model-factory')>(
+      '../../../../../../lib/model-factory',
+    )
+    const provider = {
+      id: 'fixture-primary',
+      name: 'Fixture provider',
+      defaultModel: 'fixture-model',
+      defaultModels: [],
+      isConfigured: () => true,
+      envKeys: [],
+      resolveApiKey: () => 'fixture',
+      createModel: jest.fn(),
+    }
+
     beforeEach(() => {
-      process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com'
+      process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'fixture-primary=https://picker-proxy.example.invalid'
+      resolveModelMock.mockImplementation(modelFactory.createModelFactory({} as AwilixContainer, {
+        registry: {
+          resolveFirstConfigured: () => provider,
+          get: (id) => id === provider.id ? provider : null,
+          list: () => [provider],
+        },
+      }).resolveModel)
       seedAgentRegistryForTests([
         makeAgent({ id: 'catalog.assistant', moduleId: 'catalog' }),
       ])
@@ -183,25 +205,25 @@ describe('GET /api/ai_assistant/ai/agents/[agentId]/models', () => {
 
     async function resolveTenantOverrideBaseUrl(storedBaseUrl: string): Promise<unknown> {
       getDefaultMock.mockResolvedValueOnce({
-        providerId: 'openai',
-        modelId: 'gpt-4o',
+        providerId: 'fixture-primary',
+        modelId: 'fixture-model',
         baseUrl: storedBaseUrl,
       })
       const response = await GET(
-        new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as any,
+        new Request('http://localhost/api/ai_assistant/ai/agents/catalog.assistant/models') as Parameters<typeof GET>[0],
         buildParams('catalog.assistant'),
       )
       expect(response.status).toBe(200)
-      return resolveModelMock.mock.calls[0][0].tenantOverride.baseURL
+      return resolveModelMock.mock.results[0].value.baseURL
     }
 
     it('drops a stored baseURL that the current allowlist no longer permits', async () => {
-      await expect(resolveTenantOverrideBaseUrl('http://api.openai.com/v1')).resolves.toBeNull()
+      await expect(resolveTenantOverrideBaseUrl('http://picker-proxy.example.invalid/v1')).resolves.toBeUndefined()
     })
 
     it('keeps a stored baseURL that the current allowlist still permits', async () => {
-      await expect(resolveTenantOverrideBaseUrl('https://api.openai.com/v1')).resolves.toBe(
-        'https://api.openai.com/v1',
+      await expect(resolveTenantOverrideBaseUrl('https://picker-proxy.example.invalid/v1')).resolves.toBe(
+        'https://picker-proxy.example.invalid/v1',
       )
     })
   })

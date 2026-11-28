@@ -19,7 +19,13 @@ import { AgentPolicyError } from '../../../lib/agent-tools'
 import type { AiAgentRunChannel } from '../../../lib/agent-call-contract'
 import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
 import { AiModerationBlockedError, AiModerationUnavailableError } from '../../../lib/moderation'
-import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
+import {
+  isBaseurlAllowlisted,
+  matchesScopedBaseurlOrigin,
+  readBaseurlAllowlist,
+  RuntimeBaseurlNotAllowlistedError,
+} from '../../../lib/baseurl-allowlist'
+import { assertRuntimeBaseurlForModelInput, type AiModelFactoryInput } from '../../../lib/model-factory'
 import {
   canonicalProviderId,
   hasAllowlistSnapshotRestrictions,
@@ -114,9 +120,8 @@ const agentQuerySchema = z.object({
   model: z.string().optional(),
   /**
    * Per-request base URL override. Must parse as a URL and match
-   * `AI_RUNTIME_BASEURL_ALLOWLIST` (comma-separated hosts, meaning https on
-   * port 443, or full `scheme://host[:port]` origins). When the
-   * env var is unset or empty, any non-empty value is rejected.
+   * `AI_RUNTIME_BASEURL_ALLOWLIST` for the effective provider. When the env
+   * var is unset or empty, any non-empty value is rejected.
    *
    * Phase 4a of spec `2026-04-27-ai-agents-provider-model-baseurl-overrides`.
    */
@@ -149,8 +154,8 @@ export const openApi: OpenApiRouteDoc = {
         'body uses an AI SDK-compatible `text/event-stream` transport. ' +
         'Optional `?provider=`, `?model=`, and `?baseUrl=` query params let callers ' +
         'override the resolved provider/model/base-URL for this turn (Phase 4a). ' +
-        'Provider must be registered and configured; baseUrl must match ' +
-        '`AI_RUNTIME_BASEURL_ALLOWLIST` when set. Both are suppressed when the ' +
+        'Provider must be registered and configured. baseUrl must match ' +
+        '`AI_RUNTIME_BASEURL_ALLOWLIST` for the effective provider. Both are suppressed when the ' +
         'agent declares `allowRuntimeOverride: false`.',
       query: agentQuerySchema,
       requestBody: {
@@ -519,8 +524,14 @@ export async function POST(req: NextRequest): Promise<Response> {
       )
     }
 
+    const requestBaseUrl = rawBaseUrl?.trim() || null
+    const baseurlAllowlist = requestBaseUrl ? readBaseurlAllowlist() : []
+    const requiresScopedCheck = requestBaseUrl && !isBaseurlAllowlisted(requestBaseUrl, baseurlAllowlist)
+    const matchesScopedOrigin = requiresScopedCheck && matchesScopedBaseurlOrigin(requestBaseUrl, baseurlAllowlist)
+
     let tenantAllowlistSnapshot: TenantAllowlistSnapshot | null = null
     let agentRuntimeOverrideAllowlist: TenantAllowlistSnapshot | null = null
+    let savedProviderModel: AiModelFactoryInput['tenantOverride']
     if (auth.tenantId) {
       try {
         const em = container.resolve<EntityManager>('em')
@@ -535,6 +546,14 @@ export async function POST(req: NextRequest): Promise<Response> {
           organizationId: auth.orgId ?? null,
           agentId,
         })
+        if (matchesScopedOrigin) {
+          const savedOverride = agentRuntimeOverrideRow ?? await runtimeOverrideRepo.getDefault({
+            tenantId: auth.tenantId,
+            organizationId: auth.orgId ?? null,
+            agentId,
+          })
+          savedProviderModel = savedOverride ?? undefined
+        }
         const tenantAgentAllowlist = agentRuntimeOverrideRow
           ? {
               allowedProviders: agentRuntimeOverrideRow.allowedOverrideProviders ?? null,
@@ -627,26 +646,27 @@ export async function POST(req: NextRequest): Promise<Response> {
       }
     }
 
-    if (rawBaseUrl && rawBaseUrl.trim().length > 0) {
-      const allowlist = readBaseurlAllowlist()
-      if (!isBaseurlAllowlisted(rawBaseUrl.trim(), allowlist)) {
-        return jsonError(
-          400,
-          `baseUrl "${rawBaseUrl}" is not in the AI_RUNTIME_BASEURL_ALLOWLIST. Set that env var to a comma-separated list of allowed hosts (https only) or full origins such as http://localhost:11434 to enable per-request baseUrl overrides.`,
-          'baseurl_not_allowlisted',
-        )
-      }
-    }
-    // --- end Phase 4a + Phase 4 validation ---
-
     const requestOverride =
       hasRuntimeOverride
         ? {
             providerId: normalizedProvider,
             modelId: rawModel && rawModel.trim().length > 0 ? rawModel.trim() : null,
-            baseURL: rawBaseUrl && rawBaseUrl.trim().length > 0 ? rawBaseUrl.trim() : null,
+            baseURL: requestBaseUrl,
           }
         : undefined
+
+    if (requestBaseUrl && requiresScopedCheck) {
+      if (!matchesScopedOrigin) throw new RuntimeBaseurlNotAllowlistedError()
+      assertRuntimeBaseurlForModelInput(requestBaseUrl, baseurlAllowlist, {
+        moduleId: agentDef.moduleId,
+        agentDefaultProvider: agentDef.defaultProvider,
+        agentDefaultModel: agentDef.defaultModel,
+        requestOverride,
+        tenantOverride: savedProviderModel,
+        tenantAllowlist: tenantAllowlistSnapshot,
+      })
+    }
+    // --- end Phase 4a + Phase 4 validation ---
 
     // Resolve the loopBudget preset to a loop config override (Phase 4).
     const loopFromPreset =
@@ -715,6 +735,9 @@ export async function POST(req: NextRequest): Promise<Response> {
       runId,
     })
   } catch (error) {
+    if (error instanceof RuntimeBaseurlNotAllowlistedError) {
+      return jsonError(400, error.message, error.code)
+    }
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
     }

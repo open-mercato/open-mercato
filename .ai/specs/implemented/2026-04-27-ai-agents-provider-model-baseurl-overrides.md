@@ -695,6 +695,12 @@ keeps its name and input shape.
 - **Pre-implementation analysis recommended**: yes — run the `om-pre-implement-spec` skill against this file before kicking off Phase 0 to confirm the resolution-chain table matches the contributor's mental model and to surface any missed call sites that grep didn't catch.
 - **Integration coverage**: Phase 0 + Phase 1 add unit tests in `model-factory.test.ts` and `agent-runtime.test.ts`. Phase 2 adds adapter tests. Phase 4 adds a settings-route response test. No new HTTP routes, so no new Playwright integration tests are required; the existing AI Assistant suite covers the playground UI.
 
+## Migration & Backward Compatibility
+
+`AI_RUNTIME_BASEURL_ALLOWLIST` accepts `provider-id=scheme://host[:port]` entries as of #7617. Scoped entries match the effective provider and the URL origin. Valid legacy host and origin entries remain grants for every provider. Operators can require provider binding by replacing unscoped entries, including overlapping wildcard patterns, with scoped entries.
+
+The write and request boundaries use the existing provider-selection rules to validate scoped entries. The model factory checks request and stored base URLs again against the final adapter after provider/model fallback. A denied request retains the `400 baseurl_not_allowlisted` response. A denied stored URL is ignored and the existing lower-priority URL sources apply. Trusted programmatic and deployment defaults retain their precedence. The settings API continues to report both the saved override and the resolved URL.
+
 ## Changelog
 
 - **2026-04-27** — Initial draft. Authored after a survey that found three independent gaps in the new typed-agent framework (no per-agent provider, no `.env`-driven default for the new framework, no consistent baseURL story). Phasing chosen so Phase 0 ships value in <30 lines and the riskier call-site unification is deferred to Phase 3 with mitigations.
