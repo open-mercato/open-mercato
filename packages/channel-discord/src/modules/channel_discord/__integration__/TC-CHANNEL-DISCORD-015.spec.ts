@@ -33,14 +33,20 @@ test.describe('TC-CHANNEL-DISCORD-015: Connect Discord dialog', () => {
     await expect(dialog.getByText('Developer Portal → General Information → Public Key.', { exact: false })).toBeVisible()
     await expect(dialog.getByText('Enable Developer Mode in Discord, right-click the server, Copy Server ID.', { exact: false })).toBeVisible()
 
-    await dialog.getByRole('button', { name: 'Connect', exact: true }).click()
-    await expect(dialog.getByText('This field is required', { exact: true })).toHaveCount(3)
+    const botToken = dialog.locator('[data-crud-field-id="botToken"]')
+    const applicationId = dialog.locator('[data-crud-field-id="applicationId"]')
+    const publicKey = dialog.locator('[data-crud-field-id="publicKey"]')
 
-    await dialog.locator('[data-crud-field-id="botToken"] input').fill('not-a-real-token')
-    await dialog.locator('[data-crud-field-id="applicationId"] input').fill('123456789012345678')
-    await dialog.locator('[data-crud-field-id="publicKey"] input').fill('not-hex')
     await dialog.getByRole('button', { name: 'Connect', exact: true }).click()
-    await expect(dialog.getByText('Enter the 64-character hex public key from the Developer Portal.')).toBeVisible()
+    for (const field of [botToken, applicationId, publicKey]) {
+      await expect(field.getByText('This field is required', { exact: true })).toBeVisible()
+    }
+
+    await botToken.locator('input').fill('not-a-real-token')
+    await applicationId.locator('input').fill('123456789012345678')
+    await publicKey.locator('input').fill('not-hex')
+    await dialog.getByRole('button', { name: 'Connect', exact: true }).click()
+    await expect(publicKey.getByText('Enter the 64-character hex public key from the Developer Portal.', { exact: true })).toBeVisible()
     await expect(dialog.getByText('This field is required', { exact: true })).toHaveCount(0)
 
     expect(connectRequests, 'client-side validation must stop the request').toEqual([])
