@@ -23,6 +23,7 @@ import {
   resolveAliasedTaskEntityId,
 } from './task-entity-aliases'
 import { resolvesAgainstEntries } from './expression-refs'
+import { readReservedTaskFormFields } from './task-form-schema'
 import { validateErrorRoutes, type ErrorRoutingDefinitionLike } from './error-routing'
 import { validateOutcomeRoutes } from './outcome-routing'
 import {
@@ -46,6 +47,7 @@ export type FlowLogicWarningCode =
   | 'taskBindingAssigneeCannotView'
   | 'outcomeRouteUnknownKind'
   | 'outcomeRouteDuplicateKind'
+  | 'taskFieldReservedName'
 
 export interface FlowLogicWarning {
   code: FlowLogicWarningCode
@@ -426,6 +428,35 @@ export function collectPortalTaskBindingWarnings(definition: FlowLogicDefinition
 }
 
 /**
+ * A USER_TASK form field whose NAME completion refuses (`__`-prefixed or
+ * `_pendingAsyncActivities`). Its value can never be submitted, so a required
+ * one makes the task impossible to complete. A WARNING like every other check
+ * here: `userTaskConfigSchema` stays as permissive as before, and the author
+ * renames the field.
+ */
+export function collectTaskReservedFieldWarnings(definition: FlowLogicDefinition): FlowLogicWarning[] {
+  const warnings: FlowLogicWarning[] = []
+
+  asArray(definition.steps).forEach((step, stepIndex) => {
+    if (!isUserTaskStep(step)) return
+    const stepId = readString(step, 'stepId')
+    if (!stepId) return
+    const config = readUserTaskConfig(step)
+    if (!config) return
+    for (const field of readReservedTaskFormFields(config.formSchema)) {
+      warnings.push({
+        code: 'taskFieldReservedName',
+        path: ['steps', stepIndex],
+        params: { stepId, field },
+        severity: 'warning',
+      })
+    }
+  })
+
+  return warnings
+}
+
+/**
  * Binding problems on a USER_TASK's "About what" list.
  *
  * - An `entityType` that resolves to no known entity is an ERROR: the visibility
@@ -570,6 +601,7 @@ export function collectFlowLogicWarnings(
     ...collectTaskDecisionWarnings(definition),
     ...collectTaskOwnerWarnings(definition),
     ...collectPortalTaskBindingWarnings(definition),
+    ...collectTaskReservedFieldWarnings(definition),
     ...collectTaskBindingWarnings(definition, options),
     ...collectBranchingRouteWarnings(definition).map<FlowLogicWarning>((warning) => ({
       code: 'branchingWithoutOtherwise',

@@ -30,7 +30,10 @@ import { executeWorkflow } from '../workflow-executor'
 import { acquireWorkflowsPgDatabase, runsAgainstPostgres, type WorkflowsPgDatabase } from './workflowsPgDatabase'
 
 jest.mock('../transition-handler', () => ({ findValidTransitions: jest.fn(), executeTransition: jest.fn() }))
-jest.mock('../workflow-executor', () => ({ executeWorkflow: jest.fn() }))
+jest.mock('../workflow-executor', () => ({
+  findReservedContextKeys: jest.requireActual<typeof import('../workflow-executor')>('../workflow-executor').findReservedContextKeys,
+  executeWorkflow: jest.fn(),
+}))
 
 const maybe = runsAgainstPostgres ? describe : describe.skip
 
@@ -124,6 +127,7 @@ maybe('completeUserTask double submit against PostgreSQL', () => {
       taskName: 'Review',
       status: 'PENDING',
       assignedTo: USER_ID,
+      formSchema: { properties: { approved: { type: 'boolean' } } },
       updatedAt: new Date(),
       ...scope,
     } as never)

@@ -262,6 +262,7 @@ Contract notes:
 - **Duplicate registration throws**, mirroring `registerActivityType`: two modules silently fighting over one key is a bug that must surface at load time, not a race whose winner depends on import order.
 - **Resolution never throws.** `resolveTaskForm(formKey)` returns `{ kind: 'builtin' }` when no key is authored, `{ kind: 'registered', entry }` on a hit, and `{ kind: 'missing', formKey }` when the author asked for a renderer that is not loaded. `missing` is deliberately distinct from `builtin`: both fall back to the built-in form, but `missing` is something the surface must say out loud rather than quietly render something else. A blank screen is the one outcome this must never produce.
 - The `formKey` is **re-resolved per request** from the instance's pinned definition, never copied onto a column, so a definition that gains a renderer key starts using it with no migration.
+- **Every key the renderer emits MUST be declared in the step's `formSchema`.** The renderer's `values` are submitted as `formData`, and task completion refuses — with `400` and an `invalidFields` list — any key the task's `formSchema` does not declare, plus every engine-reserved key (`__`-prefixed keys, `_pendingAsyncActivities`). A step with a `formKey` and no `formSchema` therefore accepts only an empty submission. Declare the renderer's output fields in `formSchema` (either the `{ fields: [...] }` or the JSON Schema `{ properties }` shape), with `required: true` on the ones completion must insist on. See [UPGRADE_NOTES.md § Task fields (#9142)](https://github.com/open-mercato/open-mercato/blob/main/UPGRADE_NOTES.md#task-fields-9142).
 
 ## Task Completion Guards
 
@@ -334,14 +335,16 @@ export async function executeApprovalMatrixStep(
         stepInstanceId: context.stepInstanceId,
         taskName: `Approve Request - $${amount}`,
         assignedTo: approverId,
-        formSchema: [
-          {
-            fieldName: 'decision',
-            fieldType: 'select',
-            options: ['approve', 'reject'],
-            required: true
-          }
-        ]
+        formSchema: {
+          fields: [
+            {
+              name: 'decision',
+              type: 'select',
+              options: ['approve', 'reject'],
+              required: true
+            }
+          ]
+        }
       })
     )
   )

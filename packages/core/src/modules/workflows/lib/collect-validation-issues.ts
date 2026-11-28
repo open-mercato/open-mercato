@@ -86,6 +86,10 @@ export const FLOW_LOGIC_MESSAGE_KEYS: Record<FlowLogicWarningCode, { key: string
     key: 'workflows.visualEditor.problems.outcomeRouteDuplicateKind',
     fallback: 'Agent step "{stepId}" has more than one route for the "{outcomeKind}" outcome; only the highest-priority one can ever be taken',
   },
+  taskFieldReservedName: {
+    key: 'workflows.visualEditor.problems.taskFieldReservedName',
+    fallback: 'Task "{stepId}" declares the field "{field}", a name reserved by the engine; completion refuses it, so the field can never be submitted',
+  },
   taskBindingAssigneeCannotView: {
     key: 'workflows.visualEditor.problems.taskBindingAssigneeCannotView',
     fallback: 'Task "{stepId}" is about "{entityType}", which {roles} may not view; assignees holding only those roles would not see the task',

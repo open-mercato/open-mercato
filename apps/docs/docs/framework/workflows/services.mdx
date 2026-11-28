@@ -314,6 +314,8 @@ async function getOrderWorkflow(orderId: string) {
 POST /api/workflows/tasks/{taskId}/complete
 ```
 
+`formData` may carry **only the fields the task's `formSchema` declares** (either the `{ fields: [...] }` or the JSON Schema `{ properties }` shape). Any other key, and every engine-reserved key (`__`-prefixed keys such as `__decision`, and `_pendingAsyncActivities`), is refused with `400` before anything is written; the response names the refused keys in `invalidFields`. A task without a form schema accepts only `formData: {}`. To pass a value into the run, declare it as a form field on the USER_TASK step. The examples below assume a step that declares `decision` and `comments`.
+
 **Request Body:**
 ```typescript
 {
@@ -344,8 +346,7 @@ async function approveRequest(taskId: string, comments: string) {
     body: JSON.stringify({
       formData: {
         decision: 'approve',
-        comments,
-        approvedAt: new Date().toISOString()
+        comments
       }
     })
   })
@@ -370,7 +371,7 @@ await apiFetch(`/api/workflows/tasks/${taskId}/complete`, {
 })
 ```
 
-`decisionId` is optional and additive — a task without decisions completes exactly as before. When present it does two things: it **selects the outgoing route** (the decision's durable `transitionId` wins over the default first-valid-transition evaluation) and it is **recorded** on the completion, under the reserved `__decision` key in `user_tasks.form_data` and in the `USER_TASK_COMPLETED` event. Because form data is merged into the run context, a downstream route condition can branch on `context.__decision`.
+`decisionId` is optional and additive — a task without decisions completes exactly as before. When present it does two things: it **selects the outgoing route** (the decision's durable `transitionId` wins over the default first-valid-transition evaluation) and it is **recorded** on the completion, under the reserved `__decision` key in `user_tasks.form_data` and in the `USER_TASK_COMPLETED` event. The engine merges the declared form fields and that recorded decision into the run context, so a downstream route condition can branch on `context.__decision`. A client never sends `__decision` itself — it is reserved, and submitting it in `formData` is refused.
 
 The lookup is constrained to routes **leaving the step the task is parked on**, and error and SLA-breach routes are excluded — a button can never send a run down a route that starts elsewhere, or down a path only a failure may reach. An unknown `decisionId` is resolved *before* anything is mutated and answered `400`, so the task is left untouched rather than completed down the wrong route. A decision whose route no longer exists on the step logs a warning and falls back to normal routing instead of stranding the run.
 
@@ -516,7 +517,7 @@ console.log(instance.context)
 Context is updated automatically through:
 - Activity outputs (merged under `activities.<activityId>.output`)
 - Signal payloads (merged at root level)
-- User task form data (merged at root level)
+- User task form data — only the fields the task's `formSchema` declares (merged at root level)
 
 For custom updates from outside the engine, patch the instance context over HTTP:
 

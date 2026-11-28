@@ -16,6 +16,7 @@
 import { describe, test, expect, jest, beforeEach, afterAll } from '@jest/globals'
 import { NextRequest } from 'next/server'
 import { UserTask } from '../../data/entities'
+import type { TaskHandlerService } from '../../lib/task-handler'
 import { TaskCompletionBlockedError } from '../../lib/task-handler'
 import {
   clearTaskCompletionGuards,
@@ -37,7 +38,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => {
 const getCustomerAuthFromRequest = jest.fn<(req: Request) => Promise<unknown>>()
 const requireCustomerFeature = jest.fn<(...args: unknown[]) => Promise<void>>()
 const findWithDecryption = jest.fn<(...args: unknown[]) => Promise<unknown[]>>()
-const completeUserTask = jest.fn<(...args: unknown[]) => Promise<void>>()
+const completeUserTask = jest.fn<TaskHandlerService['completeUserTask']>()
 const loadAcl = jest.fn<(...args: unknown[]) => Promise<{ isPortalAdmin: boolean; features: string[] }>>()
 const getAuthFromRequest = jest.fn<(req: Request) => Promise<unknown>>()
 
@@ -562,5 +563,38 @@ describe('cross-principal isolation', () => {
     await runComplete()
 
     expect(getAuthFromRequest).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('issue 9142 portal route with real completion validation', () => {
+  test.each(['id', 'approved', '__result', '__decision', '_pendingAsyncActivities'])(
+    'refuses injected %s without changing the task', async (field) => {
+      taskRow = makeTask({ formSchema: { properties: { note: { type: 'string' } } } })
+      const before = { ...taskRow }
+      const handler = await import('../../lib/task-handler')
+      completeUserTask.mockImplementation(handler.completeUserTask)
+      const flush = jest.fn()
+      Object.assign(mockEm, { flush })
+
+      const response = await runComplete({ formData: { note: 'ok', [field]: 'injected' } })
+      expect(response.status).toBe(400)
+      expect(await response.json()).toEqual(expect.objectContaining({ ok: false, invalidFields: [field] }))
+      expect(taskRow).toEqual(before)
+      expect(flush).not.toHaveBeenCalled()
+    },
+  )
+})
+
+describe('issue 9142 portal route on a task without a form schema', () => {
+  test('refuses any submitted key and names it', async () => {
+    taskRow = makeTask({ formSchema: null })
+    const handler = await import('../../lib/task-handler')
+    completeUserTask.mockImplementation(handler.completeUserTask)
+    Object.assign(mockEm, { flush: jest.fn() })
+
+    const refused = await runComplete({ formData: { note: 'x' } })
+    expect(refused.status).toBe(400)
+    expect(await refused.json()).toEqual(expect.objectContaining({ invalidFields: ['note'] }))
   })
 })

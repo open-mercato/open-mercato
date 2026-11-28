@@ -753,6 +753,10 @@ STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade
 
 STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
 
+## #9142 (2026-11-26)
+
+STABLE task fields. A bridge retains bypass. Waiver due. [Guide](UPGRADE_NOTES.md#task-fields-9142).
+
 ## 2026-11-26 — Vector-index entity authorization (#10693)
 
 STABLE `GET /api/search/index` enforces entity view and org scope. A bridge leaks rows. [Migration](UPGRADE_NOTES.md#vector-index-entity-authorization-10693) · [Spec](.ai/specs/2026-11-26-vector-index-entity-authorization.md). Named waiver pending.

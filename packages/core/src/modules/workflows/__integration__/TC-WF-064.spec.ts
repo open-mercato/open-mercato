@@ -49,7 +49,16 @@ function buildDefinition(workflowId: string, assignedUserId: string) {
           stepId: 'review',
           stepName: 'Review',
           stepType: 'USER_TASK',
-          userTaskConfig: { assignedTo: assignedUserId },
+          userTaskConfig: {
+            assignedTo: assignedUserId,
+            formSchema: {
+              properties: {
+                staleSubmission: { type: 'boolean' },
+                retriedSubmission: { type: 'boolean' },
+                liveSubmission: { type: 'boolean' },
+              },
+            },
+          },
         },
         { stepId: 'end', stepName: 'End', stepType: 'END' },
       ],

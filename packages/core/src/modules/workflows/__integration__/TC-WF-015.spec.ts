@@ -38,7 +38,7 @@ test.describe('TC-WF-015: parallel branch with a user task', () => {
             // Spec §6.4 made a task addressed to one person that person's to
             // finish (`completeUserTask` → TASK_ASSIGNED_TO_ANOTHER_USER, 409),
             // so a non-id placeholder now produces a task nobody can complete.
-            userTaskConfig: { assignedTo: callerUserId },
+            userTaskConfig: { assignedTo: callerUserId, formSchema: { properties: { approved: { type: 'boolean' } } } },
           },
           { stepId: 'join', stepName: 'Join', stepType: 'PARALLEL_JOIN', config: { forkStepId: 'fork' } },
           { stepId: 'end', stepName: 'End', stepType: 'END' },

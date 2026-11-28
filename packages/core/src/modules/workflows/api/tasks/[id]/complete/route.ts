@@ -17,6 +17,7 @@ import {
   resolveTaskCompletionBlockedBody,
 } from '../../../../lib/task-completion-guards'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
+import { readInvalidFormFields } from '../../../../lib/task-form-schema'
 import { gateTaskAction, TASK_NOT_FOUND_BODY } from '../../../../lib/task-visibility-request'
 import { userTaskIdParamSchema } from '../../../../data/validators'
 import {
@@ -163,9 +164,13 @@ export async function POST(
 
     // Handle specific error codes from task-handler
     if (error instanceof Error) {
-      if ((error as { code?: unknown }).code === 'UNKNOWN_DECISION') {
+      if (
+        (error as { code?: unknown }).code === 'UNKNOWN_DECISION' ||
+        (error as { code?: unknown }).code === 'FORM_VALIDATION_FAILED'
+      ) {
+        const invalidFields = readInvalidFormFields(error)
         return NextResponse.json(
-          { error: error.message },
+          { error: error.message, ...(invalidFields ? { invalidFields } : {}) },
           { status: 400 }
         )
       }
@@ -219,7 +224,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     POST: {
       summary: 'Complete a task with form data',
-      description: 'Validates form data against task schema, updates task with completion data, merges form data into workflow context, and resumes workflow execution.',
+      description: 'Validates form data against task schema, refuses any key the schema does not declare (and every engine-reserved key) with 400 and `invalidFields`, updates task with completion data, merges the declared fields into workflow context, and resumes workflow execution.',
       requestBody: {
         contentType: 'application/json',
         schema: openApiCompleteTaskSchema,

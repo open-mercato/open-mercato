@@ -28,6 +28,7 @@ jest.mock('../transition-handler', () => ({
 }))
 
 jest.mock('../workflow-executor', () => ({
+  findReservedContextKeys: jest.requireActual<typeof import('../workflow-executor')>('../workflow-executor').findReservedContextKeys,
   executeWorkflow: jest.fn(),
 }))
 
@@ -78,7 +79,7 @@ function makeTask(overrides: Row = {}): Row {
     assignedToRoles: null,
     claimedBy: null,
     branchInstanceId: null,
-    formSchema: null,
+    formSchema: { properties: { approved: { type: 'boolean' } } },
     formData: null,
     completedBy: null,
     completedAt: null,

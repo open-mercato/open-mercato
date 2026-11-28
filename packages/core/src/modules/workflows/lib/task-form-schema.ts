@@ -101,7 +101,12 @@ export function normalizeTaskFormSchema(formSchema: unknown): JsonSchema | null 
     const properties: Record<string, JsonSchemaField> = {}
     const required: string[] = []
     for (const field of authored) {
-      properties[field.name] = authoredTypeToJsonSchemaField(field)
+      Object.defineProperty(properties, field.name, {
+        value: authoredTypeToJsonSchemaField(field),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      })
       if (field.required === true) required.push(field.name)
     }
     return { type: 'object', properties, ...(required.length ? { required } : {}) }
@@ -126,4 +131,31 @@ export function readRequiredFormFields(formSchema: unknown): string[] {
 export function countTaskFormFields(formSchema: unknown): number {
   const normalized = normalizeTaskFormSchema(formSchema)
   return normalized ? Object.keys(normalized.properties ?? {}).length : 0
+}
+
+/**
+ * Completion refuses every `__`-prefixed key and `_pendingAsyncActivities`, so a
+ * field declared under one of those names can never be submitted. Kept here,
+ * pure, so the completion allowlist and the Problems panel share one rule.
+ */
+const NON_PREFIXED_RESERVED_TASK_FIELDS: readonly string[] = ['_pendingAsyncActivities']
+
+export function isReservedTaskFieldName(name: string): boolean {
+  return name.startsWith('__') || NON_PREFIXED_RESERVED_TASK_FIELDS.includes(name)
+}
+
+/** Declared field names, in either shape, that completion would refuse. */
+export function readReservedTaskFormFields(formSchema: unknown): string[] {
+  const normalized = normalizeTaskFormSchema(formSchema)
+  return Object.keys(normalized?.properties ?? {}).filter(isReservedTaskFieldName)
+}
+
+/** The refused `formData` keys a completion error carries, for the routes' 400 body. */
+export function readInvalidFormFields(error: unknown): string[] | undefined {
+  if (!error || typeof error !== 'object') return undefined
+  const { code, details } = error as { code?: unknown; details?: unknown }
+  if (code !== 'FORM_VALIDATION_FAILED' || !details || typeof details !== 'object') return undefined
+  const invalidFields = (details as { invalidFields?: unknown }).invalidFields
+  if (!Array.isArray(invalidFields)) return undefined
+  return invalidFields.filter((field): field is string => typeof field === 'string')
 }

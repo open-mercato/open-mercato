@@ -12,7 +12,10 @@ import type { AwilixContainer } from 'awilix'
 
 jest.mock('../find-definition', () => ({ findDefinitionForInstance: jest.fn() }))
 jest.mock('../transition-handler', () => ({ findValidTransitions: jest.fn(), executeTransition: jest.fn() }))
-jest.mock('../workflow-executor', () => ({ executeWorkflow: jest.fn() }))
+jest.mock('../workflow-executor', () => ({
+  findReservedContextKeys: jest.requireActual<typeof import('../workflow-executor')>('../workflow-executor').findReservedContextKeys,
+  executeWorkflow: jest.fn(),
+}))
 jest.mock('../step-handler', () => ({ exitStep: jest.fn() }))
 jest.mock('../parallel-handler', () => ({ resumeBranch: jest.fn() }))
 
@@ -76,7 +79,7 @@ function race(taskOverrides: Row, instanceStatus: string) {
     assignedTo: USER,
     claimedBy: null,
     branchInstanceId: null,
-    formSchema: null,
+    formSchema: { properties: { approved: { type: 'boolean' } } },
     ...taskOverrides,
   }
   const instance: Row = {
