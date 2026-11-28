@@ -18,6 +18,7 @@ import type { AwilixContainer } from 'awilix'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const searchToolsLogger = createLogger('search.ai-tools')
+const API_KEY_SUBJECT_PREFIX = 'api_key:'
 
 /**
  * AI Tools definitions for the Search module.
@@ -46,6 +47,8 @@ type ToolContext = {
   userFeatures: string[]
   isSuperAdmin: boolean
   apiKeyId?: string | null
+  principalApiKeyId?: string | null
+  apiKeyUserId?: string | null
 }
 
 /**
@@ -162,19 +165,28 @@ async function resolveActorOrganizationScope(ctx: ToolContext): Promise<{
  * The caller the search runs for, so entities with a per-record `filterResults`
  * hook (e.g. document sections) apply their own open rule instead of dropping
  * every hit. An API-key caller is the key itself (`api_key:<id>`, no user), so
- * owner checks see the key's own ACL rather than its creator's.
+ * owner checks see the key's own ACL rather than its creator's. A session key is
+ * the key together with its verified user (`principalApiKeyId`, `apiKeyUserId`).
  */
 function buildSearchViewer(ctx: ToolContext, organizationId: string | undefined): SearchViewer | undefined {
   if (!ctx.userId || !ctx.tenantId) return undefined
-  const apiKeyId = typeof ctx.apiKeyId === 'string' && ctx.apiKeyId.length > 0 ? ctx.apiKeyId : null
+  const principalApiKeyId = ctx.principalApiKeyId || null
+  const requesterApiKeyId = typeof ctx.apiKeyId === 'string' && ctx.apiKeyId.length > 0 ? ctx.apiKeyId : null
+  const subjectApiKeyId = ctx.userId.startsWith(API_KEY_SUBJECT_PREFIX)
+    ? ctx.userId.slice(API_KEY_SUBJECT_PREFIX.length)
+    : null
+  const apiKeyId = principalApiKeyId ?? requesterApiKeyId ?? subjectApiKeyId
+  const apiKeyUserId = principalApiKeyId ? ctx.apiKeyUserId ?? null : null
   return {
     auth: {
-      sub: apiKeyId ? `api_key:${apiKeyId}` : ctx.userId,
+      sub: apiKeyId ? `${API_KEY_SUBJECT_PREFIX}${apiKeyId}` : ctx.userId,
       tenantId: ctx.tenantId,
       orgId: organizationId ?? null,
       features: [...ctx.userFeatures],
       isSuperAdmin: ctx.isSuperAdmin === true,
-      ...(apiKeyId ? { isApiKey: true, keyId: apiKeyId } : { userId: ctx.userId }),
+      ...(apiKeyId
+        ? { isApiKey: true, keyId: apiKeyId, ...(apiKeyUserId ? { userId: apiKeyUserId } : {}) }
+        : { userId: ctx.userId }),
     },
     container: ctx.container,
   }

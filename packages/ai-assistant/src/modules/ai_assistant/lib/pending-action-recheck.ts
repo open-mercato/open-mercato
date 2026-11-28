@@ -32,9 +32,10 @@ import {
 import { resolveEffectiveMutationPolicy } from './agent-policy'
 import { hasRequiredFeatures } from './auth'
 import { isToolExposed, resolveMcpExposureConfig, type McpExposureConfig } from './mcp-exposure'
-import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
+import { resolveAttachmentAccessDeniedMessage, resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
 import { planPendingActionExecution, resolvePendingActionBatchMessages } from './pending-action-batch'
+import { filterAttachmentRowsByOwnerAccess, type AttachmentOwnerAccessRow } from './attachment-owner-access'
 
 export type PendingActionRecheckCode =
   | 'invalid_status'
@@ -45,6 +46,7 @@ export type PendingActionRecheckCode =
   | 'tool_features_denied'
   | 'read_only_agent'
   | 'attachment_cross_tenant'
+  | 'attachment_access_denied'
   | 'stale_version'
   | 'schema_drift'
   | 'tool_not_exposed'
@@ -399,6 +401,26 @@ export async function checkAttachmentScope(
       }
     }
   }
+  const { denied } = await filterAttachmentRowsByOwnerAccess(
+    {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      userId: ctx.userId,
+      isSuperAdmin: ctx.isSuperAdmin,
+      container: ctx.container,
+      em,
+    },
+    rows as unknown as AttachmentOwnerAccessRow[],
+    'read',
+  )
+  if (denied.length > 0) {
+    return {
+      ok: false,
+      status: 403,
+      code: 'attachment_access_denied',
+      message: await resolveAttachmentAccessDeniedMessage(),
+    }
+  }
   return { ok: true }
 }
 
@@ -601,6 +623,7 @@ export const PENDING_ACTION_RECHECK_CODES: ReadonlyArray<PendingActionRecheckCod
   'tool_features_denied',
   'read_only_agent',
   'attachment_cross_tenant',
+  'attachment_access_denied',
   'stale_version',
   'schema_drift',
   'tool_not_exposed',

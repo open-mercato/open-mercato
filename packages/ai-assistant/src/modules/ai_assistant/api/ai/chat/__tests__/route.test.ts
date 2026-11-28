@@ -18,6 +18,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
 }))
 
+const resolveToolPrincipalIdsMock = jest.fn()
+
+jest.mock('../../../../lib/api-key-principal', () => ({
+  resolveToolPrincipalIds: (...args: unknown[]) => resolveToolPrincipalIdsMock(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
@@ -140,6 +146,7 @@ describe('POST /api/ai/chat', () => {
     agentRuntimeOverrideGetExactMock.mockResolvedValue(null)
     createOrGetConversationMock.mockResolvedValue({})
     appendConversationMessageMock.mockResolvedValue({})
+    resolveToolPrincipalIdsMock.mockResolvedValue({})
     runAiAgentTextMock.mockResolvedValue(
       new Response('data: {"type":"text","content":"ok"}\n\ndata: [DONE]\n\n', {
         status: 200,
@@ -314,6 +321,21 @@ describe('POST /api/ai/chat', () => {
     expect(callArg.authContext.tenantId).toBe('tenant-1')
     expect(callArg.authContext.organizationId).toBe('org-1')
     expect(callArg.container).toBeDefined()
+  })
+
+  it('passes the key principal of a key-authenticated request to the agent runtime', async () => {
+    seedAgentRegistryForTests([makeAgent({ id: 'customers.assistant', moduleId: 'customers' })])
+    const keyAuth = { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1', orgId: 'org-1' }
+    authMock.mockResolvedValue(keyAuth)
+    resolveToolPrincipalIdsMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+
+    const response = await POST(
+      buildRequest({ agent: 'customers.assistant', body: { messages: [{ role: 'user', content: 'Hello' }] } }) as any,
+    )
+
+    expect(response.status).toBe(200)
+    expect(resolveToolPrincipalIdsMock).toHaveBeenCalledWith(expect.anything(), keyAuth)
+    expect(runAiAgentTextMock.mock.calls[0][0].authContext).toMatchObject({ userId: 'api_key:key-1', principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
   })
 
   it('passes a generated runId with the chat channel and the request correlation id', async () => {

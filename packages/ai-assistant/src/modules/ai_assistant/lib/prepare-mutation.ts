@@ -131,6 +131,8 @@ function toolHandlerContext(ctx: PrepareMutationContext): McpToolContext {
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
     userId: ctx.userId,
+    ...(ctx.principalApiKeyId ? { principalApiKeyId: ctx.principalApiKeyId } : {}),
+    ...(ctx.principalApiKeyId && ctx.apiKeyUserId ? { apiKeyUserId: ctx.apiKeyUserId } : {}),
     container: ctx.container,
     userFeatures: ctx.features,
     isSuperAdmin: ctx.isSuperAdmin,

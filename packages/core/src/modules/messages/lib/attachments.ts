@@ -1,12 +1,72 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as SqlEntityManager } from '@mikro-orm/postgresql'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { AttachmentService } from '@open-mercato/core/modules/attachments'
 import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
+import type { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from './constants'
+import type { MessageAttachmentLinkAccess } from './attachmentLinkAccess'
 import { isAttachmentsModuleAvailable } from './optionalModules'
 const LIBRARY_ATTACHMENT_ENTITY_ID = 'attachments:library'
+
+async function assertAttachmentsLinkable(
+  em: EntityManager,
+  attachments: Attachment[],
+  messageId: string,
+  access: MessageAttachmentLinkAccess | undefined,
+): Promise<void> {
+  const moving = attachments.filter((attachment) => (
+    attachment.entityId !== MESSAGE_ATTACHMENT_ENTITY_ID || attachment.recordId !== messageId
+  ))
+  if (moving.length === 0) return
+  const { evaluateAttachmentRowAccess } = await import('@open-mercato/core/modules/attachments/lib/access-rows')
+  const { denied } = await evaluateAttachmentRowAccess({
+    container: access?.container,
+    em: em as unknown as SqlEntityManager,
+    auth: access?.auth ?? undefined,
+    rows: moving,
+    action: 'reassign',
+    destination: { entityId: MESSAGE_ATTACHMENT_ENTITY_ID, recordId: messageId },
+  })
+  if (denied.length === 0) return
+  const { t } = await resolveTranslations()
+  throw new CrudHttpError(403, {
+    error: t('messages.errors.attachmentAccessDenied', 'You cannot attach one or more of these files.'),
+  })
+}
+
+async function moveAttachmentsToMessage(
+  em: EntityManager,
+  filter: Record<string, unknown>,
+  scope: { tenantId: string; organizationId: string | null },
+  messageId: string,
+  access: MessageAttachmentLinkAccess | undefined,
+): Promise<void> {
+  const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
+  const { ATTACHMENT_ROW_WRITE_LOCK } = await import('@open-mercato/core/modules/attachments/lib/access-rows')
+  const move = async (tx: EntityManager) => {
+    const attachments = await findWithDecryption(
+      tx as unknown as SqlEntityManager,
+      Attachment,
+      filter,
+      ATTACHMENT_ROW_WRITE_LOCK,
+      scope,
+    )
+    if (!attachments.length) return
+    await assertAttachmentsLinkable(tx, attachments, messageId, access)
+    for (const attachment of attachments) {
+      attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
+      attachment.recordId = messageId
+    }
+    await tx.flush()
+  }
+  if (em.isInTransaction()) await move(em)
+  else await em.transactional(move)
+}
 
 function buildOrganizationScopeFilter(organizationId: string | null) {
   if (!organizationId) {
@@ -26,24 +86,16 @@ export async function linkAttachmentsToMessage(
   attachmentIds: string[],
   organizationId: string | null,
   tenantId: string,
+  access?: MessageAttachmentLinkAccess,
 ): Promise<void> {
   if (attachmentIds.length === 0) return
   if (!(await isAttachmentsModuleAvailable(em))) return
 
-  const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-
-  const attachments = await em.find(Attachment, {
+  await moveAttachmentsToMessage(em, {
     id: { $in: attachmentIds },
     tenantId,
     ...buildOrganizationScopeFilter(organizationId),
-  })
-
-  for (const attachment of attachments) {
-    attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
-    attachment.recordId = messageId
-  }
-
-  await em.flush()
+  }, { tenantId, organizationId }, messageId, access)
 }
 
 export async function moveComposerAttachmentsToMessage(
@@ -234,27 +286,17 @@ export async function linkLibraryAttachmentsToMessage(
   sourceRecordId: string,
   organizationId: string | null,
   tenantId: string,
+  access?: MessageAttachmentLinkAccess,
 ): Promise<void> {
   if (!sourceRecordId.trim()) return
   if (!(await isAttachmentsModuleAvailable(em))) return
 
-  const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-
-  const attachments = await em.find(Attachment, {
+  await moveAttachmentsToMessage(em, {
     entityId: LIBRARY_ATTACHMENT_ENTITY_ID,
     recordId: sourceRecordId,
     tenantId,
     ...buildOrganizationScopeFilter(organizationId),
-  })
-
-  if (!attachments.length) return
-
-  for (const attachment of attachments) {
-    attachment.entityId = MESSAGE_ATTACHMENT_ENTITY_ID
-    attachment.recordId = messageId
-  }
-
-  await em.flush()
+  }, { tenantId, organizationId }, messageId, access)
 }
 
 export async function copyAttachmentsForForward(

@@ -67,6 +67,8 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
   let userId: string | null = null
   let userFeatures: string[] = []
   let isSuperAdmin = false
+  let principalApiKeyId: string | undefined
+  let apiKeyUserId: string | undefined
   let auditIdentity: McpAuditIdentity = EMPTY_MCP_AUDIT_IDENTITY
 
   // API key authentication takes precedence
@@ -80,6 +82,8 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     userId = authResult.userId
     userFeatures = authResult.features
     isSuperAdmin = authResult.isSuperAdmin
+    principalApiKeyId = authResult.keyId
+    apiKeyUserId = authResult.apiKeyUserId
     auditIdentity = {
       apiKeyId: authResult.keyId,
       apiKeySessionUserId: authResult.keySessionUserId ?? null,
@@ -140,6 +144,8 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     userFeatures,
     isSuperAdmin,
     apiKeySecret,
+    ...(principalApiKeyId ? { principalApiKeyId } : {}),
+    ...(principalApiKeyId && apiKeyUserId ? { apiKeyUserId } : {}),
   }
 
   const server = new Server(

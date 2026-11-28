@@ -24,6 +24,7 @@ import {
 } from '../../../lib/mcp-agent-tool-results'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { AiToolDefinition, McpToolContext } from '../../../lib/types'
+import { resolveToolPrincipalIds } from '../../../lib/api-key-principal'
 
 const logger = createLogger('ai_assistant')
 
@@ -153,6 +154,7 @@ export async function POST(req: NextRequest) {
       container,
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
+      ...(await resolveToolPrincipalIds(container, auth)),
     }
 
     // Execute the tool

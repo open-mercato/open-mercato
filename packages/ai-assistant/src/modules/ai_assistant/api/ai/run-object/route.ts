@@ -22,6 +22,7 @@ import {
   type AiAgentRunDispatchCaller,
   type AiAgentRunDispatcher,
 } from '../../../lib/agent-run-dispatcher'
+import { resolveToolPrincipalIds } from '../../../lib/api-key-principal'
 
 const logger = createLogger('ai_assistant')
 
@@ -343,6 +344,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
         userId: auth.sub,
+        ...(await resolveToolPrincipalIds(container, auth)),
         features: acl.features,
         isSuperAdmin: acl.isSuperAdmin,
       },

@@ -34,6 +34,10 @@ jest.mock('../tool-loader', () => ({
   loadAllModuleTools: jest.fn(),
   indexToolsForSearch: jest.fn(),
 }))
+jest.mock('@open-mercato/core/modules/api_keys/services/sessionKeyRoles', () => ({
+  resolveVerifiedSessionKeyUserId: async (_em: unknown, key: { sessionUserId?: string | null }) =>
+    key.sessionUserId ?? null,
+}))
 jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   findApiKeyBySecret: (...args: unknown[]) => mockFindApiKeyBySecret(...args),
   findSessionApiKeyWithSecret: (...args: unknown[]) => mockFindSessionApiKeyWithSecret(...args),

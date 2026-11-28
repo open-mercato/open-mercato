@@ -18,6 +18,8 @@ export type McpAuthSuccess = {
   tenantId: string | null
   organizationId: string | null
   userId: string
+  /** The verified user a session-bound key acts for; absent for regular keys. */
+  apiKeyUserId?: string
   features: string[]
   isSuperAdmin: boolean
 }
@@ -68,6 +70,9 @@ export async function authenticateMcpRequest(
     const { findApiKeyBySecret } = await import(
       '@open-mercato/core/modules/api_keys/services/apiKeyService'
     )
+    const { resolveVerifiedSessionKeyUserId } = await import(
+      '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
+    )
 
     const apiKey = await findApiKeyBySecret(em, trimmedSecret)
 
@@ -93,6 +98,8 @@ export async function authenticateMcpRequest(
       organizationId: apiKey.organizationId ?? null,
     })
 
+    const apiKeyUserId = await resolveVerifiedSessionKeyUserId(em, apiKey)
+
     try {
       apiKey.lastUsedAt = new Date()
       await em.persist(apiKey).flush()
@@ -109,6 +116,7 @@ export async function authenticateMcpRequest(
       tenantId: apiKey.tenantId ?? null,
       organizationId: apiKey.organizationId ?? null,
       userId,
+      ...(apiKeyUserId ? { apiKeyUserId } : {}),
       features: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
     }

@@ -273,6 +273,36 @@ describe('prepareMutation', () => {
     expect(legacy).toBe('c73137f41fa5cebcde57f785ed225f1ee5410f51d169b825f509295eb41bd3af')
   })
 
+  it('hands the key principal to the preview loader and drops a verified user that comes without a key', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    const tool = makeTool({
+      name: 'catalog.products.update',
+      isMutation: true,
+      loadBeforeRecord: async (_input: unknown, ctx: Record<string, unknown>) => {
+        seen.push({ ...ctx })
+        return { recordId: 'p-1', entityType: 'catalog.product', recordVersion: 'v-1', before: { name: 'old' } }
+      },
+    })
+    const input = {
+      agent: makeAgent({ id: 'catalog.merch' }),
+      tool,
+      toolCallArgs: { productId: 'p-1', patch: { name: 'new' } },
+    }
+
+    await prepareMutation(
+      { ...input, conversationId: 'conv-key' },
+      { ...baseCtx, principalApiKeyId: 'session-key-1', apiKeyUserId: 'session-user-1', container: makeContainer(mockEm()) },
+    )
+    await prepareMutation(
+      { ...input, conversationId: 'conv-user' },
+      { ...baseCtx, apiKeyUserId: 'session-user-1', container: makeContainer(mockEm()) },
+    )
+
+    expect(seen[0]).toMatchObject({ principalApiKeyId: 'session-key-1', apiKeyUserId: 'session-user-1' })
+    expect(seen[1]).not.toHaveProperty('principalApiKeyId')
+    expect(seen[1]).not.toHaveProperty('apiKeyUserId')
+  })
+
   it('single-record happy path: emits mutation-preview-card with pendingActionId and a computed fieldDiff', async () => {
     const em = mockEm()
     const container = makeContainer(em)

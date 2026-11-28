@@ -1,11 +1,15 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
+import { convertToModelMessages } from 'ai'
 import { WarrantyClaim, WarrantyClaimEvent, WarrantyClaimLine } from '../data/entities'
 import {
   assembleClaimReplyPrompt,
   assembleClaimSummaryPrompt,
+  ATTACHMENT_CONVERSION_FAILED_CODE,
   buildClaimReplyDraft,
+  extractProofOfPurchase,
   WarrantyAiNotConfiguredError,
+  WarrantyAiUnavailableError,
   type ClaimPromptFacts,
 } from '../lib/aiAssist'
 
@@ -16,6 +20,28 @@ const CLAIM_ID = '33333333-3333-4333-8333-333333333333'
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
 const createModelFactoryMock = jest.fn()
+const warnMock = jest.fn()
+const reportErrorMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const actual = jest.requireActual<typeof import('@open-mercato/shared/lib/logger')>('@open-mercato/shared/lib/logger')
+  return {
+    ...actual,
+    createLogger: (moduleId: string) => moduleId === 'warranty_claims'
+      ? { ...actual.createLogger(moduleId), warn: (...args: unknown[]) => warnMock(...args) }
+      : actual.createLogger(moduleId),
+  }
+})
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: (...args: unknown[]) => reportErrorMock(...args) }),
+}))
+
+jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-parts', () => ({
+  resolveAttachmentParts: jest.fn().mockResolvedValue([]),
+  attachmentPartsToUiFileParts: () => [{ type: 'file', mediaType: 'application/pdf', url: 'https://example.invalid/receipt.pdf' }],
+}))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
@@ -39,6 +65,7 @@ jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory', (
 })
 
 jest.mock('ai', () => ({
+  convertToModelMessages: jest.fn(),
   generateText: jest.fn(async () => ({ text: 'Draft text' })),
 }))
 
@@ -188,6 +215,50 @@ describe('warranty claim AI assist', () => {
     findOneWithDecryptionMock.mockReset()
     findWithDecryptionMock.mockReset()
     createModelFactoryMock.mockReset()
+    warnMock.mockClear()
+    reportErrorMock.mockClear()
+    jest.mocked(convertToModelMessages).mockReset()
+  })
+
+  test('reports attachment conversion failures without including the input in logs or telemetry', async () => {
+    const signedUrl = 'https://example.invalid/receipt.pdf?signature=fixture-signature'
+    const inlineData = 'data:application/pdf;base64,ZmFrZS1wZGY='
+    const conversionError = Object.assign(new Error(signedUrl), {
+      name: signedUrl,
+      code: inlineData,
+      cause: new Error(inlineData),
+    })
+    conversionError.stack = inlineData
+    jest.mocked(convertToModelMessages).mockRejectedValueOnce(conversionError)
+    createModelFactoryMock.mockReturnValue({ resolveModel: () => ({ model: {} }) })
+
+    await expect(extractProofOfPurchase({
+      container: {} as AwilixContainer,
+      attachmentId: CLAIM_ID,
+      authContext: {
+        tenantId: TENANT_ID,
+        organizationId: ORG_ID,
+        userId: '55555555-5555-4555-8555-555555555555',
+        features: [],
+        isSuperAdmin: false,
+      },
+    })).rejects.toBeInstanceOf(WarrantyAiUnavailableError)
+
+    expect(warnMock.mock.calls).toEqual([
+      ['warranty_claims.ai.attachment_conversion_failed', { attachmentId: CLAIM_ID }],
+    ])
+    expect(reportErrorMock).toHaveBeenCalledTimes(1)
+    const [reportedError, context] = reportErrorMock.mock.calls[0]
+    expect(context).toEqual({
+      module: 'warranty_claims',
+      code: ATTACHMENT_CONVERSION_FAILED_CODE,
+      attributes: { attachmentId: CLAIM_ID },
+    })
+    expect(reportedError).toBeInstanceOf(WarrantyAiUnavailableError)
+    expect(reportedError.message).toBe('[internal] warranty ai attachment conversion failed')
+    expect(reportedError.cause).toBeUndefined()
+    expect(reportedError.stack).not.toContain(signedUrl)
+    expect(reportedError.stack).not.toContain(inlineData)
   })
 
   test('assembleClaimReplyPrompt includes claim and line facts but excludes internal timeline entries', () => {

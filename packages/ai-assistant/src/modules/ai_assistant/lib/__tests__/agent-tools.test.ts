@@ -214,6 +214,63 @@ describe('resolveAiAgentTools', () => {
     expect(seen).toEqual([{ channel: 'mcp', mutationMode: 'deny', apiKeyId: 'key-1', correlationId: 'corr-1' }])
   })
 
+  it('carries the key principal of the auth context into the handler context, apart from the requester key', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    registerMcpTool(
+      makeTool({
+        name: 'customers.list_people',
+        handler: async (_input, ctx) => {
+          seen.push({
+            principalApiKeyId: ctx.principalApiKeyId,
+            apiKeyUserId: ctx.apiKeyUserId,
+            apiKeyId: ctx.apiKeyId,
+          })
+          return { ok: true }
+        },
+      }),
+      { moduleId: 'customers' },
+    )
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowedTools: ['customers.list_people'] }),
+    ])
+
+    const result = await resolveAiAgentTools({
+      agentId: 'customers.assistant',
+      authContext: { ...baseAuth, principalApiKeyId: 'session-key-1', apiKeyUserId: 'session-user-1' },
+    })
+    const tool = result.tools.customers__list_people as { execute: (args: unknown, options?: unknown) => Promise<unknown> }
+    await tool.execute({}, { toolCallId: 'call-1', messages: [] })
+
+    expect(seen).toEqual([{ principalApiKeyId: 'session-key-1', apiKeyUserId: 'session-user-1', apiKeyId: null }])
+  })
+
+  it('leaves the verified user out of the handler context when no key principal is set', async () => {
+    const seen: Array<Record<string, unknown>> = []
+    registerMcpTool(
+      makeTool({
+        name: 'customers.list_people',
+        handler: async (_input, ctx) => {
+          seen.push({ ...ctx })
+          return { ok: true }
+        },
+      }),
+      { moduleId: 'customers' },
+    )
+    seedAgentRegistryForTests([
+      makeAgent({ id: 'customers.assistant', moduleId: 'customers', allowedTools: ['customers.list_people'] }),
+    ])
+
+    const result = await resolveAiAgentTools({
+      agentId: 'customers.assistant',
+      authContext: { ...baseAuth, apiKeyUserId: 'session-user-1' },
+    })
+    const tool = result.tools.customers__list_people as { execute: (args: unknown, options?: unknown) => Promise<unknown> }
+    await tool.execute({}, { toolCallId: 'call-1', messages: [] })
+
+    expect(seen[0]).not.toHaveProperty('principalApiKeyId')
+    expect(seen[0]).not.toHaveProperty('apiKeyUserId')
+  })
+
   it('stamps the agent channel on the handler context by default', async () => {
     const seen: unknown[] = []
     registerMcpTool(

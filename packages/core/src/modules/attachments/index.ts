@@ -84,4 +84,12 @@ export { registerAttachmentAccessResolvers } from './lib/access-registry'
 export { syncAttachmentAccessProtection } from './lib/access-protection'
 export { createAttachmentAccessContext, evaluateAttachmentAccess } from './lib/access-runner'
 export type { AttachmentAccessContext, AttachmentAccessResult } from './lib/access-runner'
+export { buildAttachmentAccessAuth, evaluateAttachmentRowAccess } from './lib/access-rows'
+export { KNOWN_DIRECT_ATTACHMENT_READER_MODULES, listUnguardedAttachmentReaders } from './lib/access-readers'
+export type {
+  AttachmentAccessDestination,
+  AttachmentAccessPrincipal,
+  EvaluateAttachmentRowAccessInput,
+  EvaluateAttachmentRowAccessResult,
+} from './lib/access-rows'
 export { getAttachmentExtension, hasDangerousExecutableExtension } from './lib/security'

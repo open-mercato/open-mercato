@@ -216,6 +216,45 @@ describe('attachments.get_document_sections', () => {
     expect(service.listSections).not.toHaveBeenCalled()
   })
 
+  it('reads as the session key together with its verified user when a session key calls the tool', async () => {
+    const service = makeService()
+    service.getStructure.mockResolvedValue(completedStructure())
+    await run(
+      service,
+      { attachmentId: ATTACHMENT_ID },
+      makeCtx(service, { principalApiKeyId: 'session-key-1', apiKeyUserId: 'session-user-1' }),
+    )
+
+    const scope = service.getStructure.mock.calls[0][0].scope
+    expect(scope.auth).toMatchObject({
+      sub: 'api_key:session-key-1',
+      isApiKey: true,
+      keyId: 'session-key-1',
+      userId: 'session-user-1',
+      orgId: ORG_ID,
+    })
+  })
+
+  it('reads as the principal key without a backing user when the key has no verified user', async () => {
+    const service = makeService()
+    service.getStructure.mockResolvedValue(completedStructure())
+    await run(service, { attachmentId: ATTACHMENT_ID }, makeCtx(service, { principalApiKeyId: 'key-2' }))
+
+    const scope = service.getStructure.mock.calls[0][0].scope
+    expect(scope.auth).toMatchObject({ sub: 'api_key:key-2', isApiKey: true, keyId: 'key-2' })
+    expect(scope.auth).not.toHaveProperty('userId')
+  })
+
+  it('reads as the key when the caller subject is an api_key subject', async () => {
+    const service = makeService()
+    service.getStructure.mockResolvedValue(completedStructure())
+    await run(service, { attachmentId: ATTACHMENT_ID }, makeCtx(service, { userId: 'api_key:key-3' }))
+
+    const scope = service.getStructure.mock.calls[0][0].scope
+    expect(scope.auth).toMatchObject({ sub: 'api_key:key-3', isApiKey: true, keyId: 'key-3' })
+    expect(scope.auth).not.toHaveProperty('userId')
+  })
+
   it('returns an outline without content when includeText is false', async () => {
     const service = makeService()
     service.getStructure.mockResolvedValue(completedStructure('partial'))

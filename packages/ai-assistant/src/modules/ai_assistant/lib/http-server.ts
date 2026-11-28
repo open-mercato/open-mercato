@@ -49,6 +49,7 @@ import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findApiKeyBySecret, findSessionApiKeyWithSecret } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { resolveVerifiedSessionKeyUserId } from '@open-mercato/core/modules/api_keys/services/sessionKeyRoles'
 import { isLoopbackHost, resolveMcpHost } from './mcp-host-resolution'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -157,7 +158,7 @@ function buildExposureHealth(exposureConfig: McpExposureConfig) {
  * Returns null if session token is invalid or expired.
  * Includes the decrypted API key secret for making authenticated API calls.
  */
-async function resolveSessionContext(
+export async function resolveSessionContext(
   sessionToken: string,
   baseContext: McpToolContext,
   transportKey: ApiKey,
@@ -194,6 +195,7 @@ async function resolveSessionContext(
       tenantId: sessionKey.tenantId ?? null,
       organizationId: sessionKey.organizationId ?? null,
     })
+    const apiKeyUserId = await resolveVerifiedSessionKeyUserId(em, sessionKey)
 
     if (debug) {
       logger.debug('Session context resolved', {
@@ -217,6 +219,8 @@ async function resolveSessionContext(
         isSuperAdmin: acl.isSuperAdmin,
         // Use the decrypted session secret for API calls (not the MCP server key)
         apiKeySecret: sessionSecret,
+        principalApiKeyId: sessionKey.id,
+        ...(apiKeyUserId ? { apiKeyUserId } : {}),
       },
     }
   } catch (error) {
@@ -231,7 +235,7 @@ async function resolveSessionContext(
  * Resolve user context from the server-level API key (header-based auth fallback).
  * Used when no session token is provided — loads the API key's ACL for RBAC.
  */
-async function resolveApiKeyContext(
+export async function resolveApiKeyContext(
   apiKeyRecord: ApiKey,
   baseContext: McpToolContext,
   debug?: boolean
@@ -250,6 +254,10 @@ async function resolveApiKeyContext(
       tenantId: apiKeyRecord.tenantId ?? null,
       organizationId: apiKeyRecord.organizationId ?? null,
     })
+    const apiKeyUserId = await resolveVerifiedSessionKeyUserId(
+      baseContext.container.resolve<EntityManager>('em'),
+      apiKeyRecord,
+    )
 
     if (debug) {
       logger.debug('API key context resolved', {
@@ -269,6 +277,8 @@ async function resolveApiKeyContext(
       userFeatures: acl.features,
       isSuperAdmin: acl.isSuperAdmin,
       apiKeySecret: baseContext.apiKeySecret,
+      principalApiKeyId: apiKeyRecord.id,
+      ...(apiKeyUserId ? { apiKeyUserId } : {}),
     }
   } catch (error) {
     if (debug) {
@@ -291,6 +301,7 @@ function buildApiKeyToolContext(
     userFeatures: [],
     isSuperAdmin: false,
     apiKeySecret,
+    principalApiKeyId: apiKeyRecord.id,
   }
 }
 

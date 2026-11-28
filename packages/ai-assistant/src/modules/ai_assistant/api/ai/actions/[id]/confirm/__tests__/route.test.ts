@@ -25,6 +25,12 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
 
+const filterAttachmentRowsByOwnerAccessMock = jest.fn(async (_principal: unknown, rows: unknown[]) => ({ allowed: rows, denied: [] }))
+
+jest.mock('../../../../../../lib/attachment-owner-access', () => ({
+  filterAttachmentRowsByOwnerAccess: (...args: [unknown, unknown[]]) => filterAttachmentRowsByOwnerAccessMock(...args),
+}))
+
 jest.mock('@open-mercato/core/modules/attachments/data/entities', () => ({
   Attachment: class Attachment {},
   AttachmentPartition: class AttachmentPartition {},

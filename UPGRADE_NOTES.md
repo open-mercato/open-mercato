@@ -1984,6 +1984,33 @@ After cross-scope collisions have been stored, restoring the former global const
 there is no automatic rollback that deletes receipts. Inspect those collisions and plan recovery
 before reverting the schema. See the [inbound spec](.ai/specs/2026-03-23-inbound-webhook-handlers.md#receipt-scope-migration--backward-compatibility-7830).
 
+### AI attachment tools, AI chat attachments and Messages linking enforce attachment owner policies (#6282)
+
+Owner access resolvers (#6726) guard the attachment routes. Several code paths outside those routes loaded attachment rows by id directly and checked only tenant and organization, so they bypassed a protected owner's policy (for example a Documents file the caller may not open). These paths now evaluate the owner policy through the new `evaluateAttachmentRowAccess` helper (`@open-mercato/core/modules/attachments`):
+
+- AI tools `attachments.list_record_attachments` and `attachments.read_attachment` omit, or report as not found, attachments the caller may not read; `attachments.transfer_record_attachments` leaves attachments the caller may not see in place, as if absent, and refuses the request when any visible attachment may not be reassigned, including into a protected destination.
+- `attachments.get_document_sections`, document-section search hits and agent tools that run a nested agent evaluate a session key together with its verified user, like the tools above.
+- AI chat attachments (`attachmentIds` on `POST /api/ai_assistant/ai/chat`, also used by the warranty-claim AI assist) drop protected attachments the caller may not read before anything reaches the model; the pending-action confirmation recheck rejects such attachments with `403`.
+- The catalog tool `catalog.draft_description_from_media` drops protected `userUploadedAttachmentIds` the caller may not see.
+- Messages compose, reply, draft update and draft attachment linking (`linkAttachmentsToMessage`, `linkLibraryAttachmentsToMessage`) refuse the whole request with `403` when any attachment may not be reassigned onto the message.
+
+Attachments whose owner declares no policy behave exactly as before, unless a CLI, worker or MCP process fails to load the policies (see Module authors).
+
+When an AI tool or chat accepts a regular API key as the caller, attachment access uses the key's role grants. Ownership or user-level shares granted to the key's creator do not grant the key access through those paths. An AI session key is evaluated together with its verified user, who keeps access to their own files and files shared with them. HTTP MCP uses the server key for transport authentication and requires a per-user session token for each tool call (#9314).
+
+**Module authors:**
+- `linkAttachmentsToMessage` and `linkLibraryAttachmentsToMessage` gain an optional last parameter `access: { auth, container }`. Callers that omit it can no longer link protected attachments. Pass the command context's principal (`resolveAttachmentLinkAccess(ctx)` from `messages/lib/attachmentLinkAccess`) to keep linking files the user may access.
+- Custom code that reads attachment rows directly should filter them with `evaluateAttachmentRowAccess`. Code that moves rows should load them with `ATTACHMENT_ROW_WRITE_LOCK` (`lib/access-rows`) and evaluate and write in one transaction.
+- If a CLI, worker or MCP process cannot load the generated bootstrap registrations (the file is missing, or any of its imports fails, including `data/attachment-access.ts`), it logs the problem and treats the access registry as invalid: direct readers deny every attachment, and CLI attachment writes and tenant setup (`mercato init`, `createFromBuffer`, scoped uploads) throw. Next.js routes are unaffected. Run `yarn generate` after upgrading so `bootstrap-registrations.generated.ts` exists, and restart long-running CLI, worker and MCP processes after generating, since a process keeps the invalid registry until it restarts.
+- MCP tool contexts gain an optional `principalApiKeyId`, so key-authenticated calls are evaluated as the key rather than as the key's creator, and an optional `apiKeyUserId`, the verified user of a session key (`resolveVerifiedSessionKeyUserId` from `api_keys/services/sessionKeyRoles`). Custom MCP entry points should set both from the key record whose ACL they load, session keys included. The existing `apiKeyId` field keeps its meaning: the requester key recorded for audit.
+- A module listed in `KNOWN_DIRECT_ATTACHMENT_READER_MODULES` (today the enterprise `agent_orchestrator`) is reported by `listUnguardedAttachmentReaders()` while it is enabled, until it exports `enforcesOwnerAccessOnDirectReads = true` from its `data/attachment-access.ts`; owner modules use the list to keep files away from such readers. Export the flag only once every direct read in the module goes through `evaluateAttachmentRowAccess`.
+
+**Operator action:** no schema, configuration or data change. Grant access to the regular key's role when that key calls an AI tool or chat directly, for example by sharing the document with the role. For HTTP MCP tool calls, supply a session token for a user with access to the file. **Rollback:** these checks add no stored state; rolling them back restores the previous behavior of these paths and reopens the bypass.
+
+This intentional tightening ships under the Emergency Security Exception recorded in `BACKWARD_COMPATIBILITY.md` (Attachment owner access on direct readers); a named human maintainer acknowledgment is required before merge. Specification: [`2026-11-03-attachment-direct-reader-owner-access.md`](.ai/specs/2026-11-03-attachment-direct-reader-owner-access.md).
+
+**Warranty claim AI assist:** the damage-photo assessment and proof-of-purchase extraction (`POST /api/warranty_claims/ai/assess` and the `warranty_claims.assess_damage_photo` tool) now send the attached photo or document to the configured LLM provider. Before, the AI SDK rejected their prompt, so the attachment never reached the model and the request ended as unavailable. A key-authenticated assessment now records no actor user on its claim event.
+
 ### Customer interaction authors and owners must belong to the record's tenant (#7531)
 
 Canonical interaction writes and legacy activity adapters now reject foreign-tenant or missing author/owner IDs, and reject new assignments to deleted users with a generic `400` user-not-found response. Same-tenant users from another home organization remain valid references, including an implicit actor working in another organization. Author normalization, valid superadmin delegation, and existing record-level organization/privacy authorization are preserved.

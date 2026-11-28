@@ -69,6 +69,28 @@ export function isMatchingApiKey(expected: string, provided: string): boolean {
  */
 const MAX_BODY_SIZE = 1 * 1024 * 1024
 
+type DevMcpAuthentication = Extract<Awaited<ReturnType<typeof authenticateMcpRequest>>, { success: true }>
+
+export function buildDevToolContext(
+  authResult: DevMcpAuthentication,
+  container: McpToolContext['container'],
+  apiKey: string,
+  sessionId: string,
+): McpToolContext {
+  return {
+    tenantId: authResult.tenantId,
+    organizationId: authResult.organizationId,
+    userId: authResult.userId,
+    container,
+    userFeatures: authResult.features,
+    isSuperAdmin: authResult.isSuperAdmin,
+    apiKeySecret: apiKey,
+    principalApiKeyId: authResult.keyId,
+    ...(authResult.apiKeyUserId ? { apiKeyUserId: authResult.apiKeyUserId } : {}),
+    sessionId,
+  }
+}
+
 /**
  * Parse JSON body from request with size limit.
  */
@@ -422,16 +444,7 @@ export async function runMcpDevServer(options: McpDevServerOptions = {}): Promis
   log(`Session ID: ${devSessionId} (stable for this server instance)`)
 
   // Create tool context from auth result
-  const toolContext: McpToolContext = {
-    tenantId: authResult.tenantId,
-    organizationId: authResult.organizationId,
-    userId: authResult.userId,
-    container,
-    userFeatures: authResult.features,
-    isSuperAdmin: authResult.isSuperAdmin,
-    apiKeySecret: apiKey,
-    sessionId: devSessionId,
-  }
+  const toolContext = buildDevToolContext(authResult, container, apiKey, devSessionId)
 
   const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url || '/', `http://localhost:${port}`)

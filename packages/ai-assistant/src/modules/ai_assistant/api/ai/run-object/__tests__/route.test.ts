@@ -17,6 +17,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => authMock(...args),
 }))
 
+const resolveToolPrincipalIdsMock = jest.fn()
+
+jest.mock('../../../../lib/api-key-principal', () => ({
+  resolveToolPrincipalIds: (...args: unknown[]) => resolveToolPrincipalIdsMock(...args),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainerMock(...args),
 }))
@@ -259,6 +265,28 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     expect(callArg.authContext.userId).toBe('user-1')
     expect(callArg.authContext.tenantId).toBe('tenant-1')
     expect(callArg.authContext.organizationId).toBe('org-1')
+  })
+
+  it('passes the key principal of a key-authenticated request to the agent runtime', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+    const keyAuth = { sub: 'api_key:key-1', isApiKey: true, keyId: 'key-1', tenantId: 'tenant-1', orgId: 'org-1' }
+    authMock.mockResolvedValue(keyAuth)
+    resolveToolPrincipalIdsMock.mockResolvedValue({ principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
+
+    const response = await POST(
+      buildRequest({ agent: 'catalog.extract', messages: [{ role: 'user', content: 'Title' }] }) as any,
+    )
+
+    expect(response.status).toBe(200)
+    expect(resolveToolPrincipalIdsMock).toHaveBeenCalledWith(expect.anything(), keyAuth)
+    expect(runAiAgentObjectMock.mock.calls[0][0].authContext).toMatchObject({ userId: 'api_key:key-1', principalApiKeyId: 'key-1', apiKeyUserId: 'user-1' })
   })
 
   it('forwards callSettings, the run-object channel and the request correlation id', async () => {
