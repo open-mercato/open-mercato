@@ -516,6 +516,10 @@ Spec: [Error-reporting spec](.ai/specs/2026-09-08-error-reporting-policy.md). Ev
 
 **Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
 
+## Data Sync Batch Size (2026-09-16)
+
+Additive. Use explicit size, valid adapter default, then 100. [Details](UPGRADE_NOTES.md).
+
 ## Data Sync Retry, Resume and Run Again (2026-09-16)
 
 [Retry/resume spec](.ai/specs/2026-09-16-data-sync-retry-resume-actions.md) splits the Data Sync dashboard's single overloaded "Retry" button into three named operator actions — **Retry** (labelled **Resume** on a cancelled run), **Retry from the beginning**, and **Run again** — and states, on the run detail page, where a retry would resume. **All changes are additive** and pass the contract-surface checks above:

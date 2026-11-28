@@ -246,6 +246,24 @@ describe('data_sync run route', () => {
     }))
   })
 
+  // The route must not substitute a page size of its own: only an undefined one
+  // reaches `startDataSyncRun`'s resolution of the adapter's declared default.
+  it('forwards no page size when the request names none', async () => {
+    const response = await postHandler(new Request('http://localhost/api/data_sync/run', {
+      method: 'POST',
+      body: JSON.stringify({
+        integrationId: 'generic_sync',
+        entityType: 'customers.person',
+        direction: 'import',
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(mockStartDataSyncRun).toHaveBeenCalledWith(expect.objectContaining({
+      input: expect.objectContaining({ batchSize: undefined }),
+    }))
+  })
+
   it('normalizes declared run parameters and forwards them to the run', async () => {
     mockGetDataSyncAdapter.mockReturnValueOnce({
       providerKey: 'excel',

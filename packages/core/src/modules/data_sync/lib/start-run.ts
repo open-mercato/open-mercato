@@ -7,6 +7,7 @@ import { resolveAdapterForIntegration } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
 import { getSyncQueue } from './queue'
 import { DATA_SYNC_EXPORT_QUEUE, DATA_SYNC_IMPORT_QUEUE } from './queue-policy'
+import { defaultBatchSizeFor } from './default-batch-size'
 
 const logger = createLogger('data_sync').child({ component: 'start-run' })
 
@@ -22,6 +23,10 @@ export type StartDataSyncRunInput = {
   direction: 'import' | 'export'
   cursor?: string | null
   triggeredBy?: string | null
+  /**
+   * Page size for this run. Omit to take the adapter's declared default for the
+   * entity type, falling back to core's own — see `lib/default-batch-size.ts`.
+   */
   batchSize?: number
   parameters?: Record<string, unknown> | null
   createProgressJob?: boolean
@@ -137,7 +142,14 @@ export async function startDataSyncRun(params: {
   const queue = getSyncQueue(queueName)
   await queue.enqueue({
     runId: run.id,
-    batchSize: input.batchSize ?? 100,
+    // Resolved HERE rather than in each caller because every start path funnels
+    // through this helper — the run route, Retry, the scheduled worker, and any
+    // provider route that enqueues a run of its own. A caller that names no page
+    // size gets the adapter's, and a future one cannot forget to ask.
+    batchSize: input.batchSize ?? defaultBatchSizeFor(
+      resolveAdapterForIntegration(input.integrationId),
+      input.entityType,
+    ),
     scope: {
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
