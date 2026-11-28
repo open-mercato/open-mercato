@@ -189,3 +189,41 @@ describe('MoveInventoryDialog destination capacity preview', () => {
     expect(screen.queryByText(/would exceed the destination capacity/)).toBeNull()
   })
 })
+
+describe('MoveInventoryDialog initial quantity', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockFetchLocationCapacitySnapshot.mockResolvedValue(null)
+  })
+
+  const renderPutaway = () =>
+    render(
+      <MoveInventoryDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+        initialCatalogVariantId="var-1"
+        initialWarehouseId="wh-1"
+        initialFromLocationId="loc-from"
+        initialLotId="lot-1"
+        initialQuantity={3}
+      />,
+    )
+
+  it('proposes the initial quantity and previews the lot', async () => {
+    mockFetchBalanceAvailable.mockResolvedValue(10)
+    renderPutaway()
+
+    await waitFor(() =>
+      expect(mockFetchBalanceAvailable).toHaveBeenCalledWith(expect.objectContaining({ lotId: 'lot-1' })),
+    )
+    expect(screen.getByDisplayValue('3')).toBeTruthy()
+  })
+
+  it('caps the initial quantity at the available quantity', async () => {
+    mockFetchBalanceAvailable.mockResolvedValue(2)
+    renderPutaway()
+
+    expect(await screen.findByDisplayValue('2')).toBeTruthy()
+  })
+})

@@ -68,7 +68,13 @@ type ReceiveInventoryDialogProps = {
   initialWarehouseId?: string
   initialLocationId?: string
   initialLotId?: string
-  onSuccess?: (ctx: { catalogVariantId: string; warehouseId: string; locationId: string; quantity: number }) => void
+  onSuccess?: (ctx: {
+    catalogVariantId: string
+    warehouseId: string
+    locationId: string
+    lotId?: string
+    quantity: number
+  }) => void
 }
 
 const EMPTY_FORM: ReceiveFormValues = {
@@ -340,9 +346,9 @@ export function ReceiveInventoryDialog({
         const notes = parsed.data.notes?.trim()
         if (notes) payload.reason = notes
 
-        await runMutation({
+        const result = await runMutation({
           operation: async () => {
-            const call = await apiCall<{ ok?: boolean; movementId?: string }>(
+            const call = await apiCall<{ ok?: boolean; movementId?: string; lotId?: string | null }>(
               '/api/wms/inventory/receive',
               {
                 method: 'POST',
@@ -369,6 +375,7 @@ export function ReceiveInventoryDialog({
           catalogVariantId: parsed.data.catalogVariantId,
           warehouseId: parsed.data.warehouseId,
           locationId: parsed.data.locationId,
+          lotId: result?.lotId ?? undefined,
           quantity: parsed.data.quantity,
         })
         closeDialog()

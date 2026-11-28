@@ -1661,7 +1661,7 @@ export async function emitInventoryReceiveSideEffects(
   ).catch(() => undefined)
 }
 
-const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementId: string }> = {
+const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementId: string; lotId: string | null }> = {
   id: 'wms.inventory.receive',
   // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
   isUndoable: false,
@@ -1674,7 +1674,7 @@ const receiveInventoryCommand: CommandHandler<InventoryReceiveInput, { movementI
       applyInventoryReceiveInTransaction(trx, ctx, input),
     )
     await emitInventoryReceiveSideEffects(ctx, result)
-    return { movementId: result.movementId }
+    return { movementId: result.movementId, lotId: result.lotId }
   },
   buildLog: async ({ input, result, ctx }) =>
     buildMutationLog({
