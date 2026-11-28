@@ -767,4 +767,4 @@ STABLE APIs §7 require organization grants and return `403` for explicitly empt
 
 ## #6490
 
-FROZEN `section:customers.{companies,people}.detailHeader.avatar`: `data` (CompanyOverview/PersonOverview, respectively), `displayName: string`.
+FROZEN `section:customers.{companies,people}.detailHeader.avatar`: `data: CompanyOverview/PersonOverview`, `displayName: string`.
