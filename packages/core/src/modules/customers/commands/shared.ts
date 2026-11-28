@@ -1,9 +1,12 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, EntityName, FilterQuery } from '@mikro-orm/postgresql'
 import { CustomerDeal, CustomerEntity, CustomerTag, CustomerTagAssignment, CustomerDictionaryEntry, type CustomerEntityKind } from '../data/entities'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, forbidden, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { buildScopedWhere } from '@open-mercato/shared/lib/api/crud'
+import { isUnrestrictedOrganizationScope } from '@open-mercato/shared/lib/auth/organizationAccess'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { ensureOrganizationScope, ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
+import { loadEntityRecordScope } from '@open-mercato/shared/lib/db/recordScope'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EventBus } from '@open-mercato/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -38,6 +41,52 @@ export type CustomerEntityScope = {
   organizationId: string
 }
 
+export function buildCustomerCommandLookup(where: Record<string, unknown>, ctx: CommandRuntimeContext) {
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
+  const organizationScope = ctx.organizationScope
+  const tenantId = ctx.auth ? (ctx.auth.tenantId ?? null) : (organizationScope?.tenantId ?? null)
+  if (ctx.auth && !isSuperAdmin && (!tenantId || (organizationScope && !organizationScope.tenantId))) {
+    throw forbidden()
+  }
+  let organizationIds: string[] | undefined
+  if (organizationScope) {
+    if (!isUnrestrictedOrganizationScope({ isSuperAdmin, allowedOrganizationIds: organizationScope.allowedIds })) {
+      organizationIds = organizationScope.allowedIds ?? []
+    }
+  } else if (!isSuperAdmin) {
+    const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId
+    if (organizationId) organizationIds = [organizationId]
+  }
+  return {
+    where: buildScopedWhere(where, {
+      tenantId: tenantId ?? undefined,
+      organizationIds,
+      softDeleteField: null,
+    }),
+    scope: { tenantId, organizationId: organizationIds?.length === 1 ? organizationIds[0] : null },
+  }
+}
+
+export async function findScopedCustomerCommandRecord<Entity extends object, Hint extends string = never>(
+  em: EntityManager,
+  entity: EntityName<Entity>,
+  where: Record<string, unknown>,
+  options: Parameters<typeof findOneWithDecryption<Entity, Hint>>[3],
+  ctx: CommandRuntimeContext,
+): Promise<Entity | null> {
+  const lookup = buildCustomerCommandLookup(where, ctx)
+  const record = await findOneWithDecryption<Entity, Hint>(em, entity, lookup.where as FilterQuery<Entity>, options, lookup.scope)
+  if (!record && ctx.auth && typeof where.id === 'string') {
+    const entityType = em.getMetadata().get(entity).className
+    const recordScope = await loadEntityRecordScope(em as unknown as Parameters<typeof loadEntityRecordScope>[0], entityType, where.id)
+    if (recordScope && await em.count(entity, { ...where, ...recordScope } as FilterQuery<NoInfer<Entity>>)) {
+      if (recordScope.tenantId) ensureTenantScope(ctx, recordScope.tenantId)
+      if (recordScope.organizationId) ensureOrganizationScope(ctx, recordScope.organizationId)
+    }
+  }
+  return record
+}
+
 export async function requireCustomerEntity(
   em: EntityManager,
   id: string,
@@ -45,12 +94,18 @@ export async function requireCustomerEntity(
   kind?: CustomerEntityKind,
   message = 'Customer entity not found'
 ): Promise<CustomerEntity> {
-  const entity = await em.findOne(CustomerEntity, {
-    id,
-    deletedAt: null,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
+  const entity = await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    {
+      id,
+      deletedAt: null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    undefined,
+    scope,
+  )
   if (!entity) throw notFound(message)
   if (kind && entity.kind !== kind) {
     throw new CrudHttpError(400, { error: 'Invalid entity type' })
@@ -63,24 +118,36 @@ export async function requireTimelineParentEntity(
   id: string,
   scope: CustomerEntityScope,
 ): Promise<CustomerEntity> {
-  const entity = await em.findOne(CustomerEntity, {
-    id,
-    deletedAt: null,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
+  const entity = await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    {
+      id,
+      deletedAt: null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    undefined,
+    scope,
+  )
   if (entity) {
     if (entity.kind !== 'person' && entity.kind !== 'company') {
       throw new CrudHttpError(422, { error: 'entityId must reference a person or company' })
     }
     return entity
   }
-  const deal = await em.findOne(CustomerDeal, {
-    id,
-    deletedAt: null,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
+  const deal = await findOneWithDecryption(
+    em,
+    CustomerDeal,
+    {
+      id,
+      deletedAt: null,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+    },
+    undefined,
+    scope,
+  )
   if (deal) {
     throw new CrudHttpError(422, { error: 'entityId must reference a person or company, not a deal' })
   }
@@ -121,12 +188,13 @@ export async function syncEntityTags(
 }
 
 export async function loadEntityTagIds(em: EntityManager, entity: CustomerEntity): Promise<string[]> {
+  const scope = { tenantId: entity.tenantId, organizationId: entity.organizationId }
   const assignments = await findWithDecryption(
     em,
     CustomerTagAssignment,
-    { entity },
+    { entity, ...scope },
     { populate: ['tag'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   return assignments.map((assignment) =>
     typeof assignment.tag === 'string' ? assignment.tag : assignment.tag.id
@@ -140,7 +208,13 @@ export async function requireDealInScope(
   organizationId: string
 ): Promise<CustomerDeal | null> {
   if (!dealId) return null
-  const deal = await em.findOne(CustomerDeal, { id: dealId, deletedAt: null, tenantId, organizationId })
+  const deal = await findOneWithDecryption(
+    em,
+    CustomerDeal,
+    { id: dealId, deletedAt: null, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId },
+  )
   if (!deal) throw new CrudHttpError(400, { error: 'Deal not found' })
   ensureSameScope(deal, organizationId, tenantId)
   return deal
