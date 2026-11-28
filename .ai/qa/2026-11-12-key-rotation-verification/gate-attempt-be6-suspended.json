@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "attemptHead": "be6aca022b",
+  "productionRuntimeCommit": "243661d18a7cb74df34aa518b2bc094dd480dc9e",
+  "commandsPassed": 6,
+  "commandFailed": "yarn test",
+  "commandNotRun": "yarn build:app",
+  "productionCrashHarness": "All36 passed in15.309s in the full parallel workspace suite.",
+  "failure": "Two unrelated create-app subprocess/integration cases timed out or returned null status after roughly990 seconds.",
+  "hostEvidence": "Repeated macOS Maintenance Sleep/Dark Wake Thermal Emergency intervals included992-second suspension matching test stalls.",
+  "releaseAcceptance": false,
+  "disposition": "Preserve failed attempt; rerun unchanged commands under task-scoped ordinary-idle caffeinate lease. Thermal protection is unchanged. Any further sleep invalidates measurements and stops heavy launches."
+}

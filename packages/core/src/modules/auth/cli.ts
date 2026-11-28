@@ -21,7 +21,7 @@ import { decryptWithAesGcm } from '@open-mercato/shared/lib/encryption/aes'
 import { env } from 'process'
 import type { KmsService, TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import crypto from 'node:crypto'
-import { formatPasswordRequirements, getPasswordPolicy, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { formatPasswordRequirements, getPasswordPolicy, isWithinPasswordByteLimit, validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getCliModules, type Module } from '@open-mercato/shared/modules/registry'
 import { lockUserRoleWriterAuthorizationState } from './lib/authorizationStateLocks'
@@ -106,6 +106,8 @@ function parseArgs(rest: string[]) {
 function normalizeKeyInput(value: string): string {
   return value.trim().replace(/(?:^['"]|['"]$)/g, '')
 }
+
+const OLD_ENCRYPTION_KEY_ENV = 'TENANT_DATA_ENCRYPTION_OLD_KEY'
 
 function hashSecret(value: string | null | undefined): string | null {
   if (!value) return null
@@ -214,13 +216,34 @@ const rotateEncryptionKey: ModuleCli = {
     const args = parseArgs(rest)
     const tenantId = (args.tenantId as string) ?? (args.tenant as string) ?? (args.tenant_id as string) ?? null
     const organizationId = (args.organizationId as string) ?? (args.orgId as string) ?? (args.org as string) ?? null
-    const oldKey = (args['old-key'] as string) ?? (args.oldKey as string) ?? null
+    const rawOldKeyArgument = args['old-key'] ?? args.oldKey
+    const oldKeyArgument = typeof rawOldKeyArgument === 'string' ? normalizeKeyInput(rawOldKeyArgument) || null : null
+    if (rawOldKeyArgument !== undefined && !oldKeyArgument) {
+      throw new Error(`[internal] --old-key requires a value. Use ${OLD_ENCRYPTION_KEY_ENV} instead.`)
+    }
+    const rawOldKeyEnvironment = process.env[OLD_ENCRYPTION_KEY_ENV]
+    const oldKeyEnvironment = rawOldKeyEnvironment !== undefined ? normalizeKeyInput(rawOldKeyEnvironment) || null : null
+    if (rawOldKeyEnvironment !== undefined && !oldKeyEnvironment) {
+      throw new Error(`[internal] ${OLD_ENCRYPTION_KEY_ENV} is set but empty. Unset it or set it to the previous key.`)
+    }
+    if (oldKeyArgument && oldKeyEnvironment && oldKeyArgument !== oldKeyEnvironment) {
+      throw new Error(`[internal] --old-key and ${OLD_ENCRYPTION_KEY_ENV} contain different values. Remove --old-key and retry.`)
+    }
+    if (oldKeyArgument && parseBooleanToken(String(args['allow-unsafe-old-key'])) !== true) {
+      throw new Error(`[internal] --old-key is deprecated because process listings expose it. Use ${OLD_ENCRYPTION_KEY_ENV}; the compatibility bridge requires --allow-unsafe-old-key.`)
+    }
+    if (oldKeyArgument) {
+      console.warn(
+        `Passing key material through --old-key can expose it in shell history and process listings. Set ${OLD_ENCRYPTION_KEY_ENV} through your secret manager instead.`,
+      )
+    }
+    const oldKey = oldKeyEnvironment || oldKeyArgument
     const dryRun = Boolean(args['dry-run'] || args.dry)
     const debug = Boolean(args.debug)
     const rotate = Boolean(oldKey)
     if (rotate && !tenantId) {
       console.warn(
-        '⚠️  Rotating with --old-key across all tenants. A single old key should normally target one tenant; consider --tenant.',
+        '⚠️  Rotating with one previous key across all tenants. A single previous key should normally target one tenant; consider --tenant.',
       )
     }
     if (!isTenantDataEncryptionEnabled()) {
@@ -476,7 +499,7 @@ const setupApp: ModuleCli = {
       process.exitCode = 2
       return
     }
-    if (!skipPasswordPolicy && !ensurePasswordPolicy(password)) {
+    if ((!skipPasswordPolicy || !isWithinPasswordByteLimit(password)) && !ensurePasswordPolicy(password)) {
       process.exitCode = 2
       return
     }

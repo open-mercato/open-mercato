@@ -90,15 +90,18 @@ maybe('buildIndexDoc entity_translations read does not poison the caller transac
   beforeEach(async () => {
     mockReportError.mockReset()
     mockTryGetModules.mockReset()
-    mockTryGetModules.mockReturnValue(null)
+    mockTryGetModules.mockReturnValue([{ id: 'translations' }])
     await sql`truncate table ${sql.id(SCHEMA, 'widgets')}, ${sql.id(SCHEMA, 'custom_field_values')}, ${sql.id(SCHEMA, 'indexer_error_logs')}`.execute(db)
     await sql`drop table if exists ${sql.id(SCHEMA, 'entity_translations')}`.execute(db)
   })
 
   const fakeEm = (executor: Kysely<Record<string, never>>) => ({ getKysely: () => executor }) as unknown as EntityManager
 
-  it('indexes the base record without touching translation storage when translations are disabled', async () => {
-    mockTryGetModules.mockReturnValue([{ id: 'query_index' }])
+  it.each([
+    { state: 'disabled', modules: [{ id: 'query_index' }] },
+    { state: 'unavailable', modules: null },
+  ])('indexes the base record without touching translation storage when translations are $state', async ({ modules }) => {
+    mockTryGetModules.mockReturnValue(modules)
     const recordId = crypto.randomUUID()
     await sql`insert into widgets (id, title) values (${recordId}::uuid, 'Lean profile')`.execute(db)
 

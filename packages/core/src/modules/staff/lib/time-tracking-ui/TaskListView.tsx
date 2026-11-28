@@ -103,7 +103,7 @@ export function TaskListView({
     [tasks],
   )
   const tagIds = React.useMemo(() => tasks.flatMap((task) => task.tagIds), [tasks])
-  const assigneeNames = useAssigneeNames(assigneeIds)
+  const assigneeNames = useAssigneeNames(assigneeIds, tasksQuery.data?.items)
   const tagLabels = useTagLabels(tagIds)
 
   const statusNames = React.useMemo(() => {

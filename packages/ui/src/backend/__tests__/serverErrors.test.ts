@@ -286,3 +286,33 @@ describe('serverErrors helpers', () => {
     ).toEqual({ key: '', fallback: 'Choose a valid currency' })
   })
 })
+
+it('maps canonical extension paths only through unique active section field declarations', () => {
+  const fieldErrors = { 'customFields.priority': 'Priority rejected', 'extensions.example.supplier': 'Supplier rejected' }
+  const sectionDescriptors = [
+    { fieldPayloadPaths: { cf_priority: ['customFields.priority'] } },
+    { fieldPayloadPaths: { supplier: ['extensions.example.supplier'] } },
+  ]
+  expect(mapCrudServerErrorToFormErrors({ fieldErrors }, { sectionDescriptors }).fieldErrors)
+    .toEqual({ cf_priority: 'Priority rejected', supplier: 'Supplier rejected' })
+  expect(mapCrudServerErrorToFormErrors({ fieldErrors }).fieldErrors).toEqual(fieldErrors)
+  expect(mapCrudServerErrorToFormErrors({ fieldErrors }, {
+    sectionDescriptors: [...sectionDescriptors, { fieldPayloadPaths: { other: ['customFields.priority'] } }],
+  }).fieldErrors).toEqual({ 'customFields.priority': 'Priority rejected', supplier: 'Supplier rejected' })
+})
+
+it('keeps structured issue metadata on the mapped section field', () => {
+  const message = 'Too big: expected string to have <=120 characters'
+  const errors = mapCrudServerErrorToFormErrors({
+    details: [{ code: 'too_big', maximum: 120, path: ['extensions.example.supplier'], message }],
+  }, {
+    sectionDescriptors: [{ fieldPayloadPaths: { supplier: ['extensions.example.supplier'] } }],
+  })
+
+  expect(errors.fieldErrors).toEqual({ supplier: message })
+  expect(resolveFieldIssueTranslation(errors.fieldIssues?.supplier, message)).toEqual({
+    key: 'ui.forms.errors.tooBig',
+    fallback: message,
+    params: { maximum: 120 },
+  })
+})

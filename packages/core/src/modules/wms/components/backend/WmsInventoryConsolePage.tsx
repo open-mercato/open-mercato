@@ -74,6 +74,7 @@ type InventoryBalanceRow = {
   variant_name?: string | null
   variant_sku?: string | null
   lot_id?: string | null
+  serial_number?: string | null
   quantity_on_hand?: string | number | null
   quantity_reserved?: string | number | null
   quantity_allocated?: string | number | null
@@ -109,6 +110,7 @@ type InventoryMovementRow = {
   catalog_variant_id?: string | null
   variant_name?: string | null
   variant_sku?: string | null
+  serial_number?: string | null
   quantity?: string | number | null
   type?: string | null
   reference_type?: string | null
@@ -589,6 +591,16 @@ export function InventoryBalancesSection({
         },
       },
       {
+        accessorKey: 'serial_number',
+        id: 'serialNumber',
+        header: t(
+          'wms.backend.inventory.balances.columns.serialNumber',
+          'Serial number',
+        ),
+        enableSorting: false,
+        cell: ({ row }) => row.original.serial_number?.trim() || '—',
+      },
+      {
         accessorKey: 'quantity_available',
         id: 'quantityAvailable',
         header: t(
@@ -989,6 +1001,15 @@ export function InventoryMovementsSection({
         ),
         enableSorting: true,
         cell: ({ row }) => formatVariantLabel(row.original),
+      },
+      {
+        accessorKey: 'serial_number',
+        header: t(
+          'wms.backend.inventory.movements.columns.serialNumber',
+          'Serial number',
+        ),
+        enableSorting: false,
+        cell: ({ row }) => row.original.serial_number?.trim() || '—',
       },
       {
         accessorKey: 'warehouse_id',

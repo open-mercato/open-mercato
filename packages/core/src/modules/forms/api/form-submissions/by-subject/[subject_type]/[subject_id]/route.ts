@@ -15,6 +15,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getCustomerAuthFromRequest } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { SubmissionService } from '../../../../../services/submission-service'
 import { FormSubmissionActor } from '../../../../../data/entities'
+import { submissionsBySubjectQuerySchema } from '../../../../../data/validators'
 import { mapSubmissionError, serializeSubmission } from '../../../../runtime-helpers'
 
 export const metadata = {
@@ -35,6 +36,10 @@ export async function GET(
   if (!subjectId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(subjectId)) {
     return NextResponse.json({ error: 'VALIDATION_FAILED', message: 'subject_id must be a UUID.' }, { status: 422 })
   }
+  const query = submissionsBySubjectQuerySchema.safeParse({
+    resume_form_id: new URL(req.url).searchParams.get('resume_form_id') ?? undefined,
+  })
+  if (!query.success) return NextResponse.json({ error: 'VALIDATION_FAILED' }, { status: 422 })
 
   const container = await createRequestContainer()
   const service = container.resolve('formsSubmissionService') as SubmissionService
@@ -46,6 +51,7 @@ export async function GET(
       tenantId: auth.tenantId,
       subjectType,
       subjectId,
+      resumeFormId: query.data.resume_form_id,
     })
     if (submissions.length === 0) return NextResponse.json({ items: [] })
     const submissionIds = submissions.map((entry) => entry.id)
@@ -78,12 +84,13 @@ const responseSchema = z.object({
 
 const getMethodDoc: OpenApiMethodDoc = {
   summary: 'List submissions for a subject',
-  description: 'Returns submissions accessible to the caller for the supplied (subject_type, subject_id).',
+  description: 'Returns submissions accessible to the caller for the supplied subject. With resume_form_id, returns only drafts with saved progress and reopened submissions for that form, most recently updated first.',
   tags: ['Forms Runtime'],
+  query: submissionsBySubjectQuerySchema,
   responses: [{ status: 200, description: 'Submission list', schema: responseSchema }],
   errors: [
     { status: 401, description: 'Not authenticated', schema: errorSchema },
-    { status: 422, description: 'Bad subject identifier', schema: errorSchema },
+    { status: 422, description: 'Bad subject or form identifier', schema: errorSchema },
   ],
 }
 

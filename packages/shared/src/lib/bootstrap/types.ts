@@ -1,3 +1,4 @@
+import type { CrudFormSectionServerModule } from '../../modules/form-sections'
 import type { AppDiRegistrar, DiRegistrar } from '../di/container'
 import type { EntityIds } from '../encryption/entityIds'
 import type { EntityFieldsRegistry } from '../encryption/entityFields'
@@ -5,6 +6,7 @@ import type { Module, ModuleDashboardWidgetEntry, ModuleInjectionWidgetEntry } f
 import type { ModuleInjectionTable } from '../../modules/widgets/injection'
 import type { SearchModuleConfig } from '../../modules/search'
 import type { AnalyticsModuleConfig } from '../../modules/analytics'
+import type { EventModuleConfig } from '../../modules/events'
 import type { EntityClass, EntitySchema } from '@mikro-orm/core'
 
 export type OrmEntity = EntityClass<unknown> | EntitySchema<unknown>
@@ -47,6 +49,7 @@ export interface NotificationHandlerBootstrapEntry {
 export type CommandLoaderBootstrapEntry = import('../commands/registry').CommandLoader
 
 export interface BootstrapData {
+  crudFormSectionServerModules?: readonly CrudFormSectionServerModule[]
   modules: Module[]
   entities: OrmEntity[]
   diRegistrars: (DiRegistrar | undefined)[]
@@ -57,6 +60,7 @@ export interface BootstrapData {
   injectionTables: InjectionTableEntry[]
   searchModuleConfigs: SearchModuleConfig[]
   analyticsModuleConfigs?: AnalyticsModuleConfig[]
+  eventModuleConfigs?: EventModuleConfig[]
   enricherEntries?: EnricherBootstrapEntry[]
   interceptorEntries?: InterceptorBootstrapEntry[]
   componentOverrideEntries?: ComponentOverrideBootstrapEntry[]

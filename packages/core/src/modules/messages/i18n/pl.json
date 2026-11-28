@@ -164,6 +164,7 @@
   "messages.flash.conversationMarkedUnread": "Konwersacja oznaczona jako nieprzeczytana.",
   "messages.flash.conversationUnarchived": "Konwersacja przywrócona z archiwum.",
   "messages.flash.deleted": "Wiadomość usunięta.",
+  "messages.flash.deliveryUnconfirmed": "Wiadomość została zapisana. Nie udało się potwierdzić dostarczenia.",
   "messages.flash.draftSaved": "Szkic zapisany.",
   "messages.flash.forwardSuccess": "Wiadomość przekazana.",
   "messages.flash.replySuccess": "Odpowiedź wysłana.",

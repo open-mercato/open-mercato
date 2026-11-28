@@ -64,6 +64,21 @@ test('standalone template typecheck retains the same 8192 MB heap as its actual 
   assert.equal(typecheckHeap, buildHeap)
 })
 
+test('standalone template skips the Turbopack build cache only for the yarn ci build', () => {
+  const nextConfig = fs.readFileSync(new URL('../../template/next.config.ts', import.meta.url), 'utf8')
+
+  assert.match(
+    nextConfig,
+    /const isCiGateBuild = process\.env\.OM_SKIP_NEXT_BUILD_TYPECHECK === '1'/,
+    'the cache switch must follow the flag scripts/ci.mjs sets for its build step',
+  )
+  assert.match(
+    nextConfig,
+    /\.\.\.\(isCiGateBuild \? \{ turbopackFileSystemCacheForBuild: false \} : \{\}\)/,
+    'writing the Turbopack build cache keeps compiler memory alive through static generation and OOM-kills a 7 GB runner',
+  )
+})
+
 for (const [name, wrapper] of Object.entries(wrappers)) {
   test(`${name} Next build forces production from a development parent with default or bounded heap`, (t) => {
     for (const override of [undefined, '--max-old-space-size=4096']) {
