@@ -102,4 +102,37 @@ describe('loadCustomFieldValues with organization-wide definitions (#6029)', () 
 
     expect(values['todo-1'].cf_note).toBe('secret-note')
   })
+
+  it('applies the multi flag of a definition with tenant_id NULL', async () => {
+    const em = createSqlLikeEm({
+      definitions: [definitionRow({ tenantId: null, organizationId: null, configJson: { multi: true } })],
+      values: [valueRow({ valueText: 'ops' })],
+    })
+
+    const values = await loadCustomFieldValues({ em: em as any, ...scope })
+
+    expect(values['todo-1'].cf_labels).toEqual(['ops'])
+  })
+
+  it('loads a value stored with tenant_id NULL', async () => {
+    const em = createSqlLikeEm({
+      definitions: [definitionRow({})],
+      values: [valueRow({ tenantId: null, valueText: 'ops' })],
+    })
+
+    const values = await loadCustomFieldValues({ em: em as any, ...scope })
+
+    expect(values['todo-1'].cf_labels).toBe('ops')
+  })
+
+  it('ignores a definition that belongs to another tenant', async () => {
+    const em = createSqlLikeEm({
+      definitions: [definitionRow({ tenantId: 'tenant-2', organizationId: null, configJson: { multi: true } })],
+      values: [valueRow({ valueText: 'ops' })],
+    })
+
+    const values = await loadCustomFieldValues({ em: em as any, ...scope })
+
+    expect(values['todo-1'].cf_labels).toBe('ops')
+  })
 })

@@ -138,17 +138,21 @@ export async function saveSidebarPreference(
   return normalized
 }
 
+function roleSidebarPreferenceScope(roleIds: string[], tenantId: string | null): FilterQuery<RoleSidebarPreference> {
+  if (tenantId === null) return { role: { $in: roleIds }, tenantId: null }
+  return { role: { $in: roleIds }, $or: [{ tenantId }, { tenantId: null }] }
+}
+
 export async function loadRoleSidebarPreferences(
   em: EntityManager,
   options: { roleIds: string[]; tenantId?: string | null; locale?: string },
 ): Promise<Map<string, SidebarPreferencesSettings>> {
   if (!options.roleIds.length) return new Map()
   const tenantId = options.tenantId ?? null
-  const tenantFilter = tenantId === null ? null : { $in: [tenantId, null] }
   const prefs = await findWithDecryption(
     em,
     RoleSidebarPreference,
-    { role: { $in: options.roleIds }, tenantId: tenantFilter } as FilterQuery<RoleSidebarPreference>,
+    roleSidebarPreferenceScope(options.roleIds, tenantId),
     undefined,
     { tenantId, organizationId: null },
   )
@@ -174,11 +178,10 @@ export async function loadFirstRoleSidebarPreference(
 ): Promise<SidebarPreferencesSettings | null> {
   if (!options.roleIds.length) return null
   const tenantId = options.tenantId ?? null
-  const tenantFilter = tenantId === null ? null : { $in: [tenantId, null] }
   const prefs = await findWithDecryption(
     em,
     RoleSidebarPreference,
-    { role: { $in: options.roleIds }, tenantId: tenantFilter } as FilterQuery<RoleSidebarPreference>,
+    roleSidebarPreferenceScope(options.roleIds, tenantId),
     undefined,
     { tenantId, organizationId: null },
   )

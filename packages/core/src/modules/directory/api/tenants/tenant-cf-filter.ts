@@ -56,7 +56,7 @@ export async function resolveRecordIdsForCustomFieldFilters(opts: {
 
   const keys = Array.from(new Set(filters.map(([key]) => key)))
   const tenantScope: Record<string, unknown> = tenantId
-    ? { tenantId: { $in: [tenantId, null] } }
+    ? { $or: [{ tenantId }, { tenantId: null }] }
     : { tenantId: null }
 
   const defs = await em.find(CustomFieldDef, {
