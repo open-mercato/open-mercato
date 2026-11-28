@@ -1,0 +1,235 @@
+[
+  {
+    "name": "/api/availability/policies positive",
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "id": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d",
+          "organizationId": "22626ed1-f354-4650-8c0e-a36a09770408",
+          "tenantId": "634ed8d1-ff2f-45b9-b9a8-d83950aa854c",
+          "storeId": null,
+          "productId": "ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f",
+          "variantId": null,
+          "isStockManaged": false,
+          "allowBackorder": false,
+          "backorderLeadTimeDays": null,
+          "preorderReleaseAt": null,
+          "lowStockThreshold": 789,
+          "minOrderQuantity": null,
+          "maxOrderQuantity": null,
+          "quantityIncrement": null,
+          "hideWhenOutOfStock": false,
+          "isActive": true,
+          "createdAt": "2026-11-28T07:25:34.160Z",
+          "updatedAt": "2026-11-28T07:25:34.160Z"
+        }
+      ],
+      "total": 1,
+      "page": 1,
+      "pageSize": 50,
+      "totalPages": 1
+    },
+    "cookieExpired": false
+  },
+  {
+    "name": "/api/availability/policies rejected selection",
+    "status": 422,
+    "body": {
+      "error": "Your selected organization is no longer available. Please re-select an organization and try again.",
+      "code": "organization_selection_invalid"
+    },
+    "cookieExpired": true
+  },
+  {
+    "name": "/api/availability/policies/resolve-preview?productId=ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f positive",
+    "status": 200,
+    "body": {
+      "policyTrace": {
+        "allowBackorder": {
+          "value": false,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "hideWhenOutOfStock": {
+          "value": false,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "isActive": {
+          "value": true,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "isStockManaged": {
+          "value": false,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "backorderLeadTimeDays": {
+          "value": null,
+          "policySourceId": null
+        },
+        "preorderReleaseAt": {
+          "value": null,
+          "policySourceId": null
+        },
+        "lowStockThreshold": {
+          "value": 789,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "minOrderQuantity": {
+          "value": null,
+          "policySourceId": null
+        },
+        "maxOrderQuantity": {
+          "value": null,
+          "policySourceId": null
+        },
+        "quantityIncrement": {
+          "value": null,
+          "policySourceId": null
+        }
+      }
+    },
+    "cookieExpired": false
+  },
+  {
+    "name": "/api/availability/policies/resolve-preview?productId=ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f rejected selection",
+    "status": 422,
+    "body": {
+      "error": "Your selected organization is no longer available. Please re-select an organization and try again.",
+      "code": "organization_selection_invalid"
+    },
+    "cookieExpired": true
+  },
+  {
+    "name": "/api/availability/check positive",
+    "status": 200,
+    "body": {
+      "availability": {
+        "state": "not_tracked",
+        "availableQuantity": null,
+        "canFulfil": true,
+        "leadTimeDays": null,
+        "releaseAt": null,
+        "isAuthoritative": true,
+        "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+      },
+      "policyTrace": {
+        "allowBackorder": {
+          "value": false,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "hideWhenOutOfStock": {
+          "value": false,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "isActive": {
+          "value": true,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "isStockManaged": {
+          "value": false,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "backorderLeadTimeDays": {
+          "value": null,
+          "policySourceId": null
+        },
+        "preorderReleaseAt": {
+          "value": null,
+          "policySourceId": null
+        },
+        "lowStockThreshold": {
+          "value": 789,
+          "policySourceId": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d"
+        },
+        "minOrderQuantity": {
+          "value": null,
+          "policySourceId": null
+        },
+        "maxOrderQuantity": {
+          "value": null,
+          "policySourceId": null
+        },
+        "quantityIncrement": {
+          "value": null,
+          "policySourceId": null
+        }
+      }
+    },
+    "cookieExpired": false
+  },
+  {
+    "name": "/api/availability/check rejected selection",
+    "status": 422,
+    "body": {
+      "error": "Your selected organization is no longer available. Please re-select an organization and try again.",
+      "code": "organization_selection_invalid"
+    },
+    "cookieExpired": true
+  },
+  {
+    "name": "finite scope all policies excludes other organization",
+    "status": 200,
+    "body": {
+      "items": [
+        {
+          "id": "57e7ce42-2ecc-49f8-ad97-cd72244d3d9d",
+          "organizationId": "22626ed1-f354-4650-8c0e-a36a09770408",
+          "tenantId": "634ed8d1-ff2f-45b9-b9a8-d83950aa854c",
+          "storeId": null,
+          "productId": "ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f",
+          "variantId": null,
+          "isStockManaged": false,
+          "allowBackorder": false,
+          "backorderLeadTimeDays": null,
+          "preorderReleaseAt": null,
+          "lowStockThreshold": 789,
+          "minOrderQuantity": null,
+          "maxOrderQuantity": null,
+          "quantityIncrement": null,
+          "hideWhenOutOfStock": false,
+          "isActive": true,
+          "createdAt": "2026-11-28T07:25:34.160Z",
+          "updatedAt": "2026-11-28T07:25:34.160Z"
+        }
+      ],
+      "total": 1,
+      "page": 1,
+      "pageSize": 50,
+      "totalPages": 1
+    },
+    "cookieExpired": false
+  },
+  {
+    "name": "/api/availability/policies no permission",
+    "status": 403,
+    "body": {
+      "error": "Forbidden",
+      "requiredFeatures": [
+        "availability.policies.view"
+      ]
+    },
+    "cookieExpired": false
+  },
+  {
+    "name": "/api/availability/policies/resolve-preview?productId=ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f no permission",
+    "status": 403,
+    "body": {
+      "error": "Forbidden",
+      "requiredFeatures": [
+        "availability.policies.view"
+      ]
+    },
+    "cookieExpired": false
+  },
+  {
+    "name": "/api/availability/check no permission",
+    "status": 403,
+    "body": {
+      "error": "Forbidden",
+      "requiredFeatures": [
+        "availability.check"
+      ]
+    },
+    "cookieExpired": false
+  }
+]
