@@ -11,10 +11,11 @@ import {
   type WithExactAmounts,
 } from '@open-mercato/shared/lib/decimal'
 import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getPaymentGatewayDescriptor } from '@open-mercato/shared/modules/payment_gateways/types'
-import { CheckoutLink, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
+import { CheckoutLink, CheckoutLinkSlugOwner, CheckoutLinkTemplate, CheckoutTransaction } from '../data/entities'
 import { buildCheckoutAttachmentPreviewUrl, normalizeOptionalString } from './client-utils'
 import {
   assertExactCustomAmountRange,
@@ -251,37 +252,47 @@ export function validateDescriptorCurrencies(providerKey: string | null | undefi
 /**
  * Generates a unique checkout link slug.
  *
- * NOTE: The slug uniqueness check runs GLOBALLY against all checkout links, and the
- * `scope` parameter is intentionally ignored. This is required because the public-facing
- * checkout routes (e.g., `/pay/[slug]`) do not have any tenant/organization discriminator
- * in their URL path, resolving links solely by the slug. Consequently, duplicate slugs
- * cannot exist across different tenants.
- *
- * @param em MikroORM EntityManager
- * @param _scope Tenant and organization scope (ignored in database query)
- * @param requestedSlug The slug requested by the user
- * @param fallbackText The title/name used to generate the slug if requestedSlug is empty
- * @param excludeId Optional ID of the checkout link to exclude from the duplicate check
+ * Public checkout routes resolve slugs globally. A retired slug can be reused by its
+ * owning organization, and an existing live link can keep its slug when edited.
  */
 export async function ensureUniqueSlug(
   em: EntityManager,
-  _scope: CheckoutScope,
+  scope: CheckoutScope,
   requestedSlug: string | null | undefined,
   fallbackText: string,
   excludeId?: string | null,
 ): Promise<string> {
   const base = slugify(requestedSlug || fallbackText || 'pay-link') || 'pay-link'
-  let candidate = base
-  let counter = 1
-  while (true) {
-    const existing = await em.findOne(CheckoutLink, {
-      slug: candidate,
-      deletedAt: null,
-      ...(excludeId ? { id: { $ne: excludeId } } : {}),
+  const batchSize = 32
+  for (let firstSuffix = 1; ; firstSuffix += batchSize) {
+    const candidates = Array.from({ length: batchSize }, (_, offset) => {
+      const suffix = firstSuffix + offset
+      return suffix === 1 ? base : `${base}-${suffix}`
     })
-    if (!existing) return candidate
-    counter += 1
-    candidate = `${base}-${counter}`
+    const liveLinks = await findWithDecryption(em, CheckoutLink, {
+      slug: { $in: candidates },
+      deletedAt: null,
+    }, { fields: ['id', 'slug', 'tenantId', 'organizationId'] }, scope)
+    const liveBySlug = new Map(liveLinks.map((link) => [link.slug, link]))
+    const retiredCandidates = candidates.filter((slug) => !liveBySlug.has(slug))
+    const owners = retiredCandidates.length === 0 ? [] : await findWithDecryption(em, CheckoutLinkSlugOwner, {
+      slug: { $in: retiredCandidates },
+    }, { fields: ['slug', 'tenantId', 'organizationId'] }, scope)
+    const ownerBySlug = new Map(owners.map((owner) => [owner.slug, owner]))
+
+    for (const candidate of candidates) {
+      const liveLink = liveBySlug.get(candidate)
+      if (liveLink) {
+        if (liveLink.id === excludeId && liveLink.tenantId === scope.tenantId && liveLink.organizationId === scope.organizationId) {
+          return candidate
+        }
+        continue
+      }
+      const owner = ownerBySlug.get(candidate)
+      if (!owner || (owner.tenantId === scope.tenantId && owner.organizationId === scope.organizationId)) {
+        return candidate
+      }
+    }
   }
 }
 

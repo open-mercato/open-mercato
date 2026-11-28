@@ -114,6 +114,12 @@ Operators should pause trace delivery during the server and adapter cutover, rep
 
 [Implementation spec](.ai/specs/enterprise/agent-orchestrator/2026-11-24-trace-ingest-scope.md)
 
+## Retired checkout pay-link slug ownership (#9115)
+
+The Checkout migration reserves retired public pay-link slugs for the original tenant and organization. Existing live URLs stay in place. Another organization that requests a retired slug receives the next available suffix. If existing records assign the same slug to more than one scope, the current live link keeps that URL until it is retired. After retirement, use a new slug.
+
+Deploy the migration with the updated application. Checkout link writes wait for the backfill transaction to commit. Slugs absent from all stored link rows cannot be recovered by the backfill. Rolling back the migration drops the reservation history.
+
 ## CRUD factory security and query correctness bundle
 
 These changes close row-level leaks and wrong results in the shared CRUD factory and query engines. No database migration is required.
