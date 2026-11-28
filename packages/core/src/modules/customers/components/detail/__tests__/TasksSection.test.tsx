@@ -110,6 +110,39 @@ describe('TasksSection', () => {
       />,
     )
 
+    expect(screen.getByRole('link', { name: 'View all tasks' })).toHaveAttribute('href', '/backend/customer-tasks?customerId=customer-1')
+  })
+
+  it('scopes the View all tasks link to the current customer when the section lists tasks', () => {
+    usePersonTasksMock.mockReturnValue({
+      ...usePersonTasksMock(),
+      tasks: [sampleTask],
+    })
+    renderWithProviders(
+      <TasksSection
+        entityId="customer-1"
+        initialTasks={[sampleTask]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+      />,
+    )
+
+    expect(screen.getByText('Follow up call')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View all tasks' })).toHaveAttribute('href', '/backend/customer-tasks?customerId=customer-1')
+  })
+
+  it('links to the unfiltered task list when the section has no customer yet', () => {
+    renderWithProviders(
+      <TasksSection
+        entityId={null}
+        initialTasks={[]}
+        emptyLabel="No date"
+        addActionLabel="Create task"
+        emptyState={{ title: 'No tasks yet', actionLabel: 'Create task' }}
+      />,
+    )
+
     expect(screen.getByRole('link', { name: 'View all tasks' })).toHaveAttribute('href', '/backend/customer-tasks')
   })
 

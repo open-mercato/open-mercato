@@ -250,14 +250,14 @@ function createTestSetup(options?: {
     return new Date(value)
   }
 
-  const events: Array<{ id: string; payload: unknown }> = []
+  const events: Array<{ id: string; payload: unknown; scope?: { tenantId: string; organizationId: string } }> = []
   const service = new SubmissionService({
     emFactory: () => em as unknown as never,
     formVersionCompiler: compiler,
     encryptionService,
     rolePolicyService,
-    emitEvent: async (id, payload) => {
-      events.push({ id, payload })
+    emitEvent: async (id, payload, scope) => {
+      events.push({ id, payload, scope })
     },
     now,
     autosaveIntervalMs: options?.autosaveIntervalMs ?? 10_000,
@@ -907,7 +907,11 @@ describe('SubmissionService', () => {
     })
 
     expect(submitted.status).toBe('submitted')
-    expect(events.some((event) => event.id === 'forms.submission.submitted')).toBe(true)
+    expect(events).toContainEqual({
+      id: 'forms.submission.submitted',
+      payload: { submissionId: submitted.id },
+      scope: { tenantId: TENANT_ID, organizationId: ORG_ID },
+    })
   })
 
   it('redacts sensitive log payloads via tampering marker (no raw values)', async () => {
