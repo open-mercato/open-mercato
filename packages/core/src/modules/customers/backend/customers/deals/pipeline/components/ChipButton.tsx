@@ -19,6 +19,7 @@ export const ChipButton = React.forwardRef<HTMLButtonElement, ChipButtonProps>(
     { label, value, active = false, ariaLabel, onClick, withChevron = true },
     ref,
   ) {
+    const showValue = !label || active
     return (
       <Button
         variant="ghost"
@@ -28,14 +29,20 @@ export const ChipButton = React.forwardRef<HTMLButtonElement, ChipButtonProps>(
         onClick={onClick}
         aria-label={ariaLabel ?? (label ? `${label}: ${value}` : value)}
         aria-pressed={active}
-        className={`inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-sm border border-border bg-card px-2.5 py-1.5 text-xs leading-normal transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+        className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border bg-card px-2.5 py-1.5 text-xs leading-normal transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
           active ? 'border-foreground/40 bg-muted text-foreground' : 'text-foreground'
         }`}
       >
-        {label ? <span className="shrink-0 font-normal text-muted-foreground">{label}:</span> : null}
-        <span className={`min-w-0 truncate ${label ? 'font-semibold text-foreground' : 'font-normal text-foreground'}`}>
-          {value}
-        </span>
+        {label ? (
+          <span className={`shrink-0 font-normal ${showValue ? 'text-muted-foreground' : 'text-foreground'}`}>
+            {showValue ? `${label}:` : label}
+          </span>
+        ) : null}
+        {showValue ? (
+          <span className={`max-w-40 truncate ${label ? 'font-semibold text-foreground' : 'font-normal text-foreground'}`}>
+            {value}
+          </span>
+        ) : null}
         {withChevron ? (
           <ChevronDown className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
         ) : null}
