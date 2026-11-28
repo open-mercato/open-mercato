@@ -48,7 +48,7 @@ const profileTest = test.extend<{ account: { email: string; suffix: string; secu
         roleId = await createRoleFixture(request, adminToken, { name: `qa-profile-${suffix}`, tenantId })
         await setRoleAclFeatures(request, adminToken, {
           roleId,
-          features: ['security.profile.view'],
+          features: ['security.profile.view', 'security.profile.password'],
           organizations: [organizationId],
         })
       }
