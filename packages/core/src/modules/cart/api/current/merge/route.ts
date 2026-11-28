@@ -25,7 +25,6 @@ import type { CartViewWarning } from '../../../lib/cartView'
 import { resolveCartWarningMessage } from '../../../lib/warningMessages'
 import { hashCartToken } from '../../../lib/token'
 import { enforceCartRateLimit } from '../../../lib/rateLimit'
-import { hashCartToken } from '../../../lib/token'
 
 // Step 7.3 — `POST /current/merge` -> `cart.merge` (§10 "Merge a guest cart into the
 // session's cart; resolves the target's scope **fresh** (D-R4-22)").
@@ -98,7 +97,6 @@ export async function POST(request: Request) {
 
     const commandInput: CartMergeInput = {
       targetCartId: cart.id,
-      expectedTargetTokenHash: hashCartToken(token),
       tenantId: resolved.routeContext.tenantId,
       organizationId: resolved.routeContext.organizationId,
       sourceToken: body.sourceToken,

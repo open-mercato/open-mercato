@@ -246,8 +246,6 @@ function normalizeSourceSnapshot(raw: unknown): StoredSourceSnapshot {
 export type CartMergeInput = {
   /** The cart addressed by the buyer's current token. */
   targetCartId: string
-  /** Expected token hash for storefront requests, rechecked after acquiring both locks. */
-  expectedTargetTokenHash?: string
   tenantId: string
   organizationId: string
   /** Identifies the SOURCE (guest) cart — the only thing that can, since it has no

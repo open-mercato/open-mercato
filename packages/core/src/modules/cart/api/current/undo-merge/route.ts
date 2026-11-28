@@ -22,7 +22,6 @@ import {
 import { buildCartResponseEnvelope } from '../../../lib/cartView'
 import { hashCartToken } from '../../../lib/token'
 import { enforceCartRateLimit } from '../../../lib/rateLimit'
-import { hashCartToken } from '../../../lib/token'
 
 // Step 7.3 — `POST /current/undo-merge` -> `cart.mergeUndo` (§10 "Reverse within 15 min",
 // §7.2). The cart to restore is found from the PRESENTED token, not a caller-supplied id —
@@ -94,7 +93,6 @@ export async function POST(request: Request) {
 
     const commandInput: CartMergeUndoInput = {
       cartId: cart.id,
-      expectedTargetTokenHash: hashCartToken(token),
       tenantId: resolved.routeContext.tenantId,
       organizationId: resolved.routeContext.organizationId,
       routeContext: resolved.routeContext,

@@ -380,29 +380,6 @@ beforeEach(() => {
 })
 
 describe('cart.merge — §7.1 policy rows', () => {
-  it('revalidates the storefront token under the paired cart lock', async () => {
-    seededCarts = [
-      makeCartFixture({ id: 'cart-target', tokenHash: 'previous-token-hash' }),
-      makeCartFixture({ id: 'cart-guest', tokenHash: hashCartToken('guest-token') }),
-    ]
-    const em = makeEm()
-    em.execute.mockImplementationOnce(async () => {
-      seededCarts[0] = { ...seededCarts[0], tokenHash: 'current-token-hash' }
-      return [{ locked: true }]
-    })
-
-    await expect(getMergeHandler().execute({
-      targetCartId: 'cart-target',
-      expectedTargetTokenHash: 'previous-token-hash',
-      tenantId: TENANT_ID,
-      organizationId: ORG_ID,
-      sourceToken: 'guest-token',
-      routeContext: makeRouteContext(),
-    }, makeCtx({ em }))).rejects.toMatchObject({ status: 404 })
-    expect(seededMergeLogs).toHaveLength(0)
-    expect(em.commit).not.toHaveBeenCalled()
-  })
-
   it('row 1: adopts the guest cart when the session (target) cart is empty, rotates its token and reassigns ownership', async () => {
     seededCarts = [
       makeCartFixture({ id: 'cart-target', tokenHash: 'target-token-hash', customerId: null, customerUserId: null }),
