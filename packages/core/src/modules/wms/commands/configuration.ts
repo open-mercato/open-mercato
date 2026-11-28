@@ -40,6 +40,7 @@ import {
 } from '@open-mercato/shared/lib/commands/helpers'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { LockMode } from '@mikro-orm/core'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
@@ -144,8 +145,19 @@ async function buildCrudLog(
   }
 }
 
-async function loadWarehouse(em: EntityManager, ctx: CommandRuntimeContext, id: string) {
-  const warehouse = await findOneWithDecryption(em, Warehouse, { id, deletedAt: null }, undefined, resolveScope(ctx))
+async function loadWarehouse(
+  em: EntityManager,
+  ctx: CommandRuntimeContext,
+  id: string,
+  options?: { lock?: boolean },
+) {
+  const warehouse = await findOneWithDecryption(
+    em,
+    Warehouse,
+    { id, deletedAt: null },
+    options?.lock ? { lockMode: LockMode.PESSIMISTIC_WRITE } : undefined,
+    resolveScope(ctx),
+  )
   if (!warehouse) throw new CrudHttpError(404, { error: 'Warehouse not found.' })
   ensureTenantScope(ctx, warehouse.tenantId)
   ensureOrganizationScope(ctx, warehouse.organizationId)
@@ -620,6 +632,12 @@ async function rejectInactivePrimaryWarehouse(ctx: CommandRuntimeContext): Promi
   throw new CrudHttpError(422, { error: message, fieldErrors: { isPrimary: message } })
 }
 
+// Callers must hold a PESSIMISTIC_WRITE lock on `warehouse`'s row (see
+// `loadWarehouse(..., { lock: true })`) before calling this, inside the same
+// transaction that then sets `deletedAt`. Otherwise a concurrent receive/adjust/
+// move/reserve/cycle-count — which take the same lock via `requireWarehouse` in
+// inventory-actions.ts — can commit new stock between this check and the archive
+// write, leaving live inventory in an archived warehouse.
 async function assertWarehouseHasNoStock(em: EntityManager, ctx: CommandRuntimeContext, warehouse: Warehouse): Promise<void> {
   const stockedBalance = await findOneWithDecryption(
     em,
@@ -898,19 +916,28 @@ const createWarehouseCommand: CommandHandler<
     const after = payload?.after
     if (!after) return
     const em = resolveEm(ctx)
-    const record = await findOneWithDecryption(
+    let record: Warehouse | null = null
+    await withAtomicFlush(
       em,
-      Warehouse,
-      { id: after.id },
-      undefined,
-      resolveScope(ctx, { tenantId: after.tenantId, organizationId: after.organizationId }),
+      [
+        async () => {
+          record = await findOneWithDecryption(
+            em,
+            Warehouse,
+            { id: after.id },
+            { lockMode: LockMode.PESSIMISTIC_WRITE },
+            resolveScope(ctx, { tenantId: after.tenantId, organizationId: after.organizationId }),
+          )
+          if (!record) return
+          ensureTenantScope(ctx, record.tenantId)
+          ensureOrganizationScope(ctx, record.organizationId)
+          if (!record.deletedAt) await assertWarehouseHasNoStock(em, ctx, record)
+          record.deletedAt = new Date()
+        },
+      ],
+      { transaction: true, label: 'wms.warehouses.create.undo.archive' },
     )
     if (!record) return
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    if (!record.deletedAt) await assertWarehouseHasNoStock(em, ctx, record)
-    record.deletedAt = new Date()
-    await em.flush()
     await persistWarehouseCustomFields(ctx, after, buildCustomFieldResetMap(undefined, after.custom ?? undefined))
     await emitWarehouseCrudSideEffects(ctx, 'deleted', record, 'undo')
     if (payload.demotedPrimariesBefore?.length) {
@@ -1098,10 +1125,20 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
   async execute(input, ctx) {
     const warehouseId = requireId(input?.id, 'Warehouse')
     const em = resolveEm(ctx)
-    const warehouse = await loadWarehouse(em, ctx, warehouseId)
-    await assertWarehouseHasNoStock(em, ctx, warehouse)
-    warehouse.deletedAt = new Date()
-    await em.flush()
+    let warehouse!: Warehouse
+    await withAtomicFlush(
+      em,
+      [
+        async () => {
+          warehouse = await loadWarehouse(em, ctx, warehouseId, { lock: true })
+          await assertWarehouseHasNoStock(em, ctx, warehouse)
+        },
+        () => {
+          warehouse.deletedAt = new Date()
+        },
+      ],
+      { transaction: true, label: 'wms.warehouses.delete' },
+    )
     await emitWarehouseCrudSideEffects(ctx, 'deleted', warehouse)
     return { warehouseId: warehouse.id }
   },

@@ -236,6 +236,9 @@ describe('WMS configuration commands — undoable contract', () => {
               fork: () => ({
                 findOne: jest.fn(async (_entity: unknown, filters: any) => (filters?.id === record.id ? record : null)),
                 flush: jest.fn(async () => { flushed.push('flush') }),
+                begin: jest.fn(async () => undefined),
+                commit: jest.fn(async () => undefined),
+                rollback: jest.fn(async () => undefined),
               }),
             }
           }

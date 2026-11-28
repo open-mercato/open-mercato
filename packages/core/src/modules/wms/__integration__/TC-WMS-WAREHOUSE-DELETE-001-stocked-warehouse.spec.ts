@@ -128,13 +128,16 @@ async function adjustStockToZero(request: APIRequestContext, fixture: Fixture) {
 }
 
 async function cleanupFixture(request: APIRequestContext, fixture: Fixture) {
-  if (fixture.warehouseId && fixture.locationId && fixture.variantId && fixture.stock > 0) {
-    await adjustStockToZero(request, fixture).catch(() => undefined)
+  try {
+    if (fixture.warehouseId && fixture.locationId && fixture.variantId && fixture.stock > 0) {
+      await adjustStockToZero(request, fixture)
+    }
+    await deleteGeneralEntityIfExists(request, fixture.token, '/api/wms/locations', fixture.locationId)
+    await deleteGeneralEntityIfExists(request, fixture.token, '/api/wms/warehouses', fixture.warehouseId)
+    await deleteCatalogProductIfExists(request, fixture.token, fixture.productId)
+  } finally {
+    await fixture.restoreAcl()
   }
-  await deleteGeneralEntityIfExists(request, fixture.token, '/api/wms/locations', fixture.locationId)
-  await deleteGeneralEntityIfExists(request, fixture.token, '/api/wms/warehouses', fixture.warehouseId)
-  await deleteCatalogProductIfExists(request, fixture.token, fixture.productId)
-  await fixture.restoreAcl()
 }
 
 async function deleteWarehouse(request: APIRequestContext, fixture: Fixture, locale?: string): Promise<APIResponse> {

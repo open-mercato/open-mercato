@@ -67,6 +67,9 @@ function createStore(stockedBalance: { id: string } | null) {
     find: jest.fn(async () => []),
     nativeUpdate: jest.fn(async () => undefined),
     flush: jest.fn(async () => undefined),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
   }
   return { em, warehouse, balanceQueries }
 }

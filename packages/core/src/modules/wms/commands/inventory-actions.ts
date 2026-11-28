@@ -339,13 +339,19 @@ async function buildMutationLog(input: MutationLogInput) {
   }
 }
 
+// Locks the warehouse row: every caller here mutates inventory balances in the
+// same transaction, and archiving a warehouse (configuration.ts) takes this
+// same PESSIMISTIC_WRITE lock before checking for live stock, so the two
+// serialize instead of racing (a receipt committing between the archive's
+// stock check and its write would otherwise leave live stock in an archived
+// warehouse).
 async function requireWarehouse(em: EntityManager, ctx: CommandRuntimeContext, warehouseId: string, scope?: Scope) {
   const resolvedScope = scope ?? resolveScope(ctx)
   const warehouse = await findOneWithDecryption(
     em,
     Warehouse,
     { id: warehouseId, deletedAt: null },
-    undefined,
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
     resolvedScope,
   )
   if (!warehouse) throw new CrudHttpError(404, { error: 'Warehouse not found.' })
