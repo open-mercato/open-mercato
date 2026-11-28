@@ -21,12 +21,15 @@ test('verification uses the live onboarding container and manager for tenant set
   })
 
   try {
-    const manager = {}
+    const manager: { getUnitOfWork: () => { unsetIdentity: jest.Mock }; fork: () => unknown } = {
+      getUnitOfWork: () => ({ unsetIdentity: jest.fn() }),
+      fork: () => manager,
+    }
     const container = { resolve: () => manager }
     const modules = [{ id: 'configs' }, { id: 'record_locks' }]
     const email = 'owner@example.com'
-    const updateProvisioningIds = jest.fn()
-    const markCompleted = jest.fn()
+    const updateProvisioningIds = jest.fn().mockResolvedValue(new Date())
+    const markCompleted = jest.fn().mockResolvedValue(true)
 
     jest.mocked(createRequestContainer).mockResolvedValue(container as never)
     jest.mocked(getModules).mockReturnValue(modules)

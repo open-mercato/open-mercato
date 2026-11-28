@@ -362,7 +362,7 @@ export function AclEditor({
                 {' '}{t('auth.acl.inherited.assignedRoles', 'Assigned roles:')}{' '}
                 {roleDetails.map((role, idx) => {
                   const roleId = typeof role?.id === 'string' && role.id.length > 0 ? role.id : `role-${idx}`
-                  const roleName = typeof role?.name === 'string' && role.name.length > 0 ? role.name : roleId
+                  const roleName = typeof role?.name === 'string' && role.name.length > 0 ? t(`auth.roles.${role.name}`, role.name) : roleId
                   return (
                     <React.Fragment key={roleId}>
                       {idx > 0 && ', '}
