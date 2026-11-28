@@ -23,7 +23,8 @@ function daysFromNow(days: number): string {
 
 /**
  * TC-WMS-040: Receive and reserve honor a product-level inventory profile
- * when the variant has no profile row of its own.
+ * when the variant has no profile row of its own, and a receipt accepted
+ * before the profile existed still replays on retry once the policy tightens.
  */
 test('TC-WMS-040: product-level profile drives lot tracking on receive and FEFO on reserve', async ({ request }) => {
   const adminToken = await getAuthToken(request, 'admin')
@@ -70,6 +71,25 @@ test('TC-WMS-040: product-level profile drives lot tracking on receive and FEFO 
       type: 'bin',
       isActive: true,
     })
+    const receiveBase = {
+      ...scoped,
+      warehouseId,
+      locationId,
+      catalogVariantId: variantId,
+      quantity: 5,
+      referenceType: 'manual',
+      performedBy: scope.userId,
+    }
+
+    // Receive without a lot before any profile exists, so the request succeeds.
+    const preUpgradeReceipt = { ...receiveBase, referenceId: randomUUID() }
+    const preUpgrade = await postAction<{ movementId: string }>(
+      request,
+      adminToken,
+      '/api/wms/inventory/receive',
+      preUpgradeReceipt,
+    )
+
     profileId = await createCrudFixture(request, adminToken, '/api/wms/inventory-profiles', {
       ...scoped,
       catalogProductId: productId,
@@ -78,6 +98,17 @@ test('TC-WMS-040: product-level profile drives lot tracking on receive and FEFO 
       trackLot: true,
       trackExpiration: true,
     })
+
+    // Retrying the exact same receipt after the product-level profile starts
+    // requiring lot tracking must replay the original movement, not 422.
+    const retriedReceipt = await postAction<{ movementId: string }>(
+      request,
+      adminToken,
+      '/api/wms/inventory/receive',
+      preUpgradeReceipt,
+    )
+    expect(retriedReceipt.movementId).toBe(preUpgrade.movementId)
+
     const lotBase = { ...scoped, catalogVariantId: variantId, sku: variantSku }
     lateLotId = await createCrudFixture(request, adminToken, '/api/wms/lots', {
       ...lotBase,
@@ -90,15 +121,6 @@ test('TC-WMS-040: product-level profile drives lot tracking on receive and FEFO 
       expiresAt: daysFromNow(100),
     })
 
-    const receiveBase = {
-      ...scoped,
-      warehouseId,
-      locationId,
-      catalogVariantId: variantId,
-      quantity: 5,
-      referenceType: 'manual',
-      performedBy: scope.userId,
-    }
     const untrackedReceipt = await apiRequest(request, 'POST', '/api/wms/inventory/receive', {
       token: adminToken,
       data: { ...receiveBase, referenceId: randomUUID() },

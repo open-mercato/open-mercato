@@ -4,6 +4,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import {
   InventoryBalance,
   InventoryLot,
+  InventoryMovement,
   InventoryReservation,
   ProductInventoryProfile,
   Warehouse,
@@ -103,6 +104,7 @@ function createEm() {
 function mockLookups(
   profiles: { variant: Profile | null; product: Profile | null },
   balancesByLocation: Record<string, ReturnType<typeof makeBalance>>,
+  existingMovement: Record<string, unknown> | null = null,
 ) {
   findOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: Record<string, unknown>) => {
     if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
@@ -115,6 +117,7 @@ function mockLookups(
       return null
     }
     if (entity === InventoryBalance) return balancesByLocation[String(where.location)] ?? null
+    if (entity === InventoryMovement) return existingMovement
     if (entity === InventoryReservation) return null
     return null
   })
@@ -165,6 +168,17 @@ describe('wms inventory actions honor product-level inventory profiles', () => {
       TRANSACTION_CONTEXT,
     )
     expect(em.persist).not.toHaveBeenCalled()
+  })
+
+  it('replays an existing movement instead of enforcing a product-level policy adopted after the original receipt', async () => {
+    const { ctx } = createEm()
+    mockLookups(
+      { variant: null, product: makeProfile({ trackLot: true }) },
+      { [LOCATION_A]: makeBalance() },
+      { id: 'movement-existing', lot: null },
+    )
+
+    await expect(receive(ctx)).resolves.toMatchObject({ movementId: 'movement-existing' })
   })
 
   it('lets a variant-level profile override a stricter product-level profile on receipt', async () => {
