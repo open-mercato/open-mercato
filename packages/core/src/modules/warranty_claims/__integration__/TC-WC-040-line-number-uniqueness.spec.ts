@@ -309,7 +309,13 @@ test.describe('TC-WC-040: live claim line number uniqueness', () => {
                  select 1 from pg_stat_activity activity
                   where activity.datname = current_database()
                     and activity.wait_event_type = 'Lock'
-                    and activity.query ilike '%update%warranty_claim_lines%'
+                    and exists (
+                      select 1 from pg_locks line_lock
+                       where line_lock.pid = activity.pid
+                         and line_lock.relation = 'warranty_claim_lines'::regclass
+                         and line_lock.mode = 'RowShareLock'
+                         and line_lock.granted
+                    )
                     and $1 = any(pg_blocking_pids(activity.pid))
                ) as waiting`,
               [blockerPid],
