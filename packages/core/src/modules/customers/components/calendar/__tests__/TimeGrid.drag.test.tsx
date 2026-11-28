@@ -3,7 +3,10 @@
 import * as React from 'react'
 import { act, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
-import { TimeGrid } from '../TimeGrid'
+import { HOUR_HEIGHT_PX, TimeGrid } from '../TimeGrid'
+
+/** Vertical offset (px) of a time of day, expressed in minutes since midnight. */
+const yAt = (minutes: number) => (minutes / 60) * HOUR_HEIGHT_PX
 
 const anchor = new Date(2026, 8, 29)
 
@@ -46,15 +49,15 @@ it('opens one event with the latest dragged range without updating its parent du
     const { container } = renderGrid(onCreateRange)
     const layer = container.querySelector('.cursor-cell')!
     act(() => {
-      dispatchPointer(layer, 'pointerdown', 1080)
-      dispatchPointer(layer, 'pointermove', 1200)
-      dispatchPointer(layer, 'pointerup', 1200)
+      dispatchPointer(layer, 'pointerdown', yAt(9 * 60))
+      dispatchPointer(layer, 'pointermove', yAt(10 * 60))
+      dispatchPointer(layer, 'pointerup', yAt(10 * 60))
     })
     expect(onCreateRange).toHaveBeenCalledTimes(1)
     expect(onCreateRange).toHaveBeenCalledWith(new Date(2026, 8, 29, 9), new Date(2026, 8, 29, 10))
     expect(container.querySelector('output')).toHaveTextContent('created')
     expect(consoleError).not.toHaveBeenCalled()
-    dispatchPointer(layer, 'pointerup', 1200)
+    dispatchPointer(layer, 'pointerup', yAt(10 * 60))
     expect(onCreateRange).toHaveBeenCalledTimes(1)
   } finally {
     consoleError.mockRestore()
@@ -66,8 +69,8 @@ it('creates the half-hour slot under the pointer on a plain click', () => {
   const { container } = renderGrid(onCreateRange)
   const layer = container.querySelector('.cursor-cell')!
   act(() => {
-    dispatchPointer(layer, 'pointerdown', 1100)
-    dispatchPointer(layer, 'pointerup', 1100)
+    dispatchPointer(layer, 'pointerdown', yAt(9 * 60 + 10))
+    dispatchPointer(layer, 'pointerup', yAt(9 * 60 + 10))
   })
   expect(onCreateRange).toHaveBeenCalledTimes(1)
   expect(onCreateRange).toHaveBeenCalledWith(new Date(2026, 8, 29, 9), new Date(2026, 8, 29, 9, 30))
@@ -78,12 +81,12 @@ it('creates the highlighted slot when clicking just below a slot boundary', () =
   const { container } = renderGrid(onCreateRange)
   const layer = container.querySelector('.cursor-cell')!
   act(() => {
-    dispatchPointer(layer, 'pointermove', 1138)
+    dispatchPointer(layer, 'pointermove', yAt(9 * 60 + 29))
   })
   expect(container.querySelector('[data-calendar-hover-slot]')?.getAttribute('data-calendar-hover-slot')).toBe('540')
   act(() => {
-    dispatchPointer(layer, 'pointerdown', 1138)
-    dispatchPointer(layer, 'pointerup', 1138)
+    dispatchPointer(layer, 'pointerdown', yAt(9 * 60 + 29))
+    dispatchPointer(layer, 'pointerup', yAt(9 * 60 + 29))
   })
   expect(onCreateRange).toHaveBeenCalledTimes(1)
   expect(onCreateRange).toHaveBeenCalledWith(new Date(2026, 8, 29, 9), new Date(2026, 8, 29, 9, 30))
@@ -93,7 +96,7 @@ it('highlights the hovered half-hour slot and clears it when the pointer leaves'
   const { container } = renderGrid(jest.fn())
   const layer = container.querySelector('.cursor-cell')!
   act(() => {
-    dispatchPointer(layer, 'pointermove', 1270)
+    dispatchPointer(layer, 'pointermove', yAt(10 * 60 + 35))
   })
   const slot = container.querySelector('[data-calendar-hover-slot]')
   expect(slot).not.toBeNull()
@@ -109,10 +112,10 @@ it('ignores cancelled drags and pointer movements without an active drag', () =>
   const onCreateRange = jest.fn()
   const { container } = renderGrid(onCreateRange)
   const layer = container.querySelector('.cursor-cell')!
-  dispatchPointer(layer, 'pointermove', 1200)
-  dispatchPointer(layer, 'pointerdown', 1080)
-  dispatchPointer(layer, 'pointermove', 1200)
+  dispatchPointer(layer, 'pointermove', yAt(10 * 60))
+  dispatchPointer(layer, 'pointerdown', yAt(9 * 60))
+  dispatchPointer(layer, 'pointermove', yAt(10 * 60))
   dispatchPointer(layer, 'pointercancel')
-  dispatchPointer(layer, 'pointerup', 1200)
+  dispatchPointer(layer, 'pointerup', yAt(10 * 60))
   expect(onCreateRange).not.toHaveBeenCalled()
 })

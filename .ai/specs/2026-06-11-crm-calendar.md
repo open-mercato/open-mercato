@@ -393,6 +393,12 @@ None.
 - [x] Phase 7 — 2026-06-13 Figma revision: Customization modal (`1788:3701`) + week-view states (`1786:2934`) — peek popover, inline conflict badge, drag-to-create, enriched empty state, four wired preference toggles; new unit tests (preferences, grid) green; TC-CAL-007/008 added; preview-verified (settings modal, 5-day-week default, peek + selected ring, conflict badges)
 
 ## Changelog
+
+### 2026-11-27 — Compact time grid, 07:00–20:00 window and Work week view
+
+- Hour rows are 48px (was 120px). The week/day grid opens scrolled to 07:00 and is sized to show 07:00–20:00 without scrolling; earlier and later hours stay reachable by scrolling.
+- New **Work week** view between Day and Week. It always renders Mon–Fri (keeping today's column when today is a weekend, as Week does with weekends hidden) and shares Week's range and navigation. **Week** still follows the **Show weekends** preference, so with that preference on the switcher offers Day, Work week, Week (Mon–Sun), Month and Agenda.
+- Unit coverage: `range.test.ts` (work week range/shift), `CalendarTabs.test.tsx` (switcher order and `workweek` value), `TimeGrid.test.tsx` (07:00 initial scroll and 07:00–20:00 viewport). Existing integration specs are unaffected: Week's weekend behavior is unchanged.
 ### 2026-11-16 — Issue #9620: full event title on hover
 - Time-grid event blocks (day and week views) carry a native `title` with the full event title and time range, the same text as their accessible name. Hovering a block whose title is cut by a narrow overlap column now shows it without opening the event. Callers can override it through the block's `title` prop.
 

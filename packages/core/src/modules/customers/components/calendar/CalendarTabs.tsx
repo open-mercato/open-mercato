@@ -46,6 +46,9 @@ export function CalendarTabs({ tab, counts, view, onTabChange, onViewChange }: C
             <SegmentedControlItem value="day">
               {t('customers.calendar.views.day', 'Day')}
             </SegmentedControlItem>
+            <SegmentedControlItem value="workweek">
+              {t('customers.calendar.views.workweek', 'Work week')}
+            </SegmentedControlItem>
             <SegmentedControlItem value="week">
               {t('customers.calendar.views.week', 'Week')}
             </SegmentedControlItem>

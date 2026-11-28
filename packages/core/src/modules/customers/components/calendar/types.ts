@@ -2,7 +2,8 @@ import type { CalendarInteractionPayload } from '@open-mercato/core/helpers/cale
 
 export { calendarInteractionPayloadSchema, type CalendarInteractionPayload } from '@open-mercato/core/helpers/calendar/interactionPayload'
 
-export type CalendarView = 'day' | 'week' | 'month' | 'agenda'
+/** `workweek` is the Mon–Fri time grid; `week` follows the "Show weekends" preference. */
+export type CalendarView = 'day' | 'workweek' | 'week' | 'month' | 'agenda'
 
 export type CalendarCategory = 'meeting' | 'event' | 'task' | 'other'
 
