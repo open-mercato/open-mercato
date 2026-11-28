@@ -7,7 +7,7 @@ import {
   createShipmentFixture,
   deleteSalesEntityIfExists,
 } from '@open-mercato/core/helpers/integration/salesFixtures'
-import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { expectOperation, undoByToken } from '@open-mercato/core/helpers/integration/undoHarness'
 
 type JsonMap = Record<string, unknown>
@@ -87,6 +87,51 @@ async function createPayment(request: APIRequestContext, token: string, orderId:
 }
 
 test.describe('TC-SALES-042: order undo keeps children recorded after the undone command', () => {
+  test('restores a canceled order status when there are no shipments or held payments', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    test.skip(!(await canManageSalesOrders(request, token)), 'sales.orders.manage not granted on this tenant')
+    const statusPath = '/api/sales/order-statuses'
+    let orderId: string | null = null
+    let createdStatusId: string | null = null
+    try {
+      const statuses = await listItems(request, token, `${statusPath}?search=canceled&pageSize=100`)
+      const canceledStatus = statuses.find((status) => status.value === 'canceled')
+      if (!canceledStatus) {
+        const created = await apiRequest(request, 'POST', statusPath, {
+          token,
+          data: { value: 'canceled', label: 'Canceled' },
+        })
+        expect(created.status()).toBe(201)
+        createdStatusId = expectId((await readJsonSafe<{ id: string }>(created))?.id, 'created canceled status ID')
+      }
+      const canceledStatusId = expectId(canceledStatus?.id ?? createdStatusId, 'canceled status ID')
+
+      orderId = await createSalesOrderFixture(request, token, 'USD')
+      const cancel = await apiRequest(request, 'PUT', '/api/sales/orders', {
+        token,
+        data: { id: orderId, statusEntryId: canceledStatusId },
+      })
+      expect(cancel.status()).toBe(200)
+
+      const clearStatus = await apiRequest(request, 'PUT', '/api/sales/orders', {
+        token,
+        data: { id: orderId, statusEntryId: null },
+      })
+      expect(clearStatus.status()).toBe(200)
+      const operation = expectOperation(clearStatus, 'clear order status')
+      expect((await readOrder(request, token, orderId)).status).toBeNull()
+
+      expect((await undoByToken(request, token, operation.undoToken)).status()).toBe(200)
+      expect(await readOrder(request, token, orderId)).toMatchObject({
+        status: 'canceled',
+        statusEntryId: canceledStatusId,
+      })
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+      await deleteSalesEntityIfExists(request, token, statusPath, createdStatusId)
+    }
+  })
+
   test('refuses to undo an order update once a shipment, payment and note were added after it', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     test.skip(!(await canManageSalesOrders(request, token)), 'sales.orders.manage not granted on this tenant')
