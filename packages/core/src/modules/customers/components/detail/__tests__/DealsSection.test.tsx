@@ -83,6 +83,13 @@ jest.mock('../hooks/useCustomerDictionary', () => {
   }
 })
 
+jest.mock('../../hooks/useDealStatusVocabulary', () => ({
+  useDealStatusVocabulary: () => ({
+    vocabulary: jest.requireActual('../../../lib/dealStatus').DEFAULT_DEAL_STATUS_VOCABULARY,
+    source: 'default', updatedAt: null, isLoading: false, isError: false,
+  }),
+}))
+
 jest.mock('../hooks/useCurrencyDictionary', () => ({
   useCurrencyDictionary: jest.fn(),
 }))

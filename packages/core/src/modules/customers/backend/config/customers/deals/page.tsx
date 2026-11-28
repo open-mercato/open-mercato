@@ -13,6 +13,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { DealStatusVocabularySettings } from '../../../../components/DealStatusVocabularySettings'
 
 const SAVE_CONTEXT_ID = 'customers-deals-settings:stuck-threshold'
 const MIN_DAYS = 1
@@ -199,6 +200,7 @@ export default function DealsSettingsPage(): React.ReactElement {
               </>
             )}
           </section>
+          <DealStatusVocabularySettings />
         </div>
       </PageBody>
     </Page>

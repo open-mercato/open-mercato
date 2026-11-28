@@ -1,19 +1,7 @@
+import { getDealStatusAliases, type DealStatusVocabulary } from '@open-mercato/core/modules/customers/lib/dealStatus'
 import { type DateRangePreset, isValidDateRangePreset } from '@open-mercato/ui/backend/date-range'
 import type { WidgetDataRequest } from '../../../services/widgetDataService'
 
-// Deal statuses that mean the deal is closed and must stop counting as current pipeline.
-//
-// This is a denylist, not an allowlist: `customer_deals.status` is a lenient `text` column
-// fed by the per-tenant `deal_status` dictionary, so a status unknown to code counts as OPEN
-// and keeps contributing to the chart. That keeps tenant-specific stages visible and mirrors
-// `customers/lib/interactionStatus.ts`, which treats an unknown interaction status as open.
-//
-// Every vocabulary that reaches the column has to be listed here:
-//   - `win` / `lost` are written by the deal closure UI and the kanban board.
-//   - `won` / `lost` are written verbatim by the `customers.update_deal_stage` AI tool, whose
-//     free-form `toStage` is passed straight through to `status`.
-//   - `closed` is a seeded `deal_status` dictionary value, persisted by the dashboards
-//     analytics seed and treated as terminal by the demo-data generator.
 export const CLOSED_DEAL_STATUSES = ['win', 'loose', 'won', 'lost', 'closed'] as const
 
 // A deal is also closed when `closure_outcome` records the outcome, which the deals-summary
@@ -71,7 +59,7 @@ export function dehydrateSettings(settings: PipelineSummarySettings): Record<str
   }
 }
 
-export function buildPipelineDataRequest(settings: PipelineSummarySettings): WidgetDataRequest {
+export function buildPipelineDataRequest(settings: PipelineSummarySettings, vocabulary?: DealStatusVocabulary): WidgetDataRequest {
   const request: WidgetDataRequest = {
     entityType: 'customers:deals',
     metric: {
@@ -90,7 +78,7 @@ export function buildPipelineDataRequest(settings: PipelineSummarySettings): Wid
 
   if (settings.statusScope === 'open') {
     request.filters = [
-      ...CLOSED_DEAL_STATUSES.map((status) => ({
+      ...(vocabulary ? getDealStatusAliases(vocabulary).terminal : CLOSED_DEAL_STATUSES).map((status) => ({
         field: 'status',
         operator: 'neq' as const,
         value: status,

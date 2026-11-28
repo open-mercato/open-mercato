@@ -1,18 +1,18 @@
 import type { KpiTrend } from '@open-mercato/ui/backend/charts/KpiCard'
-import { isOpenDealStatus } from '../../../lib/dealStatus'
+import { isOpenDealStatus, type DealStatusVocabulary } from '../../../lib/dealStatus'
 import type { DealSummary, InteractionSummary, TodoLinkSummary } from '../../formConfig'
 
-export function sumActiveDeals(deals: DealSummary[]): number {
+export function sumActiveDeals(deals: DealSummary[], vocabulary?: DealStatusVocabulary): number {
   return deals
-    .filter((d) => isOpenDealStatus(d.status))
+    .filter((d) => isOpenDealStatus(d.status, vocabulary))
     .reduce((sum, d) => {
       const amount = typeof d.valueAmount === 'number' ? d.valueAmount : parseFloat(String(d.valueAmount ?? '0'))
       return sum + (Number.isFinite(amount) ? amount : 0)
     }, 0)
 }
 
-export function getActiveDeals(deals: DealSummary[]): DealSummary[] {
-  return deals.filter((d) => isOpenDealStatus(d.status))
+export function getActiveDeals(deals: DealSummary[], vocabulary?: DealStatusVocabulary): DealSummary[] {
+  return deals.filter((d) => isOpenDealStatus(d.status, vocabulary))
 }
 
 export function getOpenTasks(todos: TodoLinkSummary[]): TodoLinkSummary[] {
@@ -68,8 +68,8 @@ export function computeActivityTrend(interactions: InteractionSummary[]): KpiTre
   return { value: Math.abs(pct), direction: pct > 0 ? 'up' : 'down' }
 }
 
-export function computeDealTrend(deals: DealSummary[]): KpiTrend | undefined {
-  const active = deals.filter((d) => isOpenDealStatus(d.status))
+export function computeDealTrend(deals: DealSummary[], vocabulary?: DealStatusVocabulary): KpiTrend | undefined {
+  const active = deals.filter((d) => isOpenDealStatus(d.status, vocabulary))
   if (active.length === 0) return undefined
   const now = Date.now()
   const monthMs = 30 * 86_400_000

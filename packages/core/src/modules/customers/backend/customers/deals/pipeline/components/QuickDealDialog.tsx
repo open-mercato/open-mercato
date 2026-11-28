@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { DEFAULT_DEAL_STATUS_VOCABULARY, canonicalDealStatus, type DealStatusVocabulary } from '../../../../../lib/dealStatus'
 import { z } from 'zod'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -72,6 +73,7 @@ export const QUICK_DEAL_DIALOG_COMPONENT_ID = 'dialog:customers.deals.quickDeal'
 export const DEFAULT_QUICK_DEAL_PROBABILITY = 25
 
 export type QuickDealDialogProps = {
+  vocabulary?: DealStatusVocabulary
   open: boolean
   context: QuickDealContext | null
   onClose: () => void
@@ -99,7 +101,7 @@ type QuickDealFormValues = {
   valueAmount: number | null
   valueCurrency: string
   companyId: string
-  status: (typeof STATUS_OPTIONS)[number]
+  status: string
   probability: number | null
   expectedCloseAt: string
   description: string
@@ -108,6 +110,7 @@ type QuickDealFormValues = {
 const QUICK_DEAL_CONTEXT_ID = 'customers-deals-kanban:quick-deal'
 
 export function QuickDealDialog({
+  vocabulary = DEFAULT_DEAL_STATUS_VOCABULARY,
   open,
   context,
   onClose,
@@ -158,13 +161,13 @@ export function QuickDealDialog({
         // reject anything bogus.
         valueCurrency: z.string().min(1),
         companyId: z.string().optional(),
-        status: z.enum(STATUS_OPTIONS),
+        status: z.string().refine((value) => STATUS_OPTIONS.some((status) => canonicalDealStatus(status, vocabulary) === value)),
         probability: z.number().min(0).max(100).nullable().optional(),
         expectedCloseAt: z.string().optional(),
         description: z.string().optional(),
       }),
       // Cast widens to QuickDealFormValues so CrudForm's TValues generic stays exact.
-    [titleRequiredMessage],
+    [titleRequiredMessage, vocabulary],
   ) as unknown as z.ZodType<QuickDealFormValues>
 
   const initialValues = React.useMemo<Partial<QuickDealFormValues>>(
@@ -263,10 +266,8 @@ export function QuickDealDialog({
           id: 'status',
           label: translateWithFallback(t, 'customers.deals.kanban.quickDeal.status', 'Status'),
           type: 'select',
-          // Storage value is preserved (`lost` etc.), only the displayed label is
-          // translated, so we never write a localised string back to the DB.
           options: STATUS_OPTIONS.map((statusValue) => ({
-            value: statusValue,
+            value: canonicalDealStatus(statusValue, vocabulary),
             label: translateWithFallback(
               t,
               `customers.deals.kanban.quickDeal.status.${statusValue}`,
@@ -301,7 +302,7 @@ export function QuickDealDialog({
       )
       return list
     },
-    [companies, currentUserLabel, resolvedCurrencies, t],
+    [companies, currentUserLabel, resolvedCurrencies, t, vocabulary],
   )
 
   const groups = React.useMemo<CrudFormGroup[]>(
@@ -342,7 +343,7 @@ export function QuickDealDialog({
       }
       if (currentUserId) payload.ownerUserId = currentUserId
       if (values.companyId) payload.companyIds = [values.companyId]
-      if (values.status) payload.status = values.status
+      if (values.status) payload.status = canonicalDealStatus(values.status, vocabulary)
       if (typeof values.probability === 'number' && Number.isFinite(values.probability)) {
         payload.probability = values.probability
       }
@@ -367,7 +368,7 @@ export function QuickDealDialog({
       )
       return { resourceId: result?.id ?? result?.entityId }
     },
-    [context, currentUserId, t, titleRequiredMessage, runMutation, retryLastMutation],
+    [context, currentUserId, t, titleRequiredMessage, runMutation, retryLastMutation, vocabulary],
   )
 
   const handleSubmitSuccess = React.useCallback(() => {

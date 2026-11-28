@@ -150,6 +150,18 @@ describe('DealDetailHeader', () => {
       expect(onStageChange).toHaveBeenCalledWith('stage-2')
     })
 
+    it('excludes tenant-configured terminal labels from the legacy stage menu', () => {
+      renderHeader({
+        vocabulary: { won: ['Signed'], lost: ['Declined'], closed: ['Archived'] },
+        stageOptions: [...stageOptions, { id: 'stage-signed', label: 'Signed', order: 4 }],
+      })
+
+      fireEvent.click(screen.getByRole('button', { name: 'Discovery' }))
+      const menu = within(screen.getByRole('dialog'))
+      expect(menu.getByRole('button', { name: 'Proposal' })).toBeEnabled()
+      expect(menu.queryByRole('button', { name: 'Signed' })).not.toBeInTheDocument()
+    })
+
     it.each([
       ['the form is dirty', { isDirty: true }],
       ['the form is saving', { isSaving: true }],

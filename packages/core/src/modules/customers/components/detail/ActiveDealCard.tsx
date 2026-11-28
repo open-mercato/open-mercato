@@ -7,7 +7,10 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail/ErrorMessage'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail/LoadingMessage'
 import { isOpenDealStatus } from '../../lib/dealStatus'
+import { useDealStatusVocabulary } from '../hooks/useDealStatusVocabulary'
 import type { DealSummary } from '../formConfig'
 import { formatCurrency } from './utils'
 
@@ -23,11 +26,12 @@ type PipelineStageOption = {
 
 export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
   const t = useT()
+  const { vocabulary, isLoading: vocabularyLoading, isError: vocabularyError } = useDealStatusVocabulary()
   const [pipelineStages, setPipelineStages] = React.useState<PipelineStageOption[]>([])
 
   const activeDeals = React.useMemo(
-    () => deals.filter((d) => isOpenDealStatus(d.status)),
-    [deals],
+    () => deals.filter((d) => isOpenDealStatus(d.status, vocabulary)),
+    [deals, vocabulary],
   )
 
   const topDeal = React.useMemo(() => {
@@ -42,7 +46,7 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
   React.useEffect(() => {
     let active = true
 
-    if (!topDeal?.pipelineId) {
+    if (vocabularyLoading || vocabularyError || !topDeal?.pipelineId) {
       setPipelineStages([])
       return () => {
         active = false
@@ -72,18 +76,22 @@ export function ActiveDealCard({ deals, onHide }: ActiveDealCardProps) {
     return () => {
       active = false
     }
-  }, [topDeal?.pipelineId])
+  }, [topDeal?.pipelineId, vocabularyError, vocabularyLoading])
 
-  if (!topDeal) {
+  if (vocabularyLoading || vocabularyError || !topDeal) {
     return (
       <div className="rounded-lg border bg-card p-5">
         <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <Handshake className="size-4" />
           {t('customers.companies.dashboard.activeDeal', 'Active deal')}
         </h3>
-        <p className="mt-3 text-sm text-muted-foreground">
+        {vocabularyLoading ? (
+          <LoadingMessage label={t('customers.deals.kanban.filter.status.loading', 'Loading statuses…')} />
+        ) : vocabularyError ? (
+          <ErrorMessage label={t('customers.settings.dealStatusVocabulary.errorLoad', 'Failed to load deal status vocabulary.')} />
+        ) : <p className="mt-3 text-sm text-muted-foreground">
           {t('customers.companies.dashboard.noDeals', 'No active deals')}
-        </p>
+        </p>}
       </div>
     )
   }

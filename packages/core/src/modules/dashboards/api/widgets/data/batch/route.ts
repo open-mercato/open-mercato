@@ -16,6 +16,7 @@ import {
 } from '../../../../services/widgetDataService'
 import { runWidgetDataBeforeInterceptors } from '../../../../lib/widgetDataInterceptors'
 import { runWidgetDataBatch } from '../../../../lib/widgetDataBatch'
+import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../../openapi'
@@ -123,25 +124,25 @@ export async function POST(req: Request) {
     })
   }
 
+  const interceptorContext: InterceptorContext = {
+    em, container, userId: auth.sub, tenantId, organizationId: rbacOrganizationId ?? '',
+    userFeatures,
+    metadata: { authenticatedScope: { auth, organizationScope: scope, selectedOrganizationId: scope.selectedId ?? null, organizationIds } },
+  }
+
   try {
     const results = await runWidgetDataBatch(parsed.data.requests as Array<{ id: string; request: WidgetDataRequest }>, {
       getRequiredFeatures: (entityType) => analyticsRegistry.getRequiredFeatures(entityType),
       checkFeatures,
       fetchOne: async (request) => {
-        const intercepted = await runWidgetDataBeforeInterceptors(req, request, {
-          em,
-          container,
-          userId: auth.sub,
-          tenantId,
-          organizationId: rbacOrganizationId ?? '',
-          userFeatures,
-        })
+        const intercepted = await runWidgetDataBeforeInterceptors(req, request, interceptorContext)
         if (!intercepted.ok) {
           const message = intercepted.body.error
           throw new WidgetDataValidationError(typeof message === 'string' ? message : 'Forbidden')
         }
         return service.fetchWidgetData(intercepted.request)
       },
+
       describeError: (error) =>
         error instanceof WidgetDataValidationError
         || error instanceof WidgetDataScanLimitError

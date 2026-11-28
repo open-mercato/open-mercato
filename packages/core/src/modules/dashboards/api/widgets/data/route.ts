@@ -13,6 +13,7 @@ import {
   WidgetDataEncryptionUnavailableError,
 } from '../../../services/widgetDataService'
 import type { AnalyticsRegistry } from '../../../services/analyticsRegistry'
+import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { runWidgetDataBeforeInterceptors } from '../../../lib/widgetDataInterceptors'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
@@ -82,14 +83,18 @@ export async function POST(req: Request) {
     organizationId: rbacOrganizationId,
   })
 
-  const interceptorResult = await runWidgetDataBeforeInterceptors(req, parsed.data, {
+  const interceptorContext: InterceptorContext = {
     em,
     container,
     userId: auth.sub,
     tenantId,
     organizationId: rbacOrganizationId ?? '',
     userFeatures,
-  })
+    metadata: {
+      authenticatedScope: { auth, organizationScope: scope, selectedOrganizationId: scope.selectedId ?? null, organizationIds },
+    },
+  }
+  const interceptorResult = await runWidgetDataBeforeInterceptors(req, parsed.data, interceptorContext)
   if (!interceptorResult.ok) {
     return NextResponse.json(interceptorResult.body, { status: interceptorResult.statusCode })
   }
