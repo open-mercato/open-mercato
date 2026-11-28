@@ -45,6 +45,7 @@ describePostgres('encryption policy request memo with PostgreSQL transactions (#
       user: 'postgres',
       password: 'test',
       entities: [],
+      discovery: { warnWhenNoEntities: false },
     })
     await orm.em.getConnection().execute(`
       create table encryption_maps (
