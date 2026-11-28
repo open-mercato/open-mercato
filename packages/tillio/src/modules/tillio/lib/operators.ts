@@ -1,4 +1,6 @@
+import { createHmac } from 'node:crypto'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { TillioApiError } from './errors'
 import { createTillioClient } from './client'
@@ -13,9 +15,11 @@ import {
   buildTenantDomain,
   computeEnvFingerprint,
   operatorPluginSchema,
+  operatorsBlobSchema,
   readOperatorsBlob,
   ringostatConfigSchema,
   saveOperatorsBlob,
+  TILLIO_OPERATORS_INTEGRATION_ID,
   type TillioCredentialsService,
   type TillioOperatorPlugin,
   type TillioOperatorRecord,
@@ -226,6 +230,20 @@ export type DetachOperatorOptions = {
   force?: boolean
 }
 
+function revocationFingerprint(operator: TillioOperatorRecord, environment: TillioResolvedEnvironment): string {
+  return createHmac('sha256', environment.apiKey)
+    .update(JSON.stringify([
+      operator.id,
+      operator.plugin,
+      operator.token,
+      operator.tenantDomain,
+      operator.envFingerprint,
+      environment.apiUrl,
+      environment.tenantSystemId,
+    ]))
+    .digest('hex')
+}
+
 export async function detachOperator(
   deps: DetachOperatorDeps,
   operatorId: string,
@@ -252,6 +270,27 @@ export async function detachOperator(
         err,
       })
       if (!options.force) {
+        const raw = await deps.credentialsService.getRaw(TILLIO_OPERATORS_INTEGRATION_ID, deps.scope)
+          .catch((readError: unknown) => {
+            try {
+              getTelemetryRuntime()?.reportError(readError, {
+                module: 'tillio',
+                code: 'tillio.operator_detach_confirmation_failed',
+              })
+            } catch {
+              logger.warn('could not report the Tillio detach confirmation error')
+            }
+            return null
+          })
+        const current = operatorsBlobSchema.safeParse(raw)
+        if (
+          Array.isArray(raw?.operators)
+          && raw.lastRevokedOperatorFingerprint === revocationFingerprint(operator, environment)
+          && current.success
+          && !current.data.operators.some((entry) => entry.id === operatorId || entry.token === operator.token)
+        ) {
+          return { ok: true, detached: true, revoked: true }
+        }
         throw new TillioRevocationFailedError(false)
       }
     }
@@ -262,12 +301,16 @@ export async function detachOperator(
     (entry) => entry.id !== operatorId || entry.token !== operator.token,
   )
   if (remaining.length < current.operators.length) {
-    await saveOperatorsBlob(deps.credentialsService, deps.scope, {
+    const updated = {
       operators: remaining,
       defaultOperatorId: current.defaultOperatorId === operatorId
         ? (remaining[0]?.id ?? null)
         : current.defaultOperatorId,
-    })
+      ...(revoked && environment
+        ? { lastRevokedOperatorFingerprint: revocationFingerprint(operator, environment) }
+        : {}),
+    }
+    await saveOperatorsBlob(deps.credentialsService, deps.scope, updated)
   }
 
   return { ok: true, detached: true, revoked }

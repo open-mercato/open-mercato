@@ -14,6 +14,12 @@ jest.mock('../lib/client', () => ({
   createTillioClient: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
+const mockReportError = jest.fn()
 const createTillioClientMock = createTillioClient as jest.MockedFunction<typeof createTillioClient>
 
 const scope = { tenantId: 'tn', organizationId: 'org' }
@@ -239,13 +245,16 @@ describe('detachOperator', () => {
     return { id, plugin: 'Ringostat', config: { key: 'x' }, token, tenantDomain: 'd', envFingerprint: 'fp' }
   }
 
-  function gatedDeleteConfig() {
+  function gatedDeleteConfig(firstError?: Error) {
     let release: () => void = () => {}
     const gate = new Promise<void>((resolve) => { release = resolve })
     let calls = 0
     const deleteConfig = jest.fn(async () => {
       calls += 1
-      if (calls === 1) await gate
+      if (calls === 1) {
+        await gate
+        if (firstError) throw firstError
+      }
     })
     return { deleteConfig, release: () => release() }
   }
@@ -253,6 +262,133 @@ describe('detachOperator', () => {
   function flushPending(): Promise<void> {
     return new Promise((resolve) => setImmediate(resolve))
   }
+
+  it('acknowledges a completed concurrent detach when the later revocation fails', async () => {
+    const { deleteConfig, release } = gatedDeleteConfig(new TillioApiError('nope', 422, 'invalid'))
+    mockClient({ deleteConfig })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const slowDetach = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    expect(deleteConfig).toHaveBeenCalledTimes(1)
+    await expect(detachOperator({ credentialsService: service, scope }, 'ringostat-1'))
+      .resolves.toEqual({ ok: true, detached: true, revoked: true })
+    release()
+
+    await expect(slowDetach).resolves.toEqual({ ok: true, detached: true, revoked: true })
+    expect(service.getRaw).toHaveBeenLastCalledWith(TILLIO_OPERATORS_INTEGRATION_ID, scope)
+    expect(service.save).toHaveBeenCalledTimes(1)
+    expect(store[TILLIO_OPERATORS_INTEGRATION_ID]).toMatchObject({ operators: [], defaultOperatorId: null })
+  })
+
+  it('does not acknowledge revocation confirmed under a different provider API key', async () => {
+    const { deleteConfig, release } = gatedDeleteConfig(new TillioApiError('nope', 422, 'invalid'))
+    mockClient({ deleteConfig })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const slowDetach = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    store[TILLIO_INTEGRATION_ID] = { ...readyEnv, apiKey: 'rotated-provider-key' }
+    await expect(detachOperator({ credentialsService: service, scope }, 'ringostat-1'))
+      .resolves.toEqual({ ok: true, detached: true, revoked: true })
+    release()
+
+    await expect(slowDetach).rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+    expect(service.save).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves a genuine provider failure when a concurrent forced detach only removed the local record', async () => {
+    const providerError = new TillioApiError('nope', 422, 'invalid')
+    const { deleteConfig, release } = gatedDeleteConfig(providerError)
+    mockClient({ deleteConfig })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const slowDetach = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    deleteConfig.mockRejectedValueOnce(providerError)
+    await expect(detachOperator({ credentialsService: service, scope }, 'ringostat-1', { force: true }))
+      .resolves.toEqual({ ok: true, detached: true, revoked: false })
+    release()
+
+    await expect(slowDetach).rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+    expect(service.save).toHaveBeenCalledTimes(1)
+    expect(store[TILLIO_OPERATORS_INTEGRATION_ID]).toEqual({ operators: [], defaultOperatorId: null })
+  })
+
+  it('preserves the provider failure when another operator has been attached with the same id', async () => {
+    const { deleteConfig, release } = gatedDeleteConfig(new TillioApiError('nope', 422, 'invalid'))
+    mockClient({ deleteConfig, addConfig: jest.fn().mockResolvedValue({ token: 'tok-B' }) })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const slowDetach = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    await detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    const replacement = await attachOperator(
+      { credentialsService: service, scope, appUrl, withLock: passThroughLock },
+      { plugin: 'Ringostat', config: { key: 'b' } },
+    )
+    release()
+
+    await expect(slowDetach).rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+    expect(service.save).toHaveBeenCalledTimes(2)
+    expect(store[TILLIO_OPERATORS_INTEGRATION_ID]).toEqual({ operators: [replacement], defaultOperatorId: replacement.id })
+  })
+
+  it.each([null, {}, { operators: 'invalid' }])('requires valid stored state to confirm concurrent removal (%j)', async (unreadable) => {
+    const { deleteConfig, release } = gatedDeleteConfig(new TillioApiError('nope', 422, 'invalid'))
+    mockClient({ deleteConfig })
+    const { service, store } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const pending = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    store[TILLIO_OPERATORS_INTEGRATION_ID] = unreadable
+    release()
+
+    await expect(pending).rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+    expect(service.save).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])('preserves the provider failure even if confirmation and reporting fail (reporting throws: %s)', async (reportingThrows) => {
+    mockReportError.mockClear()
+    if (reportingThrows) {
+      mockReportError.mockImplementationOnce(() => { throw new Error('[internal] telemetry unavailable') })
+    }
+    const { deleteConfig, release } = gatedDeleteConfig(new TillioApiError('nope', 422, 'invalid'))
+    mockClient({ deleteConfig })
+    const { service } = fakeStore({
+      [TILLIO_INTEGRATION_ID]: { ...readyEnv },
+      [TILLIO_OPERATORS_INTEGRATION_ID]: { operators: [attachedOperator('tok-A')], defaultOperatorId: 'ringostat-1' },
+    })
+
+    const readError = new Error('[internal] operator read failed')
+    const pending = detachOperator({ credentialsService: service, scope }, 'ringostat-1')
+    await flushPending()
+    jest.mocked(service.getRaw).mockRejectedValueOnce(readError)
+    release()
+
+    await expect(pending).rejects.toMatchObject({ name: 'TillioRevocationFailedError', environmentMissing: false })
+    expect(mockReportError).toHaveBeenCalledWith(readError, {
+      module: 'tillio',
+      code: 'tillio.operator_detach_confirmation_failed',
+    })
+    expect(service.getRaw).toHaveBeenLastCalledWith(TILLIO_OPERATORS_INTEGRATION_ID, scope)
+    expect(service.save).not.toHaveBeenCalled()
+  })
 
   it('keeps an operator attached while its revocation call was in flight', async () => {
     const { deleteConfig, release } = gatedDeleteConfig()
