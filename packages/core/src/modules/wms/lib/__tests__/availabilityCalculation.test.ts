@@ -79,6 +79,38 @@ describe('computeAvailability — sellable quantity (R1)', () => {
   })
 })
 
+describe('computeAvailability — reservable locations', () => {
+  function balanceCall(execute: jest.Mock): { sql: string; params: unknown[] } {
+    const call = execute.mock.calls.find(([sql]) => String(sql).includes('wms_inventory_balances'))
+    if (!call) throw new Error('balance aggregation was not issued')
+    return { sql: String(call[0]), params: call[1] as unknown[] }
+  }
+
+  it('excludes staging and dock locations from the balance aggregation, as wms.inventory.reserve does', async () => {
+    const { em, execute } = makeEm()
+    const resolveMany = jest.fn().mockResolvedValue([overlay()])
+    await computeAvailability(em, makeContainer(resolveMany), makeQuery([
+      { catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 },
+    ]))
+    const { sql, params } = balanceCall(execute)
+    expect(sql).toMatch(/left join wms_warehouse_locations loc on loc\.id = b\.location_id/)
+    expect(sql).toMatch(/\(loc\.type is null or not \(loc\.type IN \(\?, \?\)\)\)/)
+    expect(params).toEqual([ORG, TENANT, 'v1', 'staging', 'dock'])
+  })
+
+  it('keeps the explicit locationIds allowlist alongside the location-type exclusion', async () => {
+    const { em, execute } = makeEm()
+    const resolveMany = jest.fn().mockResolvedValue([overlay()])
+    await computeAvailability(em, makeContainer(resolveMany), makeQuery(
+      [{ catalogProductId: 'p1', catalogVariantId: 'v1', quantity: 1 }],
+      { locationIds: ['loc-1'] },
+    ))
+    const { sql, params } = balanceCall(execute)
+    expect(sql).toMatch(/b\.location_id IN \(\?\)/)
+    expect(params).toEqual([ORG, TENANT, 'v1', 'loc-1', 'staging', 'dock'])
+  })
+})
+
 describe('computeAvailability — state boundaries', () => {
   it('exact-quantity request is in_stock', async () => {
     const { em } = makeEm({ balanceRows: [{ catalog_variant_id: 'v1', aggregate_available: '10' }] })
