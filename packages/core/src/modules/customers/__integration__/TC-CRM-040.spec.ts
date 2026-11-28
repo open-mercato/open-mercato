@@ -31,6 +31,8 @@ test.describe('TC-CRM-040: Company header exposes Object-history icon', () => {
       await login(page, 'admin');
       await page.goto(`/backend/customers/companies-v2/${companyId}`, { waitUntil: 'domcontentloaded' });
       await expect(page.getByRole('heading', { name: companyName, exact: true })).toBeVisible({ timeout: 15000 });
+      const avatar = page.getByRole('img', { name: '', exact: true }).locator('[data-slot="avatar-icon"] .lucide-building-2');
+      await expect(avatar).toBeVisible();
 
       const historyButton = page.getByRole('button', { name: 'Version History' });
       await expect(historyButton).toBeVisible();
