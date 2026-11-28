@@ -1,0 +1,52 @@
+[
+  {
+    "id": "s48",
+    "area": "Środki trwałe",
+    "title": "Przyjęcie i amortyzacja",
+    "subtitle": "Od nabycia i OT do zaksięgowanego odpisu",
+    "kind": "workflow",
+    "refs": ["#6014"],
+    "steps": [],
+    "checks": []
+  },
+  {
+    "id": "s49",
+    "area": "Rozliczenia okresowe",
+    "title": "Rozliczenie kosztu w czasie",
+    "subtitle": "Harmonogram kosztu i pozostałe saldo",
+    "kind": "workflow",
+    "refs": ["#6014"],
+    "steps": [],
+    "checks": []
+  },
+  {
+    "id": "s50",
+    "area": "Rozliczenia okresowe",
+    "title": "Rozliczenie przychodu w czasie",
+    "subtitle": "Faktura, przeksięgowanie i raty RMP",
+    "kind": "workflow",
+    "refs": ["#6193"],
+    "steps": [],
+    "checks": []
+  },
+  {
+    "id": "s51",
+    "area": "Waluty",
+    "title": "Wycena bilansowa",
+    "subtitle": "Otwarte rozrachunki i odwrócenie wyceny",
+    "kind": "workflow",
+    "refs": ["#6190"],
+    "steps": [],
+    "checks": []
+  },
+  {
+    "id": "s52",
+    "area": "Bank",
+    "title": "Rozliczenie wyciągu",
+    "subtitle": "Wpłaty, nadpłaty, paczki płatności i opłaty bankowe",
+    "kind": "workflow",
+    "refs": ["#6055"],
+    "steps": [],
+    "checks": []
+  }
+]

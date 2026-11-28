@@ -156,6 +156,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'workflows', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
+  { id: 'finance_previews', from: '@app' },
   // General Ledger core engine — ships with the scaffold but stays disabled
   // here until its module fact-sheet gains catalog coverage (run the
   // om-refresh-standalone-harness skill to add it, then enable this line).

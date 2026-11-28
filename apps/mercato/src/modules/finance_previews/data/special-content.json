@@ -1,0 +1,76 @@
+{
+  "s3": {
+    "metrics": [["Wn", "42,00 zł", "Strona debetowa"], ["Ma", "42,00 zł", "Strona kredytowa"], ["Różnica", "0,00 zł", "Dekret zbilansowany"]],
+    "tables": [{"title":"Pozycje dekretu","columns":["Konto","Opis","Wn","Ma"],"rows":[["402-01","Opłaty bankowe","42,00 zł","0,00 zł"],["130-01","Rachunek główny","0,00 zł","42,00 zł"]]}],
+    "links": [["Plan kont","s5"],["Zamknięcie okresu","s6"]]
+  },
+  "s8": {
+    "callout": {"title":"Faktura zgodna","body":"Cena i ilość odpowiadają zamówieniu oraz odbiorowi.","tone":"info"},
+    "metrics": [["Faktura", "12 300,00 zł", "FZ/09/2026/088"], ["Zamówienie", "12 300,00 zł", "PO-2026-1094"], ["Różnica", "0,00 zł", "W granicach tolerancji"]],
+    "tables": [{"title":"Pozycje faktury","columns":["Pozycja","Faktura","Zamówienie","Odbiór","Różnica"],"rows":[["Prace wdrożeniowe","9 840 zł","9 840 zł","8 h","0 zł"],["Wsparcie techniczne","2 460 zł","2 460 zł","2 h","0 zł"]]}],
+    "links": [["Faktury dostawców","s7"],["Paczka płatności","s10"]]
+  },
+  "s9": {
+    "callout": {"title":"Różnica wymaga decyzji","body":"Różnica 1 000 zł przekracza limit tolerancji 565 zł.","tone":"warning"},
+    "metrics": [["Faktura", "12 300,00 zł", "FZ/09/2026/083"], ["Zamówienie", "11 300,00 zł", "PO-2026-1094"], ["Różnica", "1 000,00 zł", "Do uzasadnienia"]],
+    "tables": [{"title":"Pozycje faktury","columns":["Pozycja","Faktura","Zamówienie","Odbiór","Różnica"],"rows":[["Prace wdrożeniowe","9 840 zł","9 040 zł","8 h","+800 zł"],["Wsparcie techniczne","2 460 zł","2 260 zł","2 h","+200 zł"]]}],
+    "links": [["Faktury dostawców","s7"],["Zasady akceptacji","s40"]]
+  },
+  "s13": {
+    "metrics": [["Otrzymano", "3 000,00 EUR", "Wpłata klienta"], ["Przypisano", "3 000,00 EUR", "Do faktur"], ["Nierozdzielone", "0,00 EUR", "Gotowe do księgowania"]],
+    "tables": [{"title":"Przypisanie do faktur","columns":["Faktura","Termin","Do zapłaty","Przypisz","Saldo po"],"rows":[[{"text":"FS/2026/094","to":"s12"},"25 wrz 2026","6 400,00 EUR","3 000,00 EUR","3 400,00 EUR"],[{"text":"FS/2026/087","to":"s12"},"24 wrz 2026","1 250,00 EUR","0,00 EUR","1 250,00 EUR"]]}],
+    "links": [["Faktura FS/2026/094","s12"],["Monitoring należności","s14"]]
+  },
+  "s17": {
+    "metrics": [["Saldo banku", "824 180,00 zł", "25 września"], ["Saldo księgi", "824 138,00 zł", "25 września"], ["Różnica", "42,00 zł", "1 pozycja bez pary"]],
+    "tables": [{"title":"Pozycje wyciągu","columns":["Transakcja","Data","Kwota","Dopasowanie"],"rows":[["TechNova · przelew wychodzący","25 wrz 2026","−12 300 zł",{"text":"Dopasowane","tone":"info"}],[{"text":"Opłata bankowa","to":"s18"},"24 wrz 2026","−42 zł",{"text":"Bez pary","tone":"warning"}],["Acme Polska · wpływ","23 wrz 2026","+8 400 zł",{"text":"Dopasowane","tone":"info"}]]}],
+    "links": [["Brak dopasowania","s18"],["Prognoza gotówki","s19"]]
+  },
+  "s18": {
+    "callout": {"title":"Opłata bankowa bez zapisu","body":"Rachunek główny · referencja 292630102 · 24 września 2026.","tone":"warning"},
+    "metrics": [["Saldo banku", "824 180,00 zł", "Według wyciągu"], ["Saldo księgi", "824 138,00 zł", "Według dziennika"], ["Różnica", "42,00 zł", "Wymaga uzgodnienia"]],
+    "choices": [["Utwórz zapis korekty","Wn 402-01 / Ma 130-01, 42 zł","s3"],["Połącz z istniejącym zapisem","Wyszukaj zapis w dzienniku","s2"],["Wyjaśnij później","Pozycja pozostanie bez pary","s17"]]
+  },
+  "s27": {
+    "metrics": [["Plan IT", "480 000 zł", "Wersja 3"], ["Wykonanie", "362 000 zł", "Do września"], ["Dostępne", "118 000 zł", "Bieżący plan"]],
+    "tables": [{"title":"Kategorie budżetu","columns":["Kategoria","Plan","Wykonanie","Dostępne"],"rows":[["Licencje","180 000 zł","132 000 zł","48 000 zł"],["Infrastruktura","160 000 zł","128 000 zł","32 000 zł"],["Usługi zewnętrzne","140 000 zł","102 000 zł","38 000 zł"]]}],
+    "links": [["Odchylenia","s29"],["Wniosek o środki","s28"]]
+  },
+  "s28": {
+    "callout": {"title":"Dlaczego potrzebne są dodatkowe środki?","body":"Budżet IT nie pokrywa dodatkowych prac wdrożeniowych. Po wysłaniu decyzję podejmie dyrektor finansowy.","tone":"info"},
+    "metrics": [["Dostępne", "18 000 zł", "W budżecie"], ["Wniosek", "24 600 zł", "Dodatkowe usługi"], ["Brakuje", "6 600 zł", "Do akceptacji"]],
+    "steps": ["Uzupełnij wniosek","Wyślij do akceptacji","Decyzja dyrektora"]
+  },
+  "s34": {
+    "metrics": [["Spółka PL", "248 000 zł", "32 pozycje"], ["Spółka CZ", "245 600 zł", "31 pozycji"], ["Różnica", "2 400 zł", "Do wyjaśnienia"]],
+    "tables": [{"title":"Transakcje między spółkami","columns":["Dokument","Strona PL","Strona CZ","Status"],"rows":[["FV/IC/2026/041","12 300 zł","12 300 zł",{"text":"Dopasowane","tone":"info"}],["Nota IC","2 400 zł","0 zł",{"text":"Bez pary","tone":"warning"}]]}],
+    "links": [["Konsolidacja","s35"],["Spółki","s33"]]
+  },
+  "s36": {
+    "metrics": [["Faktury otrzymane", "86", "Rejestr zakupów"], ["Wartość brutto", "1,23 mln zł", "Wrzesień 2026"], ["VAT do odliczenia", "230 000 zł", "Według rejestru"]],
+    "tables": [{"title":"Deklaracje","columns":["Wariant","Okres","Status","Wygenerowano","Wysyłka"],"rows":[["JPK_V7M",{"text":"09/2026","to":"s37"},{"text":"Wygenerowano","tone":"info"},"25.09.2026","Do wysłania"],["JPK_V7M",{"text":"08/2026","to":"s37"},{"text":"Wysłano","tone":"neutral"},"04.09.2026","UPO dostępne"]]},{"title":"Rejestr zakupu","columns":["Dokument","Dostawca","Data zakupu","Netto","VAT"],"rows":[[{"text":"FZ/09/2026/091","to":"s8"},"Polstar Logistyka","24.09.2026","7 000 zł","1 610 zł"],[{"text":"FZ/09/2026/088","to":"s8"},"Cloudspace Polska","22.09.2026","2 000 zł","460 zł"]]}],
+    "links": [["Utwórz deklarację","s37"],["Kontrola faktury","s8"]]
+  },
+  "s39": {
+    "metrics": [["Przychody", "2,48 mln zł", "Wrzesień 2026"], ["Koszty", "1,99 mln zł", "Wrzesień 2026"], ["Wynik", "490 000 zł", "Marża 19,8%"]],
+    "series": [48,51,55,60,58,63,68,72,69,75,81,87],
+    "tables": [{"title":"Podgląd raportu","columns":["Pozycja","Wartość","Poprzedni okres","Zmiana"],"rows":[["Przychody ze sprzedaży","2 480 000 zł","2 290 000 zł","+8,3%"],["Koszty operacyjne","1 990 000 zł","1 920 000 zł","+3,6%"],["Wynik","490 000 zł","370 000 zł","+32,4%"]]}],
+    "links": [["Katalog raportów","s38"],["Prognoza gotówki","s19"]]
+  },
+  "s40": {
+    "callout": {"title":"Faktura powyżej 10 000 PLN","body":"Autor dokumentu nie może zatwierdzić własnej faktury.","tone":"info"},
+    "steps": ["Autor dokumentu","Kierownik działu","Kontroler finansowy","Zatwierdzono"],
+    "tables": [{"title":"Pozostałe reguły","columns":["Reguła","Próg","Liczba kroków","Właściciel","Status"],"rows":[["Płatność powyżej 50 000 zł","50 000 zł","3","Dyrektor finansowy",{"text":"Aktywna","tone":"info"}],["Wniosek ponad budżet","0 zł ponad plan","2","Dyrektor finansowy",{"text":"Aktywna","tone":"info"}],["Różnica w kontroli faktury","565 zł","2","Kontroler",{"text":"Aktywna","tone":"info"}]]}],
+    "links": [["Dziennik audytu","s41"],["Wniosek budżetowy","s28"]]
+  },
+  "s42": {
+    "metrics": [["Netto", "12 000,00 zł", "10 × 1 200 zł"], ["VAT", "2 760,00 zł", "23%"], ["Brutto", "14 760,00 zł", "Do wystawienia"]],
+    "tables": [{"title":"Pozycje faktury","columns":["Nazwa","Ilość","Cena netto","VAT","Brutto"],"rows":[["Usługi IT za wrzesień","10","1 200,00 zł","23%","14 760,00 zł"]]}],
+    "links": [["Kurs waluty","s23"],["Rejestr VAT","s36"]]
+  },
+  "s43": {
+    "metrics": [["Netto", "9 840,00 zł", "8 × 1 230 zł"], ["VAT", "2 263,20 zł", "23%"], ["Brutto", "12 103,20 zł", "Do kontroli"]],
+    "tables": [{"title":"Pozycje faktury","columns":["Nazwa","Ilość","Cena netto","VAT","Brutto"],"rows":[["Prace wdrożeniowe","8","1 230,00 zł","23%","12 103,20 zł"]]}],
+    "links": [["Kontrola faktury","s8"],["Rejestr VAT","s36"]]
+  }
+}
