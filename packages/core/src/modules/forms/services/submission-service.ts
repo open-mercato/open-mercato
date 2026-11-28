@@ -245,7 +245,7 @@ export type SubmissionServiceOptions = {
   encryptionService: EncryptionService
   rolePolicyService: RolePolicyService
   /** Pluggable event emitter — wires to the typed forms events catalog. */
-  emitEvent: <K extends keyof SubmissionEvents>(eventId: K, payload: Parameters<SubmissionEvents[K]>[0]) => Promise<void> | void
+  emitEvent: <K extends keyof SubmissionEvents>(eventId: K, payload: Parameters<SubmissionEvents[K]>[0], scope?: Scope) => Promise<void> | void
   /** Phase 2b replaces this with a real audit logger. Phase 1c uses a no-op. */
   auditAccess?: AuditAccessHook
   logger?: StructuredLogger
@@ -798,7 +798,10 @@ export class SubmissionService {
       return submission
     })
 
-    await this.safeEmit('forms.submission.submitted', { submissionId: result.id })
+    await this.safeEmit('forms.submission.submitted', { submissionId: result.id }, {
+      tenantId: result.tenantId,
+      organizationId: result.organizationId,
+    })
     return result
   }
 
@@ -1144,9 +1147,10 @@ export class SubmissionService {
   private async safeEmit<K extends keyof SubmissionEvents>(
     eventId: K,
     payload: Parameters<SubmissionEvents[K]>[0],
+    ...eventOptions: [scope?: Scope]
   ): Promise<void> {
     try {
-      await this.emitEvent(eventId, payload)
+      await this.emitEvent(eventId, payload, ...eventOptions)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown emit error'
       this.logger.warn({ event: 'forms.submission.event_emit_failed', eventId, message }, 'forms event emission failed')
