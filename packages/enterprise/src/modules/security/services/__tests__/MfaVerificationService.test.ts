@@ -241,6 +241,27 @@ describe('MfaVerificationService', () => {
     ])
   })
 
+  test('createChallenge distinguishes policy-ineligible enrollment from a user with no active methods', async () => {
+    const { service, em, mfaEnforcementService } = createServiceContext()
+    mfaEnforcementService.getEffectivePolicyForUser.mockResolvedValue({
+      id: 'policy-1',
+      isEnforced: true,
+      allowedMethods: ['passkey'],
+    })
+
+    await expect(service.createChallenge('user-1')).rejects.toMatchObject({
+      message: 'No configured MFA methods are allowed by the effective policy',
+      code: undefined,
+    })
+
+    em.find.mockResolvedValueOnce([])
+    await expect(service.createChallenge('user-1')).rejects.toMatchObject({
+      code: MFA_NO_METHODS_CONFIGURED_CODE,
+    })
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   test('prepareChallenge persists provider verification context on the challenge', async () => {
     const { service, challenges, registry } = createServiceContext()
     const provider = registry.get('totp')

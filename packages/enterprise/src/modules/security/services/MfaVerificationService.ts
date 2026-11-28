@@ -288,7 +288,11 @@ export class MfaVerificationService {
       return methods
     }
 
-    return methods.filter((method) => policy.allowedMethods?.includes(method.type))
+    const eligibleMethods = methods.filter((method) => policy.allowedMethods?.includes(method.type))
+    if (methods.length > 0 && eligibleMethods.length === 0) {
+      throw new MfaVerificationServiceError('No configured MFA methods are allowed by the effective policy', 400)
+    }
+    return eligibleMethods
   }
 
   private async findMethod(userId: string, methodType: string): Promise<UserMfaMethod> {

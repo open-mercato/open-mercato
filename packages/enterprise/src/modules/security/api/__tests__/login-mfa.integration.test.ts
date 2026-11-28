@@ -17,6 +17,10 @@ const sessionId = '5185a109-c950-414d-a889-5d2f3c3fb619'
 const mockReportError = jest.fn()
 const mockEmitAuthEvent = jest.fn(async () => undefined)
 const methods = [{ userId, tenantId, type: 'totp' }]
+const mockGetEffectivePolicyForUser = jest.fn<
+  Promise<{ isEnforced: boolean; allowedMethods: string[] } | null>,
+  [string]
+>()
 const mockEm = {
   find: jest.fn(async () => methods),
   create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ id: 'challenge-1', ...data })),
@@ -106,6 +110,7 @@ describe('login route with the registered MFA interceptor and verification servi
     serviceUnavailable = false
     mockEm.find.mockResolvedValue(methods)
     mockEm.flush.mockResolvedValue(undefined)
+    mockGetEffectivePolicyForUser.mockResolvedValue(null)
     mockAuthService.verifyPassword.mockResolvedValue(true)
     const registry = new MfaProviderRegistry()
     registry.register({
@@ -120,7 +125,7 @@ describe('login route with the registered MFA interceptor and verification servi
       mockEm as unknown as EntityManager,
       registry,
       {} as MfaService,
-      { getEffectivePolicyForUser: async () => null } as unknown as MfaEnforcementService,
+      { getEffectivePolicyForUser: mockGetEffectivePolicyForUser } as unknown as MfaEnforcementService,
       defaultSecurityModuleConfig,
     )
     registerApiInterceptors([{ moduleId: 'security', interceptors }])
@@ -170,6 +175,17 @@ describe('login route with the registered MFA interceptor and verification servi
   test('does not mistake an untyped no-methods error for a verified no-MFA account', async () => {
     mockEm.find.mockRejectedValueOnce(new Error('No MFA methods configured'))
     await expectDenied(await login(true))
+  })
+
+  test('denies login when the enforced policy excludes every enrolled factor', async () => {
+    mockGetEffectivePolicyForUser.mockResolvedValueOnce({
+      isEnforced: true,
+      allowedMethods: ['passkey'],
+    })
+
+    await expectDenied(await login(true))
+    expect(mockGetEffectivePolicyForUser).toHaveBeenCalledWith(userId)
+    expect(mockEm.persist).not.toHaveBeenCalled()
   })
 
   test('denies login when the MFA service cannot be resolved', async () => {
@@ -243,7 +259,17 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
   })
 
-  test.each([false, true])('issues only pending credentials for an MFA account with remember=%s', async (remember) => {
+  test.each([
+    { remember: false, enforced: false },
+    { remember: true, enforced: false },
+    { remember: true, enforced: true },
+  ])('issues pending MFA credentials with remember=$remember and enforcement=$enforced', async ({ remember, enforced }) => {
+    if (enforced) {
+      mockGetEffectivePolicyForUser.mockResolvedValueOnce({
+        isEnforced: true,
+        allowedMethods: ['totp'],
+      })
+    }
     const response = await login(remember)
     expect(response.status).toBe(200)
     const body = await response.json()
