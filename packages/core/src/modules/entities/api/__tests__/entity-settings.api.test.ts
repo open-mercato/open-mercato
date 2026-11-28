@@ -98,6 +98,8 @@ describe('/api/entities/entity-settings', () => {
 
       await expect(GET(new Request('http://localhost/api/entities/entity-settings'))).rejects.toBe(failure)
       await expect(PUT(putRequest({ newEntitiesRestrictedByDefault: true }))).rejects.toBe(failure)
+      expect(mockGetRecord).not.toHaveBeenCalled()
+      expect(mockSetValue).not.toHaveBeenCalled()
       expect(mockBeginGuard).not.toHaveBeenCalled()
     })
 

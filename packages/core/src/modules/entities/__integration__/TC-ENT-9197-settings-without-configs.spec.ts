@@ -2,14 +2,18 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { login } from '@open-mercato/core/helpers/integration/auth'
+import english from '../i18n/en.json' with { type: 'json' }
+import polish from '../i18n/pl.json' with { type: 'json' }
 
-export const integrationMeta = { dependsOnModules: ['entities'] }
+export const integrationMeta = { dependsOnModules: ['auth', 'entities'] }
 
 type EntitySettings = { newEntitiesRestrictedByDefault?: unknown; updatedAt?: unknown }
 
-async function isConfigsModuleEnabled(request: APIRequestContext, token: string): Promise<boolean> {
+async function requireConfigsOmitted(request: APIRequestContext, token: string): Promise<void> {
   const probe = await apiRequest(request, 'GET', '/api/configs/system-status', { token })
-  return probe.status() !== 404
+  const status = probe.status()
+  test.skip(process.env.OM_INTEGRATION_CONFIGS_OMITTED !== '1' && status !== 404, 'Requires an app without the optional configs module')
+  expect(status, 'The app must omit the Configs module').toBe(404)
 }
 
 test.describe('TC-ENT-9197: custom-entity settings API without the configs module', () => {
@@ -31,29 +35,36 @@ test.describe('TC-ENT-9197: custom-entity settings API without the configs modul
 
   test('without configs GET falls back to the default and PUT answers a translated 503', async ({ request }) => {
     const token = await getAuthToken(request, 'superadmin')
-    test.skip(await isConfigsModuleEnabled(request, token), 'Requires an app without the optional configs module')
+    await requireConfigsOmitted(request, token)
 
+    const defaultPolicy = { newEntitiesRestrictedByDefault: false, updatedAt: null }
     const response = await apiRequest(request, 'GET', '/api/entities/entity-settings', { token })
     expect(response.status()).toBe(200)
-    expect(await readJsonSafe<EntitySettings>(response)).toEqual({
-      newEntitiesRestrictedByDefault: false,
-      updatedAt: null,
-    })
+    expect(await readJsonSafe<EntitySettings>(response)).toEqual(defaultPolicy)
 
     const write = await apiRequest(request, 'PUT', '/api/entities/entity-settings', {
       token,
       data: { newEntitiesRestrictedByDefault: true },
     })
     expect(write.status()).toBe(503)
-    const writeBody = await readJsonSafe<{ error?: unknown }>(write)
-    expect(typeof writeBody?.error).toBe('string')
-    expect(String(writeBody?.error)).not.toBe('entities.settings.errors.storageUnavailable')
-    expect(String(writeBody?.error).length).toBeGreaterThan(0)
+    expect(await readJsonSafe(write)).toEqual({ error: english['entities.settings.errors.storageUnavailable'] })
+
+    const localizedWrite = await apiRequest(request, 'PUT', '/api/entities/entity-settings', {
+      token,
+      data: { newEntitiesRestrictedByDefault: true },
+      headers: { Cookie: 'locale=pl' },
+    })
+    expect(localizedWrite.status()).toBe(503)
+    expect(await readJsonSafe(localizedWrite)).toEqual({ error: polish['entities.settings.errors.storageUnavailable'] })
+
+    const unchanged = await apiRequest(request, 'GET', '/api/entities/entity-settings', { token })
+    expect(unchanged.status()).toBe(200)
+    expect(await readJsonSafe<EntitySettings>(unchanged)).toEqual(defaultPolicy)
   })
 
   test('without configs the settings form shows the save failure', async ({ page, request }, testInfo) => {
     const token = await getAuthToken(request, 'superadmin')
-    test.skip(await isConfigsModuleEnabled(request, token), 'Requires an app without the optional configs module')
+    await requireConfigsOmitted(request, token)
 
     await login(page, 'admin')
     await page.goto('/backend/config/settings')
@@ -72,6 +83,19 @@ test.describe('TC-ENT-9197: custom-entity settings API without the configs modul
     await expect(preference).toBeChecked()
     if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
       await page.screenshot({ path: testInfo.outputPath('settings-storage-unavailable.png'), fullPage: true })
+    }
+  })
+
+  test('without configs the create form leaves record access unrestricted by default', async ({ page, request }, testInfo) => {
+    const token = await getAuthToken(request, 'admin')
+    await requireConfigsOmitted(request, token)
+
+    await login(page, 'admin')
+    await page.goto('/backend/entities/user/create')
+    await expect(page.getByRole('heading', { name: 'Create Entity', exact: true })).toBeVisible()
+    await expect(page.getByRole('checkbox', { name: 'Restrict record access', exact: true })).not.toBeChecked()
+    if (process.env.PW_CAPTURE_SCREENSHOTS === '1') {
+      await page.screenshot({ path: testInfo.outputPath('configs-omitted-create.png'), fullPage: true })
     }
   })
 })
