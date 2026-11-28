@@ -20,18 +20,6 @@ type GuardedMutationRunner = <T>(
   mutationPayload?: Record<string, unknown>,
 ) => Promise<T>
 
-/**
- * `syncDealPeople` still deletes and recreates every link row on a real change, so a surviving
- * participant's `created_at` — surfaced as `linkedAt` — is rewritten by any unlink or inline
- * create. Both of those are exactly what this tab adds, so the two surfaces that read the value
- * are withheld until the set-diff lands: the recency sort would degenerate into an arbitrary
- * label tie-break, and the card would claim a six-month-old contact was linked today.
- *
- * Dropping these two lines is the whole of that follow-up's UI work.
- */
-const DEAL_SORTS: LinkedPeopleSortMode[] = ['name-asc', 'name-desc']
-const DEAL_SHOWS_LINKED_DATE = false
-
 export type DealPeopleSectionProps = {
   dealId: string
   dealName?: string | null
@@ -215,8 +203,6 @@ export function DealPeopleSection({
         linkedIds={selectedIds}
         onLinkConfirm={handleLinkConfirm}
         refreshKey={refreshKey}
-        availableSorts={DEAL_SORTS}
-        showLinkedDate={DEAL_SHOWS_LINKED_DATE}
         addActionLabel={addActionLabel}
         onAddPerson={() => setCreateDialogOpen(true)}
         sectionTitle={translate('customers.deals.detail.people.sectionTitle', 'People')}

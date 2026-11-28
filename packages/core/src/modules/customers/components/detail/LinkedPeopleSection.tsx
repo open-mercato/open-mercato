@@ -105,9 +105,7 @@ export type LinkedPeopleSectionProps<
   /**
    * Which sort options to offer, in order. Defaults to all three.
    *
-   * A host whose `linkedAt` is not trustworthy must omit `recent`: the deal side does so until
-   * `syncDealPeople` stops re-dating every surviving link on each write, because the ordering
-   * would otherwise collapse into an arbitrary label tie-break.
+   * Hosts without a durable `linkedAt` can omit `recent`.
    */
   availableSorts?: LinkedPeopleSortMode[]
   /** Shows the Linked column; a host without a durable `linkedAt` passes `false`. */
