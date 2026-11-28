@@ -23,6 +23,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from '@open-mercato/ui/primitives/dialog'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -134,6 +135,7 @@ type GuardedMutationRunner = <T,>(
 export type LinkEntityDialogProps<TDetails = unknown, TLinkSettings = Record<string, unknown>> = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  trigger?: React.ReactElement
   adapter: LinkEntityAdapter<TDetails, TLinkSettings>
   initialSelectedIds: string[]
   initialPrimaryId?: string | null
@@ -237,6 +239,7 @@ function DefaultRow({
 export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<string, unknown>>({
   open,
   onOpenChange,
+  trigger,
   adapter,
   initialSelectedIds,
   initialPrimaryId,
@@ -554,6 +557,7 @@ export function LinkEntityDialog<TDetails = unknown, TLinkSettings = Record<stri
   return (
     <>
       <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+        {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
         {/* Fixed height for the side-by-side layout (`lg:h-160`, capped by the inline
             `maxHeight` below): the modal used to open at the loading-state size and jump
             ~180px taller once the first results page arrived. Both panes scroll inside the
