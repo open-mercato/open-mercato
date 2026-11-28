@@ -33,6 +33,7 @@ jest.mock('@open-mercato/core/modules/translations/api/context', () => ({
 }))
 
 jest.mock('@open-mercato/core/modules/translations/lib/soft-deleted-owner', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/translations/lib/soft-deleted-owner'),
   isTranslatedRecordSoftDeleted: (...args: unknown[]) => isTranslatedRecordSoftDeletedMock(...args),
 }))
 
@@ -47,6 +48,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   })),
 }))
 
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { GET } from '../route'
 
 const makeGetRequest = () => new Request(`http://localhost/api/translations/${entityType}/${entityId}`)
@@ -105,6 +107,56 @@ describe('translations entity read route for soft-deleted records', () => {
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({ error: 'translated:translations.errors.notFound' })
+    expect(isTranslatedRecordSoftDeletedMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('translations entity read route for field-definition translations', () => {
+  const fieldDefinitionType = 'entities:custom_field_def'
+  const fieldDefinitionId = 'e2e_ent_org_a:status'
+  const fieldDefinitionRouteParams = { params: { entityType: fieldDefinitionType, entityId: fieldDefinitionId } }
+  const makeFieldDefinitionRequest = () =>
+    new Request(`http://localhost/api/translations/${fieldDefinitionType}/${fieldDefinitionId}`)
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    db.selectFrom.mockReturnThis()
+    db.selectAll.mockReturnThis()
+    db.where.mockReturnThis()
+    db.executeTakeFirst.mockResolvedValue({
+      entity_type: fieldDefinitionType,
+      entity_id: fieldDefinitionId,
+      translations: { de: { label: 'Status' } },
+      created_at: new Date('2026-10-01T08:00:00.000Z'),
+      updated_at: new Date('2026-10-01T08:00:00.000Z'),
+    })
+  })
+
+  it('does not probe the owning record by tenant alone, trusting the org-scoped field-definition resolver', async () => {
+    // Regression for a cross-organization leak: a field definition sharing this logical
+    // `entityId:fieldKey` pair in a DIFFERENT organization of the same tenant may be
+    // soft-deleted while this organization's definition is active. `resolveTranslationTargetFields`
+    // already resolved (and would have thrown 404 for) this organization's definition above,
+    // so the tenant-only owner probe must not run and must not be able to flip this to 404.
+    resolveTranslationTargetFieldsMock.mockResolvedValue(new Set(['label']))
+
+    const response = await GET(makeFieldDefinitionRequest(), fieldDefinitionRouteParams)
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({ entityId: fieldDefinitionId, translations: { de: { label: 'Status' } } }),
+    )
+    expect(isTranslatedRecordSoftDeletedMock).not.toHaveBeenCalled()
+  })
+
+  it('answers 404 when the org-scoped field-definition resolver rejects the record as not visible', async () => {
+    resolveTranslationTargetFieldsMock.mockRejectedValue(
+      new CrudHttpError(404, { error: 'translated:api.errors.notFound' }),
+    )
+
+    const response = await GET(makeFieldDefinitionRequest(), fieldDefinitionRouteParams)
+
+    expect(response.status).toBe(404)
     expect(isTranslatedRecordSoftDeletedMock).not.toHaveBeenCalled()
   })
 })

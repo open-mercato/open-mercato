@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { sql } from 'kysely'
 import { resolveTranslationsRouteContext, requireTranslationFeatures, resolveTranslationsActorId } from '@open-mercato/core/modules/translations/api/context'
 import { translationBodySchema, entityTypeParamSchema, entityIdParamSchema } from '@open-mercato/core/modules/translations/data/validators'
-import { isTranslatedRecordSoftDeleted } from '@open-mercato/core/modules/translations/lib/soft-deleted-owner'
+import { FIELD_DEFINITION_TYPE, isTranslatedRecordSoftDeleted } from '@open-mercato/core/modules/translations/lib/soft-deleted-owner'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -89,7 +89,14 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
       .where(sql<boolean>`organization_id is not distinct from ${context.organizationId}`)
       .executeTakeFirst() as Record<string, any> | undefined
 
-    if (!row || await isTranslatedRecordSoftDeleted(context.em, entityType, entityId, { tenantId: context.tenantId })) {
+    // Field-definition visibility (including soft-delete state) is already resolved above by
+    // `resolveTranslationTargetFields`'s own tenant+organization-scoped lookup (with its
+    // null-organization fallback). Probing again here with only `tenantId` could match a
+    // different organization's row for the same logical `entityId:fieldKey` pair.
+    if (!row || (
+      entityType !== FIELD_DEFINITION_TYPE
+      && await isTranslatedRecordSoftDeleted(context.em, entityType, entityId, { tenantId: context.tenantId })
+    )) {
       const { translate } = await resolveTranslations()
       return NextResponse.json({ error: translate('translations.errors.notFound', 'Not found') }, { status: 404 })
     }

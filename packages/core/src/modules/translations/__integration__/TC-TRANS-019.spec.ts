@@ -2,6 +2,16 @@ import { randomUUID } from 'node:crypto'
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
+  createOrganizationFixture,
+  createRoleFixture,
+  createUserFixture,
+  deleteOrganizationIfExists,
+  deleteRoleIfExists,
+  deleteUserIfExists,
+  setRoleAclFeatures,
+} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
+import { getTokenContext } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import {
   createProductFixture,
   deleteCatalogProductIfExists,
 } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
@@ -187,6 +197,74 @@ test.describe('TC-TRANS-019: Entity translations survive a soft delete so undo r
         await apiRequest(request, 'DELETE', '/api/entities/definitions', { token, data: { entityId, key: fieldKey } }).catch(() => undefined)
       }
       await deleteCustomEntityIfExists(request, token, entityId)
+    }
+  })
+
+  test('a field-definition translation in one organization stays readable while another organization\'s same logical field is soft-deleted', async ({ request }) => {
+    const entityId = uniqueEntityId('trans_019_two_orgs')
+    const fieldKey = 'status'
+    const recordId = `${entityId}:${fieldKey}`
+    const administrator = await getAuthToken(request, 'superadmin')
+    const { tenantId } = getTokenContext(administrator)
+    const organizations: string[] = []
+    const users: string[] = []
+    const orgTokens: string[] = []
+    let roleId: string | null = null
+
+    try {
+      for (const name of ['Alpha', 'Beta']) {
+        organizations.push(await createOrganizationFixture(request, administrator, { name: `TC-TRANS-019 ${name} ${randomUUID()}`, tenantId }))
+      }
+      roleId = await createRoleFixture(request, administrator, { name: `trans-019-two-orgs-${randomUUID()}`, tenantId })
+      await setRoleAclFeatures(request, administrator, {
+        roleId,
+        organizations,
+        features: ['entities.definitions.view', 'entities.definitions.manage', 'translations.view', 'translations.manage'],
+      })
+
+      for (const organizationId of organizations) {
+        const email = `trans-019-two-orgs-${randomUUID()}@example.test`
+        const password = `Test-${randomUUID()}!`
+        users.push(await createUserFixture(request, administrator, { email, password, organizationId, roles: [roleId] }))
+        orgTokens.push(await getAuthToken(request, email, password))
+      }
+      const [tokenAlpha, tokenBeta] = orgTokens
+
+      for (const [index, orgToken] of orgTokens.entries()) {
+        expect((await createCustomEntity(request, orgToken, { entityId, label: 'TC-TRANS-019 two-org field def' })).status(), `org ${index} entity create 200`).toBe(200)
+        expect((await saveFieldDefinitions(request, orgToken, entityId, [{
+          key: fieldKey,
+          kind: 'text',
+          configJson: { label: `Status ${index}` },
+        }])).status(), `org ${index} field definition create 200`).toBe(200)
+        const putResponse = await apiRequest(request, 'PUT', `/api/translations/${FIELD_DEFINITION_ENTITY_TYPE}/${recordId}`, {
+          token: orgToken,
+          data: { de: { label: `Statusbezeichnung Org ${index}` } },
+        })
+        expect(putResponse.ok(), `org ${index} translation upsert failed: ${putResponse.status()}`).toBeTruthy()
+      }
+
+      const deleteResponse = await apiRequest(request, 'DELETE', '/api/entities/definitions', {
+        token: tokenAlpha,
+        data: { entityId, key: fieldKey },
+      })
+      expect(deleteResponse.status(), 'org alpha field definition delete 200').toBe(200)
+
+      const alphaAfterDelete = await readTranslations(request, tokenAlpha, FIELD_DEFINITION_ENTITY_TYPE, recordId)
+      expect(alphaAfterDelete.status, 'org alpha translations hidden after its own soft delete').toBe(404)
+
+      const betaAfterAlphaDelete = await readTranslations(request, tokenBeta, FIELD_DEFINITION_ENTITY_TYPE, recordId)
+      expect(betaAfterAlphaDelete.status, 'org beta translations stay readable despite org alpha\'s deleted field definition').toBe(200)
+      expect(betaAfterAlphaDelete.body.translations?.de?.label).toBe('Statusbezeichnung Org 1')
+    } finally {
+      for (const orgToken of orgTokens) {
+        await deleteTranslationIfExists(request, orgToken, FIELD_DEFINITION_ENTITY_TYPE, recordId)
+        await apiRequest(request, 'DELETE', '/api/entities/definitions', { token: orgToken, data: { entityId, key: fieldKey } }).catch(() => undefined)
+        await deleteCustomEntityIfExists(request, orgToken, entityId)
+      }
+      await Promise.all(users.map((userId) => deleteUserIfExists(request, administrator, userId)))
+      await deleteRoleIfExists(request, administrator, roleId)
+      await Promise.all(organizations.map((organizationId) => deleteOrganizationIfExists(request, administrator, organizationId)))
     }
   })
 })

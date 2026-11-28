@@ -14,12 +14,8 @@ type SoftDeleteSource = QueryIndexSourceMetadata & {
   deletedAtColumn: string
 }
 
-// Field-definition translations are keyed by the owning entity's logical
-// `entityId:fieldKey` pair (see target-access.ts's findVisibleFieldDefinition),
-// not by CustomFieldDef's own UUID primary key. Running the generic lookup
-// below for this type would compare that logical key against a uuid column
-// and throw.
-const FIELD_DEFINITION_TYPE = 'entities:custom_field_def'
+/** Keyed by the owning entity's logical `entityId:fieldKey` pair, not CustomFieldDef's UUID primary key. */
+export const FIELD_DEFINITION_TYPE = 'entities:custom_field_def'
 
 type EntityPropertyMetadata = { fieldNames?: unknown }
 
