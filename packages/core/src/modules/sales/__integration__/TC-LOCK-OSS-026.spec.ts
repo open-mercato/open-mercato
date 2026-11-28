@@ -1,6 +1,8 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { createSalesOrderFixture, createOrderLineFixture } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import {
   putWithLock,
   expectConflictBody,
@@ -39,8 +41,7 @@ import {
  * Deterministic flow (per sub-resource, mirrors TC-LOCK-OSS-008):
  *  1. Create order (+ line for the shipment). Create the payment / shipment row.
  *  2. Read the PARENT ORDER's `updated_at` (t0) AFTER the sub-resource exists.
- *  3. Advance the ORDER out-of-band with a SECOND action — add a line (no header)
- *     → totals recalc dirties the order → t1.
+ *  3. Advance the order with a reference-only payment edit or by adding an order line for the shipment case.
  *  4. Stale ORDER header (t0) on a payment/shipment PUT → 409 (aggregate guard).
  *  5. Fresh ORDER header (t1) on a payment/shipment PUT → 200 (proves it was the
  *     staleness, not the PUT shape).
@@ -94,9 +95,10 @@ test.describe('TC-LOCK-OSS-026: sales payments + shipments parent-order aggregat
   // sales features (sales.payments.manage / sales.shipments.manage) out of the
   // box — no manual `yarn mercato auth sync-role-acls`, no self-skip.
 
-  test('payment (SAL-07): stale PARENT-ORDER header on a payment PUT returns 409; fresh order header wins', async ({ request }) => {
+  test('payment (SAL-07): a reference-only edit advances the order version and rejects a stale save', async ({ request }) => {
     let token: string | null = null
     let orderId: string | null = null
+    let paymentId: string | null = null
     try {
       token = await getAuthToken(request, 'admin')
       orderId = await createSalesOrderFixture(request, token, 'USD')
@@ -112,7 +114,7 @@ test.describe('TC-LOCK-OSS-026: sales payments + shipments parent-order aggregat
       })
       expect(createResponse.status(), 'payment create should return 201').toBe(201)
       const createBody = (await createResponse.json()) as { id?: string | null; paymentId?: string | null }
-      const paymentId = createBody.id ?? createBody.paymentId ?? null
+      paymentId = createBody.id ?? createBody.paymentId ?? null
       expect(paymentId, 'payment create response should include the payment id').toBeTruthy()
 
       // t0: the PARENT ORDER's version (after the payment exists). The payment
@@ -120,11 +122,11 @@ test.describe('TC-LOCK-OSS-026: sales payments + shipments parent-order aggregat
       const t0 = await readOrderUpdatedAt(request, token, orderId)
       expect(t0).toMatch(/^\d{4}-\d{2}-\d{2}T/)
 
-      // Advance the ORDER out-of-band with a SECOND action — add a line (no
-      // header) → totals recalc dirties the order → t1.
-      await createOrderLineFixture(request, token, orderId, { name: `OSS-026 pay bump ${Date.now()}` })
+      const savedReference = `OSS-026 saved ${Date.now()}`
+      const saved = await putWithLock(request, token, '/api/sales/payments', { id: paymentId, paymentReference: savedReference }, t0)
+      expect(saved.status(), 'reference-only payment edit should succeed').toBe(200)
       const t1 = await readOrderUpdatedAt(request, token, orderId)
-      expect(t1, "adding a line should advance the parent order's updated_at").not.toBe(t0)
+      expect(Date.parse(t1), 'reference-only edit should advance the order version').toBeGreaterThan(Date.parse(t0))
 
       // Stale ORDER header (t0) on a payment update → 409 (parent-order aggregate guard).
       const conflict = await putWithLock(
@@ -137,8 +139,14 @@ test.describe('TC-LOCK-OSS-026: sales payments + shipments parent-order aggregat
       const conflictBody = await expectConflictBody(conflict)
       expect(conflictBody.expectedUpdatedAt, 'conflict echoes the stale expected (order) version').toBe(t0)
       expect(typeof conflictBody.currentUpdatedAt, 'conflict body includes currentUpdatedAt').toBe('string')
-      expect(conflictBody.currentUpdatedAt, 'currentUpdatedAt reflects the post-bump order version').not.toBe(t0)
+      expect(conflictBody.currentUpdatedAt, 'currentUpdatedAt reflects the order version after the edit').toBe(t1)
       expect((conflictBody as { error?: string }).error).toBe(OPTIMISTIC_LOCK_CONFLICT_ERROR)
+
+      const payments = await apiRequest(request, 'GET', `/api/sales/payments?orderId=${encodeURIComponent(orderId)}`, { token })
+      expect(payments.status()).toBe(200)
+      const { items } = (await payments.json()) as { items?: Array<Record<string, unknown>> }
+      const payment = items?.find((item) => item.id === paymentId)
+      expect(payment?.payment_reference ?? payment?.paymentReference).toBe(savedReference)
 
       // Fresh ORDER header (t1) → 200, proving it was the staleness, not the PUT shape.
       const fresh = await putWithLock(
@@ -150,9 +158,88 @@ test.describe('TC-LOCK-OSS-026: sales payments + shipments parent-order aggregat
       )
       expect(fresh.status(), 'payment PUT with the fresh order header should succeed').toBeLessThan(300)
     } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId)
       if (orderId && token) {
         await deleteOrder(request, token, orderId)
       }
+    }
+  })
+
+  test('payment (SAL-07): two contending saves yield one success, one conflict and a fresh retry', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let orderId: string | null = null
+    let paymentId: string | null = null
+    try {
+      orderId = await createSalesOrderFixture(request, token, 'USD')
+      const created = await apiRequest(request, 'POST', '/api/sales/payments', {
+        token,
+        data: { orderId, amount: '10.00', currencyCode: 'USD', receivedAt: new Date().toISOString() },
+      })
+      expect(created.status()).toBe(201)
+      const body = (await created.json()) as { id?: string; paymentId?: string }
+      paymentId = body.id ?? body.paymentId ?? null
+      expect(paymentId).toBeTruthy()
+      const expectedVersion = await readOrderUpdatedAt(request, token, orderId)
+      const references = ['OSS-026 contender A', 'OSS-026 contender B']
+      const results = await withClient(async (client) => {
+        await client.query('begin')
+        let pending: Promise<PromiseSettledResult<Awaited<ReturnType<typeof putWithLock>>>[]> | null = null
+        try {
+          await client.query('select id from sales_orders where id = $1 for update', [orderId])
+          pending = Promise.allSettled(references.map((paymentReference) => putWithLock(
+            request,
+            token,
+            '/api/sales/payments',
+            { id: paymentId, paymentReference },
+            expectedVersion,
+          )))
+          await expect.poll(async () => {
+            const waiters = await client.query<{ waiting: string }>(
+              `with recursive blocked(pid) as (
+                 select pid from pg_stat_activity
+                 where datname = current_database()
+                   and pg_backend_pid() = any(pg_blocking_pids(pid))
+                 union
+                 select activity.pid from pg_stat_activity activity
+                 join blocked on blocked.pid = any(pg_blocking_pids(activity.pid))
+                 where activity.datname = current_database()
+               ) select count(*)::text as waiting from blocked`,
+            )
+            return Number(waiters.rows[0]?.waiting ?? 0)
+          }, { message: 'both payment transactions must wait on the fixture order lock', timeout: 15_000 }).toBe(2)
+          await client.query('commit')
+          return await pending
+        } finally {
+          await client.query('rollback')
+          if (pending) await pending
+        }
+      })
+      const responses = results.map((result) => {
+        if (result.status === 'rejected') throw result.reason
+        return result.value
+      })
+      expect(responses.map((response) => response.status()).sort()).toEqual([200, 409])
+      const winnerIndex = responses.findIndex((response) => response.status() === 200)
+      const conflict = responses.find((response) => response.status() === 409)
+      if (!conflict) throw new Error('[internal] concurrent payment save did not return a conflict')
+      const conflictBody = await expectConflictBody(conflict)
+      expect(conflictBody.expectedUpdatedAt).toBe(expectedVersion)
+      const currentVersion = await readOrderUpdatedAt(request, token, orderId)
+      expect(conflictBody.currentUpdatedAt).toBe(currentVersion)
+      expect(Date.parse(currentVersion)).toBeGreaterThan(Date.parse(expectedVersion))
+      const listed = await apiRequest(request, 'GET', `/api/sales/payments?orderId=${encodeURIComponent(orderId)}`, { token })
+      expect(listed.status()).toBe(200)
+      const payments = (await listed.json()) as { items?: Array<Record<string, unknown>> }
+      const payment = payments.items?.find((item) => item.id === paymentId)
+      expect(payment?.payment_reference ?? payment?.paymentReference).toBe(references[winnerIndex])
+      const retry = await putWithLock(request, token, '/api/sales/payments', {
+        id: paymentId,
+        paymentReference: 'OSS-026 contender retry',
+      }, currentVersion)
+      expect(retry.status()).toBe(200)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId)
+      if (orderId) await deleteOrder(request, token, orderId)
     }
   })
 
