@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render } from '@testing-library/react'
+import { fireEvent, render } from '@testing-library/react'
 
 import {
   Table,
@@ -12,6 +12,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
+  TableSortHead,
 } from '../table'
 
 describe('Table primitive (Phase B.6 polish)', () => {
@@ -195,5 +196,27 @@ describe('Table primitive (Phase B.6 polish)', () => {
     expect(container.querySelector('[data-slot="table-body"]')!.className).toContain('body-custom')
     expect(container.querySelector('[data-slot="table-cell"]')!.className).toContain('cell-custom')
     expect(container.querySelector('[data-slot="table-footer"]')!.className).toContain('foot-custom')
+  })
+
+  it('renders a sortable header with aria-sort on the cell and a flat button', () => {
+    const onSort = jest.fn()
+    const { container, getByRole } = render(
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableSortHead direction="descending" onSort={onSort}>Name</TableSortHead>
+            <TableSortHead align="right">Amount</TableSortHead>
+          </TableRow>
+        </TableHeader>
+      </Table>,
+    )
+    const heads = container.querySelectorAll('th')
+    expect(heads[0].getAttribute('aria-sort')).toBe('descending')
+    expect(heads[1].getAttribute('aria-sort')).toBe('none')
+    const button = getByRole('button', { name: 'Name' })
+    expect(button.getAttribute('data-direction')).toBe('descending')
+    expect(button.className).not.toMatch(/bg-/)
+    fireEvent.click(button)
+    expect(onSort).toHaveBeenCalledTimes(1)
   })
 })

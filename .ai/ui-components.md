@@ -57,6 +57,12 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 - [ActivityFeed](#activityfeed)
 - [NotificationFeed](#notificationfeed)
 - [Progress / CircularProgress](#progress--circularprogress)
+- [BorderBeam](#borderbeam)
+- [Splitter](#splitter)
+- [Anchor](#anchor)
+- [Result](#result)
+- [DesignScope](#designscope)
+- [DropdownMenu](#dropdownmenu)
 - [Specialized Inputs (overview)](#specialized-inputs-overview)
 - [ComboboxInput](#comboboxinput)
 - [TagsInput (backend)](#tagsinput-backend)
@@ -82,6 +88,8 @@ Detailed variant tables, size matrices, props, examples, and MUST rules for ever
 ```typescript
 import { Button } from '@open-mercato/ui/primitives/button'
 ```
+
+Shape: `rounded-button` (`--om-radius-button`, admin default = `rounded-md`); `IconButton` shares it unless `fullRadius`.
 
 **Variants**:
 - `default` (primary CTA) · `destructive` (danger, quiet: red text + red border on the page surface)
@@ -328,6 +336,8 @@ import { Input } from '@open-mercato/ui/primitives/input'
 ```
 
 Text input primitive aligned with Figma DS Text Input. Renders a wrapper div with `[border + bg + focus halo + disabled tokens]` around the inner `<input>`. Supports left/right icon slots and standard HTML input types (`text`, `email`, `password`, `number`, `tel`, `url`, `search`, `date`).
+
+Shape: `rounded-field` (`--om-radius-field`, admin default = `rounded-md`; sizes `lg`/`40` keep `rounded-lg`), shared with `SelectTrigger`, `Textarea` and the `DatePicker` trigger.
 
 > Specialized inputs (Tag Input, Counter Input, Digit/OTP, Inline edit, Date Picker) are SEPARATE primitives — defer to their own sections when they land.
 
@@ -870,7 +880,7 @@ Default `min-h-[80px]` and `resize-y` (user can drag the bottom-right grabber to
 
 ### Character counter
 
-Set `showCount` + `maxLength` to render a `current/max` indicator below the textarea (positioned bottom-right, uppercase, `text-overline`, color shifts to `text-destructive` if overflowing).
+Set `showCount` + `maxLength` to render a `current/max` indicator below the textarea (positioned bottom-right, `text-xs`, color shifts to `text-destructive` if overflowing).
 
 ```tsx
 <Textarea
@@ -4533,7 +4543,7 @@ import {
 | Slot | Role |
 |---|---|
 | `ActivityFeed` | Root `<ol>` list. `flex flex-col gap-3` so entries stack with a comfortable vertical rhythm. |
-| `ActivityFeedItem` | Single entry. Slots: `avatar` (left, `size-7` recommended), `title` (ReactNode — actor + verb + inline object), `timestamp` (rendered as muted suffix text, no separator glyph), `actions` (right slot for kebab IconButton), and `children` (indented attachment / comment / status row below the title). |
+| `ActivityFeedItem` | Single entry. Slots: `avatar` (left, `size-7` recommended), `title` (ReactNode — actor + verb + inline object), `timestamp` (rendered as muted suffix text, no separator glyph), `actions` (right slot for kebab IconButton), `children` (indented attachment / comment / status row below the title), and `titleWeight` (`'semibold'` default, `'regular'` for hierarchy by color instead of weight). |
 | `ActivityFeedFileChip` | Paperclip + filename + size + optional download button. Used either inline in the title or in the indented attachment row. |
 | `ActivityFeedComment` | Comment card with leading speech-bubble icon + body + optional `onReply` link. Renders as a child of `ActivityFeedItem` (indented attachment style). |
 | `ActivityFeedStatusChip` | Semantic status pill (`success` / `warning` / `info` / `error` / `neutral`). Icon color comes from the status token; chip surface stays neutral so the icon carries the visual weight (matches Figma `Task Status Items [1.1]`). |
@@ -5587,6 +5597,8 @@ The following modules under `packages/ui/src/backend/inputs/` are kept as `@depr
 
 Inline pill for tagging, status, counts. CVA-based. New props in v5: `dot`, `removable`, `brand` variant, `size`.
 
+Shape: `rounded-badge` (`--om-radius-badge`, admin default = `rounded-full`).
+
 ### Variants
 - `default` — primary fill
 - `secondary` — neutral fill
@@ -5784,7 +5796,7 @@ Small primitives that need no full section — listed here so nothing shipped is
 
 | Primitive | Import | What it is | Rules |
 |---|---|---|---|
-| `Card` (+ `CardHeader` / `CardTitle` / `CardDescription` / `CardAction` / `CardContent` / `CardFooter`) | `@open-mercato/ui/primitives/card` | Generic surface container: `bg-card rounded-xl border shadow-sm`, `gap-6`, `px-6` sections | Use for standalone content cards; do NOT hand-roll `<div className="rounded-xl border bg-card">` |
+| `Card` (+ `CardHeader` / `CardTitle` / `CardDescription` / `CardAction` / `CardContent` / `CardFooter`) | `@open-mercato/ui/primitives/card` | Generic surface container: `bg-card rounded-card border shadow-sm` (`--om-radius-card`, admin default = `rounded-xl`), `gap-6`, `px-6` sections | Use for standalone content cards; do NOT hand-roll `<div className="rounded-xl border bg-card">` |
 | `Popover` (+ `PopoverTrigger` / `PopoverContent` / `PopoverAnchor` / `PopoverClose`) | `@open-mercato/ui/primitives/popover` | Radix popover portal at `z-popover`, `bg-popover` surface, `min-w-[280px]` | Base for custom floating panels; prefer higher-level `Select`/`Tooltip`/`CompactSelect` when they fit |
 | `Label` | `@open-mercato/ui/primitives/label` | Radix label: `text-sm font-medium`, disabled propagation via `peer-disabled`/`group-data-[disabled]` | Every standalone input needs one (or use `FormField`, which renders it) |
 | `DataLoader` | `@open-mercato/ui/primitives/DataLoader` | `isLoading`-gated wrapper rendering a centered `Spinner` before children | For simple section-level loading; full pages prefer `LoadingMessage` |
@@ -5836,3 +5848,79 @@ Controlled multiline message composer. Required: `value: string`, `onValueChange
 Enter submits trimmed non-empty text. Shift+Enter inserts a line break; IME composition does not submit. A native disabled fieldset disables the textarea, attachment controls and toolbar controls. Text height follows controlled value changes. The component owns no transport, model selection, attachment upload or tenant state; consumers supply slots and submission behavior.
 
 The shared Design System `prompt-area` entry includes all 18 measured source variants through six desktop/mobile and empty/file/image compositions with real hover/focus. `ai-controls`, `ai-sidebar` and `ai-mobile-navigation` cover the other 15 source sets using existing primitives. Source radius/15px typography tokens are additive; existing application defaults are unchanged. See `docs/design-system/figma-audit/ai-product.md` for source/runtime differences and validation.
+
+## BorderBeam
+
+Import: `@open-mercato/ui/primitives/border-beam`.
+
+Decorative light that travels along a container border. Props: `color` (token string or `{ color, percent }[]` stops, default `var(--accent-indigo)`), `size` (beam length, default 100), `lineWidth` (default 1), `outset`, `duration` (seconds per loop, default 6), `count` (evenly spaced beams), `items` (per-beam `color`/`size`/`lineWidth`/`outset`, overrides `count`), `trigger` (`always` | `hover`, hover also covers focus inside), `asChild` (draw inside the single child, e.g. `Card`).
+
+### MUST rules
+
+- Decoration only: never a focus ring, validation border or status signal.
+- Put the `rounded-*` class on the container (or use `asChild`); the beam reads that radius.
+- Pass token colors (`var(--accent-indigo)`, `var(--chart-*)`), never hex.
+- At most one always-on beam per screen; use `trigger="hover"` for groups of cards.
+- The layer is `aria-hidden`, ignores pointer events and is hidden under `prefers-reduced-motion: reduce`.
+
+## Splitter
+
+Import: `@open-mercato/ui/primitives/splitter` (`Splitter`, `SplitterPanel`).
+
+Resizable panels. `Splitter` props: `orientation` (`horizontal` | `vertical`), `keyboardStep` (percent, default 5), `onResize(sizes)`, `onResizeEnd(sizes)`, `handleLabel`. `SplitterPanel` props: `defaultSize`, `minSize`, `maxSize` (percent); panels without `defaultSize` share the rest. Handles are focusable `separator`s with `aria-valuenow/min/max` and `aria-controls`; arrow keys move them, Home/End jump to the limits.
+
+### MUST rules
+
+- Give the splitter a height (class or flex parent); panels fill it.
+- Set `minSize` on every panel.
+- Persist layouts from `onResizeEnd`, not `onResize`.
+- No more than two nested levels; pass `handleLabel` when a screen has several splitters.
+
+## Anchor
+
+Import: `@open-mercato/ui/primitives/anchor`.
+
+Table of contents for long pages. Props: `items` (`{ href: '#id', title, children? }[]`), `offset` (sticky header height in px), `getContainer` (scroll element, default window), `onChange(href)`, `onClick(event, item)`, `label` (nav name, default "On this page"). The link of the section in view gets `aria-current="location"`; clicks scroll (instantly under reduced motion) and update the hash.
+
+### MUST rules
+
+- Only for sections on the same page; use the sidebar or `Tabs` for page navigation.
+- Match `offset` to sticky headers.
+- Hide it below the breakpoint that has room for it instead of stacking it above content.
+
+## Result
+
+Import: `@open-mercato/ui/primitives/result`.
+
+Outcome of an action or a page-level error. Props: `status` (`success` | `error` | `info` | `warning` | `403` | `404` | `500`, default `info`), `title`, `subtitle`, `icon` (replaces the face; each status draws its own face in a muted tile, Height style), `actions`, `size` (`default` | `compact`), `focusTitle` (moves focus to the title on mount); `children` render as a details box under the actions. Errors and 500 use `role="alert"`, the rest `role="status"`. 403, 404 and 500 fall back to translated `ui.result.*` text when `title` is omitted.
+
+### MUST rules
+
+- Use it for outcomes and page errors; use `EmptyState` for lists without data and `flash()` or `Alert` for in-page confirmations.
+- Always give page errors a way back in `actions`.
+- Pass `focusTitle` when the result replaces the whole page.
+
+## DesignScope
+
+Import: `@open-mercato/ui/primitives/design-scope` (`DesignScope`, `useDesignScope`, `designScopeRadiusStyle`).
+
+Scopes tokens to part of the page, like a configuration provider. Props: `mode` (`light` | `dark`, adds the `.light` / `.dark` token class plus `bg-background text-foreground`), `density` (`default` | `compact`, sets `data-density`), `shape` (`default` | `round` | `sharp`, sets the `--om-radius-*` roles), `radius` (`{ button?, field?, card?, badge? }` in px, rem, em or percent), `dir` (`ltr` | `rtl`), `asChild`. Scopes nest; unset props inherit from the closest parent. `useDesignScope()` returns the resolved values.
+
+### MUST rules
+
+- Wrap regions, not single components; restyle a component through its tokens or props.
+- Portaled overlays (Select, Popover, Dialog) mount at the end of the page and follow the page scope.
+- Use `ThemeProvider` for the app-wide mode; `DesignScope` only for a part of the page.
+
+## DropdownMenu
+
+Import: `@open-mercato/ui/primitives/dropdown-menu` (Radix `@radix-ui/react-dropdown-menu`).
+
+Action menu: `DropdownMenu`, `DropdownMenuTrigger`, `DropdownMenuContent` (`align` defaults to `start`), `DropdownMenuItem` (`variant="destructive"`, `inset`, `disabled`), `DropdownMenuCheckboxItem`, `DropdownMenuRadioGroup` + `DropdownMenuRadioItem`, `DropdownMenuLabel`, `DropdownMenuGroup`, `DropdownMenuSeparator`, `DropdownMenuShortcut`, `DropdownMenuSub` + `DropdownMenuSubTrigger` + `DropdownMenuSubContent`. WAI-ARIA menu keyboard model, type-ahead, RTL aware.
+
+### MUST rules
+
+- Use it for actions and view options; `Select` for form values, `Dropdown` / `CommandMenu` for searchable lists.
+- Destructive items go last, after a separator, with `variant="destructive"`.
+- Keep submenus to one level; keep checkbox menus open with `onSelect={(event) => event.preventDefault()}`.
+- Only show `DropdownMenuShortcut` for shortcuts that work on the page.

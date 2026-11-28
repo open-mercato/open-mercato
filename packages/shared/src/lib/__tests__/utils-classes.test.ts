@@ -27,4 +27,10 @@ describe('DS class merging', () => {
     expect(cn('rounded-md', 'rounded-content-card')).toBe('rounded-content-card')
     expect(cn('rounded-ai-prompt', 'rounded-t-ai-prompt-inner')).toBe('rounded-ai-prompt rounded-t-ai-prompt-inner')
   })
+
+  it.each(['button', 'field', 'card', 'badge'])('treats the rounded-%s shape role as a radius', role => {
+    expect(cn(`rounded-${role} border`, 'rounded-full')).toBe('border rounded-full')
+    expect(cn(`rounded-${role} border`, 'rounded-lg')).toBe('border rounded-lg')
+    expect(cn('rounded-md', `rounded-${role}`)).toBe(`rounded-${role}`)
+  })
 })

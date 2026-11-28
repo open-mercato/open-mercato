@@ -347,6 +347,7 @@ const AVATAR_STACK_TEXT_OVERLAP: Record<AvatarSize, AvatarStackOverlap> = {
 const AVATAR_STACK_OVERLAP_CLASS: Record<AvatarStackOverlap, string> = {
   0: 'ml-0',
   4: '-ml-1',
+  // eslint-disable-next-line om-ds/no-off-grid-spacing -- audited avatar overlap geometry, not spacing
   6: '-ml-1.5',
   8: '-ml-2',
   12: '-ml-3',

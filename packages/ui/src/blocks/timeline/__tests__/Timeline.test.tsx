@@ -1,0 +1,497 @@
+/** @jest-environment jsdom */
+
+import * as React from 'react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { timelinePropsSchema } from '../../contracts/timeline'
+import type { TimelineItem, TimelineProps } from '../../contracts/timeline'
+import { Timeline } from '../Timeline'
+import { timelineFixtures } from '../fixtures'
+
+const dict = {
+  'ui.blocks.timeline.today': 'Today',
+  'ui.blocks.timeline.yesterday': 'Yesterday',
+  'ui.blocks.timeline.showMore': 'Show more',
+  'ui.blocks.timeline.thisWeek': 'This week',
+  'ui.blocks.timeline.showChanges': 'Show all changes',
+  'ui.blocks.timeline.entryCount': 'Entries: {count}',
+  'ui.blocks.timeline.retry': 'Try again',
+  'ui.blocks.timeline.emptyDescription': 'Notes, calls, emails and field changes will show up here.',
+  'ui.blocks.timeline.hideChanges': 'Hide changes',
+  'ui.blocks.timeline.expandBody': 'Show more',
+  'ui.blocks.timeline.collapseBody': 'Show less',
+  'ui.blocks.timeline.itemActions': 'Item actions',
+  'ui.blocks.timeline.filters': 'Filter activity',
+  'ui.blocks.timeline.loading': 'Loading activity',
+  'ui.blocks.timeline.error': 'Could not load activity',
+  'ui.blocks.timeline.empty': 'No activity yet',
+  'ui.blocks.timeline.downloadAttachment': 'Download',
+}
+
+function renderTimeline(props: Partial<TimelineProps> & Pick<TimelineProps, 'items'>) {
+  return renderWithProviders(<Timeline order="desc" {...props} />, { dict })
+}
+
+const items: TimelineItem[] = [
+  {
+    id: 'a',
+    occurredAt: '2026-11-24T10:00:00Z',
+    kind: 'note',
+    title: 'added a note',
+    author: { name: 'Anna Nowak' },
+    actions: [
+      { key: 'edit', label: 'Edit' },
+      { key: 'delete', label: 'Delete', tone: 'destructive' },
+    ],
+  },
+  { id: 'b', occurredAt: '2026-11-23T10:00:00Z', kind: 'stage', icon: 'phone', title: 'Call logged' },
+  { id: 'c', occurredAt: '2026-11-20T10:00:00Z', kind: 'stage', title: 'Stage changed' },
+]
+
+describe('Timeline', () => {
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = jest.fn()
+  })
+
+  it('renders items in the given order', () => {
+    const { container } = renderTimeline({ items })
+    const ids = Array.from(container.querySelectorAll('[data-timeline-item-id]')).map((node) =>
+      node.getAttribute('data-timeline-item-id'),
+    )
+    expect(ids).toEqual(['a', 'b', 'c'])
+  })
+
+  it('renders author and title without bold weight', () => {
+    const { container } = renderTimeline({ items })
+    const author = container.querySelector('[data-slot="timeline-item-author"]') as HTMLElement
+    const title = container.querySelector('[data-slot="timeline-item-title"]') as HTMLElement
+    expect(author.textContent).toBe('Anna Nowak')
+    expect(title.textContent).toBe('added a note')
+    const row = container.querySelector('[data-slot="timeline-item-sentence"]') as HTMLElement
+    for (const node of [author, title, row, ...Array.from(row.querySelectorAll('*'))]) {
+      expect(node.className).not.toMatch(/font-(semibold|bold)/)
+    }
+  })
+
+  it('renders a time element with an ISO dateTime and a full date title', () => {
+    const { container } = renderTimeline({ items })
+    const time = container.querySelector('time') as HTMLTimeElement
+    expect(time.getAttribute('datetime')).toBe('2026-11-24T10:00:00Z')
+    expect(time.getAttribute('title')).toBeTruthy()
+  })
+
+  it('puts an event icon on the rail for every item and the author avatar in the sentence', () => {
+    const { container } = renderTimeline({ items })
+    const icons = container.querySelectorAll('[data-slot="timeline-item-icon"]')
+    expect(icons).toHaveLength(items.length)
+    for (const icon of Array.from(icons)) expect(icon.querySelector('svg')).not.toBeNull()
+    const sentence = container.querySelector('[data-timeline-item-id="a"] [data-slot="timeline-item-sentence"]') as HTMLElement
+    expect(sentence.textContent).toContain('Anna Nowak')
+  })
+
+  it('lists field changes and collapses more than three behind a toggle', () => {
+    renderTimeline({
+      items: [
+        {
+          id: 'chg',
+          occurredAt: '2026-11-24T10:00:00Z',
+          kind: 'update',
+          title: 'changed 4 fields',
+          author: { name: 'Alex Smith' },
+          changes: [
+            { label: 'Stage', from: 'New', to: 'Meeting' },
+            { label: 'Priority', to: 'Medium' },
+            { label: 'Owner', to: 'Alex Smith' },
+            { label: 'Close date', to: 'Sep 29, 2026' },
+          ],
+        },
+      ],
+    })
+    expect(screen.getByText('Stage')).toBeTruthy()
+    expect(screen.getByText('New').getAttribute('data-slot')).toBe('timeline-change-from')
+    expect(screen.queryByText('Close date')).toBeNull()
+    const toggle = screen.getByRole('button', { name: 'Show all changes' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(toggle)
+    expect(screen.getByText('Close date')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Hide changes' })).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('renders the target as a chip and links it only for safe hrefs', () => {
+    const { container } = renderTimeline({
+      items: [
+        { id: 't1', occurredAt: '2026-11-24T10:00:00Z', kind: 'list', title: 'was added to', target: { label: 'Sales', href: '/backend/lists/sales' } },
+        { id: 't2', occurredAt: '2026-11-24T09:00:00Z', kind: 'list', title: 'was added to', target: { label: 'Bad', href: 'javascript:alert(1)' } },
+      ],
+    })
+    expect(screen.getByRole('link', { name: 'Sales' })).toHaveAttribute('href', '/backend/lists/sales')
+    expect(screen.queryByRole('link', { name: 'Bad' })).toBeNull()
+    expect(container.querySelectorAll('[data-slot="timeline-item-target"]')).toHaveLength(2)
+  })
+
+  it('clamps a long text body and expands it on request', () => {
+    jest.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(120)
+    jest.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(60)
+    const long = 'Customer feedback. '.repeat(20)
+    renderTimeline({ items: [{ id: 'b1', occurredAt: '2026-11-24T10:00:00Z', kind: 'note', title: 'added a note', body: long }] })
+    const body = document.querySelector('[data-slot="timeline-item-body"] > div') as HTMLElement
+    expect(body.className).toContain('line-clamp-3')
+    fireEvent.click(screen.getByRole('button', { name: 'Show more' }))
+    expect(body.className).not.toContain('line-clamp-3')
+    jest.restoreAllMocks()
+  })
+
+  it('hides the expand toggle when a long body still fits in three lines', () => {
+    jest.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(60)
+    jest.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(60)
+    renderTimeline({ items: [{ id: 'b2', occurredAt: '2026-11-24T10:00:00Z', kind: 'note', title: 'added a note', body: 'Short line. '.repeat(25) }] })
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull()
+    jest.restoreAllMocks()
+  })
+
+  it('calls onItemAction from the kebab menu', async () => {
+    const onItemAction = jest.fn()
+    renderTimeline({ items, onItemAction })
+    fireEvent.click(screen.getByRole('button', { name: 'Item actions' }))
+    fireEvent.click(await screen.findByText('Delete'))
+    await waitFor(() => expect(onItemAction).toHaveBeenCalledWith('a', 'delete'))
+  })
+
+  it('renders an icon for a menu action with a resolvable icon name', async () => {
+    const iconItems: TimelineItem[] = [
+      {
+        id: 'i',
+        occurredAt: '2026-11-24T10:00:00Z',
+        kind: 'note',
+        title: 'added a note',
+        actions: [
+          { key: 'edit', label: 'Edit', icon: 'star' },
+          { key: 'plain', label: 'Plain', icon: 'not-a-real-icon' },
+        ],
+      },
+    ]
+    renderTimeline({ items: iconItems, onItemAction: jest.fn() })
+    fireEvent.click(screen.getByRole('button', { name: 'Item actions' }))
+    const withIcon = await screen.findByRole('option', { name: /Edit/ })
+    expect(withIcon.querySelector('svg')).not.toBeNull()
+    expect(screen.getByRole('option', { name: /Plain/ }).querySelector('svg')).toBeNull()
+  })
+
+  it('calls onFilterChange and marks the active chip', () => {
+    const onFilterChange = jest.fn()
+    renderTimeline({
+      items,
+      filters: [
+        { key: 'all', label: 'All', count: 3 },
+        { key: 'notes', label: 'Notes' },
+      ],
+      activeFilterKey: 'all',
+      onFilterChange,
+    })
+    const group = screen.getByRole('group', { name: 'Filter activity' })
+    expect(group).toBeTruthy()
+    const all = screen.getByRole('button', { name: /All/ })
+    const notes = screen.getByRole('button', { name: 'Notes' })
+    expect(all.getAttribute('aria-pressed')).toBe('true')
+    expect(all.textContent).toContain('3')
+    expect(notes.getAttribute('aria-pressed')).toBe('false')
+    fireEvent.click(notes)
+    expect(onFilterChange).toHaveBeenCalledWith('notes')
+  })
+
+  it.each([
+    ['resolve', true],
+    ['reject', false],
+  ])('disables Show more while loading and re-enables after %s', async (_label, shouldResolve) => {
+    let settle: () => void = () => undefined
+    const onLoadMore = jest.fn(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          settle = shouldResolve ? resolve : () => reject(new Error('failed'))
+        }),
+    )
+    renderTimeline({ items, hasMore: true, onLoadMore })
+    const button = screen.getByRole('button', { name: /Show more/ }) as HTMLButtonElement
+    fireEvent.click(button)
+    await waitFor(() => expect(button.disabled).toBe(true))
+    expect(screen.getAllByRole('status').length).toBeGreaterThan(0)
+    await act(async () => {
+      settle()
+    })
+    await waitFor(() => expect(button.disabled).toBe(false))
+    expect(onLoadMore).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables the kebab with a spinner while an item action is pending and recovers after rejection', async () => {
+    let rejectAction: () => void = () => undefined
+    const onItemAction = jest.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectAction = () => reject(new Error('failed'))
+        }),
+    )
+    const { container } = renderTimeline({ items, onItemAction })
+    const trigger = screen.getByRole('button', { name: 'Item actions' }) as HTMLButtonElement
+    fireEvent.click(trigger)
+    fireEvent.click(await screen.findByText('Delete'))
+    await waitFor(() => expect(trigger.disabled).toBe(true))
+    expect(trigger.querySelector('[role="status"], svg.animate-spin, [data-slot="spinner"]')).not.toBeNull()
+    await act(async () => {
+      rejectAction()
+    })
+    await waitFor(() => expect(trigger.disabled).toBe(false))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(container.textContent).not.toMatch(/failed/i)
+  })
+
+  it('renders an https attachment as a download link', () => {
+    renderTimeline({
+      items: [
+        {
+          id: 'l',
+          occurredAt: '2026-11-24T10:00:00Z',
+          kind: 'file',
+          title: 'uploaded',
+          attachments: [{ name: 'offer.pdf', href: 'https://example.com/offer.pdf' }],
+        },
+      ],
+    })
+    const link = screen.getByRole('link', { name: 'Download' })
+    expect(link.getAttribute('href')).toBe('https://example.com/offer.pdf')
+    expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+    expect(link.getAttribute('target')).toBe('_blank')
+  })
+
+  it('renders a relative attachment link but rejects protocol-relative and script hrefs', () => {
+    renderTimeline({
+      items: [
+        {
+          id: 'm',
+          occurredAt: '2026-11-24T10:00:00Z',
+          kind: 'file',
+          title: 'uploaded',
+          attachments: [
+            { name: 'rel.pdf', href: '/files/rel.pdf' },
+            { name: 'proto.pdf', href: '//evil.example/x.pdf' },
+            { name: 'bad.pdf', href: 'javascript:alert(1)' },
+          ],
+        },
+      ],
+    })
+    const links = screen.getAllByRole('link', { name: 'Download' })
+    expect(links).toHaveLength(1)
+    expect(links[0].getAttribute('href')).toBe('/files/rel.pdf')
+  })
+
+  it('renders no download control for a javascript: href', () => {
+    renderTimeline({
+      items: [
+        {
+          id: 'n',
+          occurredAt: '2026-11-24T10:00:00Z',
+          kind: 'file',
+          title: 'uploaded',
+          attachments: [{ name: 'bad.pdf', href: 'javascript:alert(1)' }],
+        },
+      ],
+    })
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.getByText('bad.pdf')).toBeTruthy()
+  })
+
+  describe('period grouping', () => {
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask'] })
+      jest.setSystemTime(new Date('2026-11-25T12:00:00Z'))
+    })
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    it('groups into this week, months and years with collapsible sections', () => {
+      const { container } = renderTimeline({
+        groupBy: 'period',
+        items: [
+          { id: 'w1', occurredAt: '2026-11-24T10:00:00Z', kind: 'note', title: 'this week' },
+          { id: 'm1', occurredAt: '2026-11-10T10:00:00Z', kind: 'note', title: 'november' },
+          { id: 'm2', occurredAt: '2026-06-10T10:00:00Z', kind: 'note', title: 'june' },
+          { id: 'y1', occurredAt: '2024-06-10T10:00:00Z', kind: 'note', title: 'old june' },
+        ],
+      })
+      const labels = Array.from(container.querySelectorAll('[data-slot="timeline-period-name"]')).map((node) => node.textContent)
+      expect(labels).toEqual(['This week', 'November', 'June', 'June'])
+      const counts = Array.from(container.querySelectorAll('[data-slot="timeline-period-count"]'))
+      expect(counts.map((node) => node.textContent)).toEqual(['1', '1', '1', '1'])
+      for (const count of counts) expect(count).toHaveAttribute('aria-hidden', 'true')
+      expect(screen.getByRole('button', { name: 'This week Entries: 1' })).toBeTruthy()
+      const years = Array.from(container.querySelectorAll('[data-slot="timeline-year-label"]')).map((node) => node.textContent)
+      expect(years).toEqual(['2024'])
+      const toggle = screen.getByRole('button', { name: /This week/ })
+      fireEvent.click(toggle)
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(container.querySelector('[data-timeline-item-id="w1"]')?.closest('[hidden]')).not.toBeNull()
+    })
+  })
+
+  describe('day grouping', () => {
+    beforeEach(() => {
+      jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'queueMicrotask'] })
+      jest.setSystemTime(new Date('2026-11-24T12:00:00Z'))
+    })
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    it('renders a label above each day group', () => {
+      const { container } = renderTimeline({ items, groupBy: 'day' })
+      const labels = Array.from(container.querySelectorAll('[data-slot="timeline-day-label"]')).map(
+        (node) => node.textContent,
+      )
+      expect(labels[0]).toBe('Today')
+      expect(labels[1]).toBe('Yesterday')
+      expect(labels).toHaveLength(3)
+    })
+
+    it('shows the clock time instead of relative time inside day groups', () => {
+      const { container } = renderTimeline({ items, groupBy: 'day' })
+      const time = container.querySelector('[data-timeline-item-id="a"] time') as HTMLTimeElement
+      const expected = new Intl.DateTimeFormat('en', { hour: 'numeric', minute: '2-digit' }).format(new Date('2026-11-24T10:00:00Z'))
+      expect(time.textContent).toBe(expected)
+      expect(time.textContent).not.toMatch(/ago/)
+      expect(time.getAttribute('datetime')).toBe('2026-11-24T10:00:00Z')
+      expect(time.getAttribute('title')).toBeTruthy()
+    })
+
+    it('renders separate groups for non-adjacent same-day items and no heading for invalid dates', () => {
+      const { container } = renderTimeline({
+        items: [
+          { id: 'p', occurredAt: '2026-11-24T10:00:00Z', kind: 'note', title: 'one' },
+          { id: 'q', occurredAt: '2026-11-23T10:00:00Z', kind: 'note', title: 'two' },
+          { id: 'r', occurredAt: '2026-11-24T09:00:00Z', kind: 'note', title: 'three' },
+          { id: 's', occurredAt: 'not-a-date', kind: 'note', title: 'four' },
+        ],
+        groupBy: 'day',
+      })
+      expect(container.querySelectorAll('[data-slot="timeline-day-group"]')).toHaveLength(4)
+      expect(container.querySelectorAll('[data-slot="timeline-day-label"]')).toHaveLength(3)
+    })
+  })
+
+  it('renders attachments, status chip and a custom body', () => {
+    const { container } = renderTimeline({
+      items: [
+        {
+          id: 'x',
+          occurredAt: '2026-11-24T10:00:00Z',
+          kind: 'file',
+          title: 'uploaded',
+          body: 'Default body',
+          attachments: [{ name: 'offer.pdf', format: 'pdf' }],
+          status: { label: 'Approved', tone: 'success' },
+        },
+      ],
+      renderItemBody: (item) => <span>Custom {item.id}</span>,
+    })
+    expect(screen.getByText('offer.pdf')).toBeTruthy()
+    expect(container.querySelector('[data-slot="activity-feed-status-chip"][data-status="success"]')).not.toBeNull()
+    expect(screen.getByText('Custom x')).toBeTruthy()
+    expect(screen.queryByText('Default body')).toBeNull()
+    const body = container.querySelector('[data-slot="timeline-item-body"]') as HTMLElement
+    expect(body.className).not.toMatch(/border|bg-card/)
+    const fileChip = container.querySelector('[data-slot="activity-feed-file-chip"]') as HTMLElement
+    expect(fileChip.className).toContain('shadow-none')
+    expect(screen.getByText('offer.pdf').className).not.toMatch(/font-(medium|semibold|bold)/)
+    const statusChip = container.querySelector('[data-slot="activity-feed-status-chip"]') as HTMLElement
+    expect(statusChip.className).not.toMatch(/font-(medium|semibold|bold)/)
+  })
+
+  it('keeps the note card around a default body', () => {
+    const { container } = renderTimeline({
+      items: [{ id: 'nb', occurredAt: '2026-11-24T10:00:00Z', kind: 'note', title: 'added a note', body: 'Plain note' }],
+    })
+    const body = container.querySelector('[data-slot="timeline-item-body"]') as HTMLElement
+    expect(body.className).toContain('border')
+  })
+
+  it('renders the sentence as inline text with the time inside it', () => {
+    const { container } = renderTimeline({ items })
+    const sentence = container.querySelector('[data-timeline-item-id="a"] [data-slot="timeline-item-sentence"]') as HTMLElement
+    expect(sentence.className).not.toMatch(/(^|\s)flex(\s|$)/)
+    expect(sentence.textContent).toMatch(/^AAnna Nowak added a note\u2002/)
+    expect(sentence.querySelector('time')).not.toBeNull()
+  })
+
+  it('left-aligns the load more button to the content column as an outline button', () => {
+    const { container } = renderTimeline({ items, hasMore: true, onLoadMore: jest.fn(async () => undefined) })
+    const wrapper = container.querySelector('[data-slot="timeline-more"]') as HTMLElement
+    expect(wrapper.className).toContain('justify-start')
+    expect(wrapper.querySelector('button')?.className).toContain('border')
+  })
+
+  it('does not render a menu without actions', () => {
+    renderTimeline({ items: [items[1]] })
+    expect(screen.queryByRole('button', { name: 'Item actions' })).toBeNull()
+  })
+
+  describe('status', () => {
+    it('shows a skeleton with a visually hidden loading label', () => {
+      const { container } = renderTimeline({ items: [], status: 'loading' })
+      const label = screen.getByText('Loading activity')
+      expect(label.className).toContain('sr-only')
+      expect(container.querySelector('[data-slot="timeline"]')).toHaveAttribute('aria-busy', 'true')
+      expect(container.querySelectorAll('[data-slot="timeline-skeleton"] > div')).toHaveLength(3)
+    })
+
+    it('offers a retry action on error only when onRetry is provided', () => {
+      const onRetry = jest.fn()
+      const { unmount } = renderTimeline({ items: [], status: 'error', onRetry })
+      fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+      expect(onRetry).toHaveBeenCalledTimes(1)
+      unmount()
+      renderTimeline({ items: [], status: 'error' })
+      expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    })
+
+    it('shows the error message', () => {
+      renderTimeline({ items: [], status: 'error', errorMessage: 'Boom' })
+      expect(screen.getByRole('alert').textContent).toContain('Boom')
+    })
+
+    it('shows the empty state', () => {
+      const { container } = renderTimeline({ items: [], status: 'empty' })
+      expect(screen.getByText('No activity yet')).toBeTruthy()
+      expect(screen.getByText('Notes, calls, emails and field changes will show up here.')).toBeTruthy()
+      expect(container.querySelector('[data-slot="empty-state"] svg')).not.toBeNull()
+    })
+
+    it('keeps header and filters rendered above the empty state', () => {
+      renderTimeline({
+        items: [],
+        status: 'empty',
+        header: <h2>Activity</h2>,
+        filters: [{ key: 'all', label: 'All' }],
+        activeFilterKey: 'all',
+      })
+      expect(screen.getByText('Activity')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'All' })).toBeTruthy()
+      expect(screen.getByText('No activity yet')).toBeTruthy()
+    })
+
+    it('prefers a custom empty state', () => {
+      renderTimeline({ items: [], status: 'empty', emptyState: <p>Custom empty</p> })
+      expect(screen.getByText('Custom empty')).toBeTruthy()
+    })
+
+    it('renders the header slot', () => {
+      renderTimeline({ items, header: <h2>Activity</h2> })
+      expect(screen.getByText('Activity')).toBeTruthy()
+    })
+  })
+
+  describe('fixtures', () => {
+    it.each(Object.entries(timelineFixtures))('%s parses against the contract and renders', (_name, props) => {
+      expect(timelinePropsSchema.safeParse(props).success).toBe(true)
+      expect(() => renderWithProviders(<Timeline {...(props as TimelineProps)} />, { dict })).not.toThrow()
+    })
+  })
+})

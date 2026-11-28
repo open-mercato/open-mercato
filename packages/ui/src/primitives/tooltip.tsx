@@ -24,8 +24,8 @@ const tooltipContentVariants = cva(
         light: 'bg-popover text-popover-foreground ring-1 ring-inset ring-input',
       },
       size: {
-        sm: 'px-1.5 py-0.5 text-xs leading-4',
-        default: 'px-2.5 py-1 text-sm leading-5',
+        sm: 'px-2 py-1 text-xs leading-4',
+        default: 'px-3 py-2 text-sm leading-5',
         lg: 'rounded-lg p-3 text-sm leading-5',
       },
     },

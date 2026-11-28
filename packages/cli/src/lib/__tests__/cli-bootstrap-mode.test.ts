@@ -17,6 +17,7 @@ describe('resolveCliBootstrapMode', () => {
     expect(resolveCliBootstrapMode(['node', 'mercato', 'generate'])).toBe('none')
     expect(resolveCliBootstrapMode(['node', 'mercato', 'db', 'generate'])).toBe('none')
     expect(resolveCliBootstrapMode(['node', 'mercato', 'help'])).toBe('none')
+    expect(resolveCliBootstrapMode(['node', 'mercato', 'ui', 'add', 'kanban', '--module', 'crm'])).toBe('none')
     expect(resolveCliBootstrapMode(['node', 'mercato'])).toBe('none')
   })
 })

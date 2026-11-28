@@ -237,3 +237,48 @@ describe('StepIndicator numbers', () => {
     expect(dots[2]).toHaveTextContent('3')
   })
 })
+
+
+describe('StepIndicator affordances', () => {
+  it('gives clickable horizontal steps a pointer cursor and a hover treatment', () => {
+    const { container } = render(<StepIndicator steps={baseSteps} onStepClick={() => undefined} />)
+    const button = container.querySelector('button') as HTMLElement
+    expect(button.className).toContain('cursor-pointer')
+    expect(button.className).toContain('group')
+    expect(button.querySelector('.group-hover\\:underline')).not.toBeNull()
+  })
+
+  it('does not weight the current or error label', () => {
+    const { getByText } = render(
+      <StepIndicator
+        steps={[
+          { id: 'a', label: 'A', status: 'current' },
+          { id: 'b', label: 'B', status: 'error' },
+        ]}
+      />,
+    )
+    expect(getByText('A').className).not.toContain('font-medium')
+    expect(getByText('B').className).not.toContain('font-medium')
+    expect(getByText('B').className).toContain('text-status-error-text')
+  })
+
+  it('truncates labels only when asked, keeping the full label available', () => {
+    const { getByText, rerender } = render(<StepIndicator steps={baseSteps} />)
+    expect(getByText('Account').className).not.toContain('truncate')
+    expect(getByText('Account').getAttribute('title')).toBeNull()
+    rerender(<StepIndicator steps={baseSteps} truncateLabels />)
+    expect(getByText('Account').className).toContain('truncate')
+    expect(getByText('Account').getAttribute('title')).toBe('Account')
+  })
+})
+
+describe('StepperDots error steps', () => {
+  it('marks listed steps with the status-error colour and leaves the rest unchanged', () => {
+    const { container } = render(<StepperDots count={3} activeStep={2} errorSteps={[1]} />)
+    const dots = container.querySelectorAll('[data-slot="stepper-dot"]')
+    expect(dots[0].getAttribute('data-state')).toBe('inactive')
+    expect(dots[1].getAttribute('data-state')).toBe('error')
+    expect(dots[1].className).toContain('bg-status-error-icon')
+    expect(dots[2].getAttribute('data-state')).toBe('active')
+  })
+})

@@ -1,0 +1,833 @@
+{
+  "rule": "om-ds/no-nested-frames",
+  "findings": [
+    {
+      "file": "apps/mercato/src/modules/example/backend/mutation-lifecycle/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 9
+    },
+    {
+      "file": "apps/mercato/src/modules/example/backend/payments/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "apps/mercato/src/modules/example/backend/umes-extensions/page.tsx",
+      "outer": "div",
+      "inner": "DataTable",
+      "count": 1
+    },
+    {
+      "file": "apps/mercato/src/modules/example/backend/umes-extensions/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 9
+    },
+    {
+      "file": "apps/mercato/src/modules/example/backend/umes-handlers/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "apps/mercato/src/modules/example/backend/umes-integrations/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 7
+    },
+    {
+      "file": "apps/mercato/src/modules/example/backend/umes-query-extensions/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 8
+    },
+    {
+      "file": "apps/mercato/src/modules/example/widgets/injection/catalog-seo-report/widget.client.tsx",
+      "outer": "div",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "apps/mercato/src/modules/example/widgets/injection/sales-todos/widget.client.tsx",
+      "outer": "div",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/api_docs/frontend/docs/api/Explorer.tsx",
+      "outer": "article",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/api_docs/frontend/docs/api/Explorer.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/api_keys/backend/api-keys/create/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/attachments/components/AttachmentPartitionSettings.tsx",
+      "outer": "div",
+      "inner": "DataTable",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/auth/components/AclEditor.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/auth/frontend/login.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/business_rules/components/ConditionGroup.tsx",
+      "outer": "div",
+      "inner": "ConditionGroup",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/catalog/components/CatalogStatsCard.tsx",
+      "outer": "div",
+      "inner": "StatTile",
+      "count": 4
+    },
+    {
+      "file": "packages/core/src/modules/catalog/widgets/injection/product-seo/widget.client.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/communication_channels/backend/communication_channels/channels/[id]/page.tsx",
+      "outer": "section",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/configs/components/CachePanel.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/configs/components/ModuleTelemetryPanel.tsx",
+      "outer": "div",
+      "inner": "MetricCard",
+      "count": 5
+    },
+    {
+      "file": "packages/core/src/modules/configs/components/ModuleTelemetryPanel.tsx",
+      "outer": "section",
+      "inner": "RangeModuleSection",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/configs/components/ModuleTelemetryPanel.tsx",
+      "outer": "section",
+      "inner": "RangeOverview",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/configs/components/SystemStatusPanel.tsx",
+      "outer": "section",
+      "inner": "article",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/currencies/components/CurrencyFetchingConfig.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/customer_accounts/backend/customer_accounts/settings/domain/components/DnsConfig.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/customer_accounts/backend/customer_accounts/users/[id]/PortalUserDetailPageClient.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/customer_groups/components/CustomerGroupTermsSection.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/customers/backend/customers/deals/[id]/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/detail/CompanyCard.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/detail/MiniWeekCalendar.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/DictionarySortSettings.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/linking/LinkEntityDialog.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/PipelineSettings.tsx",
+      "outer": "AccordionItem",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/data_sync/backend/data-sync/page.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/data_sync/backend/data-sync/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/data_sync/backend/data-sync/runs/[id]/page.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/data_sync/backend/data-sync/runs/[id]/page.tsx",
+      "outer": "Card",
+      "inner": "pre",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/data_sync/components/IntegrationScheduleTab.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/entities/components/EncryptionManager.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/eudr/components/MitigationActionsSection.tsx",
+      "outer": "section",
+      "inner": "DataTable",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/eudr/components/PlotImportDialog.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/eudr/components/StatementRiskSection.tsx",
+      "outer": "section",
+      "inner": "DataTable",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/eudr/widgets/injection/order-compliance/widget.client.tsx",
+      "outer": "div",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/forms/backend/forms/[id]/analytics/page.tsx",
+      "outer": "Card",
+      "inner": "AnsweredVsBlankTable",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/forms/backend/forms/[id]/FormStudio.tsx",
+      "outer": "aside",
+      "inner": "pre",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/forms/backend/forms/[id]/FormStudio.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/forms/backend/forms/[id]/history/page.tsx",
+      "outer": "section",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/forms/backend/forms/[id]/studio/preview/PreviewSurface.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/forms/runner/FormRunner.tsx",
+      "outer": "article",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/forms/ui/admin/forms/[id]/distributions/RecipientsTable.tsx",
+      "outer": "section",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/forms/widgets/injection/access-audit-panel/widget.tsx",
+      "outer": "section",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/integrations/backend/integrations/[id]/page.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/integrations/backend/integrations/[id]/page.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/integrations/backend/integrations/bundle/[id]/page.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/integrations/backend/integrations/page.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/integrations/backend/integrations/page.tsx",
+      "outer": "section",
+      "inner": "Card",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/notifications/frontend/NotificationSettingsPageClient.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/payment_gateways/backend/payment-gateways/page.tsx",
+      "outer": "Card",
+      "inner": "DetailStat",
+      "count": 4
+    },
+    {
+      "file": "packages/core/src/modules/payment_gateways/backend/payment-gateways/page.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 4
+    },
+    {
+      "file": "packages/core/src/modules/payment_gateways/backend/payment-gateways/page.tsx",
+      "outer": "Card",
+      "inner": "JsonDisplay",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/planner/components/AvailabilityRulesEditor.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/promotions/components/BenefitCard.tsx",
+      "outer": "Card",
+      "inner": "BenefitLimitsEditor",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/sales/components/DocumentNumberSettings.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/sales/components/documents/AddressesSection.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/shipping_carriers/lib/shipment-wizard/components/ConfigureStep.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/shipping_carriers/lib/shipment-wizard/components/ConfigureStep.tsx",
+      "outer": "Card",
+      "inner": "ul",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/staff/backend/staff/time-tracking/settings/page.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/sync_excel/widgets/injection/upload-config/widget.client.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/sync_excel/widgets/injection/upload-config/widget.client.tsx",
+      "outer": "Card",
+      "inner": "MetricCard",
+      "count": 9
+    },
+    {
+      "file": "packages/core/src/modules/translations/components/TranslationManager.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/backend/components/ReceivingPanel.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/backend/components/ReturnLabelPanel.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/backend/components/VendorRecoverySuggestionsPanel.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/[id]/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 5
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/settings/page.tsx",
+      "outer": "div",
+      "inner": "GeneralSwitchField",
+      "count": 4
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/troubleshooting-guides/TroubleshootingTreeBuilder.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/frontend/[orgSlug]/portal/claims/[id]/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/frontend/[orgSlug]/portal/claims/new/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/frontend/[orgSlug]/portal/claims/new/page.tsx",
+      "outer": "div",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/WmsAsnDetailPage.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/WmsAsnsListPage.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/WmsConfigurationPage.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/WmsInventoryConsolePage.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/WmsLotsListPage.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/WmsPutawayQueuePage.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/wms/widgets/injection/sales-order-stock-context/widget.client.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/workflows/backend/instances/[id]/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/workflows/backend/instances/[id]/page.tsx",
+      "outer": "div",
+      "inner": "JsonDisplay",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/ContextSchemaEditor.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/DefinitionTriggersEditor.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/EdgeEditDialog.tsx",
+      "outer": "div",
+      "inner": "JsonBuilder",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/fields/ActivityArrayEditor.tsx",
+      "outer": "div",
+      "inner": "JsonBuilder",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/mobile/MobileDefinitionDetail.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/mobile/MobileInstanceOverview.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/mobile/MobileInstanceOverview.tsx",
+      "outer": "div",
+      "inner": "JsonDisplay",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/NodeEditDialog.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/NodeEditDialog.tsx",
+      "outer": "div",
+      "inner": "JsonBuilder",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/run/RunStepInspector.tsx",
+      "outer": "div",
+      "inner": "JsonDisplay",
+      "count": 3
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/run/WouldDoReport.tsx",
+      "outer": "li",
+      "inner": "JsonDisplay",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/TransitionsEditor.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/TriggersEditor.tsx",
+      "outer": "div",
+      "inner": "details",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/work-inbox/EntityContextPanel.tsx",
+      "outer": "div",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/frontend/checkout-demo/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/frontend/checkout-demo/page.tsx",
+      "outer": "form",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/core/src/modules/workflows/widgets/injection/order-approval/widget.client.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 4
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/[id]/components/EvaluationTab.tsx",
+      "outer": "AccordionItem",
+      "inner": "JsonDisplay",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/[id]/components/TokenCalculatorTab.tsx",
+      "outer": "div",
+      "inner": "p",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/eval-cases/[id]/page.tsx",
+      "outer": "li",
+      "inner": "JsonDisplay",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/eval-cases/[id]/page.tsx",
+      "outer": "section",
+      "inner": "JsonDisplay",
+      "count": 2
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/eval-cases/[id]/page.tsx",
+      "outer": "section",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/eval-runs/[id]/page.tsx",
+      "outer": "li",
+      "inner": "JsonDisplay",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/eval-runs/[id]/page.tsx",
+      "outer": "li",
+      "inner": "MismatchTable",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/eval-runs/compare/page.tsx",
+      "outer": "div",
+      "inner": "li",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/overview/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/playground/page.tsx",
+      "outer": "div",
+      "inner": "JsonDisplay",
+      "count": 2
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/playground/PlaygroundEvalPanel.tsx",
+      "outer": "div",
+      "inner": "AssertionTable",
+      "count": 2
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/playground/PlaygroundEvalPanel.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/playground/PlaygroundEvalPanel.tsx",
+      "outer": "div",
+      "inner": "JsonDisplay",
+      "count": 2
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/processes/[id]/page.tsx",
+      "outer": "div",
+      "inner": "JsonDisplay",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/processes/[id]/page.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 3
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/processes/definitions/[id]/page.tsx",
+      "outer": "section",
+      "inner": "pre",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/settings/otel-export/page.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/settings/web-search/page.tsx",
+      "outer": "Card",
+      "inner": "ToggleRow",
+      "count": 2
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/settings/web-search/WebSearchPreview.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/traces/[id]/page.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/components/ProposalCard.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/components/trace/GuardrailsCard.tsx",
+      "outer": "li",
+      "inner": "JsonDisplay",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/security/components/GenericProviderSetup.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/security/components/MfaChallengePanel.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/security/components/RecoveryCodesProviderDetails.tsx",
+      "outer": "section",
+      "inner": "section",
+      "count": 1
+    },
+    {
+      "file": "packages/enterprise/src/modules/security/components/TotpProviderDetails.tsx",
+      "outer": "section",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/enterprise/src/modules/sso/backend/sso/config/[id]/page.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/ui/src/backend/custom-fields/FieldDefinitionsEditor.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 2
+    },
+    {
+      "file": "packages/ui/src/backend/messages/EmailThreadsPanel.tsx",
+      "outer": "div",
+      "inner": "EmailMessageCard",
+      "count": 1
+    },
+    {
+      "file": "packages/ui/src/backend/sidebar/SidebarCustomizationEditor.tsx",
+      "outer": "Card",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/ui/src/backend/sidebar/SidebarCustomizationEditor.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 1
+    },
+    {
+      "file": "packages/ui/src/backend/WebhookSetupGuide.tsx",
+      "outer": "div",
+      "inner": "div",
+      "count": 4
+    }
+  ]
+}

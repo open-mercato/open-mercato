@@ -12,6 +12,24 @@ import {
 } from '../activity-feed'
 
 describe('ActivityFeed', () => {
+  it('keeps the semibold title by default and supports a regular weight', () => {
+    const { container, rerender } = render(
+      <ActivityFeed>
+        <ActivityFeedItem title="Wei Chen uploaded report" />
+      </ActivityFeed>,
+    )
+    const titleSpan = () =>
+      container.querySelector('[data-slot="activity-feed-item-title"] > span') as HTMLElement
+    expect(titleSpan().className).toContain('font-semibold')
+    rerender(
+      <ActivityFeed>
+        <ActivityFeedItem title="Wei Chen uploaded report" titleWeight="regular" />
+      </ActivityFeed>,
+    )
+    expect(titleSpan().className).not.toContain('font-semibold')
+    expect(titleSpan().className).toContain('font-normal')
+  })
+
   it('renders an <ol> root with the data-slot marker', () => {
     const { container } = render(
       <ActivityFeed>
@@ -86,6 +104,14 @@ describe('ActivityFeed', () => {
       </ActivityFeed>,
     )
     expect(container.querySelector('[data-slot="activity-feed-item-content"]')).toBeNull()
+  })
+
+  it('keeps the FileChip filename medium by default and regular on request', () => {
+    const { getByText, rerender } = render(<ActivityFeedFileChip name="a.pdf" />)
+    expect(getByText('a.pdf').className).toContain('font-medium')
+    rerender(<ActivityFeedFileChip name="a.pdf" nameWeight="regular" />)
+    expect(getByText('a.pdf').className).toContain('font-normal')
+    expect(getByText('a.pdf').className).not.toContain('font-medium')
   })
 
   it('renders the FileChip download button only when `onDownload` is provided', () => {

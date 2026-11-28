@@ -1,0 +1,285 @@
+{
+  "rule": "om-ds/prefer-business-block",
+  "findings": [
+    {
+      "file": "packages/core/src/modules/audit_logs/components/AccessLogDetailsDialog.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/audit_logs/components/ActionLogDetailsDialog.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/auth/components/UserConsentsPanel.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/availability/backend/availability/check/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/availability/backend/availability/policies/ResolutionPreviewPanel.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/business_rules/backend/logs/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/communication_channels/backend/communication_channels/channels/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/communication_channels/widgets/injection/channel-info-panel/widget.client.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/configs/components/SystemStatusPanel.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/currencies/components/ExchangeRateFormFields.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/customer_accounts/backend/customer_accounts/settings/domain/components/Diagnostics.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/customer_accounts/backend/customer_accounts/users/[id]/PortalUserDetailPageClient.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/customers/backend/customers/deals/pipeline/components/FilterBarRow.tsx",
+      "block": "list-toolbar"
+    },
+    {
+      "file": "packages/core/src/modules/customers/backend/customers/deals/pipeline/page.tsx",
+      "block": "kanban"
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/detail/ActivityTimeline.tsx",
+      "block": "timeline"
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/detail/CompanyDetailHeader.tsx",
+      "block": "entity-header"
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/detail/DealDetailHeader.tsx",
+      "block": "entity-header"
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/detail/DealDetailHeader.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/detail/DealsSection.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/detail/PersonDetailHeader.tsx",
+      "block": "entity-header"
+    },
+    {
+      "file": "packages/core/src/modules/customers/components/detail/PersonDetailHeader.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/data_sync/backend/data-sync/runs/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/devices/backend/devices/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/ecommerce/components/StoreEditPage.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/eudr/widgets/injection/supplier-compliance/widget.client.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/forms/backend/forms/[id]/submissions/components/SubmissionDrawer.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/forms/backend/forms/[id]/submissions/components/SubmissionDrawer.tsx",
+      "block": "timeline"
+    },
+    {
+      "file": "packages/core/src/modules/integrations/backend/integrations/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/payment_gateways/backend/payment-gateways/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/promotions/backend/promotions/page.tsx",
+      "block": "form-save-bar"
+    },
+    {
+      "file": "packages/core/src/modules/promotions/components/RuleTreeBuilder.tsx",
+      "block": "form-save-bar"
+    },
+    {
+      "file": "packages/core/src/modules/push_notifications/backend/push_notifications/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/sales/widgets/injection/document-history/widget.client.tsx",
+      "block": "timeline"
+    },
+    {
+      "file": "packages/core/src/modules/shipping_carriers/lib/shipment-wizard/components/ConfirmStep.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/shipping_carriers/lib/shipment-wizard/components/WizardNav.tsx",
+      "block": "wizard"
+    },
+    {
+      "file": "packages/core/src/modules/staff/backend/staff/time-tracking/projects/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/staff/lib/time-tracking-ui/EntryFilterBar.tsx",
+      "block": "list-toolbar"
+    },
+    {
+      "file": "packages/core/src/modules/staff/lib/time-tracking-ui/KanbanBoard.tsx",
+      "block": "kanban"
+    },
+    {
+      "file": "packages/core/src/modules/staff/lib/time-tracking-ui/SupportRequestPanel.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/staff/lib/timesheets-projects-ui/ProjectsBulkActionsBar.tsx",
+      "block": "bulk-action-bar"
+    },
+    {
+      "file": "packages/core/src/modules/warranty_claims/backend/warranty_claims/create/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/CycleCountWizardDialog.tsx",
+      "block": "wizard"
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/ImportInventoryDialog.tsx",
+      "block": "wizard"
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/ReleaseReservationDialog.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/wms/components/backend/WmsAsnDetailPage.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/wms/widgets/injection/sales-order-stock-context/widget.client.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/workflows/backend/events/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/workflows/backend/instances/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/EdgeEditDialog.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/mobile/MobileInstanceOverview.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/mobile/MobileWorkflowTimeline.tsx",
+      "block": "timeline"
+    },
+    {
+      "file": "packages/core/src/modules/workflows/components/run/RunStepInspector.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/[id]/components/AgentAccessSection.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/[id]/components/AgentHeaderCard.tsx",
+      "block": "entity-header"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/[id]/components/ConfigurationTab.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/[id]/components/EvaluationTab.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/[id]/components/FilesTab.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/agents/[id]/components/TokenCalculatorTab.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/caseload/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/eval-runs/compare/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/processes/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/settings/web-search/page.tsx",
+      "block": "form-save-bar"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/backend/traces/[id]/page.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/components/AgentTimeline.tsx",
+      "block": "timeline"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/components/ProposalFacts.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/components/RunManifestCard.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/components/trace/LlmStepPanels.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/agent_orchestrator/components/trace/RunActionsCard.tsx",
+      "block": "key-value"
+    },
+    {
+      "file": "packages/enterprise/src/modules/sso/backend/sso/config/new/page.tsx",
+      "block": "wizard"
+    },
+    {
+      "file": "packages/enterprise/src/modules/system_status_overlays/widgets/injection/enterprise-version/widget.client.tsx",
+      "block": "key-value"
+    }
+  ]
+}

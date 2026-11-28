@@ -4,9 +4,10 @@
 
 import * as React from 'react'
 import { render, cleanup } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 jest.mock('next/navigation', () => ({
-  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), prefetch: jest.fn() }),
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), prefetch: jest.fn(), refresh: jest.fn() }),
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => '/backend/design-system',
 }))
@@ -16,7 +17,8 @@ import type { GalleryEntry } from '../types'
 
 // Every family's entries must mount under jsdom without throwing. Entries
 // render inside the same I18nProvider the backend shell provides (some
-// primitives call useT for their built-in labels).
+// primitives call useT for their built-in labels) and under a query client,
+// which backend components such as DataTable require from their host.
 class ResizeObserverMock {
   observe() {}
   unobserve() {}
@@ -43,13 +45,16 @@ describe('design_system gallery render smoke', () => {
   })
 
   it('renders every variant of every entry without throwing', () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     for (const family of families) {
       for (const entry of family.entries) {
         for (const variant of entry.variants) {
           const { container, unmount } = render(
-            <I18nProvider locale="en" dict={{}}>
-              {variant.render()}
-            </I18nProvider>,
+            <QueryClientProvider client={queryClient}>
+              <I18nProvider locale="en" dict={{}}>
+                {variant.render()}
+              </I18nProvider>
+            </QueryClientProvider>,
           )
           expect(container.firstChild).not.toBeNull()
           unmount()

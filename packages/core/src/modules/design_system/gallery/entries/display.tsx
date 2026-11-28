@@ -53,7 +53,32 @@ import githubLogo from '../assets/github-logo.png'
 import avatarPhoto from '../assets/avatar-photo.png'
 import avatarMemoji from '../assets/avatar-memoji.png'
 import avatarIllustration from '../assets/avatar-illustration.png'
+import { BorderBeamBasicExample, BorderBeamCustomContainerExample, BorderBeamDurationExample, BorderBeamGradientsExample, BorderBeamHoverExample, BorderBeamLineWidthExample, BorderBeamMultipleExample, BorderBeamSizeExample } from '../demos/layout-primitives'
 import type { GalleryEntry } from '../types'
+import {
+  DataTableBasicExample,
+  DataTableBulkActionsExample,
+  DataTableEmbeddedExample,
+  DataTableEmptyExample,
+  DataTableErrorExample,
+  DataTableLoadingExample,
+  DataTableNoResultsExample,
+  DataTablePinnedColumnsExample,
+  DataTableRowActionsExample,
+  DataTableSearchFiltersExample,
+  DataTableSortingPaginationExample,
+  dataTableBasicCode,
+  dataTableBulkActionsCode,
+  dataTableEmbeddedCode,
+  dataTableEmptyCode,
+  dataTableErrorCode,
+  dataTableLoadingCode,
+  dataTableNoResultsCode,
+  dataTablePinnedColumnsCode,
+  dataTableRowActionsCode,
+  dataTableSearchFiltersCode,
+  dataTableSortingPaginationCode,
+} from '../demos/data-table'
 function BadgeEntrySemanticPreview() {
   const t = useT()
   return (
@@ -1443,6 +1468,21 @@ const tableEntry: GalleryEntry = {
   title: 'Table',
   importPath: '@open-mercato/ui/primitives/table',
   figmaNodeId: '167144:147544',
+  usage: {
+    do: [
+      'Small static or embedded tables; lists of records in the backend use DataTable.',
+      'Make a column sortable with TableSortHead whenever people compare or look up its values: names, dates, amounts, counts, statuses.',
+      'Right-align numbers and amounts with tabular-nums, and right-align their header too.',
+      'Set row height through size (compact, default, comfortable).',
+      'Keep the header and show EmptyState in the body when there are no rows.',
+    ],
+    dont: [
+      'Do not build a sortable header from a Button; the label itself is the control.',
+      'Do not sort only the rows of the current page when the list is paged on the server.',
+      'Do not wrap the table in a Card; the table container is the frame.',
+      'Do not write headers in uppercase.',
+    ],
+  },
   variants: [
     {
       id: 'header-states',
@@ -1521,6 +1561,127 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
     </TableRow>
   </TableFooter>
 </Table>`,
+    },
+  ],
+}
+const dataTableEntry: GalleryEntry = {
+  id: 'data-table',
+  title: 'DataTable',
+  importPath: '@open-mercato/ui/backend/DataTable',
+  descriptionKey: 'design_system.entries.data-table.description',
+  keywords: ['table', 'list', 'records', 'grid', 'sorting', 'pagination', 'bulk actions', 'row actions'],
+  usage: {
+    do: [
+      'Use it for every list of records in the back office; it is a backend component, not a block, so import it from the package instead of copying it',
+      'Render it inside an application that provides the Next.js router and a QueryClientProvider; both are required even when all data is local',
+      'Sort, filter and paginate in the host and pass the resulting page through data; the table reports changes through onSortingChange, onSearchChange, onFiltersApply and pagination.onPageChange',
+      'Pass ListEmptyState as emptyState for a list with no records; the no-results state for a search is rendered by the table itself',
+      'Pass embedded when the table sits inside a card or a section that already has its own border and title, and give that container overflow-x-auto: an embedded table does not scroll sideways on its own',
+      'Give the main row action the id edit or open so that a click on the row triggers it, or pass onRowClick',
+    ],
+    dont: [
+      'Do not use it for a small static table inside content; use the Table primitive',
+      'Do not expect saved views, custom-field columns and filters, auto-discovered filters or export to work without the server; they call the application API and are left out of these examples',
+      'Do not put destructive actions in the title row; keep them in row actions or bulk actions',
+      'Do not request more than 100 rows per page',
+    ],
+  },
+  accessibility: [
+    'Renders a native table with column headers; sortable headers are buttons that can be reached with the keyboard',
+    'Row actions open from a button with an accessible name and can be operated with arrow keys, Enter and Escape',
+    'Selection uses checkboxes with labels for each row and for the whole page',
+    'Below the md breakpoint the table keeps a minimum width of 640 px and scrolls horizontally; pinned columns are turned off there so every column stays reachable',
+  ],
+  faq: [
+    {
+      question: 'What does the host application have to provide?',
+      answer: 'The Next.js app router (the table reads it for row links and for refresh after a bulk action) and a QueryClientProvider above the table. Translations come from the same provider the rest of the interface uses. Extension widgets are optional; the table renders without them.',
+    },
+    {
+      question: 'Which features are not shown here and why?',
+      answer: 'Saved views (perspective), custom-field columns and filters (entityId, entityIds), auto-discovered filters (advancedFilter.auto, columnChooser.auto) and export read from or write to the application API. The examples use local data only, so these features are left out.',
+    },
+    {
+      question: 'Is it a block?',
+      answer: 'No. It is a backend component shared by all list pages. Import it from the package; do not copy its source into a module.',
+    },
+  ],
+  variants: [
+    {
+      id: 'basic',
+      title: 'Basic',
+      description: 'Columns, rows, a title and a create action in the title row.',
+      render: () => <DataTableBasicExample />,
+      code: dataTableBasicCode,
+    },
+    {
+      id: 'sorting-pagination',
+      title: 'Sorting and pagination',
+      description: 'The host keeps the sort order and the page in local state and passes one page of rows.',
+      render: () => <DataTableSortingPaginationExample />,
+      code: dataTableSortingPaginationCode,
+    },
+    {
+      id: 'search-filters',
+      title: 'Search and filters',
+      description: 'The built-in search field and filter button; the host filters the rows.',
+      render: () => <DataTableSearchFiltersExample />,
+      code: dataTableSearchFiltersCode,
+    },
+    {
+      id: 'row-actions',
+      title: 'Row actions and row click',
+      description: 'A menu of actions for each row and a click on the row itself.',
+      render: () => <DataTableRowActionsExample />,
+      code: dataTableRowActionsCode,
+    },
+    {
+      id: 'bulk-actions',
+      title: 'Selection and bulk actions',
+      description: 'Checkboxes appear when bulk actions are passed; the actions act on the selected rows.',
+      render: () => <DataTableBulkActionsExample />,
+      code: dataTableBulkActionsCode,
+    },
+    {
+      id: 'pinned-columns',
+      title: 'Pinned first column and actions',
+      description: 'On a wide table the first column and the actions column stay in place while the rest scrolls sideways. Pinning applies from the md breakpoint up.',
+      render: () => <DataTablePinnedColumnsExample />,
+      code: dataTablePinnedColumnsCode,
+    },
+    {
+      id: 'embedded',
+      title: 'Embedded in a card',
+      description: 'Without its own frame, for use inside a card or a section.',
+      render: () => <DataTableEmbeddedExample />,
+      code: dataTableEmbeddedCode,
+    },
+    {
+      id: 'loading',
+      title: 'Loading',
+      render: () => <DataTableLoadingExample />,
+      code: dataTableLoadingCode,
+    },
+    {
+      id: 'empty',
+      title: 'Empty list',
+      description: 'No records yet: the list empty state with a create action.',
+      render: () => <DataTableEmptyExample />,
+      code: dataTableEmptyCode,
+    },
+    {
+      id: 'no-results',
+      title: 'No search results',
+      description: 'A search that matches nothing; the table offers to clear it.',
+      render: () => <DataTableNoResultsExample />,
+      code: dataTableNoResultsCode,
+    },
+    {
+      id: 'error',
+      title: 'Error',
+      description: 'The error text replaces the rows; the reload button sits in the title row.',
+      render: () => <DataTableErrorExample />,
+      code: dataTableErrorCode,
     },
   ],
 }
@@ -1617,7 +1778,7 @@ const separatorEntry: GalleryEntry = {
       render: () => <SeparatorEntryLabeledPreview />,
       code: `import { Separator } from '@open-mercato/ui/primitives/separator'
 
-<Separator label="OR" />`,
+<Separator label="or" />`,
     },
     {
       id: 'text-divider',
@@ -2245,6 +2406,153 @@ const chart_legend_dotEntry: GalleryEntry = {
     },
   ],
 }
+const BEAM_IMPORT = "import { BorderBeam } from '@open-mercato/ui/primitives/border-beam'"
+
+const borderBeamEntry: GalleryEntry = {
+  id: 'border-beam',
+  title: 'BorderBeam',
+  importPath: '@open-mercato/ui/primitives/border-beam',
+  descriptionKey: 'design_system.entries.border-beam.description',
+  keywords: ['beam', 'glow', 'highlight', 'animated border', 'ai'],
+  since: '0.11.0',
+  usage: {
+    do: [
+      'Use it to emphasize one container without business meaning: an AI module, a sign-in panel or a recommended card',
+      'Give the container its own rounded class; the beam follows that radius',
+      'Use trigger="hover" when several highlighted cards sit next to each other',
+    ],
+    dont: [
+      'Do not use it as a focus ring, validation border or status signal',
+      'Do not put more than one always-on beam on a screen',
+    ],
+  },
+  accessibility: [
+    'The beam layer is aria-hidden and ignores pointer events, so it never changes what screen readers or pointers reach',
+    'With prefers-reduced-motion: reduce the beam is hidden and no animation runs',
+    'Content must stay readable without the beam; never convey state through it',
+  ],
+  faq: [
+    {
+      question: 'Why does the beam not follow the corners?',
+      answer: 'The beam reads the radius of the element it is drawn in. Put the rounded class on BorderBeam itself, or use asChild so the beam is drawn inside the rounded child.',
+    },
+    {
+      question: 'Why is the beam cut off?',
+      answer: 'A parent with overflow-hidden clips a beam that sits outside the box. Keep outset at 0 inside clipped containers, or move overflow-hidden to an inner element.',
+    },
+    {
+      question: 'How do I keep the beam on brand?',
+      answer: 'Pass token colors such as var(--accent-indigo) or the chart tokens. Hex values in components bypass themes and dark mode.',
+    },
+  ],
+  tokens: ['--accent-indigo', '--border', '--card'],
+  variants: [
+    {
+      id: 'basic',
+      title: 'Basic',
+      description: 'A single beam on a rounded container with the default indigo color.',
+      render: () => <BorderBeamBasicExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam className="rounded-card border border-border bg-card">
+  <div className="space-y-2 p-6">…</div>
+</BorderBeam>`,
+    },
+    {
+      id: 'hover',
+      title: 'Show on hover',
+      description: 'The beam appears while the pointer is over the container or focus is inside it.',
+      render: () => <BorderBeamHoverExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam trigger="hover" className="rounded-card border border-border bg-card">
+  …
+</BorderBeam>`,
+    },
+    {
+      id: 'multiple',
+      title: 'Multiple beams',
+      description: 'count spreads beams evenly; items sets color, length and width per beam.',
+      render: () => <BorderBeamMultipleExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam count={2} className="rounded-card border border-border bg-card">…</BorderBeam>
+
+<BorderBeam
+  items={[{ color: 'var(--chart-blue)' }, { color: 'var(--chart-pink)', size: 60, lineWidth: 2 }]}
+  className="rounded-card border border-border bg-card"
+>
+  …
+</BorderBeam>`,
+    },
+    {
+      id: 'custom-container',
+      title: 'Custom container',
+      description: 'asChild draws the beam inside an existing component such as Card, without an extra wrapper.',
+      render: () => <BorderBeamCustomContainerExample />,
+      code: `${BEAM_IMPORT}
+import { Card, CardContent, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
+
+<BorderBeam asChild>
+  <Card>…</Card>
+</BorderBeam>
+
+<BorderBeam size={40} duration={4} className="rounded-full border border-border bg-card">
+  <span className="px-4 py-2 text-sm">…</span>
+</BorderBeam>`,
+    },
+    {
+      id: 'gradients',
+      title: 'Gradients',
+      description: 'Color stops take a percent from 0 to 100; the tail always fades to transparent.',
+      render: () => <BorderBeamGradientsExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam
+  lineWidth={2}
+  color={[
+    { color: 'var(--chart-blue)', percent: 0 },
+    { color: 'var(--chart-cyan)', percent: 50 },
+    { color: 'var(--chart-emerald)', percent: 100 },
+  ]}
+  className="rounded-card border border-border bg-card"
+>
+  …
+</BorderBeam>`,
+    },
+    {
+      id: 'duration',
+      title: 'Duration',
+      description: 'Seconds for one loop around the border.',
+      render: () => <BorderBeamDurationExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam duration={3} className="h-24 rounded-card border border-border bg-card" />
+<BorderBeam duration={12} className="h-24 rounded-card border border-border bg-card" />`,
+    },
+    {
+      id: 'size',
+      title: 'Size',
+      description: 'Length of the visible beam; numbers are pixels.',
+      render: () => <BorderBeamSizeExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam size={50} className="h-24 rounded-card border border-border bg-card" />
+<BorderBeam size={180} className="h-24 rounded-card border border-border bg-card" />`,
+    },
+    {
+      id: 'line-width',
+      title: 'Line width',
+      description: 'Thickness of the beam; numbers are pixels.',
+      render: () => <BorderBeamLineWidthExample />,
+      code: `${BEAM_IMPORT}
+
+<BorderBeam lineWidth={2} className="h-24 rounded-card border border-border bg-card" />
+<BorderBeam lineWidth={4} className="h-24 rounded-card border border-border bg-card" />`,
+    },
+  ],
+}
+
 export const entries: GalleryEntry[] = [
   content_labelEntry,
   content_cardEntry,
@@ -2258,8 +2566,10 @@ export const entries: GalleryEntry[] = [
   avatarEntry,
   kbdEntry,
   tableEntry,
+  dataTableEntry,
   cardEntry,
   separatorEntry,
   scrollAreaEntry,
   activityFeedEntry,
+  borderBeamEntry,
 ]

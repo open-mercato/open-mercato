@@ -21,6 +21,7 @@ Decision tree — ask "what color do I need?":
 | Is it a border? | Yes → | `border-border`, `border-input` |
 | Is it a focus ring? | Yes → | `ring-ring` |
 | Is it a card/popover surface? | Yes → | `bg-card`, `bg-popover` |
+| Is it a control surface (input, select, outline button, checkbox)? | Yes → | `bg-control` — never `bg-background`, which makes the control take the page colour |
 | Is it a chart/data visualization? | Yes → | `chart-blue`, `chart-emerald`, `chart-amber`, etc. |
 | Is it brand accent? | Yes → | `brand-violet` |
 
@@ -121,13 +122,25 @@ Data visualization uses the dedicated `--chart-*` palette — never status token
 | Tiny inline element (checkbox, color dot, small chip) | `rounded-sm` (6px) |
 | Remove radius (table cells, flush edges) | `rounded-none` |
 
+Shape roles (themeable): the core primitives round through role utilities backed by runtime variables, so a theme scope restyles every block by overriding four variables. Use the role utility when building a primitive of that kind; keep the scale tokens above for everything else.
+
+| Role utility | Variable | Admin default | Used by |
+|--------------|----------|---------------|---------|
+| `rounded-button` | `--om-radius-button` | `calc(var(--radius) - 2px)` (= `rounded-md`) | `Button`, `IconButton` (non-`fullRadius`) |
+| `rounded-field` | `--om-radius-field` | `calc(var(--radius) - 2px)` (= `rounded-md`) | `Input`, `SelectTrigger`, `Textarea`, `DatePicker` trigger (size `lg`/`40` keep `rounded-lg`) |
+| `rounded-card` | `--om-radius-card` | `calc(var(--radius) + 6px)` (= `rounded-xl`) | `Card` |
+| `rounded-badge` | `--om-radius-badge` | `calc(infinity * 1px)` (= `rounded-full`) | `Badge` |
+
+Override the `--om-radius-*` variables in a theme scope (for example `[data-theme="<name>"] { --om-radius-button: 9999px; }`), never the `--radius-*` utilities. They need no `.dark` override.
+
 Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `SegmentedControl`, `ActiveFilterChips`) are `rounded-full` by design. When a design explicitly calls for **no-pill chips** (dense filter rows, "Add filter" affordances, toolbar chips), do NOT force the pill primitives — build the chip on semantic tokens with `rounded-md` (or use `Tag shape="square"`). Never mix pill and no-pill chips in one row.
 
 ## Typography
 - NEVER use arbitrary text sizes (`text-[10px]`, `text-[11px]`, `text-[13px]`, `text-[15px]`)
-- NEVER use arbitrary tracking — use `tracking-widest` (0.1em) for uppercase labels
+- NEVER write labels, section headings, field names, menu group titles or table headers in uppercase (`uppercase`, `tracking-wide*`). Use sentence case and let size and color carry the hierarchy. Uppercase is kept only for text that is uppercase by nature: abbreviations (`VISA`), codes, hex values, keyboard keys
+- NEVER use arbitrary tracking
 - USE Tailwind scale: `text-xs` (12px), `text-sm` (14px), `text-base` (16px), `text-lg` (18px), `text-xl` (20px), `text-2xl` (24px)
-- For 11px uppercase labels: use `text-overline` (custom token, 11px / 16px line-height)
+- `text-overline` (11px / 16px line-height) is for the smallest chips and counters only, never for labels people read as names
 - Source widget typography: `text-compact` is 13px / 20px, `text-ai-body` is 15px / 24px, and `text-title-4` is 32px / 40px. Use these only for the corresponding Figma compositions; ordinary application copy keeps the standard scale.
 - Exception: `text-[9px]` for notification badge count and `Avatar size="sm"` initials (documented exceptions)
 - Font families come from tokens: `--font-geist-sans` (default UI) and `--font-geist-mono` (`font-mono`) — never declare `font-family` inline
@@ -141,7 +154,8 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 | Default body text | `text-sm` |
 | Emphasized body text | `text-base` |
 | Secondary info, timestamps, hints | `text-xs text-muted-foreground` |
-| Section label / category tag (uppercase) | `text-overline font-semibold uppercase tracking-widest` |
+| Section label, field label, menu group title | `text-xs text-muted-foreground` (sentence case) |
+| Field label beside its value (key-value rows) | `text-sm text-muted-foreground` (sentence case) |
 | Code / technical content | `text-sm font-mono` |
 
 ## Feedback
@@ -154,23 +168,38 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 - The Alert `variant` prop (`destructive`/`info`/…) is **deprecated BC** — in-repo migration complete (2026-07); the lint rule `om-ds/no-legacy-alert-variant` guards against regressions, the shim in `primitives/alert.tsx` stays for third-party code
 
 ## Spacing
-- NEVER use arbitrary spacing values (`p-[13px]`, `gap-[10px]`, `mt-[7px]`, etc.)
-- USE Tailwind 4px grid scale: `1` (4px), `2` (8px), `3` (12px), `4` (16px), `6` (24px), `8` (32px), `12` (48px)
-- AVOID half-steps (`0.5`, `1.5`, `2.5`) unless matching a specific visual rhythm
+- USE the spacing roles first. Each role is a token (`--om-space-<role>`) and a Tailwind spacing key, so it works with any spacing utility (`gap-`, `p-`, `px-`, `mt-`, `space-y-`):
 
-| What am I spacing? | Classes |
+| Role | Utility example | Default | Compact |
+|------|-----------------|---------|---------|
+| Label to its field | `mb-field-label` | 8px | 4px |
+| Field to its hint or error | `mt-field-hint` | 8px | 4px |
+| Field to the next field | `gap-y-field-stack`, `space-y-field-stack` | 24px | 16px |
+| Field group to the next group | `gap-group` | 40px | 24px |
+| Horizontal padding in controls | `px-control-x` | 12px | 12px |
+| Section inside a page or form | `p-panel` | 16px | 12px |
+| Standalone card | `p-card`, `px-card`, `py-card` | 24px | 16px |
+| Dialog | `p-dialog` | 24px | 16px |
+| Between page sections | `gap-section` | 32px | 24px |
+| Page margin | `px-page` | 16px, 24px from 640px | same |
+| Gutter between grid columns | `gap-x-gutter` | 16px, 24px from 640px | same |
+
+- Compact density: wrap dense forms, tables and side panels in `<DesignScope density="compact">` (or `data-density="compact"`); every role inside shrinks. `CrudForm density="compact"` sets it for you. Never pick smaller values by hand.
+- `DesignScope` also scopes colour mode (`mode`), corner radius (`shape`, `radius`) and direction (`dir`) for a region; see `.ai/ui-components.md` § DesignScope.
+- Page grid: `page-grid` is a 12-column grid with the gutter role; forms in one column stop at `max-w-form` (640px).
+- `FormField` and `CrudForm` already apply the field roles. Never glue a label, field and hint together with `gap-1` or `space-y-1`.
+- Component inner padding, heights and gaps follow `.ai/specs/2026-11-25-component-spacing-standard.md`. Key values: controls 32 / 36 / 40 high with 8 / 12 / 12 px horizontal padding (buttons 12 / 16 / 20), icon gap 8 (4 at sm), 8 between buttons, menus 4 container + 32 px items with 8 px padding, popovers 16, tooltips 4x8 / 8x12, cards 24, dialogs 24, alerts 16, tags 20 / 24 high with 8 px padding, table rows 32 / 40 / 48 with 16 px cell padding.
+- No half steps (2, 6, 10, 14 px) for padding, margin or gap anywhere, inside controls included; height drives vertical padding of controls and rows.
+- Inside a component, fall back to the 4px scale: `1` (4px), `2` (8px), `3` (12px), `4` (16px), `6` (24px), `8` (32px), `12` (48px).
+- NEVER use arbitrary spacing values (`p-[13px]`, `gap-[10px]`, `mt-[7px]`, etc.)
+- NEVER use half-steps (`0.5`, `1.5`, `2.5`, `3.5`) for layout spacing; they break the grid
+
+| Inside a component | Classes |
 |---------------------|---------|
 | Icon-to-text gap, chip internals, tight inline flex | `gap-1` (4px) or `gap-2` (8px) |
 | Standard gap between inline/flex items | `gap-2` (8px) — **default** |
-| Gap between distinct items in a list (cards, sections) | `gap-3` (12px) or `gap-4` (16px) |
-| Padding inside an interactive control (button, input, select) | `px-3 py-2` |
+| Gap between distinct items in a list (cards, rows) | `gap-3` (12px) or `gap-4` (16px) |
 | Padding inside a compact container (tag, inline panel, row) | `p-3` (12px) |
-| Padding inside a card, section, or alert | `p-4` (16px) — **default for containers** |
-| Padding inside a dialog, large card, or feature panel | `p-6` (24px) |
-| Vertical stack of related items (form fields, list rows) | `space-y-2` (8px) |
-| Vertical stack of distinct sections on a page | `space-y-4` (16px) or `space-y-6` (24px) |
-| Page-level section separation | `space-y-8` (32px) or `py-8` |
-| Margin below heading / above content | `mb-2` inline, `mb-4` sections |
 
 ## Opacity & Transparency
 - NEVER invent new opacity values ad hoc — stick to the DS scale
@@ -289,6 +318,22 @@ const dealStatusMap: StatusMap<'open' | 'won' | 'lost'> = {
 - USE `SectionHeader` for detail page section headers (title + count + action)
 - USE `CollapsibleSection` when section content should be collapsible
 
+## Tables
+- Lists of records in the backend use `DataTable`. Use the `Table` primitive for small static or embedded tables. Never hand-roll `<table>` markup
+- **Header**: one row, sentence case, muted text, the same horizontal padding as the cells, so each label lines up with its column content. A column without a text label (selection, row actions) still gets an `sr-only` label
+- **Sorting**: a column is sortable whenever people compare or look up its values: names, dates, amounts, counts, statuses. Selection, action, avatar and free-text columns are not sortable. Use `TableSortHead` (`TableSortButton` when the header cell holds another control) or `sortable` on `DataTable`
+  - The label is the control: flat text with a small chevron after it, no button background. A faint two-way chevron means sortable and unsorted, a single chevron shows the direction, and the sorted label takes `text-foreground`
+  - `aria-sort` goes on the header cell. One column is sorted at a time, and a default sort shows its direction on load
+  - Lists paged on the server sort on the server (`DataTable` `sorting` with `onSortingChange`). Never sort only the rows of the current page
+- **Alignment**: text and status left. Numbers, amounts and durations right with `tabular-nums`, and their header right too (`align="right"`). Row actions sit in the last column
+- **Rows**: 32 / 40 / 48 px through `size` (`compact`, `default`, `comfortable`) with 16 px cell padding. Never set row heights by hand. One line per cell, truncated with the full value in a tooltip; only the leading identity cell may take a second, muted line
+- **Selection**: the checkbox column comes first. Bulk actions go to the `bulk-action-bar` block, not into the header row
+- **Row actions**: `RowActions` in the last column. At most one inline action, the rest in the menu, destructive ones always in the menu
+- **States**: loading keeps the header and shows skeleton rows (`isLoading`). Empty keeps the header and shows `EmptyState` in the body. A failed load shows `ErrorMessage` with a retry
+- **Footer**: pagination under the table with the result count; page size at most 100
+- **Frame**: the table container is the frame. See "Frames: one level only"
+- **Narrow screens**: the table scrolls sideways inside its container. Keep the identity column in view (`stickyFirstColumn`) and hide low-priority columns before considering any other layout
+
 ## Components — quick reference
 | I need to… | Use this |
 |---|---|
@@ -349,6 +394,23 @@ When building a new module UI, use the **customers module** as reference:
 | Horizontal divider between sections | `border-t border-border` (use `<Separator>` when possible) |
 | Error state on input | `aria-invalid:border-destructive` |
 | Remove border | `border-0` |
+
+### Frames: one level only
+A frame is a surface with a border and a radius: a card, a panel, a bordered table or list container, a bordered section.
+
+- NEVER place a frame directly inside another frame. Nested frames spend 16 to 24 px of padding per level on every side and add lines that carry no meaning.
+- A page is not a frame. Do not wrap page content in a bordered container; the page already has its padding (`p-page`).
+- Inside a frame, separate groups with spacing, a heading, a divider (`border-t border-border` or `<Separator>`) or a muted background (`bg-muted/40`), not with another border.
+- Padding belongs to one level. A container that sits inside a padded parent adds no outer padding of its own.
+- A preview, dialog or drawer counts as the frame for what it shows. Content rendered inside it starts without a frame.
+- Controls are not frames: inputs, buttons, chips, badges and table rows inside a frame are fine.
+
+| Situation | Do | Do not |
+|-----------|----|--------|
+| Sections on a detail page | Heading plus spacing, optional `border-t` between sections | A bordered card per section inside a bordered page container |
+| A list or table on a page | One bordered table container on the page background | The table container inside a card |
+| Groups of fields in a card or dialog | Headings and `gap-group`, or a divider | A bordered box per group |
+| A highlighted note inside a card | `bg-muted/40 rounded-md` without a border, or a left accent | A second bordered box |
 
 ## Focus States (Accessibility)
 - NEVER use `focus:` for rings/outline — use `focus-visible:` (rings appear on keyboard nav only)

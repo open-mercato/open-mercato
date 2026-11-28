@@ -7,7 +7,7 @@ describe('SocialButton', () => {
     'uses theme-aware text and border roles for the %s stroke button', (brand) => {
       render(<SocialButton brand={brand} appearance="stroke">Continue</SocialButton>)
       const button = screen.getByRole('button', { name: 'Continue' })
-      expect(button).toHaveClass('text-foreground', 'border-input', 'bg-background', 'h-10', 'rounded-lg')
+      expect(button).toHaveClass('text-foreground', 'border-input', 'bg-control', 'h-10', 'rounded-lg')
       expect(button.className).not.toContain(`text-brand-${brand}`)
     },
   )

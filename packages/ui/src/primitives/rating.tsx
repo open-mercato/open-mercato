@@ -35,7 +35,7 @@ import { Button } from './button'
  * ```
  */
 
-const ratingRootVariants = cva('inline-flex items-center gap-0.5', {
+const ratingRootVariants = cva('inline-flex items-center gap-1', {
   variants: {
     size: {
       sm: '[&>*]:size-4',

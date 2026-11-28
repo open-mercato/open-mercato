@@ -151,7 +151,7 @@ export function Progress({
   if (!hasLabelRow && description === undefined) return progressRow
 
   return (
-    <div data-slot="progress-wrapper" className="flex w-full flex-col gap-1.5">
+    <div data-slot="progress-wrapper" className="flex w-full flex-col gap-2">
       {hasLabelRow ? (
         <div className="flex items-center justify-between gap-3 text-sm font-medium text-foreground">
           <span data-slot="progress-label" className="min-w-0 truncate">

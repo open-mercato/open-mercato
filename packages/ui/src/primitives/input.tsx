@@ -3,16 +3,16 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const inputWrapperVariants = cva(
-  'inline-flex w-full items-center gap-2 rounded-md border border-input bg-background shadow-xs transition-colors focus-within:outline-none focus-within:shadow-focus focus-within:border-foreground has-[input:disabled]:bg-bg-disabled has-[input:disabled]:border-border-disabled has-[input:disabled]:shadow-none has-[input:disabled]:hover:bg-bg-disabled has-[input:disabled]:[&>svg]:text-text-disabled has-[input:disabled]:[&>span[aria-hidden=true]]:text-text-disabled has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:focus-within:border-destructive',
+  'inline-flex w-full items-center gap-2 rounded-field border border-input bg-control shadow-xs transition-colors focus-within:outline-none focus-within:shadow-focus focus-within:border-foreground has-[input:disabled]:bg-bg-disabled has-[input:disabled]:border-border-disabled has-[input:disabled]:shadow-none has-[input:disabled]:hover:bg-bg-disabled has-[input:disabled]:[&>svg]:text-text-disabled has-[input:disabled]:[&>span[aria-hidden=true]]:text-text-disabled has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:focus-within:border-destructive',
   {
     variants: {
       size: {
-        sm: 'h-8 px-2.5',
+        sm: 'h-8 px-2',
         default: 'h-9 px-3',
         lg: 'h-10 rounded-lg px-3',
-        32: 'h-8 gap-1.5 pl-2 pr-1.5 [&_svg]:size-5',
-        36: 'h-9 gap-2 pl-2.5 pr-2 [&_svg]:size-5',
-        40: 'h-10 gap-2 rounded-lg pl-3 pr-2.5 [&_svg]:size-5',
+        32: 'h-8 gap-2 px-2 [&_svg]:size-5',
+        36: 'h-9 gap-2 px-3 [&_svg]:size-5',
+        40: 'h-10 gap-2 rounded-lg px-3 [&_svg]:size-5',
       },
     },
     defaultVariants: {

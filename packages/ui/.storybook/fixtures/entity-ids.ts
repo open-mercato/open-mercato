@@ -2,3 +2,6 @@
 // Gallery fixtures never load or write actual attachment records.
 export const E = { attachments: { attachment: 'attachments:attachment' } } as const
 export const M = { attachments: 'attachments' } as const
+
+export type KnownModuleId = keyof typeof M
+export type KnownEntities = typeof E

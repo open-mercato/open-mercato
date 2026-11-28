@@ -2758,7 +2758,7 @@
   ],
   "designSystemInventoryPath": ".ai/harness/design-system-inventory.json",
   "designSystemGallery": {
-    "itemCount": 148,
+    "itemCount": 181,
     "familyIds": [
       "foundations",
       "icons",
@@ -2777,6 +2777,8 @@
       "notifications",
       "schedule",
       "messages",
+      "blocks",
+      "screens",
       "library"
     ],
     "referenceCount": 28,
@@ -2793,7 +2795,7 @@
     "nodeComparisonCounts": {
       "match": 15,
       "mismatch": 8,
-      "not-comparable": 125
+      "not-comparable": 158
     },
     "designSkillAvailability": "unavailable",
     "publicationStatus": "not-evidenced",
@@ -2967,25 +2969,9 @@
     },
     {
       "capabilityId": "ui.datatable",
-      "galleryCoverage": "composite-not-direct",
+      "galleryCoverage": "direct",
       "galleryItemIds": [
-        "buttons/button",
-        "buttons/icon-button",
-        "inputs/select",
-        "inputs/compact-select",
-        "inputs/checkbox",
-        "feedback/empty-state",
-        "feedback/spinner",
-        "overlays/dialog",
-        "overlays/popover",
-        "overlays/tooltip",
-        "navigation/pagination",
-        "display/table",
-        "filters/filter-bar",
-        "filters/advanced-filter-builder",
-        "filters/filtered-empty-results",
-        "filters/search-empty-results",
-        "banners/flash-messages"
+        "display/data-table"
       ],
       "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",
@@ -3017,25 +3003,9 @@
     },
     {
       "capabilityId": "ui.datatable-perspectives-filters",
-      "galleryCoverage": "composite-not-direct",
+      "galleryCoverage": "direct",
       "galleryItemIds": [
-        "buttons/button",
-        "buttons/icon-button",
-        "inputs/select",
-        "inputs/compact-select",
-        "inputs/checkbox",
-        "feedback/empty-state",
-        "feedback/spinner",
-        "overlays/dialog",
-        "overlays/popover",
-        "overlays/tooltip",
-        "navigation/pagination",
-        "display/table",
-        "filters/filter-bar",
-        "filters/advanced-filter-builder",
-        "filters/filtered-empty-results",
-        "filters/search-empty-results",
-        "banners/flash-messages"
+        "display/data-table"
       ],
       "implementationSource": "node_modules/@open-mercato/ui/src/backend/DataTable.tsx",
       "baselinePrUrl": "https://github.com/open-mercato/open-mercato/pull/4301",

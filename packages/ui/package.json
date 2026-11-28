@@ -19,6 +19,70 @@
       "types": "./src/theme/index.ts",
       "default": "./dist/theme/index.js"
     },
+    "./blocks/contracts": {
+      "types": "./src/blocks/contracts/index.ts",
+      "default": "./dist/blocks/contracts/index.js"
+    },
+    "./blocks/bulk-action-bar": {
+      "types": "./src/blocks/bulk-action-bar/index.ts",
+      "default": "./dist/blocks/bulk-action-bar/index.js"
+    },
+    "./blocks/entity-header": {
+      "types": "./src/blocks/entity-header/index.ts",
+      "default": "./dist/blocks/entity-header/index.js"
+    },
+    "./blocks/form-save-bar": {
+      "types": "./src/blocks/form-save-bar/index.ts",
+      "default": "./dist/blocks/form-save-bar/index.js"
+    },
+    "./blocks/decision-panel": {
+      "types": "./src/blocks/decision-panel/index.ts",
+      "default": "./dist/blocks/decision-panel/index.js"
+    },
+    "./blocks/record-list": {
+      "types": "./src/blocks/record-list/index.ts",
+      "default": "./dist/blocks/record-list/index.js"
+    },
+    "./blocks/section": {
+      "types": "./src/blocks/section/index.ts",
+      "default": "./dist/blocks/section/index.js"
+    },
+    "./blocks/kanban": {
+      "types": "./src/blocks/kanban/index.ts",
+      "default": "./dist/blocks/kanban/index.js"
+    },
+    "./blocks/key-value": {
+      "types": "./src/blocks/key-value/index.ts",
+      "default": "./dist/blocks/key-value/index.js"
+    },
+    "./blocks/list-toolbar": {
+      "types": "./src/blocks/list-toolbar/index.ts",
+      "default": "./dist/blocks/list-toolbar/index.js"
+    },
+    "./blocks/stat-strip": {
+      "types": "./src/blocks/stat-strip/index.ts",
+      "default": "./dist/blocks/stat-strip/index.js"
+    },
+    "./blocks/stack": {
+      "types": "./src/blocks/stack/index.ts",
+      "default": "./dist/blocks/stack/index.js"
+    },
+    "./blocks/timeline": {
+      "types": "./src/blocks/timeline/index.ts",
+      "default": "./dist/blocks/timeline/index.js"
+    },
+    "./blocks/comment-thread": {
+      "types": "./src/blocks/comment-thread/index.ts",
+      "default": "./dist/blocks/comment-thread/index.js"
+    },
+    "./blocks/stage-path": {
+      "types": "./src/blocks/stage-path/index.ts",
+      "default": "./dist/blocks/stage-path/index.js"
+    },
+    "./blocks/wizard": {
+      "types": "./src/blocks/wizard/index.ts",
+      "default": "./dist/blocks/wizard/index.js"
+    },
     "./backend/schedule": {
       "types": "./src/backend/schedule/index.ts",
       "default": "./dist/backend/schedule/index.js"
@@ -140,6 +204,7 @@
     "@mdxeditor/editor": "^4.0.4",
     "@radix-ui/react-accordion": "^1.2.20",
     "@radix-ui/react-dialog": "^1.1.23",
+    "@radix-ui/react-dropdown-menu": "^2.2.1",
     "@radix-ui/react-popover": "^1.1.23",
     "@radix-ui/react-radio-group": "^1.4.7",
     "@radix-ui/react-scroll-area": "^1.2.18",

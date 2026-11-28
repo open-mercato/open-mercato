@@ -11,7 +11,7 @@ import tsParser from '@typescript-eslint/parser'
 import reactHooks from 'eslint-plugin-react-hooks'
 import react from 'eslint-plugin-react'
 import next from '@next/eslint-plugin-next'
-import omDs from '@open-mercato/eslint-plugin-ds'
+import omDs, { noNestedFramesScope, preferBusinessBlockScope } from '@open-mercato/eslint-plugin-ds'
 
 // Inline eslint-disable comments in app code reference rules from the main
 // Next.js config that are not part of this ruleset. With inline config
@@ -86,6 +86,45 @@ export default [
     languageOptions,
     plugins,
     rules: { 'om-ds/no-legacy-alert-variant': 'warn' },
+  },
+  // Spacing standard (.ai/specs/2026-11-25-component-spacing-standard.md):
+  // primitives and blocks carry no half-step or arbitrary spacing. Structural
+  // geometry (switch track, file-format artwork, avatar overlap) opts out per
+  // line with an eslint-disable-next-line comment that says why.
+  {
+    files: ['packages/ui/src/primitives/**/*.tsx', 'packages/ui/src/blocks/**/*.tsx'],
+    ignores: ['**/__tests__/**', '**/*.generated.*'],
+    linterOptions,
+    languageOptions,
+    plugins,
+    rules: { 'om-ds/no-off-grid-spacing': 'error' },
+  },
+  // Business blocks (docs/design-system/lint-rules.md L.7b): advisory. Module
+  // code that hand-builds a surface a block already covers gets a warning.
+  // Known hand-built surfaces sit in the baseline
+  // packages/eslint-plugin-ds/baselines/prefer-business-block.json and stay
+  // quiet until they adopt the block; only additions speak up.
+  {
+    files: preferBusinessBlockScope.files,
+    ignores: preferBusinessBlockScope.ignores,
+    linterOptions,
+    languageOptions,
+    plugins,
+    rules: { 'om-ds/prefer-business-block': ['warn', { baseline: preferBusinessBlockScope.baseline }] },
+  },
+  // Frames, one level only (docs/design-system/lint-rules.md L.7c, rule text in
+  // .ai/ds-rules.md): advisory. A bordered rounded surface nested in another
+  // one gets a warning. Nesting that exists today sits in the baseline
+  // packages/eslint-plugin-ds/baselines/no-nested-frames.json and stays quiet
+  // until it is flattened; only additions speak up. The design_system gallery
+  // is out of scope because its examples show framed components in frames.
+  {
+    files: noNestedFramesScope.files,
+    ignores: noNestedFramesScope.ignores,
+    linterOptions,
+    languageOptions,
+    plugins,
+    rules: { 'om-ds/no-nested-frames': ['warn', { baseline: noNestedFramesScope.baseline }] },
   },
   // --- escalation overrides — see .ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md ---
   // A module enters this list when its counter for the rule reads zero in two

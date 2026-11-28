@@ -1,0 +1,112 @@
+import { keyValuePropsSchema } from '../key-value'
+
+const readOnlyItems = [
+  { key: 'email', label: 'Email', value: 'jan@example.com' },
+  { key: 'phone', label: 'Phone', value: '+48 600 000 000', hint: 'Work' },
+]
+
+describe('KeyValue contract', () => {
+  it('accepts read-only items without onEdit', () => {
+    expect(keyValuePropsSchema.safeParse({ items: readOnlyItems }).success).toBe(true)
+  })
+
+  it('accepts rich values as slots', () => {
+    expect(keyValuePropsSchema.safeParse({ items: [{ key: 'tags', label: 'Tags', value: { type: 'span' } }] }).success).toBe(
+      true,
+    )
+  })
+
+  it('accepts editable items with an editor and onEdit', () => {
+    const result = keyValuePropsSchema.safeParse({
+      items: [
+        { key: 'name', label: 'Name', value: 'Jan', editable: true, editor: 'text' },
+        {
+          key: 'stage',
+          label: 'Stage',
+          value: 'Lead',
+          editable: true,
+          editor: 'select',
+          options: [{ value: 'lead', label: 'Lead' }],
+        },
+      ],
+      columns: 2,
+      onEdit: async () => undefined,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects editable items without an editor', () => {
+    const result = keyValuePropsSchema.safeParse({
+      items: [{ key: 'name', label: 'Name', value: 'Jan', editable: true }],
+      onEdit: async () => undefined,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects select editors without options', () => {
+    const result = keyValuePropsSchema.safeParse({
+      items: [{ key: 'stage', label: 'Stage', value: 'Lead', editable: true, editor: 'select' }],
+      onEdit: async () => undefined,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects editable items without onEdit', () => {
+    const result = keyValuePropsSchema.safeParse({
+      items: [{ key: 'name', label: 'Name', value: 'Jan', editable: true, editor: 'text' }],
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts editable items with a number value', () => {
+    const result = keyValuePropsSchema.safeParse({
+      items: [{ key: 'seats', label: 'Seats', value: 12, editable: true, editor: 'text' }],
+      onEdit: async () => undefined,
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects editable items with a non-primitive value', () => {
+    const result = keyValuePropsSchema.safeParse({
+      items: [{ key: 'tags', label: 'Tags', value: { type: 'span' }, editable: true, editor: 'text' }],
+      onEdit: async () => undefined,
+    })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects duplicate keys and unsupported column counts', () => {
+    expect(keyValuePropsSchema.safeParse({ items: [readOnlyItems[0], readOnlyItems[0]] }).success).toBe(false)
+    expect(keyValuePropsSchema.safeParse({ items: readOnlyItems, columns: 3 }).success).toBe(false)
+  })
+
+  it('accepts a display format on any item and rejects unknown formats', () => {
+    expect(
+      keyValuePropsSchema.safeParse({
+        items: [
+          { key: 'created', label: 'Created', value: '2026-03-14', format: 'date' },
+          { key: 'seen', label: 'Last seen', value: '2026-03-14T10:00:00Z', format: 'datetime' },
+          { key: 'code', label: 'Code', value: '2026-03-14', format: 'text' },
+        ],
+      }).success,
+    ).toBe(true)
+    expect(
+      keyValuePropsSchema.safeParse({ items: [{ key: 'created', label: 'Created', value: '2026-03-14', format: 'relative' }] })
+        .success,
+    ).toBe(false)
+  })
+
+  it('accepts defaultEditingKey for an editable item only', () => {
+    const items = [
+      { key: 'name', label: 'Name', value: 'Jan', editable: true, editor: 'text' },
+      { key: 'id', label: 'Record ID', value: 'REC-1' },
+    ]
+    const onEdit = async () => undefined
+    expect(keyValuePropsSchema.safeParse({ items, onEdit, defaultEditingKey: 'name' }).success).toBe(true)
+    expect(keyValuePropsSchema.safeParse({ items, onEdit, defaultEditingKey: 'id' }).success).toBe(false)
+    expect(keyValuePropsSchema.safeParse({ items, onEdit, defaultEditingKey: 'missing' }).success).toBe(false)
+  })
+
+  it('accepts onRetry from the base props', () => {
+    expect(keyValuePropsSchema.safeParse({ items: [], status: 'error', onRetry: () => undefined }).success).toBe(true)
+  })
+})
