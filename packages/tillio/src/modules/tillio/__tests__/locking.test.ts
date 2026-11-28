@@ -6,7 +6,7 @@ type FakeTransaction = {
   getConnection: jest.Mock
 }
 
-function fakeEntityManager(order: string[]): { em: EntityManager; tx: FakeTransaction } {
+function fakeEntityManager(order: string[], connection = {}): { em: EntityManager; tx: FakeTransaction } {
   const connectionExecute = jest.fn(async () => {
     order.push('lock-outside-transaction')
     return []
@@ -19,6 +19,8 @@ function fakeEntityManager(order: string[]): { em: EntityManager; tx: FakeTransa
     getConnection: jest.fn(() => ({ execute: connectionExecute })),
   }
   const em = {
+    getConnection: () => connection,
+    config: { get: () => ({ max: 2 }) },
     transactional: jest.fn(async (callback: (transaction: FakeTransaction) => Promise<unknown>) => {
       order.push('begin')
       const result = await callback(tx)
@@ -57,6 +59,34 @@ describe('createTillioLock', () => {
       }),
     ).rejects.toThrow('boom')
     expect(order).toEqual(['begin', 'lock'])
+  })
+
+  it('waits outside the transaction across lock kinds and frees the slot after failure', async () => {
+    const connection = {}
+    const order: string[] = []
+    const { em: operatorEm } = fakeEntityManager(order, connection)
+    const { em: pullEm } = fakeEntityManager(order, connection)
+    let finishOperator!: () => void
+    const operatorWork = new Promise<void>((resolve) => {
+      finishOperator = resolve
+    })
+    const failure = new Error('[internal] operator write failed')
+    const operator = createTillioLock(operatorEm, 'tillio:operators:tn:org')(async () => {
+      await operatorWork
+      throw failure
+    })
+    const operatorResult = expect(operator).rejects.toBe(failure)
+    const pull = createTillioLock(pullEm, 'tillio:pull:other-tn:other-org')(async () => 'done')
+
+    try {
+      expect(operatorEm.transactional).toHaveBeenCalledTimes(1)
+      expect(pullEm.transactional).not.toHaveBeenCalled()
+    } finally {
+      finishOperator()
+      await operatorResult
+      await expect(pull).resolves.toBe('done')
+    }
+    expect(pullEm.transactional).toHaveBeenCalledTimes(1)
   })
 })
 
