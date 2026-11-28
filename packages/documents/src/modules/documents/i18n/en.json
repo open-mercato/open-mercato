@@ -151,6 +151,8 @@
   "documents.editor.realtime.presenceLabel": "Editing now",
   "documents.editor.realtime.readOnlyFallback": "Realtime is unavailable — showing the last saved version (read-only).",
   "documents.editor.realtime.reconnecting": "Reconnecting…",
+  "documents.editor.realtime.setupGuide": "Realtime setup guide",
+  "documents.editor.realtime.setupHint": "Realtime collaboration needs a running collaboration service and a working connection. Ask your administrator to check the setup.",
   "documents.editor.realtime.singleUserFallback": "Realtime is unavailable — changes are saved in single-user mode.",
   "documents.editor.status.error": "Save failed",
   "documents.editor.status.saved": "Saved",
