@@ -34,6 +34,7 @@ jest.mock(
 jest.mock(
   '@mikro-orm/core',
   () => ({
+    ...jest.requireActual<typeof import('@mikro-orm/core')>('@mikro-orm/core'),
     __esModule: true,
     RequestContext: { getEntityManager: () => null },
   }),
