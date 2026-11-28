@@ -1,8 +1,11 @@
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { Message, MessageRecipient } from '@open-mercato/core/modules/messages/data/entities'
 
 type RegisteredCommand = {
   id: string
+  prepare: (input: unknown, ctx: unknown) => Promise<{ before?: unknown }>
   execute: (input: unknown, ctx: unknown) => Promise<unknown>
+  undo: (context: { logEntry: unknown; ctx: unknown }) => Promise<void>
 }
 
 const mockRegisteredCommands = new Map<string, RegisteredCommand>()
@@ -15,6 +18,7 @@ const findWithDecryptionMock = jest.fn()
 const deleteMessageAttachmentRowsMock = jest.fn()
 const enqueueMessageAttachmentSectionCleanupMock = jest.fn()
 const assertExternalEmailBudgetMock = jest.fn(async () => {})
+const delegateComposeToSenderMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
   registerCommand: (command: RegisteredCommand) => mockRegisterCommand(command),
@@ -33,6 +37,10 @@ jest.mock('@open-mercato/core/modules/messages/lib/externalEmailBudget', () => (
   assertExternalEmailBudget: (...args: unknown[]) => assertExternalEmailBudgetMock(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/messages/lib/composeSenderDelegation', () => ({
+  delegateComposeToSender: (...args: unknown[]) => delegateComposeToSenderMock(...args),
+}))
+
 jest.mock('@open-mercato/core/modules/messages/lib/attachments', () => ({
   linkAttachmentsToMessage: jest.fn(),
   linkLibraryAttachmentsToMessage: jest.fn(),
@@ -47,6 +55,7 @@ const organizationId = '33333333-3333-4333-8333-333333333333'
 const senderUserId = '44444444-4444-4444-8444-444444444444'
 const recipientUserId = '55555555-5555-4555-8555-555555555555'
 const keptAttachmentId = '66666666-6666-4666-8666-666666666666'
+const mailboxId = '77777777-7777-4777-8777-777777777777'
 
 function createDraftMessage(overrides: Partial<Message> = {}) {
   return {
@@ -79,7 +88,7 @@ function createHarness(messageOverrides: Partial<Message> = {}, recipients: Arra
   const emFork = {
     flush: jest.fn(async () => {}),
     find: jest.fn(async () => []),
-    findOne: jest.fn(async () => null),
+    findOne: jest.fn(async (): Promise<Message | null> => null),
     nativeDelete: jest.fn(async () => {}),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn(),
@@ -135,6 +144,83 @@ describe('messages.messages.update_draft command send transition', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  it('routes the saved content through the mailbox and marks the same draft sent', async () => {
+    const { command, draft, emFork, ctx } = createHarness({
+      visibility: 'public',
+      externalEmail: 'customer@example.com',
+      bodyFormat: 'markdown',
+      sendViaEmail: true,
+    })
+    delegateComposeToSenderMock.mockResolvedValueOnce({ ok: true, messageId, threadId: messageId })
+
+    await expect(command.execute(updateInput({ senderChannelId: mailboxId }), ctx))
+      .resolves.toEqual({ ok: true, id: messageId })
+
+    expect(delegateComposeToSenderMock).toHaveBeenCalledWith(
+      ctx.container,
+      expect.objectContaining({ userId: senderUserId, tenantId, organizationId }),
+      expect.objectContaining({
+        senderChannelId: mailboxId,
+        externalEmail: 'customer@example.com',
+        subject: 'Draft subject',
+        body: 'Draft body',
+        bodyFormat: 'markdown',
+      }),
+      { em: emFork, messageId, threadId: messageId },
+    )
+    expect(draft).toMatchObject({ isDraft: false, threadId: messageId, sourceEntityId: mailboxId, sendViaEmail: false })
+    expect(emitMessagesEventMock).toHaveBeenCalledWith(
+      'messages.message.sent',
+      expect.objectContaining({ messageId, sendViaEmail: false }),
+      { persistent: true },
+    )
+  })
+
+  it('rejects a stale mailbox draft before delegating delivery', async () => {
+    const { command, draft, emFork, ctx } = createHarness({
+      visibility: 'public',
+      externalEmail: 'customer@example.com',
+      updatedAt: new Date('2026-11-01T11:00:00.000Z'),
+    })
+    const request = new Request('https://example.com/api/messages/' + messageId, {
+      method: 'PATCH',
+      headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: '2026-11-01T10:00:00.000Z' },
+    })
+
+    await expect(command.execute(updateInput({ senderChannelId: mailboxId }), { ...ctx, request }))
+      .rejects.toMatchObject({ status: 409 })
+    expect(draft.isDraft).toBe(true)
+    expect(emFork.rollback).toHaveBeenCalledTimes(1)
+    expect(delegateComposeToSenderMock).not.toHaveBeenCalled()
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
+  })
+
+  it('leaves the saved draft editable when the selected mailbox is rejected', async () => {
+    const { command, draft, emFork, ctx } = createHarness({ visibility: 'public', externalEmail: 'customer@example.com' })
+    const fieldErrors = { senderChannelId: 'Mailbox disconnected' }
+    delegateComposeToSenderMock.mockResolvedValueOnce({ ok: false, status: 422, error: 'Mailbox disconnected', fieldErrors })
+
+    await expect(command.execute(updateInput({ senderChannelId: mailboxId, subject: 'Unsent edit' }), ctx))
+      .rejects.toMatchObject({ status: 422, body: { fieldErrors } })
+    expect(draft).toMatchObject({ isDraft: true, subject: 'Draft subject' })
+    expect(emFork.rollback).toHaveBeenCalledTimes(1)
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses to reopen a mailbox send by undoing an older draft edit', async () => {
+    const { command, draft, emFork, ctx } = createHarness({ visibility: 'public', externalEmail: 'customer@example.com' })
+    emFork.findOne.mockResolvedValueOnce(draft)
+    const { before } = await command.prepare(updateInput({ isDraft: undefined, subject: 'Updated draft' }), ctx)
+    await command.execute(updateInput({ isDraft: undefined, subject: 'Updated draft' }), ctx)
+    delegateComposeToSenderMock.mockResolvedValueOnce({ ok: true, messageId, threadId: messageId })
+    await command.execute(updateInput({ senderChannelId: mailboxId }), ctx)
+
+    await expect(command.undo({ ctx, logEntry: { payload: { undo: { before } } } }))
+      .rejects.toThrow('Undo cannot reopen a draft sent through a mailbox')
+    expect(draft).toMatchObject({ isDraft: false, subject: 'Updated draft', sourceEntityId: mailboxId })
+    expect(emFork.rollback).toHaveBeenCalledTimes(1)
   })
 
   it('rejects sending an internal draft without input or preloaded recipients', async () => {

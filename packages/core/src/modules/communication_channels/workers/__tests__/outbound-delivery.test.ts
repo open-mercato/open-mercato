@@ -4,6 +4,15 @@ import handler, {
   type OutboundDeliveryPayload,
 } from '../outbound-delivery'
 import type { QueuedJob } from '@open-mercato/queue'
+import { LockMode } from '@mikro-orm/core'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Message } from '../../../messages/data/entities'
+import { MessageChannelLink } from '../../data/entities'
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/encryption/find'),
+  findOneWithDecryption: jest.fn(),
+}))
 
 // Mock the queue helper so the worker doesn't actually re-enqueue to a real queue
 // in unit tests. We assert the helper is invoked with the right shape.
@@ -31,6 +40,7 @@ describe('outbound-delivery worker metadata', () => {
 describe('outbound-delivery worker behaviour', () => {
   beforeEach(() => {
     enqueueMock.mockClear()
+    jest.mocked(findOneWithDecryption).mockReset()
   })
 
   function makeJob(
@@ -51,17 +61,50 @@ describe('outbound-delivery worker behaviour', () => {
     }
   }
 
-  function makeCtx(execute: jest.Mock) {
+  function makeCtx(execute: jest.Mock, em?: unknown) {
     return {
       jobId: 'job-1',
       attemptNumber: 1,
       queueName: 'communication-channels-outbound',
       resolve: ((name: string) => {
         if (name === 'commandBus') return { execute }
+        if (name === 'em') return { fork: () => em }
         return null
       }) as <T>(name: string) => T,
     }
   }
+
+  it.each([
+    { draft: true, matchingLink: false, dispatch: false },
+    { draft: false, matchingLink: false, dispatch: false },
+    { draft: false, matchingLink: true, dispatch: true },
+  ])('dispatches only a committed draft send with the matching link ($draft, $matchingLink)', async ({
+    draft, matchingLink, dispatch,
+  }) => {
+    const job = makeJob({ draftLinkId: 'a3333333-3333-4333-8333-333333333333' })
+    const execute = jest.fn(async () => ({ result: { status: 'delivered' }, logEntry: null }))
+    const em = { begin: jest.fn(), flush: jest.fn(), commit: jest.fn(), rollback: jest.fn() }
+    jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity) => {
+      if (entity === Message) return { isDraft: draft } as never
+      if (entity === MessageChannelLink && matchingLink) return { id: job.payload.draftLinkId } as never
+      return null
+    })
+
+    await handler(job, makeCtx(execute, em))
+
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      em, Message, { id: job.payload.messageId, ...job.payload.scope, deletedAt: null },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }, job.payload.scope,
+    )
+    if (!draft) {
+      expect(findOneWithDecryption).toHaveBeenCalledWith(
+        em, MessageChannelLink, { id: job.payload.draftLinkId, messageId: job.payload.messageId, ...job.payload.scope, direction: 'outbound' },
+        undefined, job.payload.scope,
+      )
+    }
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(dispatch ? 1 : 0)
+  })
 
   it('returns silently on `delivered`', async () => {
     const execute = jest.fn(async () => ({

@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { getTransactionLifetime } from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -33,6 +34,7 @@ import { buildOutboundConversationRef } from './outbound-conversation-ref'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 
 const logger = createLogger('communication_channels')
 
@@ -117,6 +119,7 @@ export async function sendAsUser(
   container: AppContainer,
   actor: SendAsUserActor,
   input: SendAsUserInput,
+  draft?: { em: EntityManager; messageId: string; threadId: string },
 ): Promise<SendAsUserResult> {
   if (!input.body.plain && !input.body.html) {
     return { ok: false, status: 422, error: 'Either body.plain or body.html is required' }
@@ -128,7 +131,10 @@ export async function sendAsUser(
     return { ok: false, status: 422, error: 'At least one recipient is required' }
   }
 
-  const em = (container.resolve('em') as EntityManager).fork()
+  const em = draft?.em ?? (container.resolve('em') as EntityManager).fork()
+  if (draft && !getTransactionLifetime(em)) {
+    throw new Error('[internal] Mailbox draft delivery requires the draft transaction')
+  }
   const { tenantId } = actor
   const organizationId = actor.organizationId
   const dscope = { tenantId, organizationId }
@@ -136,7 +142,7 @@ export async function sendAsUser(
   const channel = await findOneWithDecryption(
     em,
     CommunicationChannel,
-    { id: input.userChannelId, tenantId, organizationId, deletedAt: null },
+    { id: input.userChannelId, tenantId, organizationId, deletedAt: null, ...(draft ? { channelType: 'email' } : {}) },
     undefined,
     dscope,
   )
@@ -205,12 +211,11 @@ export async function sendAsUser(
   // Create the Message via the messages module compose command. The outbound
   // subscriber picks it up via `messages.message.sent` and routes through the
   // adapter chain.
-  const commandBus = container.resolve('commandBus') as CommandBus
   const messageBody = input.body.plain ?? htmlToText(input.body.html ?? '')
   const composeInput = {
     type: `channel.${channel.providerKey}`,
     visibility: 'public' as const,
-    sourceEntityType: 'communication_channels.send_as_user',
+    sourceEntityType: SEND_AS_USER_SOURCE_ENTITY_TYPE,
     sourceEntityId: channel.id,
     externalEmail: input.to[0],
     ...(channel.channelType === 'email'
@@ -245,13 +250,20 @@ export async function sendAsUser(
   }
   type ComposedMessage = { messageId: string; threadId: string }
   const compose = async (): Promise<ComposedMessage> => {
+    const commandBus = container.resolve('commandBus') as CommandBus
     const context: CommandRuntimeContext & MailboxComposeTransaction = {
       container,
       auth: actor.auth as never,
       organizationScope: null,
       selectedOrganizationId: organizationId,
       organizationIds: organizationId ? [organizationId] : null,
-      ...(input.composerPayload ? { persistMailboxDelivery: persistOutboundLink } : {}),
+      ...(input.composerPayload
+        ? {
+            persistMailboxDelivery: async (transaction, message) => {
+              channelLinkId = await persistOutboundLink(transaction, message)
+            },
+          }
+        : {}),
     }
     const execution = await commandBus.execute<typeof composeInput, { id: string; threadId: string | null }>(
       'messages.messages.compose',
@@ -418,7 +430,29 @@ export async function sendAsUser(
     })
     em.persist(channelLink)
     await em.flush()
-    channelLinkId = channelLink.id
+    return channelLink.id
+  }
+
+  if (draft) {
+    const draftLinkId = await persistOutboundLink(em, draft)
+    const deliveryJob: OutboundDeliveryPayload = { messageId: draft.messageId, scope: dscope, attempt: 1, draftLinkId }
+    try {
+      await getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.draftOutbound).enqueue(deliveryJob)
+    } catch (error) {
+      logger.error('Could not queue mailbox draft delivery', { err: error, messageId: draft.messageId })
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'communication_channels',
+        code: 'communication_channels.draft_delivery_enqueue_failed',
+      })
+      return { ok: false, status: 503, error: '[internal] Mailbox draft delivery queue unavailable' }
+    }
+    return {
+      ok: true,
+      messageId: draft.messageId,
+      threadId: draft.threadId,
+      channelId: channel.id,
+      providerKey: channel.providerKey,
+    }
   }
 
   let composed: ComposedMessage

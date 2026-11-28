@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -16,6 +17,7 @@ import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
 import {
   canPostToChannelThread,
+  canUseMessageEmailFeature,
   hasOrganizationAccess,
   resolveMessageContext,
   resolveMessageReadAccess,
@@ -32,6 +34,9 @@ import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/com
 import { getExternalEmailBudgetErrorResponse } from '../../lib/externalEmailBudget'
 
 const logger = createLogger('messages').child({ component: 'api' })
+const draftErrorResponseSchema = errorResponseSchema.extend({
+  fieldErrors: z.record(z.string(), z.string()).optional(),
+})
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -398,20 +403,10 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return Response.json({ error: 'Only draft messages can be edited' }, { status: 409 })
   }
 
-  // `sendAsUser` composes a fresh message rather than updating an existing
-  // one, so sending a saved draft through a connected mailbox is not
-  // implemented yet. Refuse explicitly instead of silently stripping the
-  // field and falling back to the platform sender.
-  if (input.senderChannelId) {
+  if (input.isDraft === false && input.senderChannelId && !(await canUseMessageEmailFeature(ctx, scope))) {
     const { t } = await resolveTranslations()
-    const errorMessage = t(
-      'messages.errors.senderDraftSendUnsupported',
-      'Sending a saved draft through a connected mailbox is not supported yet.',
-    )
-    return Response.json(
-      { error: errorMessage, fieldErrors: { senderChannelId: errorMessage } },
-      { status: 422 },
-    )
+    const error = t('messages.errors.senderUnavailable', 'Sending from your own mailbox is not available.')
+    return Response.json({ error, fieldErrors: { senderChannelId: error } }, { status: 403 })
   }
 
   // A draft is filed on its parent's thread and skips the compose route's
@@ -419,7 +414,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   const finalVisibility = input.visibility !== undefined ? input.visibility : message.visibility
   if (
     input.isDraft === false &&
-    finalVisibility === 'public' &&
+    (finalVisibility === 'public' || input.senderChannelId) &&
     !(await canPostToChannelThread(ctx, scope, message.threadId ?? message.id))
   ) {
     return Response.json({ error: 'Access denied' }, { status: 403 })
@@ -656,17 +651,18 @@ export const openApi: OpenApiRouteDoc = {
       ],
     },
     PATCH: {
-      summary: 'Update draft message',
+      summary: 'Update or send a draft message',
       requestBody: { schema: updateDraftOpenApiSchema },
       responses: [
-        { status: 200, description: 'Draft updated', schema: okResponseSchema },
+        { status: 200, description: 'Draft updated or accepted for sending', schema: okResponseSchema },
       ],
       errors: [
-        { status: 403, description: 'Access denied', schema: errorResponseSchema },
-        { status: 404, description: 'Message not found', schema: errorResponseSchema },
-        { status: 409, description: 'Only drafts can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
+        { status: 403, description: 'Access denied', schema: draftErrorResponseSchema },
+        { status: 404, description: 'Message or sender mailbox not found', schema: draftErrorResponseSchema },
+        { status: 409, description: 'Draft is already sent, changed concurrently, or the sender mailbox is unavailable', schema: draftErrorResponseSchema },
+        { status: 422, description: 'Sender mailbox or message payload is unavailable for delivery', schema: draftErrorResponseSchema },
         { status: 429, description: 'External email rate or recipient budget exceeded', schema: errorResponseSchema },
-        { status: 503, description: 'External email budget enforcement is temporarily unavailable', schema: errorResponseSchema },
+        { status: 503, description: 'External email budget or mailbox delivery is temporarily unavailable', schema: draftErrorResponseSchema },
       ],
     },
     DELETE: {

@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isMessageComposerUploadRecordId, type MailboxComposePayload } from '@open-mercato/shared/modules/messages/compose-payload'
 import { renderMarkdownEmailBody } from './markdownEmailBody'
@@ -33,6 +34,12 @@ type SendAsUserResult =
   | (Extract<ComposeSenderResult, { ok: true }> & { channelId: string; providerKey: string })
   | { ok: false; status: number; error: string; fieldErrors?: Record<string, string>; headers?: Record<string, string> }
 
+type DraftDelivery = {
+  em: EntityManager
+  messageId: string
+  threadId: string
+}
+
 type SendAsUserService = (
   container: ContainerLike,
   actor: { userId: string; tenantId: string; organizationId: string | null; auth?: unknown },
@@ -45,6 +52,7 @@ type SendAsUserService = (
     channelMetadata?: Record<string, unknown>
     composerPayload?: MailboxComposePayload
   },
+  draft?: DraftDelivery,
 ) => Promise<SendAsUserResult>
 
 /** The composer field the selector renders, so a failure lands on that control. */
@@ -110,6 +118,7 @@ export async function delegateComposeToSender(
   container: ContainerLike,
   actor: ComposeSenderActor,
   input: ComposeSenderRequest,
+  draft?: DraftDelivery,
 ): Promise<ComposeSenderResult> {
   const senderChannelId = input.senderChannelId as string
   const { t } = await resolveTranslations()
@@ -131,6 +140,15 @@ export async function delegateComposeToSender(
   }
   const hasAttachments = Boolean(input.attachmentIds?.length || input.attachmentRecordId)
   const uploadRecordId = input.attachmentRecordId
+  if (draft && (hasAttachments || input.objects?.length)) {
+    return fail(
+      422,
+      t(
+        'messages.errors.senderPayloadUnsupported',
+        'Sending from your own mailbox does not support attachments or linked records yet.',
+      ),
+    )
+  }
   if (hasAttachments && (!uploadRecordId || !isMessageComposerUploadRecordId(uploadRecordId))) {
     return fail(
       422,
@@ -149,31 +167,25 @@ export async function delegateComposeToSender(
     )
   }
 
-  const result = await sendAsUser(
-    container,
-    {
-      userId: actor.userId,
-      tenantId: actor.tenantId,
-      organizationId: actor.organizationId,
-      auth: actor.auth,
-    },
-    {
-      userChannelId: senderChannelId,
-      to: [input.externalEmail],
-      subject: input.subject ?? '',
-      body: await buildSenderBody(input.body ?? '', input.bodyFormat),
-      parentMessageId: input.parentMessageId,
-      ...(hasAttachments || input.objects?.length
-        ? {
-            composerPayload: {
-              messageType: input.type,
-              objects: input.objects,
-              uploads: uploadRecordId ? { recordId: uploadRecordId, attachmentIds: input.attachmentIds } : undefined,
-            },
-          }
-        : {}),
-    },
-  )
+  const sendInput = {
+    userChannelId: senderChannelId,
+    to: [input.externalEmail],
+    subject: input.subject ?? '',
+    body: await buildSenderBody(input.body ?? '', input.bodyFormat),
+    parentMessageId: input.parentMessageId,
+    ...(hasAttachments || input.objects?.length
+      ? {
+          composerPayload: {
+            messageType: input.type,
+            objects: input.objects,
+            uploads: uploadRecordId ? { recordId: uploadRecordId, attachmentIds: input.attachmentIds } : undefined,
+          },
+        }
+      : {}),
+  }
+  const result = draft
+    ? await sendAsUser(container, actor, sendInput, draft)
+    : await sendAsUser(container, actor, sendInput)
 
   if (result.ok) {
     return {
@@ -182,6 +194,10 @@ export async function delegateComposeToSender(
       threadId: result.threadId,
       ...(result.deliveryEnqueueStatus ? { deliveryEnqueueStatus: result.deliveryEnqueueStatus } : {}),
     }
+  }
+
+  if (draft && result.status === 503) {
+    return fail(503, t('messages.errors.senderUnavailable', 'Sending from your own mailbox is not available.'))
   }
 
   const fieldMessage = Object.values(result.fieldErrors ?? {})[0] ?? result.error

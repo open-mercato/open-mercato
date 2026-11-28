@@ -1,3 +1,4 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 jest.mock('../markdownEmailBody', () => ({
   renderMarkdownEmailBody: jest.fn(async (body: string) => `<rendered>${body}</rendered>`),
 }))
@@ -245,6 +246,29 @@ describe('delegateComposeToSender', () => {
         uploads: { recordId: attachmentRecordId, attachmentIds },
       },
     }))
+  })
+
+  it.each([
+    { attachmentIds: ['33333333-3333-4333-8333-333333333333'] },
+    { objects: [{ entityModule: 'customers', entityType: 'person', entityId: '44444444-4444-4444-8444-444444444444' }] },
+  ])('refuses a saved draft with an unsupported payload (%j)', async (payload) => {
+    const sendAsUser = jest.fn()
+
+    const result = await delegateComposeToSender(containerWith(sendAsUser), actor, {
+      ...publicCompose,
+      ...payload,
+    }, {
+      em: {} as EntityManager,
+      messageId: 'draft-1',
+      threadId: 'draft-1',
+    })
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 422,
+      fieldErrors: { [COMPOSE_SENDER_FIELD]: expect.any(String) },
+    })
+    expect(sendAsUser).not.toHaveBeenCalled()
   })
 
   it('degrades to a field error when communication_channels is absent', async () => {

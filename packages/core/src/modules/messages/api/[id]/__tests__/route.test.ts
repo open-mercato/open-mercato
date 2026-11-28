@@ -607,7 +607,11 @@ describe('messages /api/messages/[id] PATCH', () => {
     }))
   })
 
-  it('refuses to send a saved draft through a connected mailbox instead of silently dropping the field', async () => {
+  it.each([
+    { emailGranted: true, threadAccess: true, status: 200 },
+    { emailGranted: false, threadAccess: true, status: 403 },
+    { emailGranted: true, threadAccess: false, status: 403 },
+  ])('checks both grants for a mailbox draft send ($emailGranted, $threadAccess)', async ({ emailGranted, threadAccess, status }) => {
     const tenantId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
     const organizationId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
     const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -620,6 +624,7 @@ describe('messages /api/messages/[id] PATCH', () => {
       organizationId,
       senderUserId: userId,
       isDraft: true,
+      visibility: 'internal',
       deletedAt: null,
     }
 
@@ -634,6 +639,8 @@ describe('messages /api/messages/[id] PATCH', () => {
       resolve: (name: string) => {
         if (name === 'em') return em
         if (name === 'commandBus') return commandBus
+        if (name === 'rbacService') return { userHasAllFeatures: async () => emailGranted }
+        if (name === 'communicationChannelsResolveChannelThreadAccess' && !threadAccess) return async () => ({ canAccess: false })
         return null
       },
     }
@@ -655,10 +662,16 @@ describe('messages /api/messages/[id] PATCH', () => {
 
     const response = await PATCH(request, { params: { id: messageId } })
 
-    expect(response.status).toBe(422)
-    const body = await response.json()
-    expect(body.fieldErrors?.senderChannelId).toBeTruthy()
-    expect(commandBus.execute).not.toHaveBeenCalled()
+    expect(response.status).toBe(status)
+    if (status === 200) {
+      expect(await response.json()).toEqual({ ok: true, id: messageId })
+      expect(commandBus.execute).toHaveBeenCalledWith(
+        'messages.messages.update_draft',
+        expect.objectContaining({ input: expect.objectContaining({ isDraft: false, messageId, senderChannelId: channelId }) }),
+      )
+    } else {
+      expect(commandBus.execute).not.toHaveBeenCalled()
+    }
   })
 })
 

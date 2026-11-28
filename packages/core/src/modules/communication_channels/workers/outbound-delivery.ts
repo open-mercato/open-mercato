@@ -1,10 +1,16 @@
+import { LockMode } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   COMMUNICATION_CHANNELS_DELIVER_OUTBOUND_COMMAND_ID,
   type DeliverOutboundMessageInput,
   type DeliverOutboundMessageResult,
 } from '../commands/deliver-outbound-message'
+import { Message } from '../../messages/data/entities'
+import { MessageChannelLink } from '../data/entities'
 import { computeBackoffMs } from '../lib/error-classification'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -27,6 +33,8 @@ export type OutboundDeliveryPayload = {
   attempt?: number
   /** Force credential refresh on this attempt — used after a 401 from the provider. */
   forceCredentialRefresh?: boolean
+  /** The exact outbound link written by the transaction sending a saved draft. */
+  draftLinkId?: string
 }
 
 export const OUTBOUND_DELIVERY_MAX_ATTEMPTS = 3
@@ -39,6 +47,26 @@ export const metadata: WorkerMeta = {
 
 type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T
+}
+
+async function hasCommittedDraftDelivery(
+  em: EntityManager,
+  { messageId, scope }: OutboundDeliveryPayload,
+  draftLinkId: string,
+): Promise<boolean> {
+  let committed = false
+  await withAtomicFlush(em, [async () => {
+    const message = await findOneWithDecryption(
+      em, Message, { id: messageId, ...scope, deletedAt: null },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true }, scope,
+    )
+    if (!message || message.isDraft) return
+    const link = await findOneWithDecryption(
+      em, MessageChannelLink, { id: draftLinkId, messageId, ...scope, direction: 'outbound' }, undefined, scope,
+    )
+    committed = Boolean(link)
+  }], { transaction: true })
+  return committed
 }
 
 /**
@@ -80,6 +108,10 @@ export default async function handle(
 
   let outcome: DeliverOutboundMessageResult
   try {
+    if (job.payload.draftLinkId) {
+      const em = ctx.resolve<EntityManager>('em').fork()
+      if (!await hasCommittedDraftDelivery(em, job.payload, job.payload.draftLinkId)) return
+    }
     const { result } = await commandBus.execute<
       DeliverOutboundMessageInput,
       DeliverOutboundMessageResult
@@ -145,6 +177,6 @@ async function reenqueue(payload: OutboundDeliveryPayload, attempt: number): Pro
     attempt: attempt + 1,
   }
   const delayMs = computeBackoffMs(attempt)
-  const queue = getCommunicationChannelsQueue(COMMUNICATION_CHANNELS_QUEUES.outbound)
-  await queue.enqueue(next as unknown as Record<string, unknown>, { delayMs })
+  const queueName = next.draftLinkId ? COMMUNICATION_CHANNELS_QUEUES.draftOutbound : COMMUNICATION_CHANNELS_QUEUES.outbound
+  await getCommunicationChannelsQueue(queueName).enqueue(next, { delayMs })
 }

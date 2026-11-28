@@ -67,11 +67,21 @@ ComposeMessagePageClient (core/messages, client)
                                                                          → outbound delivery queue
 ```
 
-`communication_channels` is unchanged. With the module disabled, `tryResolveSendAsUserService` returns `undefined`, the route answers 422 on `senderChannelId`, and — because the channel list endpoint is also gone — the selector never renders in the first place, so the case is unreachable through the UI.
+The existing compose queue still handles fresh sends. Saved drafts use the same hub facade with the draft transaction and a dedicated delivery queue. With the module disabled, `tryResolveSendAsUserService` returns `undefined`, the route answers 422 on `senderChannelId`, and — because the channel list endpoint is also gone — the selector never renders in the first place, so the case is unreachable through the UI.
 
 ## Data Models
 
 None. No entity, migration or snapshot change. All rows written on the mailbox path are the ones `sendAsUser` already writes.
+
+## Sending a saved draft
+
+The draft editor offers the same connected email mailboxes as the fresh composer. The sender choice applies to the current send.
+
+`PATCH /api/messages/:id` uses the optional `senderChannelId` when `isDraft` is `false`. The existing draft update command locks the draft and checks its owner, state and version. It uses the hub facade to write the outbound link and thread mapping in the transaction that marks the draft sent. The hub queues the exact link before commit, and the delivery worker waits for the draft lock before checking that the draft and link committed together. A successful response remains `{ ok: true, id }` with the original message ID. Mailbox validation and queue failures leave the draft editable and carry a field error on `senderChannelId`.
+
+The mailbox send requires `messages.email` and passes the existing channel-thread and mutation guards. Mailbox delivery for a saved draft refuses attachments and linked records, including records already saved with the draft. Queued mailbox sends are irreversible.
+
+The hub uses a separate queue for draft delivery so workers on an older release only consume their existing jobs during rolling upgrades. The draft worker uses the existing outbound delivery command and its retry policy.
 
 ## API Contracts
 
@@ -122,7 +132,9 @@ Contract surfaces touched, classified per `BACKWARD_COMPATIBILITY.md`:
 | `composeMessageSchema` / `composeMessageRequestSchema` | new optional field | ADDITIVE-ONLY |
 | `MessageComposerProps` (public type, `@open-mercato/ui/backend/messages`) | new optional `senderOptions`; new exported `MessageSenderOption` | ADDITIVE-ONLY |
 | `UseMessageComposeResult` | new `senderChannelId` / `setSenderChannelId` / `senderOptions` / `submitFieldErrors` members | ADDITIVE-ONLY on a returned object |
-| DI keys | none added; `communicationChannelsSendAsUser` consumed as-is | unchanged |
+| `PATCH /api/messages/:id` request body | Optional `senderChannelId` routes a draft send through the selected mailbox. The original draft ID and success payload are preserved. | ADDITIVE-ONLY |
+| `communicationChannelsSendAsUser` (DI) | An optional draft argument supplies the existing message and thread IDs and the transaction's entity manager. Calls without the argument use the existing compose path. | ADDITIVE-ONLY |
+| Queue and worker metadata | The `communication-channels-draft-outbound` queue and its worker handle draft jobs. The existing queue and worker are preserved during rolling upgrades. | ADDITIVE-ONLY |
 | Event ids, widget spot ids, ACL features, DB schema, CLI, notification ids | none | unchanged |
 
 No deprecation protocol applies: nothing is removed, renamed or narrowed. No `UPGRADE_NOTES.md` entry is required. The messages module keeps working with `communication_channels` disabled — verified by the `composeSenderDelegation.test.ts` unit test asserting the route's behaviour when the facade cannot be resolved.
@@ -154,6 +166,7 @@ Affected API paths and UI paths, with the tests shipping in this change:
 | `POST /api/messages` without `senderChannelId` | same spec — asserts the platform path still answers 201 and writes no channel link |
 | `GET /api/communication_channels/me/channels` shape the selector consumes | existing `TC-CHANNEL-EMAIL-HUB-001.spec.ts` |
 | Composer UI — selector visibility, default, payload | unit tests in `packages/ui/src/backend/messages/__tests__/` and `packages/core/src/modules/messages/lib/__tests__/composeSenderOptions.test.ts` |
+| Saved draft editor and `PATCH /api/messages/:id` | `TC-CHANNEL-EMAIL-HUB-004.spec.ts` covers mailbox selection when reopening a draft, delivery and threading under the original draft ID, and rejection of a missing mailbox or a repeated send. It also asserts that email permission, personal mailbox ownership and channel-thread access are each required, with a denial leaving the draft editable and without an outbound link. |
 | Route delegation, body-format handling, error mapping, module-absent behaviour | `packages/core/src/modules/messages/lib/__tests__/composeSenderDelegation.test.ts` |
 
 Integration tests are self-contained: the channel is seeded per test through the env-gated `test-seed` fixture and deleted in `finally`; nothing relies on seeded or demo data, and the suite skips when `OM_ENABLE_TEST_CHANNEL_SEEDING` is off.
@@ -168,6 +181,8 @@ Integration tests are self-contained: the channel is seeded per test through the
 - `messages/subscribers/message-notification.ts` untouched (owned by the concurrent duplicate-send fix).
 
 ## Changelog
+
+- 2026-11-21 — Added connected mailbox delivery for saved drafts, with an atomic draft transition and a delivery job tied to its outbound link (#6291).
 
 - 2026-09-19 — Spec written. Architectural choice recorded: route-level delegation to `sendAsUser` with a provider-agnostic UI option contract; widget injection and a UI-level submit override rejected.
 - 2026-09-19 — Review follow-up: delegation failure messages moved onto `messages.errors.sender*` locale keys resolved server-side; markdown bodies rendered to HTML through the shared `renderMarkdownEmailBody` instead of being sent as raw source.
