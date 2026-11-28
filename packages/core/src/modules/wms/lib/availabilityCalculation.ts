@@ -19,6 +19,7 @@ import { availabilityItemKey } from '@open-mercato/shared/lib/availability'
 import type { AvailabilityItemResult, AvailabilityQuery, AvailabilityResult, AvailabilityState } from '@open-mercato/shared/lib/availability'
 import { tryResolve } from './tryResolve'
 import { buildSqlInClause } from './sqlInClause'
+import { NON_RESERVABLE_LOCATION_TYPES } from './inventoryPolicy'
 
 type Resolver = { resolve: <T = unknown>(name: string) => T }
 
@@ -89,13 +90,18 @@ async function loadBalanceAggregates(
     locationClause = ` and ${locationIn.sql}`
     params.push(...locationIn.params)
   }
+  const nonReservableTypeClause = buildSqlInClause('loc.type', Array.from(NON_RESERVABLE_LOCATION_TYPES))
+  params.push(...nonReservableTypeClause.params)
 
   const sql = `
     select b.catalog_variant_id,
            sum(coalesce(b.quantity_on_hand, 0) - coalesce(b.quantity_reserved, 0) - coalesce(b.quantity_allocated, 0)) as aggregate_available
     from wms_inventory_balances b
+    left join wms_warehouse_locations loc on loc.id = b.location_id
+      and loc.organization_id = b.organization_id and loc.tenant_id = b.tenant_id
     where b.organization_id = ? and b.tenant_id = ? and ${variantClause.sql} and b.deleted_at is null
       ${locationClause}
+      and (loc.type is null or not (${nonReservableTypeClause.sql}))
     group by b.catalog_variant_id
   `
   const rows = await em.getConnection().execute<BalanceAggregateRow[]>(sql, params)
