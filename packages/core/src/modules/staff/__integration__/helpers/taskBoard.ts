@@ -75,9 +75,10 @@ export async function openBoard(page: Page, fixture: BoardFixture, locale: Board
   ])
   await acknowledgeGlobalNotices(page)
   if (options.coldScope) {
-    await page.context().clearCookies({ name: /^om_selected_(org|tenant)$/ })
+    await page.context().clearCookies({ name: 'om_selected_org' })
     const cookies = await page.context().cookies()
-    expect(cookies.filter((cookie) => /^om_selected_(org|tenant)$/.test(cookie.name)).map((cookie) => cookie.name)).toEqual([])
+    expect(cookies.filter((cookie) => cookie.name === 'om_selected_org')).toEqual([])
+    expect(cookies.some((cookie) => cookie.name === 'om_selected_tenant' && cookie.value === fixture.tenantId)).toBe(true)
     expect(cookies.some((cookie) => cookie.name === 'auth_token' && cookie.value === fixture.token)).toBe(true)
     expect(cookies.some((cookie) => cookie.name === 'locale' && cookie.value === locale)).toBe(true)
   }

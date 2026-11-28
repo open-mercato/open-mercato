@@ -2,9 +2,10 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ReserveInventoryDialog } from '../ReserveInventoryDialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { loadInventoryProfileForVariant } from '../inventoryMutationLoaders'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback ?? _key,
@@ -86,6 +87,10 @@ jest.mock('../inventoryMutationLoaders', () => ({
   resolveWarehouseLabel: jest.fn(async () => null),
 }))
 
+const mockedLoadInventoryProfileForVariant = loadInventoryProfileForVariant as jest.MockedFunction<
+  typeof loadInventoryProfileForVariant
+>
+
 const buildAccess = (overrides: Record<string, unknown> = {}) => ({
   loading: false,
   organizationId: 'org-uuid-1',
@@ -105,6 +110,7 @@ const buildAccess = (overrides: Record<string, unknown> = {}) => ({
 describe('ReserveInventoryDialog', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockedLoadInventoryProfileForVariant.mockResolvedValue(null)
     for (const key of Object.keys(mockComboboxCaptures)) delete mockComboboxCaptures[key]
   })
 
@@ -277,6 +283,43 @@ describe('ReserveInventoryDialog', () => {
       />,
     )
     expect(screen.getByPlaceholderText('Any lot (system selects)…')).toBeTruthy()
+  })
+
+  it('keeps the lot optional for a lot-tracked variant so the system can allocate by strategy', async () => {
+    mockedLoadInventoryProfileForVariant.mockResolvedValue({ track_lot: true, track_serial: false })
+    mockRunMutation.mockResolvedValue(undefined)
+
+    render(
+      <ReserveInventoryDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+        initialWarehouseId="wh-uuid-1"
+        initialCatalogVariantId="var-uuid-1"
+      />,
+    )
+
+    await waitFor(() => expect(mockedLoadInventoryProfileForVariant).toHaveBeenCalledWith('var-uuid-1'))
+    await act(async () => {
+      await mockedLoadInventoryProfileForVariant.mock.results[0]?.value
+    })
+    const lotField = screen
+      .getByPlaceholderText('Any lot (system selects)…')
+      .closest('[data-slot="form-field"]')
+    expect(lotField?.querySelector('label')?.textContent).toBe('Lot (optional)')
+
+    fireEvent.click(screen.getByRole('button', { name: /Reserve/ }))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText('Select a lot for this variant.')).toBeNull()
+    const callArg = mockRunMutation.mock.calls[0][0] as {
+      mutationPayload: Record<string, unknown>
+    }
+    expect(callArg.mutationPayload).toMatchObject({
+      warehouseId: 'wh-uuid-1',
+      catalogVariantId: 'var-uuid-1',
+    })
+    expect(callArg.mutationPayload).not.toHaveProperty('lotId')
   })
 
   it('hides lot field when no variant is selected', () => {
