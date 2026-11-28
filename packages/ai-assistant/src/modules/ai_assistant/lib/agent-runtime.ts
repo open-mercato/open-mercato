@@ -1418,7 +1418,7 @@ async function resolveTenantAllowlistSnapshot(
 /**
  * Composes the effective system prompt for a run. When the agent declares a
  * `resolvePageContext` callback AND the incoming request carries both
- * `entityType` and `recordId`, the callback is invoked and its return value
+ * `entityType` (or its `recordType` alias) and `recordId`, the callback is invoked and its return value
  * is appended to `agent.systemPrompt`. Throwing callbacks are caught and
  * logged without failing the request — the spec allows hydration to be
  * best-effort until Step 5.2 wires a stricter contract.
@@ -1503,7 +1503,10 @@ export async function composeSystemPromptWithMeta(
   }
   const resolve = agent.resolvePageContext
   if (!resolve) return unhydrated
-  const entityType = pageContext?.entityType
+  const canonicalEntityType = pageContext?.entityType
+  const recordType = pageContext?.recordType
+  const alias = typeof recordType === 'string' && recordType.trim().length > 0 ? recordType : null
+  const entityType = canonicalEntityType || alias
   const recordId = pageContext?.recordId
   if (typeof entityType !== 'string' || entityType.length === 0) return unhydrated
   if (typeof recordId !== 'string' || recordId.length === 0) return unhydrated

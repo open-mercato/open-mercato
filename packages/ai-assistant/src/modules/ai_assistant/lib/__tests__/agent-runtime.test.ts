@@ -305,6 +305,75 @@ describe('runAiAgentText', () => {
     expect(callArg.system).toBe('System prompt base.')
   })
 
+  it('hydrates from the recordType alias sent by the AI trigger widgets', async () => {
+    const resolvePageContext = jest.fn(async () => 'Deal context block')
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.assistant',
+        moduleId: 'customers',
+        resolvePageContext,
+      }),
+    ])
+
+    await runAiAgentText({
+      agentId: 'customers.assistant',
+      messages: baseMessages as never,
+      authContext: baseAuth,
+      pageContext: { view: 'customers.deal.detail', recordType: 'deal', recordId: 'deal-1' },
+      container: {} as never,
+    })
+
+    expect(resolvePageContext).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: 'deal', recordId: 'deal-1' }),
+    )
+    const callArg = streamTextMock.mock.calls[0][0] as { system: string }
+    expect(callArg.system).toBe('System prompt base.\n\nDeal context block')
+  })
+
+  it('prefers entityType over the recordType alias when both are present', async () => {
+    const resolvePageContext = jest.fn(async () => 'ctx')
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.assistant',
+        moduleId: 'customers',
+        resolvePageContext,
+      }),
+    ])
+
+    await runAiAgentText({
+      agentId: 'customers.assistant',
+      messages: baseMessages as never,
+      authContext: baseAuth,
+      pageContext: { entityType: 'customers.deal', recordType: 'person', recordId: 'deal-1' },
+      container: {} as never,
+    })
+
+    expect(resolvePageContext).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: 'customers.deal' }),
+    )
+  })
+
+  it.each([null, { kind: 'deal' }, ' '])('skips resolvePageContext for an unusable recordType (%j)', async (recordType) => {
+    const resolvePageContext = jest.fn(async () => 'should-not-append')
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'customers.assistant',
+        moduleId: 'customers',
+        resolvePageContext,
+      }),
+    ])
+
+    await runAiAgentText({
+      agentId: 'customers.assistant',
+      messages: baseMessages as never,
+      authContext: baseAuth,
+      pageContext: { view: 'customers.people.list', recordType, recordId: 'a,b' },
+      container: {} as never,
+    })
+
+    expect(resolvePageContext).not.toHaveBeenCalled()
+  })
+
   it('does not fail the request if resolvePageContext throws', async () => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
     const resolvePageContext = jest.fn(async () => {

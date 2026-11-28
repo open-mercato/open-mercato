@@ -126,7 +126,7 @@ Mirror `packages/core/src/modules/customers/ai-agents.ts`: declare a `PromptTemp
 
 ### Page context
 
-When `<AiChat>` is mounted with `pageContext={{ entityType, recordId }}`, the runtime calls `resolvePageContext` and appends the returned string to `systemPrompt`. Use it to hydrate record-specific context:
+When `<AiChat>` is mounted with `pageContext={{ entityType, recordId }}`, the runtime calls `resolvePageContext` and appends the returned string to `systemPrompt`. `recordType` is accepted as an alias for `entityType` (the shipped trigger widgets send `{ view, recordType, recordId }`); `entityType` wins when both are present. Use it to hydrate record-specific context:
 
 ```ts
 async function resolvePageContext(input) {
