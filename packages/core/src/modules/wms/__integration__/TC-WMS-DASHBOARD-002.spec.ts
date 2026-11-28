@@ -98,9 +98,9 @@ test.describe('TC-WMS-DASHBOARD-002 expiring-soon KPI counts past the lot fetch 
           { length: Math.min(CREATE_BATCH_SIZE, STOCKLESS_LOT_COUNT - start) },
           (_, offset) => start + offset,
         )
-        await Promise.all(
-          batch.map(async (index) => {
-            const lotId = await createCrudFixture(request, adminToken, '/api/wms/lots', {
+        const results = await Promise.allSettled(
+          batch.map((index) =>
+            createCrudFixture(request, adminToken, '/api/wms/lots', {
               organizationId: scope.organizationId,
               tenantId: scope.tenantId,
               catalogVariantId: variantId,
@@ -108,10 +108,16 @@ test.describe('TC-WMS-DASHBOARD-002 expiring-soon KPI counts past the lot fetch 
               lotNumber: `EMPTY-${suffix}-${index}`,
               status: 'available',
               expiresAt: new Date(soon + index * 1000).toISOString(),
-            })
-            stocklessLotIds.push(lotId)
-          }),
+            }),
+          ),
         )
+        for (const result of results) {
+          if (result.status === 'fulfilled') stocklessLotIds.push(result.value)
+        }
+        const failed = results.find(
+          (result): result is PromiseRejectedResult => result.status === 'rejected',
+        )
+        if (failed) throw failed.reason
       }
 
       const stockedExpiresAt = new Date()
