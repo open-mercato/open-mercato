@@ -22,7 +22,7 @@ import {
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
-  normalizeDictionaryColor,
+  normalizeDictionaryEntryColor,
   normalizeDictionaryIcon,
 } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
@@ -78,12 +78,6 @@ function normalizeValue(input: string): { value: string; normalized: string } {
     throw new CrudHttpError(400, { error: 'Dictionary entry value is required' })
   }
   return { value: trimmed, normalized: trimmed.toLowerCase() }
-}
-
-function sanitizeColor(input: string | null | undefined): string | null | undefined {
-  if (input === undefined) return undefined
-  if (input === null) return null
-  return normalizeDictionaryColor(input)
 }
 
 function sanitizeIcon(input: string | null | undefined): string | null | undefined {
@@ -183,7 +177,7 @@ const createDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryCreate
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const value = normalizeValue(parsed.value)
     const label = parsed.label?.trim() || value.value
-    const color = sanitizeColor(parsed.color)
+    const color = normalizeDictionaryEntryColor(parsed.kind, parsed.color)
     const icon = sanitizeIcon(parsed.icon)
     const behavior = parsed.behavior
 
@@ -541,12 +535,10 @@ const updateDictionaryEntryCommand: CommandHandler<CustomerDictionaryEntryUpdate
       }
     }
 
-    if (parsed.color !== undefined) {
-      const color = sanitizeColor(parsed.color)
-      if (entry.color !== (color ?? null)) {
-        entry.color = color ?? null
-        changed = true
-      }
+    const color = normalizeDictionaryEntryColor(parsed.kind, parsed.color)
+    if (color !== undefined && entry.color !== color) {
+      entry.color = color
+      changed = true
     }
 
     if (parsed.icon !== undefined) {

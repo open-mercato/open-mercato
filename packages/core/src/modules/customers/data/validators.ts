@@ -5,6 +5,7 @@ import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
 import { calendarDayStartInstant, calendarWallTimeToInstant, isCalendarTimezone } from '../lib/calendar/timezone'
+import { PIPELINE_STAGE_COLOR_TONES } from '../lib/pipelineStageColors'
 
 const uuid = () => z.string().uuid()
 
@@ -350,12 +351,11 @@ const dictionaryLabelSchema = z.string().trim().max(150)
 // Migration20260519120000_pipeline_stage_color_tones; AddStageDialog now writes those
 // directly. Other dictionary kinds still store hex. Accept either format so round-tripping
 // a migrated pipeline-stage entry through the dictionary edit UI doesn't fail validation.
-const DICTIONARY_COLOR_TONES = ['success', 'warning', 'info', 'error', 'neutral', 'brand', 'pink'] as const
 const dictionaryColorSchema = z
   .string()
   .trim()
   .regex(
-    new RegExp(`^(#[0-9a-fA-F]{6}|${DICTIONARY_COLOR_TONES.join('|')})$`),
+    new RegExp(`^(#[0-9a-fA-F]{6}|${PIPELINE_STAGE_COLOR_TONES.join('|')})$`),
     'Color must be a six-digit hex code (e.g. #3366ff) or a semantic tone identifier',
   )
 const dictionaryIconSchema = z.string().trim().max(48)
