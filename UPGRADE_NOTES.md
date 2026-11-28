@@ -268,6 +268,34 @@ mercato ai_assistant mcp:serve --tenant <id> --user <id>
 
 No database, event-id, route, or ACL-feature change. No stored credential or data becomes unusable — this only changes which auth path an HTTP tool call is allowed to take. See [`BACKWARD_COMPATIBILITY.md`](BACKWARD_COMPATIBILITY.md#mcp-http-session-token-no-fallback-2026-11-14-5173) and spec [`2026-11-14-mcp-http-session-required-no-fallback.md`](.ai/specs/2026-11-14-mcp-http-session-required-no-fallback.md).
 
+## Customer profiles and accounts use fulltext and token search (#8135)
+
+The built-in `customers:customer_person_profile`,
+`customers:customer_company_profile`, and `customer_accounts:customer_user`
+registrations now use fulltext and tokens. Hashed lookup and search permissions
+continue to apply. Deployments that only enable vector search need to enable a
+lexical strategy to find these records after cleanup. Downstream registrations
+can retain a custom strategy by including its ID alongside `fulltext` and `tokens`
+in the existing per-entity override.
+
+**Operators:** pause indexing, drain or discard pending vector jobs, and deploy to
+all apps and indexing workers. For each affected tenant and entity ID, use the
+configured vector driver's scoped purge operation. With pgvector,
+`purge(entityId, tenantId)` covers all organizations in that tenant, including
+old rows without an organization and vectors for soft-deleted records. Verify
+that targeted vectors are gone and unrelated tenants and entities are intact
+before restarting indexing. The driver-level operation preserves the fulltext
+and token stores.
+
+The embeddings reindex endpoint skips these entities before `purgeFirst`, so
+use the driver operation for cleanup. The query-index vector reindex and purge
+actions call that endpoint. The status page can still display vector coverage
+based on the presence of a source builder. Verify cleanup in the vector store.
+If upgrading across #7826 without having rebuilt fulltext, run scoped
+`POST /api/search/reindex` for each affected entity and verify completion to
+replace pre-#7826 presenter data. A rollback that restores vector indexing
+requires a scoped vector rebuild to repopulate purged records.
+
 ## Query index metadata cached across requests (#2967)
 
 The query index engine no longer re-reads table metadata and custom-field definitions

@@ -56,6 +56,7 @@ export const searchConfig: SearchModuleConfig = {
       entityId: 'customer_accounts:customer_user',
       aclFeatures: ['customer_accounts.view'],
       enabled: true,
+      strategies: ['fulltext', 'tokens'],
       priority: 6,
       buildSource: async (ctx) => {
         const { t } = await resolveTranslations()
