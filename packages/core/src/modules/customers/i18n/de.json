@@ -3121,6 +3121,7 @@
   "customers.workPlan.customerTodos.table.actions.openCustomer": "Kunde öffnen",
   "customers.workPlan.customerTodos.table.actions.openTask": "Aufgabe öffnen",
   "customers.workPlan.customerTodos.table.actions.refresh": "Aktualisieren",
+  "customers.workPlan.customerTodos.table.column.assignee": "Zugewiesen an",
   "customers.workPlan.customerTodos.table.column.createdAt": "Verknüpft am",
   "customers.workPlan.customerTodos.table.column.customer": "Kunde",
   "customers.workPlan.customerTodos.table.column.done": "Erledigt",

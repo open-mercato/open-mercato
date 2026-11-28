@@ -3121,6 +3121,7 @@
   "customers.workPlan.customerTodos.table.actions.openCustomer": "Open customer",
   "customers.workPlan.customerTodos.table.actions.openTask": "Open task",
   "customers.workPlan.customerTodos.table.actions.refresh": "Refresh",
+  "customers.workPlan.customerTodos.table.column.assignee": "Assigned to",
   "customers.workPlan.customerTodos.table.column.createdAt": "Linked at",
   "customers.workPlan.customerTodos.table.column.customer": "Customer",
   "customers.workPlan.customerTodos.table.column.done": "Done",

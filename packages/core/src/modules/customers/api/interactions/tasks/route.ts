@@ -156,6 +156,8 @@ const todoItemSchema = z.object({
   todoDueAt: z.string().nullable().optional(),
   todoTimezone: z.string().nullable().optional(),
   todoCustomValues: z.record(z.string(), z.unknown()).nullable().optional(),
+  todoOwnerUserId: z.string().nullable().optional(),
+  todoOwnerName: z.string().nullable().optional(),
   todoOrganizationId: z.string().nullable(),
   organizationId: z.string(),
   tenantId: z.string(),

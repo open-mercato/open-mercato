@@ -3121,6 +3121,7 @@
   "customers.workPlan.customerTodos.table.actions.openCustomer": "고객 열기",
   "customers.workPlan.customerTodos.table.actions.openTask": "작업 열기",
   "customers.workPlan.customerTodos.table.actions.refresh": "새로고침",
+  "customers.workPlan.customerTodos.table.column.assignee": "담당자",
   "customers.workPlan.customerTodos.table.column.createdAt": "연결일",
   "customers.workPlan.customerTodos.table.column.customer": "고객",
   "customers.workPlan.customerTodos.table.column.done": "완료",

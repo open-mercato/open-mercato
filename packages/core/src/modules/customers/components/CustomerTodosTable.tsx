@@ -29,6 +29,8 @@ type CustomerTodoItem = {
   todoDescription?: string | null
   todoDueAt?: string | null
   todoCustomValues?: Record<string, unknown> | null
+  todoOwnerUserId?: string | null
+  todoOwnerName?: string | null
   todoOrganizationId: string | null
   organizationId: string
   tenantId: string
@@ -156,10 +158,20 @@ export function CustomerTodosTable(): React.JSX.Element {
       meta: { priority: 2 },
     },
     {
+      accessorKey: 'todoOwnerName',
+      header: t('customers.workPlan.customerTodos.table.column.assignee', 'Assigned to'),
+      cell: ({ row }) => {
+        const name = row.original.todoOwnerName
+        if (!name) return <span className="text-muted-foreground">—</span>
+        return <span data-testid="customer-tasks-assignee">{name}</span>
+      },
+      meta: { priority: 3 },
+    },
+    {
       accessorKey: 'todoIsDone',
       header: t('customers.workPlan.customerTodos.table.column.done'),
       cell: ({ row }) => <BooleanIcon value={row.original.todoIsDone === true} />,
-      meta: { priority: 3 },
+      meta: { priority: 4 },
     },
   ], [t])
 
