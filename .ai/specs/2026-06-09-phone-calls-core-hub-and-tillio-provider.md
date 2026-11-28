@@ -516,6 +516,7 @@ after a provider response (normalizer, timestamp parsing, status mapping, URL gu
 | TC-PHONE-HUB-004 | List filters | `q` across all three `$or` columns, `direction`, `status`, `providerKey`, `id`, `sortField` mapping; a bare `yyyy-MM-dd` bound covers its whole day at both ends, a full timestamp keeps its instant, an unparsable date is a 400 |
 | TC-PHONE-HUB-005 | Organization scope | A user homed in one organization cannot read another organization's calls |
 | TC-PHONE-HUB-006 | List cache | An identical query is served from cache, and an ingest through the command bus makes the next identical query a miss carrying the new call |
+| TC-PHONE-HUB-007 | List search with indexed calls | After scoped search tokens appear and the presence cache expires, `q` still matches the call ID, conversation ID, and provider key |
 | TC-PHONE-001 | `GET /api/tillio/pull` | Unconfigured environment reports `environment_not_ready` rather than erroring |
 | TC-PHONE-002 | `POST /api/tillio/pull` | Structured 409 before the provider is contacted; reversed day range rejected with 400 |
 | TC-PHONE-003 | Operator routes | Empty listing, attach refused pre-health-check, unsupported plugin rejected, unknown detach is a no-op |

@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { expressionBuilder, type OperationNode } from 'kysely'
 import { HybridQueryEngine, coerceSortDirection, clearBaseColumnsCache, clearBaseTableExistsCache } from '../../query_index/lib/engine'
 import { BasicQueryEngine, clearEncryptedLikeFieldsCache } from '@open-mercato/shared/lib/query/engine'
 import { SortDir, type Filter } from '@open-mercato/shared/lib/query/types'
@@ -2327,11 +2328,16 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
     else process.env.OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS = originalFlag
   })
 
-  const buildEngine = () => {
+  const buildEngine = (baseTable = 'todos') => {
+    const fields = baseTable === 'phone_calls'
+      ? ['external_call_id', 'external_conversation_id', 'provider_key']
+      : ['title']
+    const columns = ['id', 'tenant_id', 'organization_id', 'deleted_at', ...fields]
+      .map((columnName) => ({ table_name: baseTable, column_name: columnName }))
     const db = createFakeKysely({
-      baseTable: 'todos', hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {},
+      baseTable, hasIndexAny: true, baseCount: 10, indexCount: 10, customFieldKeys: {}, columns,
     })
-    const em = buildEm(db)
+    const em = buildEmWithOrmMetadata(db, { PhoneCall: 'phone_calls', Todo: 'todos' })
     const readEncryptedFieldNames = jest.fn().mockResolvedValue([])
     const engine = new HybridQueryEngine(
       em,
@@ -2345,7 +2351,7 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
       hasTokens: async () => true,
       anySourceHasTokens: async () => true,
     })
-    return { engine, readEncryptedFieldNames }
+    return { db, engine, readEncryptedFieldNames }
   }
 
   // `2026-08` tokenizes to {202, 2026} -- exactly the set `2026-01` produces -- so reaching the
@@ -2382,6 +2388,28 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
     expect(readEncryptedFieldNames).toHaveBeenCalledWith(
       'example:todo', 't1', null, { ignoreRuntimeHealth: true },
     )
+  })
+
+  test('phone list data and count use literal ILIKE for plaintext IDs with the global flag unset', async () => {
+    const { db, engine } = buildEngine('phone_calls')
+    const pattern = '%provider\\_ref%'
+    const fields = ['external_call_id', 'external_conversation_id', 'provider_key']
+
+    await engine.query('phone_calls:phone_call', {
+      fields: ['id'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      filters: { $or: fields.map((field) => ({ [field]: { $ilike: pattern } })) },
+    })
+
+    const builder = expressionBuilder<{ b: Record<string, string> }, 'b'>()
+    const expected = builder.or(fields.map((field) => builder(`b.${field}`, 'ilike', pattern))).toOperationNode()
+    const predicates: OperationNode[] = (db._chains as ChainLog[])
+      .filter((chain) => chain.table === 'phone_calls')
+      .flatMap((chain) => chain.wheres)
+      .flatMap(([predicate]) => typeof predicate === 'function' ? [predicate(builder).toOperationNode()] : [])
+
+    expect(predicates.filter((predicate) => predicate.kind === 'ParensNode')).toEqual([expected, expected])
   })
 })
 

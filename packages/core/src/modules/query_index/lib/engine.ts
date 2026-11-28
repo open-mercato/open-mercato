@@ -85,6 +85,7 @@ function resolveEntityTableName(em: EntityManager, entity: string): string {
 }
 
 const logger = createLogger('query_index').child({ component: 'engine' })
+const phoneCallLiteralSearchFields = ['external_call_id', 'external_conversation_id', 'provider_key']
 
 function customDocumentValue(row: Record<string, unknown>, field: string): unknown {
   const bare = field.replace(/^cf[:_]/, '')
@@ -2263,6 +2264,16 @@ export class HybridQueryEngine implements QueryEngine {
     if (!baseField) {
       // Doc-based filter via `ei` alias — returned as EXISTS where possible
       return this.buildIndexDocFilterExpression(eb, 'ei', entity, fieldName, filter.op, filter.value, 'b.id', searchRuntime)
+    }
+    if (
+      entity === 'phone_calls:phone_call' &&
+      phoneCallLiteralSearchFields.includes(baseField) &&
+      isSearchFilterOp(filter.op) &&
+      searchRuntime.config.useIlikeForNonEncryptedFields !== true &&
+      searchRuntime.knownEncryptedFields != null &&
+      !isEncryptedLikeField(searchRuntime.knownEncryptedFields, baseField)
+    ) {
+      return this.buildColumnFilterExpression(eb, qualify(baseField), filter.op, filter.value)
     }
     // For like/ilike with active search-tokens, route through hashed-token EXISTS subquery
     // so encrypted-at-rest columns can still be searched. Plaintext base columns keep exact
