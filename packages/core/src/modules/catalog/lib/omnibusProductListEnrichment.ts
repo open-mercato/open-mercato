@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import type { CatalogOmnibusService } from '../services/catalogOmnibusService'
+import { serializeCatalogOmnibusBlock, type CatalogOmnibusService } from '../services/catalogOmnibusService'
 import type { OmnibusBlock, OmnibusConfig, OmnibusResolutionRequest } from './omnibusTypes'
 import { isPromotionPriceKind, resolveOmnibusPresentedEntries } from './omnibusPresentedEntry'
 import {
@@ -107,7 +107,7 @@ export async function attachProductListOmnibusBlocks(params: AttachProductListOm
     }))
     const blocks = await service.resolveOmnibusBlocks(em, requests)
     enabled.forEach((entry, index) => {
-      const block = blocks[index]
+      const block = serializeCatalogOmnibusBlock(blocks[index])
       if (block) entry.item.omnibus = block
     })
   } catch (err) {

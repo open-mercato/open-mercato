@@ -85,11 +85,30 @@ export const omnibusCountryCodeSchema = z
 
 export const omnibusLookbackDaysSchema = z.number().int().min(1).max(365)
 
+export const OMNIBUS_DEFAULT_PROGRESSIVE_MAX_GAP_DAYS = 7
+
+export const OMNIBUS_PERISHABLE_GOODS_RULES = ['standard', 'exempt', 'last_price'] as const
+
+export const omnibusPerishableGoodsRuleSchema = z.enum(OMNIBUS_PERISHABLE_GOODS_RULES)
+
+export type OmnibusPerishableGoodsRule = z.infer<typeof omnibusPerishableGoodsRuleSchema>
+
+export const OMNIBUS_NEW_ARRIVAL_RULES = ['standard', 'shorter_window'] as const
+
+export const omnibusNewArrivalRuleSchema = z.enum(OMNIBUS_NEW_ARRIVAL_RULES)
+
+export type OmnibusNewArrivalRule = z.infer<typeof omnibusNewArrivalRuleSchema>
+
 export const omnibusChannelConfigSchema = z.object({
   presentedPriceKindId: z.string().uuid(),
   countryCode: omnibusCountryCodeSchema.optional(),
   lookbackDays: omnibusLookbackDaysSchema.optional(),
   minimizationAxis: omnibusMinimizationAxisSchema.optional(),
+  progressiveReductionRule: z.boolean().optional(),
+  progressiveMaxGapDays: omnibusLookbackDaysSchema.optional(),
+  perishableGoodsRule: omnibusPerishableGoodsRuleSchema.optional(),
+  newArrivalRule: omnibusNewArrivalRuleSchema.optional(),
+  newArrivalsLookbackDays: omnibusLookbackDaysSchema.nullable().optional(),
 })
 
 export type OmnibusChannelConfig = z.infer<typeof omnibusChannelConfigSchema>
@@ -123,6 +142,8 @@ export type OmnibusResolutionContext = {
   currencyCode: string
   isStorefront?: boolean
   now?: Date
+  omnibusExempt?: boolean | null
+  firstListedAt?: Date | string | null
 }
 
 export type OmnibusPresentedEntry = {

@@ -17,7 +17,9 @@ import { ISO_COUNTRIES } from '@open-mercato/shared/lib/location/countries'
 import {
   omnibusLookbackDaysSchema,
   omnibusMinimizationAxisSchema,
+  omnibusNewArrivalRuleSchema,
   omnibusNoChannelModeSchema,
+  omnibusPerishableGoodsRuleSchema,
 } from '../lib/omnibusTypes'
 import { CATALOG_PRODUCT_AI_CATEGORIZE_MAX_PRODUCTS } from '../lib/aiCategorization/bulkLimits'
 
@@ -272,6 +274,8 @@ const productBaseSchema = scoped.extend({
   orderQtyIncrement: z.coerce.number().int().min(1).nullable().optional(),
   requiresShipping: z.boolean().optional(),
   isQuoteOnly: z.boolean().optional(),
+  omnibusExempt: z.boolean().optional(),
+  firstListedAt: z.coerce.date().nullable().optional(),
   seoTitle: z.string().trim().min(1).max(255).nullable().optional(),
   seoDescription: z.string().trim().min(1).max(1000).nullable().optional(),
   canonicalUrl: z
@@ -371,6 +375,7 @@ const variantBaseSchema = scoped.extend({
   statusEntryId: uuid().optional(),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  omnibusExempt: z.boolean().nullable().optional(),
   defaultMediaId: uuid().optional().nullable(),
   defaultMediaUrl: z.string().trim().max(500).optional().nullable(),
   weightValue: z.coerce.number().min(0).optional(),
@@ -668,11 +673,11 @@ const omnibusChannelConfigPatchSchema = z
     countryCode: omnibusConfigCountryCodeSchema.optional(),
     lookbackDays: omnibusLookbackDaysSchema.optional(),
     minimizationAxis: omnibusMinimizationAxisSchema.optional(),
-    progressiveReductionRule: unsupportedOmnibusField('omnibus_derogation_not_supported'),
-    progressiveMaxGapDays: unsupportedOmnibusField('omnibus_derogation_not_supported'),
-    perishableGoodsRule: unsupportedOmnibusField('omnibus_derogation_not_supported'),
-    newArrivalRule: unsupportedOmnibusField('omnibus_derogation_not_supported'),
-    newArrivalsLookbackDays: unsupportedOmnibusField('omnibus_derogation_not_supported'),
+    progressiveReductionRule: z.boolean().optional(),
+    progressiveMaxGapDays: omnibusLookbackDaysSchema.optional(),
+    perishableGoodsRule: omnibusPerishableGoodsRuleSchema.optional(),
+    newArrivalRule: omnibusNewArrivalRuleSchema.optional(),
+    newArrivalsLookbackDays: omnibusLookbackDaysSchema.nullable().optional(),
   })
   .strict()
 

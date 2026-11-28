@@ -3660,6 +3660,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "omnibus_exempt": {
+          "name": "omnibus_exempt",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
         "option_values": {
           "name": "option_values",
           "type": "jsonb",
@@ -4237,6 +4254,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "first_listed_at": {
+          "name": "first_listed_at",
+          "type": "timestamptz(6)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "gtu_codes": {
           "name": "gtu_codes",
           "type": "text[]",
@@ -4474,6 +4508,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "integer"
+        },
+        "omnibus_exempt": {
+          "name": "omnibus_exempt",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
         },
         "option_schema_id": {
           "name": "option_schema_id",

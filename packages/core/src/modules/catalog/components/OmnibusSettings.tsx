@@ -26,10 +26,15 @@ import { useOrganizationScopeDetail, useOrganizationScopeVersion } from '@open-m
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
-import type {
-  OmnibusConfig,
-  OmnibusMinimizationAxis,
-  OmnibusNoChannelMode,
+import {
+  OMNIBUS_DEFAULT_PROGRESSIVE_MAX_GAP_DAYS,
+  OMNIBUS_NEW_ARRIVAL_RULES,
+  OMNIBUS_PERISHABLE_GOODS_RULES,
+  type OmnibusConfig,
+  type OmnibusMinimizationAxis,
+  type OmnibusNewArrivalRule,
+  type OmnibusNoChannelMode,
+  type OmnibusPerishableGoodsRule,
 } from '../lib/omnibusTypes'
 import { PriceChannelSelect, PricePriceKindSelect } from './prices/PriceScopeSelectors'
 
@@ -53,6 +58,11 @@ type OmnibusChannelRow = {
   countryCode: string
   lookbackDays: string
   minimizationAxis: ChannelAxisValue
+  progressiveReductionRule: boolean
+  progressiveMaxGapDays: string
+  perishableGoodsRule: OmnibusPerishableGoodsRule
+  newArrivalRule: OmnibusNewArrivalRule
+  newArrivalsLookbackDays: string
 }
 
 type OmnibusFormState = {
@@ -70,6 +80,11 @@ type OmnibusChannelPatch = {
   countryCode?: string
   lookbackDays?: number
   minimizationAxis?: OmnibusMinimizationAxis
+  progressiveReductionRule?: boolean
+  progressiveMaxGapDays?: number
+  perishableGoodsRule?: OmnibusPerishableGoodsRule
+  newArrivalRule?: OmnibusNewArrivalRule
+  newArrivalsLookbackDays?: number | null
 }
 
 type OmnibusConfigPatchBody = {
@@ -116,14 +131,39 @@ function nextRowKey(): string {
   return `omnibus-channel-${rowSequence}`
 }
 
+function emptyChannelRow(): OmnibusChannelRow {
+  return {
+    key: nextRowKey(),
+    channelId: '',
+    presentedPriceKindId: '',
+    countryCode: '',
+    lookbackDays: '',
+    minimizationAxis: 'inherit',
+    progressiveReductionRule: false,
+    progressiveMaxGapDays: '',
+    perishableGoodsRule: 'standard',
+    newArrivalRule: 'standard',
+    newArrivalsLookbackDays: '',
+  }
+}
+
+function optionalDays(value: number | null | undefined): string {
+  return typeof value === 'number' ? String(value) : ''
+}
+
 function toFormState(config: StoredOmnibusConfig | null): OmnibusFormState {
   const channels = Object.entries(config?.channels ?? {}).map(([channelId, channel]): OmnibusChannelRow => ({
     key: nextRowKey(),
     channelId,
     presentedPriceKindId: channel.presentedPriceKindId ?? '',
     countryCode: channel.countryCode ?? '',
-    lookbackDays: typeof channel.lookbackDays === 'number' ? String(channel.lookbackDays) : '',
+    lookbackDays: optionalDays(channel.lookbackDays),
     minimizationAxis: channel.minimizationAxis ?? 'inherit',
+    progressiveReductionRule: channel.progressiveReductionRule === true,
+    progressiveMaxGapDays: optionalDays(channel.progressiveMaxGapDays),
+    perishableGoodsRule: channel.perishableGoodsRule ?? 'standard',
+    newArrivalRule: channel.newArrivalRule ?? 'standard',
+    newArrivalsLookbackDays: optionalDays(channel.newArrivalsLookbackDays),
   }))
   return {
     enabled: config?.enabled === true,
@@ -208,7 +248,6 @@ export function OmnibusSettings() {
     omnibus_country_code_unknown: t('catalog.omnibus.errors.countryCodeUnknown', 'Unknown country code.'),
     omnibus_presented_price_kind_required: t('catalog.omnibus.errors.presentedPriceKindRequired', 'Select a default presented price kind, or configure a channel with its own price kind.'),
     omnibus_field_not_supported: t('catalog.omnibus.errors.fieldNotSupported', 'This setting is not supported.'),
-    omnibus_derogation_not_supported: t('catalog.omnibus.errors.fieldNotSupported', 'This setting is not supported.'),
     omnibus_backfill_coverage_read_only: t('catalog.omnibus.errors.fieldNotSupported', 'This setting is not supported.'),
   }), [t])
   const invalidValueMessage = t('catalog.omnibus.errors.invalidValue', 'Invalid value.')
@@ -343,12 +382,26 @@ export function OmnibusSettings() {
       }
       const channelLookback = row.lookbackDays.trim() ? parseLookbackDays(row.lookbackDays) : undefined
       if (channelLookback === null) errors[channelErrorKey(row.key, 'lookbackDays')] = lookbackRangeMessage
+      const progressiveGap =
+        row.progressiveReductionRule && row.progressiveMaxGapDays.trim() ? parseLookbackDays(row.progressiveMaxGapDays) : undefined
+      if (progressiveGap === null) errors[channelErrorKey(row.key, 'progressiveMaxGapDays')] = lookbackRangeMessage
+      const newArrivalDays =
+        row.newArrivalRule === 'shorter_window' && row.newArrivalsLookbackDays.trim()
+          ? parseLookbackDays(row.newArrivalsLookbackDays)
+          : undefined
+      if (newArrivalDays === null) errors[channelErrorKey(row.key, 'newArrivalsLookbackDays')] = lookbackRangeMessage
       if (!channelId || channels[channelId]) continue
       channels[channelId] = {
         presentedPriceKindId: row.presentedPriceKindId,
         ...(countryCode ? { countryCode } : {}),
         ...(typeof channelLookback === 'number' ? { lookbackDays: channelLookback } : {}),
         ...(row.minimizationAxis !== 'inherit' ? { minimizationAxis: row.minimizationAxis } : {}),
+        ...(row.progressiveReductionRule ? { progressiveReductionRule: true } : {}),
+        ...(typeof progressiveGap === 'number' ? { progressiveMaxGapDays: progressiveGap } : {}),
+        ...(row.perishableGoodsRule !== 'standard' ? { perishableGoodsRule: row.perishableGoodsRule } : {}),
+        ...(row.newArrivalRule === 'shorter_window'
+          ? { newArrivalRule: row.newArrivalRule, newArrivalsLookbackDays: typeof newArrivalDays === 'number' ? newArrivalDays : null }
+          : {}),
       }
     }
     if (Object.keys(errors).length > 0 || lookbackDays === null) return { patch: null, errors }
@@ -466,10 +519,7 @@ export function OmnibusSettings() {
   const addChannel = React.useCallback(() => {
     setForm((prev) => ({
       ...prev,
-      channels: [
-        ...prev.channels,
-        { key: nextRowKey(), channelId: '', presentedPriceKindId: '', countryCode: '', lookbackDays: '', minimizationAxis: 'inherit' },
-      ],
+      channels: [...prev.channels, emptyChannelRow()],
     }))
   }, [])
 
@@ -499,6 +549,15 @@ export function OmnibusSettings() {
   const axisLabels: Record<OmnibusMinimizationAxis, string> = {
     gross: t('catalog.omnibus.settings.axis.gross', 'Gross (B2C)'),
     net: t('catalog.omnibus.settings.axis.net', 'Net (B2B)'),
+  }
+  const perishableRuleLabels: Record<OmnibusPerishableGoodsRule, string> = {
+    standard: t('catalog.omnibus.settings.perishableRule.standard', 'Standard window'),
+    exempt: t('catalog.omnibus.settings.perishableRule.exempt', 'Exempt from the reference price'),
+    last_price: t('catalog.omnibus.settings.perishableRule.lastPrice', 'Price before the reduction'),
+  }
+  const newArrivalRuleLabels: Record<OmnibusNewArrivalRule, string> = {
+    standard: t('catalog.omnibus.settings.newArrivalRule.standard', 'Standard window'),
+    shorter_window: t('catalog.omnibus.settings.newArrivalRule.shorterWindow', 'Shorter window'),
   }
 
   return (
@@ -792,6 +851,120 @@ export function OmnibusSettings() {
                               </SelectContent>
                             </Select>
                           </FormField>
+                          <div className="space-y-3 md:col-span-2" data-testid="catalog-omnibus-channel-derogations">
+                            <div className="space-y-1">
+                              <h4 className="text-sm font-medium">
+                                {t('catalog.omnibus.settings.channels.derogations.title', 'Member-state derogations')}
+                              </h4>
+                              <p className="text-xs text-muted-foreground">
+                                {t(
+                                  'catalog.omnibus.settings.channels.derogations.description',
+                                  'Only enable the rules this member state has adopted (Art. 6a(3)–(5)).',
+                                )}
+                              </p>
+                            </div>
+                            <SwitchField
+                              label={t('catalog.omnibus.settings.channels.progressiveReductionRule', 'Progressive reductions keep the first reference price')}
+                              description={t(
+                                'catalog.omnibus.settings.channels.progressiveReductionRuleDescription',
+                                'Art. 6a(5). An offer whose price only goes down keeps the price from before its first reduction as the reference.',
+                              )}
+                              checked={row.progressiveReductionRule}
+                              disabled={readOnly}
+                              onCheckedChange={(next) => updateChannel(row.key, { progressiveReductionRule: next })}
+                            />
+                            <div className="grid gap-4 md:grid-cols-2">
+                              {row.progressiveReductionRule ? (
+                                <FormField
+                                  label={t('catalog.omnibus.settings.channels.progressiveMaxGapDays', 'Longest pause between reductions (days)')}
+                                  description={t(
+                                    'catalog.omnibus.settings.channels.progressiveMaxGapDaysDescription',
+                                    'A longer pause ends the campaign. Leave empty for {{days}} days.',
+                                    { days: OMNIBUS_DEFAULT_PROGRESSIVE_MAX_GAP_DAYS },
+                                  )}
+                                  error={rowError('progressiveMaxGapDays')}
+                                  disabled={readOnly}
+                                >
+                                  <Input
+                                    type="number"
+                                    inputMode="numeric"
+                                    min={MIN_LOOKBACK_DAYS}
+                                    max={MAX_LOOKBACK_DAYS}
+                                    value={row.progressiveMaxGapDays}
+                                    onChange={(event) => updateChannel(row.key, { progressiveMaxGapDays: event.target.value })}
+                                  />
+                                </FormField>
+                              ) : null}
+                              <FormField
+                                label={t('catalog.omnibus.settings.channels.perishableGoodsRule', 'Perishable goods')}
+                                description={t(
+                                  'catalog.omnibus.settings.channels.perishableGoodsRuleDescription',
+                                  'Art. 6a(3). Applies to products and variants marked as perishable.',
+                                )}
+                                error={rowError('perishableGoodsRule')}
+                                disabled={readOnly}
+                              >
+                                <Select
+                                  value={row.perishableGoodsRule}
+                                  onValueChange={(next) => updateChannel(row.key, { perishableGoodsRule: next as OmnibusPerishableGoodsRule })}
+                                  disabled={readOnly}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue>{perishableRuleLabels[row.perishableGoodsRule]}</SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {OMNIBUS_PERISHABLE_GOODS_RULES.map((rule) => (
+                                      <SelectItem key={rule} value={rule}>{perishableRuleLabels[rule]}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </FormField>
+                              <FormField
+                                label={t('catalog.omnibus.settings.channels.newArrivalRule', 'New arrivals')}
+                                description={t(
+                                  'catalog.omnibus.settings.channels.newArrivalRuleDescription',
+                                  'Art. 6a(4). Products on the market for less than the lookback window.',
+                                )}
+                                error={rowError('newArrivalRule')}
+                                disabled={readOnly}
+                              >
+                                <Select
+                                  value={row.newArrivalRule}
+                                  onValueChange={(next) => updateChannel(row.key, { newArrivalRule: next as OmnibusNewArrivalRule })}
+                                  disabled={readOnly}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue>{newArrivalRuleLabels[row.newArrivalRule]}</SelectValue>
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {OMNIBUS_NEW_ARRIVAL_RULES.map((rule) => (
+                                      <SelectItem key={rule} value={rule}>{newArrivalRuleLabels[rule]}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </FormField>
+                              {row.newArrivalRule === 'shorter_window' ? (
+                                <FormField
+                                  label={t('catalog.omnibus.settings.channels.newArrivalsLookbackDays', 'New-arrival window (days)')}
+                                  description={t(
+                                    'catalog.omnibus.settings.channels.newArrivalsLookbackDaysDescription',
+                                    'Leave empty to use the time the product has been on the market.',
+                                  )}
+                                  error={rowError('newArrivalsLookbackDays')}
+                                  disabled={readOnly}
+                                >
+                                  <Input
+                                    type="number"
+                                    inputMode="numeric"
+                                    min={MIN_LOOKBACK_DAYS}
+                                    max={MAX_LOOKBACK_DAYS}
+                                    value={row.newArrivalsLookbackDays}
+                                    onChange={(event) => updateChannel(row.key, { newArrivalsLookbackDays: event.target.value })}
+                                  />
+                                </FormField>
+                              ) : null}
+                            </div>
+                          </div>
                         </div>
                         {canManage ? (
                           <IconButton

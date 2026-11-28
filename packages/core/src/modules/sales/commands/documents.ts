@@ -17,7 +17,7 @@ import { LockMode } from "@mikro-orm/core";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import type { EventBus } from "@open-mercato/events";
 import type { DataEngine } from "@open-mercato/shared/lib/data/engine";
-import { CrudHttpError, notFound } from "@open-mercato/shared/lib/crud/errors";
+import { CrudHttpError, badRequest, notFound } from "@open-mercato/shared/lib/crud/errors";
 import {
   deriveResourceFromCommandId,
   invalidateCrudCache,
@@ -66,6 +66,13 @@ import {
   CatalogProduct,
   CatalogProductUnitConversion,
 } from "../../catalog/data/entities";
+import type { CatalogOmnibusService } from "../../catalog/services/catalogOmnibusService";
+import {
+  applyOmnibusSnapshotsToLines,
+  type OmnibusSnapshotTarget,
+  type OmnibusSourceLine,
+  resolveOmnibusService,
+} from "../lib/omnibusSnapshot";
 import { Dictionary, DictionaryEntry } from "../../dictionaries/data/entities";
 import { CustomFieldValue } from "@open-mercato/core/modules/entities/data/entities";
 import {
@@ -214,6 +221,168 @@ import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/tran
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('sales')
+const documentCreateReplay = Symbol('sales.documentCreateReplay');
+const documentCreateLineIds = new WeakMap<object, string[]>();
+type DocumentCreateReplay = {
+  id: string;
+  tenantId: string;
+  organizationId: string;
+  lines: Array<{ id: string; snapshot: OmnibusSnapshotTarget }>;
+};
+type DocumentCreateReplayContext = CommandRuntimeContext & {
+  [documentCreateReplay]?: DocumentCreateReplay;
+};
+
+function readDocumentCreateReplay(ctx: CommandRuntimeContext, scope: { tenantId: string; organizationId: string }) {
+  const replay = (ctx as DocumentCreateReplayContext)[documentCreateReplay];
+  if (replay && (replay.tenantId !== scope.tenantId || replay.organizationId !== scope.organizationId)) {
+    throw badRequest("[internal] sales document redo scope mismatch");
+  }
+  return replay;
+}
+
+function buildDocumentCreateReplay(
+  document: { id: string; tenantId: string; organizationId: string },
+  lines: OrderGraphSnapshot['lines'],
+  inputLines: Array<Partial<OrderLineCreateInput>>,
+  lineIds?: string[],
+): DocumentCreateReplay {
+  if (lines.length !== inputLines.length || (lineIds !== undefined && (!Array.isArray(lineIds) || lineIds.length !== lines.length))) {
+    throw badRequest("[internal] sales document redo line count mismatch");
+  }
+  const validIds = (ids: string[]) => ids.every((id) => z.string().uuid().safeParse(id).success)
+    && new Set(ids.map((id) => id.toLowerCase())).size === ids.length;
+  if (!validIds(lines.map((line) => line.id)) || (lineIds && !validIds(lineIds))) {
+    throw badRequest("[internal] sales document redo line unavailable");
+  }
+  const orderedLines = [...lines].sort((left, right) => left.id.localeCompare(right.id));
+  const snapshots = orderedLines.map(snapshotForReplay);
+  const candidates = inputLines.map((inputLine, index) => {
+    const positions = orderedLines.flatMap((line, rowIndex) => (lineIds
+      ? line.id === lineIds[index]
+      : line.lineNumber === (inputLine.lineNumber ?? index + 1)) ? [rowIndex] : []);
+    if (lineIds || positions.length <= 1) return positions;
+    const fields = ['kind', 'statusEntryId', 'productId', 'productVariantId', 'name', 'description', 'comment', 'quantityUnit', 'currencyCode', 'promotionCode', 'customFieldSetId', 'configuration', 'promotionSnapshot', 'metadata', 'customFields'] as const;
+    const amounts = ['quantity', 'unitPriceNet', 'unitPriceGross', 'discountPercent', 'taxRate'] as const;
+    const exactInput = inputLine as Partial<OrderLineCreateInput> & Record<string, unknown>;
+    return positions.filter((rowIndex) => {
+      const line = orderedLines[rowIndex];
+      return fields.every((field) => inputLine[field] === undefined || (field === 'quantityUnit'
+        ? canonicalizeUnitCode(inputLine[field]) === canonicalizeUnitCode(line[field])
+        : isDeepStrictEqual(inputLine[field], line[field])))
+        && amounts.every((field) => inputLine[field] === undefined || decimalsEqual(resolveExactDecimal(exactInput[`${field}Exact`], inputLine[field]), line[field]));
+    });
+  });
+  const assignment = matchDocumentCreateReplayLines(candidates, snapshots);
+  const replayLines = assignment.map((rowIndex) => ({ id: orderedLines[rowIndex].id, snapshot: snapshots[rowIndex] }));
+  return { id: document.id, tenantId: document.tenantId, organizationId: document.organizationId, lines: replayLines };
+}
+
+function matchDocumentCreateReplayLines(candidates: number[][], snapshots: OmnibusSnapshotTarget[]): number[] {
+  const rowForInput = Array<number>(candidates.length).fill(-1);
+  const inputForRow = Array<number>(snapshots.length).fill(-1);
+  for (let inputIndex = 0; inputIndex < candidates.length; inputIndex += 1) {
+    const predecessorInputForRow = Array<number>(snapshots.length).fill(-1);
+    const pending = [inputIndex];
+    let availableRow = -1;
+    for (let cursor = 0; cursor < pending.length && availableRow < 0; cursor += 1) {
+      const currentInput = pending[cursor];
+      for (const rowIndex of candidates[currentInput]) {
+        if (predecessorInputForRow[rowIndex] >= 0) continue;
+        predecessorInputForRow[rowIndex] = currentInput;
+        if (inputForRow[rowIndex] < 0) {
+          availableRow = rowIndex;
+          break;
+        }
+        pending.push(inputForRow[rowIndex]);
+      }
+    }
+    if (availableRow < 0) throw badRequest("[internal] sales document redo line unavailable");
+    while (availableRow >= 0) {
+      const matchedInput = predecessorInputForRow[availableRow];
+      const previousRow = rowForInput[matchedInput];
+      rowForInput[matchedInput] = availableRow;
+      inputForRow[availableRow] = matchedInput;
+      availableRow = previousRow;
+    }
+  }
+  const predecessors = candidates.map(() => [] as number[]);
+  candidates.forEach((rows, inputIndex) => {
+    for (const rowIndex of rows) predecessors[inputForRow[rowIndex]].push(inputIndex);
+  });
+  candidates.forEach((rows, inputIndex) => {
+    const snapshot = snapshots[rowForInput[inputIndex]];
+    const differentRows = rows.filter((rowIndex) => !isDeepStrictEqual(snapshots[rowIndex], snapshot));
+    if (!differentRows.length) return;
+    const nextInput = replayAlternatingPaths(predecessors, inputIndex);
+    if (differentRows.some((rowIndex) => nextInput[inputForRow[rowIndex]] >= 0)) {
+      throw badRequest("[internal] sales document redo line correspondence is ambiguous");
+    }
+  });
+  for (let inputIndex = 0; inputIndex < candidates.length; inputIndex += 1) {
+    const earlierRows = candidates[inputIndex].filter((rowIndex) => rowIndex < rowForInput[inputIndex] && inputForRow[rowIndex] >= inputIndex);
+    if (!earlierRows.length) continue;
+    const remainingPredecessors = candidates.map(() => [] as number[]);
+    for (let remainingInput = inputIndex; remainingInput < candidates.length; remainingInput += 1) {
+      for (const rowIndex of candidates[remainingInput]) {
+        if (inputForRow[rowIndex] >= inputIndex) remainingPredecessors[inputForRow[rowIndex]].push(remainingInput);
+      }
+    }
+    const nextInput = replayAlternatingPaths(remainingPredecessors, inputIndex);
+    const earlierRow = earlierRows.find((rowIndex) => nextInput[inputForRow[rowIndex]] >= 0);
+    if (earlierRow === undefined) continue;
+    const updates = [{ inputIndex, rowIndex: earlierRow }];
+    for (let displacedInput = inputForRow[earlierRow]; displacedInput !== inputIndex; displacedInput = nextInput[displacedInput]) {
+      updates.push({ inputIndex: displacedInput, rowIndex: rowForInput[nextInput[displacedInput]] });
+    }
+    for (const update of updates) {
+      rowForInput[update.inputIndex] = update.rowIndex;
+      inputForRow[update.rowIndex] = update.inputIndex;
+    }
+  }
+  return rowForInput;
+}
+
+function replayAlternatingPaths(predecessors: number[][], inputIndex: number): number[] {
+  const nextInput = Array<number>(predecessors.length).fill(-1);
+  nextInput[inputIndex] = inputIndex;
+  const pending = [inputIndex];
+  for (let cursor = 0; cursor < pending.length; cursor += 1) {
+    for (const predecessor of predecessors[pending[cursor]]) {
+      if (nextInput[predecessor] >= 0) continue;
+      nextInput[predecessor] = pending[cursor];
+      pending.push(predecessor);
+    }
+  }
+  return nextInput;
+}
+
+const omnibusReplaySnapshots = Symbol('sales.omnibusReplaySnapshots');
+type OmnibusReplayContext = CommandRuntimeContext & {
+  [omnibusReplaySnapshots]?: Map<string, OmnibusSnapshotTarget>;
+};
+
+function readOmnibusReplaySnapshots(ctx: CommandRuntimeContext) {
+  return (ctx as OmnibusReplayContext)[omnibusReplaySnapshots];
+}
+
+function replayLineInput<TInput extends { body?: Record<string, unknown> }>(input: TInput, body: Record<string, unknown>): TInput {
+  const replayInput = { ...input, body };
+  if (lockedGraphWriteInputs.has(input)) markLockedGraphWrite(replayInput);
+  return replayInput;
+}
+
+function snapshotForReplay(line: OrderGraphSnapshot['lines'][number]): OmnibusSnapshotTarget {
+  return {
+    omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+    omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+    omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt ? new Date(line.omnibusPromotionAnchorAt) : null,
+    omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+    isPersonalized: line.isPersonalized ?? null,
+    personalizationReason: line.personalizationReason ?? null,
+  };
+}
+
 let warnedDeprecatedOrderPaymentLedgerInput = false
 
 // CRUD events configuration for workflow triggers
@@ -367,6 +536,12 @@ type QuoteLineSnapshot = {
   metadata: Record<string, unknown> | null;
   customFieldSetId: string | null;
   customFields: Record<string, unknown> | null;
+  omnibusReferenceNet: string | null;
+  omnibusReferenceGross: string | null;
+  omnibusPromotionAnchorAt: string | null;
+  omnibusApplicabilityReason: string | null;
+  isPersonalized: boolean | null;
+  personalizationReason: string | null;
 };
 
 type QuoteAdjustmentSnapshot = {
@@ -492,6 +667,12 @@ type OrderLineSnapshot = {
   metadata: Record<string, unknown> | null;
   customFieldSetId: string | null;
   customFields: Record<string, unknown> | null;
+  omnibusReferenceNet: string | null;
+  omnibusReferenceGross: string | null;
+  omnibusPromotionAnchorAt: string | null;
+  omnibusApplicabilityReason: string | null;
+  isPersonalized: boolean | null;
+  personalizationReason: string | null;
 };
 
 type OrderAdjustmentSnapshot = {
@@ -517,10 +698,14 @@ type OrderUndoPayload = {
   after?: OrderGraphSnapshot | null;
 };
 
+type OrderLineBulkUndoPayload = OrderUndoPayload & { lineIds?: string[] };
+type OrderCreateUndoPayload = OrderUndoPayload & { lineIds?: string[] };
+
 type QuoteUndoPayload = {
   before?: QuoteGraphSnapshot | null;
   after?: QuoteGraphSnapshot | null;
 };
+type QuoteCreateUndoPayload = QuoteUndoPayload & { lineIds?: string[] };
 
 type QuoteConvertUndoPayload = {
   quote?: QuoteGraphSnapshot | null;
@@ -1897,6 +2082,14 @@ async function loadQuoteSnapshot(
       customFields: lineCustomFields[line.id]
         ? cloneJson(lineCustomFields[line.id])
         : null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+        ? line.omnibusPromotionAnchorAt.toISOString()
+        : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
     })),
     adjustments: adjustments.map((adj) => ({
       id: adj.id,
@@ -2206,6 +2399,14 @@ async function loadOrderSnapshot(
       customFields: lineCustomFields[line.id]
         ? cloneJson(lineCustomFields[line.id])
         : null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+        ? line.omnibusPromotionAnchorAt.toISOString()
+        : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
     })),
     adjustments: adjustments.map((adj) => ({
       id: adj.id,
@@ -3487,10 +3688,21 @@ async function applyOrderLineResults(params: {
   calculation: SalesDocumentCalculationResult;
   sourceLines: Array<DocumentLineCreateInput & { id?: string }>;
   existingLines: SalesOrderLine[];
+  omnibusService?: CatalogOmnibusService | null;
+  replaySnapshots?: Map<string, OmnibusSnapshotTarget>;
 }): Promise<void> {
-  const { em, order, calculation, sourceLines, existingLines } = params;
+  const {
+    em,
+    order,
+    calculation,
+    sourceLines,
+    existingLines,
+    omnibusService = null,
+    replaySnapshots,
+  } = params;
   const existingMap = new Map(existingLines.map((line) => [line.id, line]));
   const persisted = new Set<string>();
+  const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
@@ -3531,6 +3743,11 @@ async function applyOrderLineResults(params: {
       statusEntryId,
       status: statusValue,
     });
+    if (!existing) {
+      const replaySnapshot = replaySnapshots?.get(lineEntity.id);
+      if (replaySnapshot) Object.assign(lineEntity, replaySnapshot);
+      else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
+    }
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3548,6 +3765,11 @@ async function applyOrderLineResults(params: {
     }
     persisted.add(lineEntity.id);
   }
+  if (omnibusService && snapshotLines.length) {
+    await applyOmnibusSnapshotsToLines({
+      em: em.fork(), service: omnibusService, lines: snapshotLines, document: order, documentKind: "order",
+    });
+  }
   for (const [id, line] of existingMap.entries()) {
     if (!persisted.has(id)) {
       em.remove(line);
@@ -3561,10 +3783,21 @@ async function applyQuoteLineResults(params: {
   calculation: SalesDocumentCalculationResult;
   sourceLines: Array<DocumentLineCreateInput & { id?: string }>;
   existingLines: SalesQuoteLine[];
+  omnibusService?: CatalogOmnibusService | null;
+  replaySnapshots?: Map<string, OmnibusSnapshotTarget>;
 }): Promise<void> {
-  const { em, quote, calculation, sourceLines, existingLines } = params;
+  const {
+    em,
+    quote,
+    calculation,
+    sourceLines,
+    existingLines,
+    omnibusService = null,
+    replaySnapshots,
+  } = params;
   const existingMap = new Map(existingLines.map((line) => [line.id, line]));
   const persisted = new Set<string>();
+  const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
@@ -3601,6 +3834,11 @@ async function applyQuoteLineResults(params: {
       statusEntryId,
       status: statusValue,
     });
+    if (!existing) {
+      const replaySnapshot = replaySnapshots?.get(lineEntity.id);
+      if (replaySnapshot) Object.assign(lineEntity, replaySnapshot);
+      else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
+    }
     em.persist(lineEntity);
     const rawCustomFields = (sourceLine as any).customFields;
     if (rawCustomFields !== undefined && rawCustomFields !== null) {
@@ -3617,6 +3855,11 @@ async function applyQuoteLineResults(params: {
       });
     }
     persisted.add(lineEntity.id);
+  }
+  if (omnibusService && snapshotLines.length) {
+    await applyOmnibusSnapshotsToLines({
+      em: em.fork(), service: omnibusService, lines: snapshotLines, document: quote, documentKind: "quote",
+    });
   }
   for (const [id, line] of existingMap.entries()) {
     if (!persisted.has(id)) {
@@ -3646,9 +3889,16 @@ async function replaceQuoteLines(
   quote: SalesQuote,
   calculation: SalesDocumentCalculationResult,
   lineInputs: QuoteLineCreateInput[],
-): Promise<SalesQuoteLine[]> {
+  omnibusService: CatalogOmnibusService | null = null,
+  replay?: DocumentCreateReplay,
+): Promise<{ createdLines: SalesQuoteLine[]; linesWithCustomFields: SalesQuoteLine[] }> {
   const linesWithCustomFields: SalesQuoteLine[] = [];
+  if (replay && replay.lines.length !== calculation.lines.length) {
+    throw badRequest("[internal] sales document redo line count mismatch");
+  }
   await em.nativeDelete(SalesQuoteLine, { quote: quote.id });
+  const createdLines: SalesQuoteLine[] = [];
+  const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
@@ -3668,13 +3918,16 @@ async function replaceQuoteLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesQuoteLine, {
-      id: randomUUID(),
+      id: replay?.lines[index].id ?? randomUUID(),
       quote,
       ...entityInput,
       status: statusValue,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    if (replay) Object.assign(lineEntity, replay.lines[index].snapshot);
+    else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
+    createdLines.push(lineEntity);
     em.persist(lineEntity);
     const { customFields } = sourceLine;
     if (customFields && Object.keys(customFields).length > 0) {
@@ -3688,7 +3941,12 @@ async function replaceQuoteLines(
       linesWithCustomFields.push(lineEntity);
     }
   }
-  return linesWithCustomFields;
+  if (omnibusService && snapshotLines.length) {
+    await applyOmnibusSnapshotsToLines({
+      em: em.fork(), service: omnibusService, lines: snapshotLines, document: quote, documentKind: "quote",
+    });
+  }
+  return { createdLines, linesWithCustomFields };
 }
 
 async function replaceQuoteAdjustments(
@@ -3774,9 +4032,16 @@ async function replaceOrderLines(
   order: SalesOrder,
   calculation: SalesDocumentCalculationResult,
   lineInputs: OrderLineCreateInput[],
-): Promise<SalesOrderLine[]> {
+  omnibusService: CatalogOmnibusService | null = null,
+  replay?: DocumentCreateReplay,
+): Promise<{ createdLines: SalesOrderLine[]; linesWithCustomFields: SalesOrderLine[] }> {
   const linesWithCustomFields: SalesOrderLine[] = [];
+  if (replay && replay.lines.length !== calculation.lines.length) {
+    throw badRequest("[internal] sales document redo line count mismatch");
+  }
   await em.nativeDelete(SalesOrderLine, { order: order.id });
+  const createdLines: SalesOrderLine[] = [];
+  const snapshotLines: Array<{ line: OmnibusSnapshotTarget; sourceLine: OmnibusSourceLine }> = [];
   const statusCache = new Map<string, string | null>();
   const resolveStatus = async (entryId?: string | null) => {
     if (!entryId) return null;
@@ -3796,7 +4061,7 @@ async function replaceOrderLines(
     );
     const statusValue = await resolveStatus(sourceLine.statusEntryId ?? null);
     const lineEntity = em.create(SalesOrderLine, {
-      id: randomUUID(),
+      id: replay?.lines[index].id ?? randomUUID(),
       order,
       ...entityInput,
       reservedQuantity: "0",
@@ -3807,6 +4072,9 @@ async function replaceOrderLines(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+    if (replay) Object.assign(lineEntity, replay.lines[index].snapshot);
+    else if (omnibusService && sourceLine.productId) snapshotLines.push({ line: lineEntity, sourceLine });
+    createdLines.push(lineEntity);
     em.persist(lineEntity);
     const { customFields } = sourceLine;
     if (customFields && Object.keys(customFields).length > 0) {
@@ -3820,7 +4088,12 @@ async function replaceOrderLines(
       linesWithCustomFields.push(lineEntity);
     }
   }
-  return linesWithCustomFields;
+  if (omnibusService && snapshotLines.length) {
+    await applyOmnibusSnapshotsToLines({
+      em: em.fork(), service: omnibusService, lines: snapshotLines, document: order, documentKind: "order",
+    });
+  }
+  return { createdLines, linesWithCustomFields };
 }
 
 async function replaceOrderAdjustments(
@@ -4614,6 +4887,14 @@ async function restoreQuoteGraph(
         : null,
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+        ? new Date(line.omnibusPromotionAnchorAt)
+        : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -5177,6 +5458,14 @@ async function restoreOrderGraph(
         : null,
       metadata: line.metadata ? cloneJson(line.metadata) : null,
       customFieldSetId: line.customFieldSetId ?? null,
+      omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+      omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+      omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+        ? new Date(line.omnibusPromotionAnchorAt)
+        : null,
+      omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+      isPersonalized: line.isPersonalized ?? null,
+      personalizationReason: line.personalizationReason ?? null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -5340,7 +5629,8 @@ const createQuoteCommand = {
       parsed.statusEntryId ?? null,
       { tenantId: parsed.tenantId },
     );
-    const quoteId = randomUUID();
+    const replay = readDocumentCreateReplay(ctx, parsed);
+    const quoteId = replay?.id ?? randomUUID();
     const quote = em.create(SalesQuote, {
       id: quoteId,
       organizationId: parsed.organizationId,
@@ -5549,12 +5839,20 @@ const createQuoteCommand = {
     // Persist the quote header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built quote committed (#2336).
+    let createdLines: SalesQuoteLine[] = [];
     await withAtomicFlush(
       em,
       [
         async () => {
           em.persist(quote);
-          linesWithCustomFields = await replaceQuoteLines(em, quote, calculation, normalizedLineInputs);
+          ({ createdLines, linesWithCustomFields } = await replaceQuoteLines(
+            em,
+            quote,
+            calculation,
+            normalizedLineInputs,
+            resolveOmnibusService(ctx),
+            replay,
+          ));
           await replaceQuoteAdjustments(
             em,
             quote,
@@ -5661,7 +5959,9 @@ const createQuoteCommand = {
       "created",
     );
 
-    return { quoteId: quote.id };
+    const result = { quoteId: quote.id };
+    documentCreateLineIds.set(result, createdLines.map((line) => line.id));
+    return result;
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -5681,7 +5981,8 @@ const createQuoteCommand = {
       payload: {
         undo: {
           after,
-        } satisfies QuoteUndoPayload,
+          lineIds: documentCreateLineIds.get(result),
+        } satisfies QuoteCreateUndoPayload,
       },
     };
   },
@@ -5710,8 +6011,18 @@ const createQuoteCommand = {
       await tx.flush();
     });
   },
-  redo({ input, ctx }): Promise<{ quoteId: string }> {
-    return createQuoteCommand.execute(input, ctx, true);
+  redo({ input, ctx, logEntry }): Promise<{ quoteId: string }> {
+    const payload = extractUndoPayload<QuoteCreateUndoPayload>(logEntry);
+    const after = payload?.after;
+    if (!after) return createQuoteCommand.execute(input, ctx, true);
+    ensureQuoteScope(ctx, after.quote.organizationId, after.quote.tenantId);
+    const parsed = quoteCreateSchema.parse(input);
+    const replayInputs = withExactListAmounts(parsed.lines, input, "lines", LINE_EXACT_AMOUNT_FIELDS) ?? parsed.lines;
+    const replayCtx: DocumentCreateReplayContext = {
+      ...ctx,
+      [documentCreateReplay]: buildDocumentCreateReplay(after.quote, after.lines, replayInputs ?? [], payload.lineIds),
+    };
+    return createQuoteCommand.execute({ ...input, quoteNumber: after.quote.quoteNumber }, replayCtx, true);
   },
 } satisfies CommandHandler<QuoteCreateInput, { quoteId: string }>;
 
@@ -6738,7 +7049,8 @@ const createOrderCommand = {
       paymentMethod,
     } = await resolveDocumentReferences(em, parsed);
 
-    const orderId = randomUUID()
+    const replay = readDocumentCreateReplay(ctx, parsed);
+    const orderId = replay?.id ?? randomUUID()
     const order = em.create(SalesOrder, {
       id: orderId,
       organizationId: parsed.organizationId,
@@ -6992,12 +7304,20 @@ const createOrderCommand = {
     // Persist the order header, lines, adjustments, totals and tags atomically.
     // replace*/setRecordCustomFields flush mid-build, so without a transaction a
     // later failure (e.g. tag sync) would leave a half-built order committed (#2336).
+    let createdLines: SalesOrderLine[] = [];
     await withAtomicFlush(
       em,
       [
         async () => {
           em.persist(order);
-          linesWithCustomFields = await replaceOrderLines(em, order, calculation, modedLineInputs);
+          ({ createdLines, linesWithCustomFields } = await replaceOrderLines(
+            em,
+            order,
+            calculation,
+            modedLineInputs,
+            resolveOmnibusService(ctx),
+            replay,
+          ));
           await replaceOrderAdjustments(
             em,
             order,
@@ -7109,7 +7429,7 @@ const createOrderCommand = {
       previousStatus: null,
     });
 
-    return {
+    const result = {
       orderId: order.id,
       ...(deprecatedPaymentLedgerFields.length
         ? {
@@ -7122,6 +7442,8 @@ const createOrderCommand = {
           }
         : {}),
     };
+    documentCreateLineIds.set(result, createdLines.map((line) => line.id));
+    return result;
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve("em") as EntityManager).fork();
@@ -7141,7 +7463,8 @@ const createOrderCommand = {
       payload: {
         undo: {
           after,
-        } satisfies OrderUndoPayload,
+          lineIds: documentCreateLineIds.get(result),
+        } satisfies OrderCreateUndoPayload,
       },
     };
   },
@@ -7178,8 +7501,18 @@ const createOrderCommand = {
       },
     );
   },
-  redo({ input, ctx }): Promise<CreateOrderResult> {
-    return createOrderCommand.execute(input, ctx, true);
+  redo({ input, ctx, logEntry }): Promise<CreateOrderResult> {
+    const payload = extractUndoPayload<OrderCreateUndoPayload>(logEntry);
+    const after = payload?.after;
+    if (!after) return createOrderCommand.execute(input, ctx, true);
+    ensureOrderScope(ctx, after.order.organizationId, after.order.tenantId);
+    const parsed = orderCreateSchema.parse(input);
+    const replayInputs = withExactListAmounts(parsed.lines, input, "lines", LINE_EXACT_AMOUNT_FIELDS) ?? parsed.lines;
+    const replayCtx: DocumentCreateReplayContext = {
+      ...ctx,
+      [documentCreateReplay]: buildDocumentCreateReplay(after.order, after.lines, replayInputs ?? [], payload.lineIds),
+    };
+    return createOrderCommand.execute({ ...input, orderNumber: after.order.orderNumber }, replayCtx, true);
   },
 } satisfies CommandHandler<OrderCreateInput, CreateOrderResult>;
 
@@ -7608,6 +7941,14 @@ const convertQuoteToOrderCommand: CommandHandler<
             : null,
           metadata: line.metadata ? cloneJson(line.metadata) : null,
           customFieldSetId: line.customFieldSetId ?? null,
+          omnibusReferenceNet: line.omnibusReferenceNet ?? null,
+          omnibusReferenceGross: line.omnibusReferenceGross ?? null,
+          omnibusPromotionAnchorAt: line.omnibusPromotionAnchorAt
+            ? new Date(line.omnibusPromotionAnchorAt)
+            : null,
+          omnibusApplicabilityReason: line.omnibusApplicabilityReason ?? null,
+          isPersonalized: line.isPersonalized ?? null,
+          personalizationReason: line.personalizationReason ?? null,
           createdAt: new Date(),
           updatedAt: new Date(),
         });
@@ -8646,7 +8987,7 @@ const orderLineUpsertCommand: CommandHandler<
         lineSnapshots.length + 1,
       );
       const lineId = updatedSnapshot.id;
-      const mergedLines = parsed.id
+      const mergedLines = parsed.id && !readOmnibusReplaySnapshots(ctx)?.has(parsed.id)
         ? lineSnapshots.map((line) =>
             line.id === parsed.id ? updatedSnapshot : line,
           )
@@ -8700,6 +9041,8 @@ const orderLineUpsertCommand: CommandHandler<
         calculation,
         sourceLines: sourceInputs,
         existingLines,
+        omnibusService: resolveOmnibusService(ctx),
+        replaySnapshots: readOmnibusReplaySnapshots(ctx),
       });
       applyOrderTotals(order, calculation.totals, calculation.lines.length);
       return { result: { orderId: order.id, lineId }, calculation };
@@ -8733,6 +9076,22 @@ const orderLineUpsertCommand: CommandHandler<
     const before = payload?.before;
     if (!before) return;
     await undoOrderGraph(ctx, before, payload?.after);
+  },
+  redo: async ({ input, ctx, logEntry }) => {
+    const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
+    if (!payload?.before || !payload.after) {
+      throw badRequest("[internal] sales line redo snapshot unavailable");
+    }
+    const previousIds = new Set(payload.before.lines.map((line) => line.id));
+    const created = payload.after.lines.filter((line) => !previousIds.has(line.id));
+    const replayCtx: OmnibusReplayContext = {
+      ...ctx,
+      [omnibusReplaySnapshots]: new Map(created.map((line) => [line.id, snapshotForReplay(line)])),
+    };
+    const body = input.body ?? {};
+    const lineId = typeof body.id === "string" ? body.id : created[0]?.id;
+    if (!lineId) throw badRequest("[internal] sales line redo id unavailable");
+    return orderLineUpsertCommand.execute(replayLineInput(input, { ...body, id: lineId }), replayCtx);
   },
 };
 
@@ -8975,7 +9334,7 @@ const orderLineBulkUpsertCommand: CommandHandler<
         ...parsed.lines.flatMap((line) => (line.id ? [line.id] : [])),
       ];
       for (const id of referencedIds) {
-        if (existingSnapshotsById.has(id)) continue;
+        if (existingSnapshotsById.has(id) || readOmnibusReplaySnapshots(ctx)?.has(id)) continue;
         throw notFound(
           translate(
             "sales.documents.detail.error",
@@ -9102,6 +9461,8 @@ const orderLineBulkUpsertCommand: CommandHandler<
         calculation,
         sourceLines: sourceInputs,
         existingLines,
+        omnibusService: resolveOmnibusService(ctx),
+        replaySnapshots: readOmnibusReplaySnapshots(ctx),
       });
       applyOrderTotals(order, calculation.totals, calculation.lines.length);
       return { result: { orderId: order.id, lineIds }, calculation };
@@ -9126,12 +9487,12 @@ const orderLineBulkUpsertCommand: CommandHandler<
       snapshotBefore: before ?? null,
       snapshotAfter: after,
       payload: {
-        undo: { before, after } satisfies OrderUndoPayload,
+        undo: { before, after, lineIds: result.lineIds } satisfies OrderLineBulkUndoPayload,
       },
     };
   },
   undo: async ({ logEntry, ctx }) => {
-    const payload = extractUndoPayload<OrderUndoPayload>(logEntry);
+    const payload = extractUndoPayload<OrderLineBulkUndoPayload>(logEntry);
     const before = payload?.before;
     if (!before) return;
     // Same path as every other order-graph undo: it locks the order, refuses
@@ -9140,6 +9501,41 @@ const orderLineBulkUpsertCommand: CommandHandler<
     // restore (#6462, #6833) — restores inside one transaction, and refreshes
     // the query index.
     await undoOrderGraph(ctx, before, payload?.after);
+  },
+  redo: async ({ input, ctx, logEntry }) => {
+    const payload = extractUndoPayload<OrderLineBulkUndoPayload>(logEntry);
+    if (!payload?.before || !payload.after) {
+      throw badRequest("[internal] sales line redo snapshot unavailable");
+    }
+    const previousIds = new Set(payload.before.lines.map((line) => line.id));
+    const created = payload.after.lines.filter((line) => !previousIds.has(line.id));
+    const replayCtx: OmnibusReplayContext = {
+      ...ctx,
+      [omnibusReplaySnapshots]: new Map(created.map((line) => [line.id, snapshotForReplay(line)])),
+    };
+    const body = input.body ?? {};
+    const originalLines = Array.isArray(body.lines) ? body.lines : [];
+    let lineIds = payload.lineIds;
+    if (!lineIds) {
+      const parsed = orderLineBulkUpsertSchema.parse(body);
+      const deleteIds = new Set(parsed.deleteIds);
+      let projectedLines = payload.before.lines
+        .filter((line) => !deleteIds.has(line.id))
+        .sort((left, right) => left.lineNumber - right.lineNumber);
+      const snapshotsById = new Map(payload.after.lines.map((line) => [line.id, line]));
+      let createdIndex = 0;
+      const provisionalIds = parsed.lines.map((entry) => {
+        const line = entry.id ? snapshotsById.get(entry.id) : created[createdIndex++];
+        if (!line) throw badRequest("[internal] sales line redo snapshot unavailable");
+        projectedLines = placeOrderLine(projectedLines, line, entry.lineNumber ?? null);
+        return line.id;
+      });
+      const finalLines = [...payload.after.lines].sort((left, right) => left.lineNumber - right.lineNumber);
+      const finalIds = new Map(projectedLines.map((line, index) => [line.id, finalLines[index]?.id]));
+      lineIds = provisionalIds.map((id) => previousIds.has(id) ? id : finalIds.get(id));
+    }
+    const lines = originalLines.map((line, index) => ({ ...line, id: lineIds[index] }));
+    return orderLineBulkUpsertCommand.execute(replayLineInput(input, { ...body, lines }), replayCtx);
   },
 };
 
@@ -9398,7 +9794,7 @@ const quoteLineUpsertCommand: CommandHandler<
         (existingSnapshot as any)?.promotionSnapshot ??
         null;
 
-      const mergedLines = parsed.id
+      const mergedLines = parsed.id && !readOmnibusReplaySnapshots(ctx)?.has(parsed.id)
         ? lineSnapshots.map((line) =>
             line.id === parsed.id ? updatedSnapshot : line,
           )
@@ -9449,6 +9845,8 @@ const quoteLineUpsertCommand: CommandHandler<
         calculation,
         sourceLines: sourceInputs,
         existingLines,
+        omnibusService: resolveOmnibusService(ctx),
+        replaySnapshots: readOmnibusReplaySnapshots(ctx),
       });
       applyQuoteTotals(quote, calculation.totals, calculation.lines.length);
       return { result: { quoteId: quote.id, lineId }, calculation };
@@ -9482,6 +9880,22 @@ const quoteLineUpsertCommand: CommandHandler<
     const before = payload?.before;
     if (!before) return;
     await undoQuoteGraph(ctx, before, payload?.after);
+  },
+  redo: async ({ input, ctx, logEntry }) => {
+    const payload = extractUndoPayload<QuoteUndoPayload>(logEntry);
+    if (!payload?.before || !payload.after) {
+      throw badRequest("[internal] sales line redo snapshot unavailable");
+    }
+    const previousIds = new Set(payload.before.lines.map((line) => line.id));
+    const created = payload.after.lines.filter((line) => !previousIds.has(line.id));
+    const replayCtx: OmnibusReplayContext = {
+      ...ctx,
+      [omnibusReplaySnapshots]: new Map(created.map((line) => [line.id, snapshotForReplay(line)])),
+    };
+    const body = input.body ?? {};
+    const lineId = typeof body.id === "string" ? body.id : created[0]?.id;
+    if (!lineId) throw badRequest("[internal] sales line redo id unavailable");
+    return quoteLineUpsertCommand.execute(replayLineInput(input, { ...body, id: lineId }), replayCtx);
   },
 };
 

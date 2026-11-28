@@ -94,6 +94,18 @@ export function VariantBuilder({
   )
 }
 
+const OMNIBUS_EXEMPT_SELECT_VALUES: Record<string, boolean | null> = {
+  inherit: null,
+  yes: true,
+  no: false,
+}
+
+function parseOmnibusExemptSelectValue(value: string): boolean | null | undefined {
+  return Object.prototype.hasOwnProperty.call(OMNIBUS_EXEMPT_SELECT_VALUES, value)
+    ? OMNIBUS_EXEMPT_SELECT_VALUES[value]
+    : undefined
+}
+
 export function VariantBasicsSection({ values, setValue, errors }: VariantSectionBaseProps) {
   const t = useT()
   return (
@@ -157,6 +169,41 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
             )}
           </p>
           {errors.gtinType ? <p className="text-xs text-status-error-text">{errors.gtinType}</p> : null}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="catalog-variant-omnibus-exempt">
+            {t('catalog.variants.form.omnibusExemptLabel', 'Omnibus perishable exemption')}
+          </Label>
+          <Select
+            value={values.omnibusExempt === null || values.omnibusExempt === undefined ? 'inherit' : values.omnibusExempt ? 'yes' : 'no'}
+            onValueChange={(value) => {
+              const next = parseOmnibusExemptSelectValue(value)
+              if (next === undefined) return
+              setValue('omnibusExempt', next)
+            }}
+          >
+            <SelectTrigger id="catalog-variant-omnibus-exempt">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="inherit">
+                {t('catalog.variants.form.omnibusExemptInherit', 'Inherit from product')}
+              </SelectItem>
+              <SelectItem value="yes">
+                {t('catalog.variants.form.omnibusExemptYes', 'Exempt (perishable)')}
+              </SelectItem>
+              <SelectItem value="no">
+                {t('catalog.variants.form.omnibusExemptNo', 'Not exempt')}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'catalog.variants.form.omnibusExemptHint',
+              'Art. 6a(3). Only takes effect on channels whose perishable-goods rule is set to exempt or last price.',
+            )}
+          </p>
+          {errors.omnibusExempt ? <p className="text-xs text-status-error-text">{errors.omnibusExempt}</p> : null}
         </div>
         <div className="space-y-2">
           <Label htmlFor="catalog-variant-hs-code">

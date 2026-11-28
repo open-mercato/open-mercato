@@ -34,8 +34,9 @@ import {
  * - history before the promotion: 110.00 recorded 40 days ago (the price in effect at window start),
  *   95.00 recorded 20 days ago (the lowest prior price), 120.00 recorded 10 days ago;
  * - the price is then reduced through the API to 80.00 with `startsAt` 5 minutes ago (announced).
- * Expected: reference `lowestPriceGross = 95.0000` (not the promo 80, not the window-start 110),
- * `previousPriceGross = 110.0000`, `applicable = true`, `announced_promotion`, window anchored on
+ * High precision history references must serialize to fixed4 in both existing catalog responses.
+ * Expected: reference `lowestPriceGross = 95.1235` (not the promo 80),
+ * `previousPriceGross = 110.9877`, `applicable = true`, `announced_promotion`, window anchored on
  * `startsAt`. With Omnibus disabled the preview is `null` and the products list carries no block.
  *
  * The Omnibus config is tenant-wide, so the scenario runs in a fresh tenant. Older history rows are
@@ -87,8 +88,8 @@ test.describe('TC-CAT-OMNI-002: EU Omnibus reference price', () => {
         taxRate: '23.0000',
       };
       await insertPriceHistoryRows([
-        { ...baseRow, unitPriceNet: '89.4309', unitPriceGross: '110.0000', recordedAt: new Date(now - 40 * DAY_MS), changeType: 'create' },
-        { ...baseRow, unitPriceNet: '77.2358', unitPriceGross: '95.0000', recordedAt: new Date(now - 20 * DAY_MS), changeType: 'update' },
+        { ...baseRow, unitPriceNet: '89.4309512345678912345', unitPriceGross: '110.9876543210987654321', recordedAt: new Date(now - 40 * DAY_MS), changeType: 'create' },
+        { ...baseRow, unitPriceNet: '77.2358491234567891234', unitPriceGross: '95.1234567890123456789', recordedAt: new Date(now - 20 * DAY_MS), changeType: 'update' },
         { ...baseRow, unitPriceNet: '97.5610', unitPriceGross: '120.0000', recordedAt: new Date(now - 10 * DAY_MS), changeType: 'update' },
       ]);
 
@@ -166,9 +167,9 @@ test.describe('TC-CAT-OMNI-002: EU Omnibus reference price', () => {
         windowEnd: promotionStartsAt,
         coverageStartAt: null,
         lowestPriceNet: '77.2358',
-        lowestPriceGross: '95.0000',
-        previousPriceNet: '89.4309',
-        previousPriceGross: '110.0000',
+        lowestPriceGross: '95.1235',
+        previousPriceNet: '89.4310',
+        previousPriceGross: '110.9877',
         currencyCode: 'EUR',
         applicable: true,
         applicabilityReason: 'announced_promotion',
