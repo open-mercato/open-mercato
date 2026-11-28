@@ -59,10 +59,10 @@ test('resolvePreset: empty returns 13-module list', () => {
   assert.deepEqual(result.filesToRemove, [])
 })
 
-test('resolvePreset: crm returns 25-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + scheduler + ai_assistant + search)', () => {
+test('resolvePreset: crm returns 26-module list extending empty (includes attachments + messages + currencies + progress + integrations + communication_channels + channel_imap + channel_gmail + channel_ms365 + scheduler + ai_assistant + search)', () => {
   const result = resolvePreset('crm')
   assert.equal(result.isClassic, false)
-  assert.equal(result.modules.length, 25)
+  assert.equal(result.modules.length, 26)
   const ids = result.modules.map((m) => m.id)
   assert.ok(ids.includes('auth'))
   assert.ok(ids.includes('directory'))
@@ -92,6 +92,8 @@ test('resolvePreset: crm returns 25-module list extending empty (includes attach
   assert.equal(result.modules.find((m) => m.id === 'channel_imap')?.from, '@open-mercato/channel-imap')
   assert.ok(ids.includes('channel_gmail'))
   assert.equal(result.modules.find((m) => m.id === 'channel_gmail')?.from, '@open-mercato/channel-gmail')
+  assert.ok(ids.includes('channel_ms365'))
+  assert.equal(result.modules.find((m) => m.id === 'channel_ms365')?.from, '@open-mercato/channel-ms365')
   // scheduler drives the hub's mailbox poll tick and Gmail watch renewal (issue #8804)
   assert.ok(ids.includes('scheduler'))
   assert.equal(result.modules.find((m) => m.id === 'scheduler')?.from, '@open-mercato/scheduler')
@@ -184,6 +186,7 @@ test('generateModulesTs: produces valid content for crm modules', () => {
   assert.ok(content.includes("id: 'progress'"))
   assert.ok(content.includes("id: 'channel_imap'"))
   assert.ok(content.includes("id: 'channel_gmail'"))
+  assert.ok(content.includes("id: 'channel_ms365'"))
   assert.ok(content.includes("id: 'scheduler'"))
   assert.ok(content.includes("from: '@open-mercato/scheduler'"))
   // ai_assistant must register from its own package
@@ -266,7 +269,7 @@ test('applyStarterPreset: empty writes 12-module modules.ts and keeps example so
   }
 })
 
-test('applyStarterPreset: crm writes 25-module modules.ts and keeps example source present', () => {
+test('applyStarterPreset: crm writes 26-module modules.ts and keeps example source present', () => {
   const dir = makeTempDir()
   try {
     applyStarterPreset('crm', dir)
@@ -290,6 +293,8 @@ test('applyStarterPreset: crm writes 25-module modules.ts and keeps example sour
     assert.ok(content.includes("from: '@open-mercato/channel-imap'"))
     assert.ok(content.includes("id: 'channel_gmail'"))
     assert.ok(content.includes("from: '@open-mercato/channel-gmail'"))
+    assert.ok(content.includes("id: 'channel_ms365'"))
+    assert.ok(content.includes("from: '@open-mercato/channel-ms365'"))
     // scheduler must register so connected mailboxes are polled without "Poll now"
     // (regression coverage for issue #8804)
     assert.ok(content.includes("id: 'scheduler'"))
