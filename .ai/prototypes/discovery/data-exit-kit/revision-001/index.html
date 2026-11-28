@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Exit Kit — discovery prototype</title>
+<style>
+  :root { --bg:#f6f6f6; --panel:#fff; --line:#d4d4d4; --text:#1f1f1f; --muted:#666; --strong:#000; --soft:#ececec; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--text); background:var(--bg); }
+  a { color:inherit; }
+  :focus-visible { outline:3px solid #000; outline-offset:2px; }
+  .banner { background:#222; color:#fff; font-size:12px; padding:4px 16px; display:flex; justify-content:space-between; gap:12px; }
+  .banner button { font-size:12px; padding:1px 8px; }
+  .shell { display:grid; grid-template-columns:220px 1fr; min-height:calc(100vh - 26px); }
+  nav.side { background:#fff; border-right:1px solid var(--line); padding:16px 0; }
+  nav.side h2 { font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:16px 16px 6px; }
+  nav.side a { display:block; padding:7px 16px; text-decoration:none; border-left:3px solid transparent; }
+  nav.side a[aria-current="page"] { border-left-color:#000; background:var(--soft); font-weight:600; }
+  main { padding:20px 28px 40px; max-width:1180px; }
+  header.page { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:16px; }
+  header.page h1 { font-size:22px; margin:0 0 4px; }
+  header.page p { margin:0; color:var(--muted); max-width:720px; }
+  .crumbs { font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px; margin-bottom:16px; }
+  .card h2 { font-size:15px; margin:0 0 12px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  .stat { border:1px solid var(--line); border-radius:6px; padding:10px 12px; background:#fff; }
+  .stat b { display:block; font-size:18px; }
+  .stat span { color:var(--muted); font-size:12px; }
+  button, .btn { font:inherit; border:1px solid #444; background:#fff; color:#000; border-radius:5px; padding:6px 12px; cursor:pointer; text-decoration:none; display:inline-block; }
+  button.primary, .btn.primary { background:#111; color:#fff; border-color:#111; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:8px 8px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  th { font-size:12px; color:var(--muted); font-weight:600; background:#fafafa; }
+  td.num, th.num { text-align:right; font-variant-numeric:tabular-nums; }
+  .pill { display:inline-block; border:1px solid #888; border-radius:999px; padding:0 8px; font-size:12px; background:#fff; }
+  .pill.solid { background:#111; color:#fff; border-color:#111; }
+  .pill.dash { border-style:dashed; }
+  .bar { height:8px; background:var(--soft); border:1px solid var(--line); border-radius:999px; overflow:hidden; min-width:120px; }
+  .bar > i { display:block; height:100%; background:#333; }
+  label { display:block; font-weight:600; margin-bottom:4px; }
+  .hint { color:var(--muted); font-size:12px; font-weight:400; }
+  .field { margin-bottom:14px; }
+  input[type=text], input[type=number], input[type=datetime-local], select { font:inherit; padding:6px 8px; border:1px solid #888; border-radius:5px; width:100%; background:#fff; }
+  fieldset { border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin:0 0 14px; }
+  legend { font-weight:600; padding:0 4px; }
+  .seg { display:inline-flex; border:1px solid #444; border-radius:5px; overflow:hidden; }
+  .seg label { margin:0; font-weight:500; padding:6px 12px; cursor:pointer; border-right:1px solid #444; }
+  .seg label:last-child { border-right:0; }
+  .seg input { position:absolute; opacity:0; width:1px; height:1px; }
+  .seg input:checked + span { text-decoration:underline; font-weight:700; }
+  .seg label:has(input:checked) { background:#111; color:#fff; }
+  .seg label:has(input:focus-visible) { outline:3px solid #000; outline-offset:-3px; }
+  .note { border:1px dashed #777; background:#fafafa; padding:8px 10px; border-radius:5px; font-size:13px; margin:8px 0; }
+  .note.warn { border:2px solid #000; background:#fff; }
+  .err { border:2px solid #000; padding:6px 10px; border-radius:5px; margin:6px 0; font-weight:600; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .between { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .muted { color:var(--muted); }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+  section.screen[hidden] { display:none; }
+  .switch { display:inline-flex; align-items:center; gap:8px; font-weight:500; }
+  .checks { display:grid; grid-template-columns:repeat(3,1fr); gap:4px 12px; font-weight:400; }
+  .checks label { font-weight:400; }
+  .teststate { margin-top:24px; border-top:2px dashed #aaa; padding-top:12px; font-size:12px; }
+  .teststate h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+  @media (max-width:820px) { .shell { grid-template-columns:1fr; } nav.side { border-right:0; border-bottom:1px solid var(--line);} .grid2,.grid4,.checks { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="banner"><span>Discovery prototype · simulated data · Enterprise Edition · signed in as <b id="who">superadmin@acme.example</b></span><button type="button" id="reset">Reset simulation</button></div>
+<div class="shell">
+  <nav class="side" aria-label="Settings">
+    <h2>Settings · Data &amp; compliance</h2>
+    <a href="#runs" data-nav="runs">Data exit</a>
+    <a href="#new" data-nav="new">New data exit</a>
+    <a href="#subject" data-nav="subject">GDPR subject export</a>
+    <h2>Settings · System</h2>
+    <a href="#backups" data-nav="backups">Backups</a>
+  </nav>
+  <main>
+    <div id="live" role="status" aria-live="polite" class="sr" style="position:absolute;left:-9999px"></div>
+
+    <!-- RUNS LIST -->
+    <section class="screen" id="runs" aria-labelledby="h-runs">
+      <div class="crumbs">Settings / Data &amp; compliance / Data exit</div>
+      <header class="page">
+        <div><h1 id="h-runs" tabindex="-1">Data exit</h1>
+          <p>Export all data of a tenant or an organization as JSON in size-capped ZIP archives, including stored files. Exports run in the background; you can leave this page.</p></div>
+        <a class="btn primary" href="#new">New data exit</a>
+      </header>
+      <div class="grid4" style="margin-bottom:16px">
+        <div class="stat"><b id="st-running">1</b><span>Running</span></div>
+        <div class="stat"><b id="st-scheduled">1</b><span>Scheduled</span></div>
+        <div class="stat"><b>3</b><span>Completed (last 30 days)</span></div>
+        <div class="stat"><b>7 days</b><span>Archives kept after completion</span></div>
+      </div>
+      <div class="card">
+        <table aria-label="Data exit runs">
+          <thead><tr><th>Scope</th><th>Mode</th><th>Files</th><th>Archive size</th><th>Status</th><th>Progress</th><th>Requested</th><th></th></tr></thead>
+          <tbody id="runs-body"></tbody>
+        </table>
+        <p id="runs-empty" class="muted" hidden>No data exits yet. Start one with <a href="#new">New data exit</a>.</p>
+      </div>
+    </section>
+
+    <!-- NEW -->
+    <section class="screen" id="new" aria-labelledby="h-new" hidden>
+      <div class="crumbs">Settings / Data &amp; compliance / Data exit / New</div>
+      <header class="page"><div><h1 id="h-new" tabindex="-1">New data exit</h1>
+        <p>Choose what to export. Run a dry run first to see how many records and files each module will export.</p></div></header>
+      <form id="new-form" novalidate>
+      <div class="grid2">
+        <div>
+          <div class="card">
+            <h2>Scope</h2>
+            <fieldset><legend>Export</legend>
+              <div class="seg" role="radiogroup" aria-label="Scope">
+                <label><input type="radio" name="scope" value="tenant" checked><span>Whole tenant</span></label>
+                <label><input type="radio" name="scope" value="organization"><span>One organization</span></label>
+              </div>
+              <p class="hint" style="margin:6px 0 0">Whole-tenant export needs the <span class="mono">data_exit.export_tenant</span> permission and access to all organizations.</p>
+            </fieldset>
+            <div class="field"><label for="tenant">Tenant</label>
+              <select id="tenant"><option>Acme Retail (tenant)</option><option>Northwind Wholesale (tenant)</option></select></div>
+            <div class="field" id="org-field" hidden><label for="org">Organization</label>
+              <select id="org"><option value="">Select an organization…</option><option>Acme Retail — Poland</option><option>Acme Retail — Germany</option></select>
+              <div id="org-err" class="err" hidden>Select an organization.</div></div>
+            <fieldset><legend>Modules</legend>
+              <label class="switch"><input type="checkbox" id="all-mods" checked> All enabled modules (default)</label>
+              <div class="checks" id="mod-checks" style="margin-top:8px" hidden></div>
+            </fieldset>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <h2>Format</h2>
+            <fieldset><legend>Field-level encrypted data</legend>
+              <div class="seg" role="radiogroup" aria-label="Encrypted fields">
+                <label><input type="radio" name="mode" value="encrypted" checked><span>Keep encrypted</span></label>
+                <label><input type="radio" name="mode" value="plain"><span>Decrypt (plain)</span></label>
+              </div>
+              <p class="hint" id="mode-hint" style="margin:6px 0 0">Encrypted fields stay ciphertext as stored. The archive includes the encryption maps (no keys) so it can be decrypted only with this deployment's keys.</p>
+              <div class="note warn" id="plain-warn" hidden>Plain export writes decrypted personal data into the archive. Needs the <span class="mono">data_exit.export_plain</span> permission; every download is logged.</div>
+            </fieldset>
+            <div class="field"><label class="switch"><input type="checkbox" id="storage" checked> Include stored files (attachments)</label></div>
+            <div class="field"><label for="partsize">Maximum archive size <span class="hint">(per ZIP part)</span></label>
+              <div class="row"><input type="number" id="partsize" value="1" min="0.0625" max="50" step="0.25" style="width:110px" aria-describedby="partsize-hint"> <span>GB</span></div>
+              <div class="hint" id="partsize-hint">Default 1 GB. Allowed 64 MB – 50 GB. A larger export is split into numbered parts.</div>
+              <div id="partsize-err" class="err" hidden>Enter a size between 0.0625 and 50 GB.</div></div>
+            <fieldset><legend>When</legend>
+              <div class="seg" role="radiogroup" aria-label="When">
+                <label><input type="radio" name="when" value="now" checked><span>Queue now</span></label>
+                <label><input type="radio" name="when" value="later"><span>Schedule</span></label>
+              </div>
+              <div class="field" id="when-field" style="margin-top:8px" hidden><label for="when-at">Start at</label><input type="datetime-local" id="when-at" value="2026-11-28T02:00"></div>
+            </fieldset>
+          </div>
+        </div>
+      </div>
+      <div class="card" id="dry-card">
+        <div class="between"><h2 style="margin:0">Dry run</h2><button type="button" id="dry-btn">Run dry run</button></div>
+        <p class="muted" id="dry-empty" style="margin:8px 0 0">Counts what each module would export. Nothing is written.</p>
+        <p id="dry-loading" hidden>Counting records per module…</p>
+        <div id="dry-result" hidden>
+          <table aria-label="Dry run estimate per module" style="margin-top:8px">
+            <thead><tr><th>Module</th><th>Exporter</th><th class="num">Records</th><th class="num">Files</th><th class="num">Est. size</th></tr></thead>
+            <tbody id="dry-body"></tbody>
+            <tfoot><tr><th>Total</th><th></th><th class="num" id="dry-rec"></th><th class="num" id="dry-files"></th><th class="num" id="dry-size"></th></tr></tfoot>
+          </table>
+          <p class="note" id="dry-parts"></p>
+        </div>
+      </div>
+      <div class="row"><button type="submit" class="primary" id="submit">Start data exit</button><a class="btn" href="#runs">Cancel</a></div>
+      </form>
+    </section>
+
+    <!-- RUN DETAIL -->
+    <section class="screen" id="run" aria-labelledby="h-run" hidden>
+      <div class="crumbs">Settings / Data &amp; compliance / Data exit / Run</div>
+      <header class="page"><div><h1 id="h-run" tabindex="-1">Acme Retail — whole tenant</h1>
+        <p><span class="pill solid" id="run-status">Running</span> · Keep encrypted · Files included · 1 GB parts · started by superadmin@acme.example</p></div>
+        <div class="row"><button type="button" id="cancel-run">Cancel export</button></div></header>
+      <div class="card">
+        <div class="between"><h2 style="margin:0">Overall</h2><span class="mono" id="run-overall-txt">41% · 18.2 GB of ~44 GB · ETA 52 min</span></div>
+        <div class="bar" style="margin-top:8px;height:12px"><i id="run-overall" style="width:41%"></i></div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2>Modules</h2>
+          <table aria-label="Progress per module"><thead><tr><th>Module</th><th>Status</th><th>Progress</th><th class="num">Records</th></tr></thead>
+            <tbody id="mod-progress"></tbody></table>
+        </div>
+        <div class="card">
+          <h2>Archive parts</h2>
+          <table aria-label="Archive parts"><thead><tr><th>Part</th><th class="num">Size</th><th>SHA-256</th><th></th></tr></thead>
+            <tbody id="parts-body"></tbody></table>
+          <p class="hint">Each part is a standalone ZIP. <span class="mono">manifest.json</span> in the last part lists every part, file and checksum. Parts are deleted 7 days after the export completes.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SUBJECT -->
+    <section class="screen" id="subject" aria-labelledby="h-subject" hidden>
+      <div class="crumbs">Settings / Data &amp; compliance / GDPR subject export</div>
+      <header class="page"><div><h1 id="h-subject" tabindex="-1">GDPR subject export</h1>
+        <p>Export everything the enabled modules hold about one person (Art. 15 access, Art. 20 portability). Enter an identifier, check the dry run, then export.</p></div></header>
+      <form id="subject-form" novalidate>
+      <div class="card">
+        <div class="grid2">
+          <div class="field"><label for="idkind">Identifier</label>
+            <select id="idkind"><option value="email">Email address</option><option value="phone">Phone number</option><option value="national_id">National ID number (custom field)</option><option value="user_id">Staff user ID</option><option value="person_id">CRM person ID</option><option value="portal_user_id">Portal user ID</option></select></div>
+          <div class="field"><label for="idval">Value</label><input type="text" id="idval" placeholder="jane.doe@example.com" autocomplete="off">
+            <div id="idval-err" class="err" hidden>Enter a valid value.</div></div>
+        </div>
+        <div class="grid2">
+          <div class="field"><label for="sorg">Organization</label><select id="sorg"><option>All organizations of Acme Retail</option><option>Acme Retail — Poland</option></select></div>
+          <div class="field"><label>Format</label><div class="hint" style="font-size:13px">JSON, decrypted (the person's own data), files included. Plain mode is required for an Art. 15 copy.</div></div>
+        </div>
+        <div class="row"><button type="button" id="sdry" class="primary">Dry run</button><span class="muted">Finds matching people and counts records per module. Nothing is exported.</span></div>
+      </div>
+      <div class="card" id="s-none" hidden><h2>No match</h2><p>No enabled module holds data for this identifier. The dry run is logged as a request with zero results; you can still record the answer for the data subject.</p></div>
+      <div class="card" id="s-result" hidden>
+        <h2>Matched people</h2>
+        <table aria-label="Matched subjects"><thead><tr><th>Include</th><th>Kind</th><th>Display (masked)</th><th>Matched by</th></tr></thead>
+          <tbody>
+            <tr><td><input type="checkbox" checked aria-label="Include CRM person J*** D**"></td><td>CRM person</td><td>J*** D**, j***@e******.com</td><td>email (customers)</td></tr>
+            <tr><td><input type="checkbox" checked aria-label="Include portal user J*** D**"></td><td>Portal user</td><td>J*** D**</td><td>email (customer_accounts)</td></tr>
+            <tr><td><input type="checkbox" aria-label="Include staff user"></td><td>Staff user</td><td>j***.d**@a***.example</td><td>email (auth) — different person?</td></tr>
+          </tbody></table>
+        <h2 style="margin-top:16px">Dry run per module</h2>
+        <table aria-label="Subject dry run per module"><thead><tr><th>Module</th><th>Sections</th><th class="num">Records</th><th class="num">Files</th><th>Note</th></tr></thead>
+          <tbody>
+            <tr><td>customers</td><td>person, addresses, activities, comments</td><td class="num">146</td><td class="num">3</td><td></td></tr>
+            <tr><td>customer_accounts</td><td>portal user, sessions</td><td class="num">12</td><td class="num">0</td><td>no secrets exported</td></tr>
+            <tr><td>sales</td><td>orders, quotes, invoices</td><td class="num">38</td><td class="num">17</td><td></td></tr>
+            <tr><td>messages</td><td>messages, recipients</td><td class="num">22</td><td class="num">4</td><td></td></tr>
+            <tr><td>forms</td><td>submissions</td><td class="num">2</td><td class="num">0</td><td></td></tr>
+            <tr><td>warranty_claims</td><td>claims</td><td class="num">1</td><td class="num">2</td><td></td></tr>
+            <tr><td>entities (custom fields)</td><td>custom field values</td><td class="num">9</td><td class="num">0</td><td></td></tr>
+            <tr><td>webhooks</td><td>—</td><td class="num">0</td><td class="num">0</td><td>age-bounded copies</td></tr>
+          </tbody>
+          <tfoot><tr><th>Total</th><th></th><th class="num">230</th><th class="num">26</th><th>~41 MB, 1 archive</th></tr></tfoot></table>
+        <p class="note">Not covered: 1 module without a subject exporter (<span class="mono">example</span>). The export lists it under <span class="mono">notCovered</span>.</p>
+        <div class="row"><button type="submit" class="primary" id="sexport">Export 2 people</button><span class="muted">Queued in the background; the archive appears in Data exit.</span></div>
+      </div>
+      </form>
+    </section>
+
+    <!-- BACKUPS -->
+    <section class="screen" id="backups" aria-labelledby="h-backups" hidden>
+      <div class="crumbs">Settings / System / Backups</div>
+      <header class="page"><div><h1 id="h-backups" tabindex="-1">Backups</h1>
+        <p>Whole-database encrypted backups for this instance. Restore stays a command-line operation for operators.</p></div>
+        <button type="button" class="primary" id="bk-now">Back up now</button></header>
+      <div class="grid4" style="margin-bottom:16px">
+        <div class="stat"><b id="bk-fresh">Fresh</b><span>Last backup 6 h ago (threshold 26 h)</span></div>
+        <div class="stat"><b>age · 2 recipients</b><span>Recipient set <span class="mono">a3f9…c21e</span></span></div>
+        <div class="stat"><b>35 days</b><span>Retention · 34 archives · 1.2 TB</span></div>
+        <div class="stat"><b>S3 · eu-central-1</b><span>Target from environment</span></div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2>Schedule</h2>
+          <div class="field"><label class="switch"><input type="checkbox" id="bk-enabled" checked> Scheduled backups enabled</label></div>
+          <div class="field"><label for="bk-freq">Frequency</label><select id="bk-freq"><option>Daily</option><option>Every 12 hours</option><option>Weekly (Sunday)</option><option>Custom cron</option></select></div>
+          <div class="field"><label for="bk-time">Time (instance time zone, UTC)</label><input type="text" id="bk-time" value="02:00"></div>
+          <div class="field"><label class="switch"><input type="checkbox" id="bk-verify" checked> Verify each backup after it completes</label></div>
+          <p class="hint">Next run: Thu 26 Nov 2026, 02:00 UTC · cron <span class="mono">0 2 * * *</span></p>
+          <button type="button" id="bk-save">Save schedule</button> <span id="bk-saved" class="muted" hidden>Saved.</span>
+        </div>
+        <div class="card">
+          <h2>Current run</h2>
+          <div id="bk-idle" class="muted">No backup is running.</div>
+          <div id="bk-running" hidden>
+            <div class="between"><b>Manual backup</b><span class="mono" id="bk-pct">0%</span></div>
+            <div class="bar" style="margin:6px 0 10px;height:12px"><i id="bk-bar" style="width:0%"></i></div>
+            <table aria-label="Backup progress per entity"><tbody>
+              <tr><td>sales · Order (sales_orders)</td><td><div class="bar"><i style="width:100%"></i></div></td><td class="muted">done</td></tr>
+              <tr><td>catalog · Product (catalog_products)</td><td><div class="bar"><i style="width:64%"></i></div></td><td class="muted">running</td></tr>
+              <tr><td>audit_logs · ActionLog (action_logs)</td><td><div class="bar"><i style="width:22%"></i></div></td><td class="muted">running</td></tr>
+              <tr><td colspan="3" class="muted">… 318 queued</td></tr>
+            </tbody></table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <h2>History</h2>
+        <table aria-label="Backup history"><thead><tr><th>Started</th><th>Trigger</th><th>Status</th><th>Consistency</th><th class="num">Size</th><th>Verified</th><th></th></tr></thead>
+          <tbody id="bk-body">
+            <tr><td>25 Nov 2026 02:00</td><td>schedule</td><td><span class="pill solid">completed</span></td><td>single-snapshot</td><td class="num">36.4 GB</td><td>passed</td><td><button type="button" class="linkish">Verify again</button></td></tr>
+            <tr><td>24 Nov 2026 02:00</td><td>schedule</td><td><span class="pill solid">completed</span></td><td>single-snapshot</td><td class="num">36.1 GB</td><td>passed</td><td></td></tr>
+            <tr><td>23 Nov 2026 14:12</td><td>manual · admin@acme.example</td><td><span class="pill">failed</span></td><td>—</td><td class="num">—</td><td>—</td><td><span class="muted">Disk full on worker — resumable</span> <button type="button">Resume</button></td></tr>
+          </tbody></table>
+        <p class="hint">Restore: <span class="mono">mercato-backup restore --artifact … --target-service …</span> (see operator guide). No restore over HTTP.</p>
+      </div>
+    </section>
+
+    <section class="screen" id="denied" aria-labelledby="h-denied" hidden>
+      <h1 id="h-denied" tabindex="-1">Access denied</h1>
+      <p>You need the <span class="mono">data_exit.view</span> permission. By default only superadmins have it. Ask an administrator to grant it.</p>
+      <a class="btn" href="#runs">Back to Data exit</a>
+    </section>
+    <section class="screen" id="notfound" aria-labelledby="h-nf" hidden>
+      <h1 id="h-nf" tabindex="-1">Page not part of this prototype</h1><p><a href="#runs">Go to Data exit</a></p>
+    </section>
+
+    <div class="teststate" aria-label="Test state controls">
+      <h2>Test state (prototype only)</h2>
+      <div class="row">
+        <button type="button" data-state="empty">Empty run list</button>
+        <button type="button" data-state="denied">Permission denied</button>
+        <button type="button" data-state="fail">Fail the running export</button>
+        <button type="button" data-state="nomatch">Subject: no match</button>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+(function(){
+  var MODULES=[['customers','default (table → JSON)',1840220,0,2.1e9],['sales','sales.documents (custom)',4210933,182330,9.8e9],['catalog','default (table → JSON)',612004,94210,6.2e9],['attachments','storage files',0,281402,21.4e9],['audit_logs','default (table → JSON)',9120554,0,3.9e9],['messages','default (table → JSON)',220913,10233,0.6e9],['entities','custom field values',3002110,0,0.8e9],['auth','auth.users (secrets excluded)',312,0,0.001e9]];
+  var initialRuns=function(){return [
+    {id:'r1',scope:'Acme Retail — whole tenant',mode:'Keep encrypted',files:'Included',part:'1 GB',status:'running',pct:41,by:'superadmin · today 09:12'},
+    {id:'r2',scope:'Acme Retail — Germany',mode:'Plain',files:'Included',part:'2 GB',status:'scheduled',pct:0,by:'superadmin · runs 28 Nov 02:00'},
+    {id:'r3',scope:'Northwind Wholesale — whole tenant',mode:'Keep encrypted',files:'Excluded',part:'1 GB',status:'completed',pct:100,by:'superadmin · 21 Nov'}];};
+  var state={runs:initialRuns(),timer:null,bkTimer:null,denied:false};
+  function $(id){return document.getElementById(id);}
+  function say(t){$('live').textContent=t;}
+  function fmtBytes(b){if(b>=1e9)return (b/1e9).toFixed(1)+' GB';if(b>=1e6)return (b/1e6).toFixed(0)+' MB';return (b/1e3).toFixed(0)+' kB';}
+  function td(text,cls){var c=document.createElement('td');c.textContent=text;if(cls)c.className=cls;return c;}
+  function renderRuns(){
+    var body=$('runs-body');body.textContent='';
+    state.runs.forEach(function(r){
+      var tr=document.createElement('tr');
+      var a=document.createElement('a');a.href='#run';a.textContent=r.scope;var c0=document.createElement('td');c0.appendChild(a);tr.appendChild(c0);
+      tr.appendChild(td(r.mode));tr.appendChild(td(r.files));tr.appendChild(td(r.part));
+      var cs=document.createElement('td');var p=document.createElement('span');p.className='pill'+(r.status==='running'?' solid':r.status==='scheduled'?' dash':'');p.textContent=r.status;cs.appendChild(p);tr.appendChild(cs);
+      var cb=document.createElement('td');var bar=document.createElement('div');bar.className='bar';var i=document.createElement('i');i.style.width=r.pct+'%';bar.appendChild(i);cb.appendChild(bar);
+      var s=document.createElement('span');s.className='hint';s.textContent=r.pct+'%';cb.appendChild(s);tr.appendChild(cb);
+      tr.appendChild(td(r.by,'muted'));
+      var ca=document.createElement('td');
+      if(r.status==='completed'){var d=document.createElement('a');d.href='#run';d.textContent='Download (38 parts)';ca.appendChild(d);}
+      else if(r.status==='scheduled'||r.status==='queued'){var b=document.createElement('button');b.type='button';b.textContent='Cancel';b.onclick=function(){r.status='cancelled';renderRuns();say('Export cancelled.');};ca.appendChild(b);}
+      else if(r.status==='failed'){var rb=document.createElement('button');rb.type='button';rb.textContent='Resume';rb.onclick=function(){r.status='running';renderRuns();say('Export resumed from the last sealed part.');};ca.appendChild(rb);}
+      tr.appendChild(ca);body.appendChild(tr);
+    });
+    $('runs-empty').hidden=state.runs.length>0;
+    $('st-running').textContent=state.runs.filter(function(r){return r.status==='running';}).length;
+    $('st-scheduled').textContent=state.runs.filter(function(r){return r.status==='scheduled'||r.status==='queued';}).length;
+  }
+  function renderRunDetail(){
+    var body=$('mod-progress');body.textContent='';
+    var st=[['customers','done',100],['sales','done',100],['catalog','running',72],['attachments','running',18],['audit_logs','queued',0],['messages','queued',0],['entities','queued',0],['auth','done',100]];
+    st.forEach(function(m,ix){var tr=document.createElement('tr');tr.appendChild(td(m[0]));tr.appendChild(td(m[1]));
+      var c=document.createElement('td');var bar=document.createElement('div');bar.className='bar';var i=document.createElement('i');i.style.width=m[2]+'%';bar.appendChild(i);c.appendChild(bar);tr.appendChild(c);
+      tr.appendChild(td(Math.round(MODULES[ix][2]*m[2]/100).toLocaleString('en-US'),'num'));body.appendChild(tr);});
+    var pb=$('parts-body');pb.textContent='';
+    for(var n=1;n<=4;n++){var tr=document.createElement('tr');tr.appendChild(td('part-'+String(n).padStart(4,'0')+'.zip','mono'));tr.appendChild(td('1.00 GB','num'));tr.appendChild(td(['9c1e…04ab','71d2…e9f0','c0aa…1b37','5e6f…a2d4'][n-1],'mono'));
+      var c=document.createElement('td');var a=document.createElement('a');a.href='#run';a.textContent='Download';c.appendChild(a);tr.appendChild(c);pb.appendChild(tr);}
+    var tr2=document.createElement('tr');tr2.appendChild(td('part-0005.zip','mono'));tr2.appendChild(td('writing…','num'));tr2.appendChild(td('—','mono'));tr2.appendChild(td(''));pb.appendChild(tr2);
+  }
+  var screens=['runs','new','run','subject','backups','denied','notfound'];
+  function show(id){
+    if(state.denied && id!=='denied' && id!=='backups'){id='denied';}
+    if(screens.indexOf(id)<0){id='notfound';}
+    screens.forEach(function(s){$(s).hidden=(s!==id);});
+    document.querySelectorAll('[data-nav]').forEach(function(a){var on=a.getAttribute('data-nav')===id||(id==='run'&&a.getAttribute('data-nav')==='runs');if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+    var h=$(id).querySelector('h1');if(h)h.focus();
+  }
+  function route(){var id=(location.hash||'#runs').slice(1);show(id);}
+  window.addEventListener('hashchange',route);
+  // new form
+  function syncForm(){
+    var scope=document.querySelector('input[name=scope]:checked').value;$('org-field').hidden=scope!=='organization';
+    var mode=document.querySelector('input[name=mode]:checked').value;$('plain-warn').hidden=mode!=='plain';
+    $('mode-hint').textContent=mode==='plain'?'Encrypted fields are decrypted with the tenant keys before they are written.':'Encrypted fields stay ciphertext as stored. The archive includes the encryption maps (no keys) so it can be decrypted only with this deployment’s keys.';
+    $('when-field').hidden=document.querySelector('input[name=when]:checked').value!=='later';
+    $('mod-checks').hidden=$('all-mods').checked;
+  }
+  document.querySelectorAll('#new-form input').forEach(function(el){el.addEventListener('change',syncForm);});
+  $('org').addEventListener('change',function(){if($('org').value)$('org-err').hidden=true;});
+  $('partsize').addEventListener('input',function(){var gb=parseFloat($('partsize').value);if(gb>=0.0625&&gb<=50)$('partsize-err').hidden=true;});
+  $('idval').addEventListener('input',function(){$('idval-err').hidden=true;});
+  MODULES.forEach(function(m){var l=document.createElement('label');var c=document.createElement('input');c.type='checkbox';c.checked=true;l.appendChild(c);l.appendChild(document.createTextNode(' '+m[0]));$('mod-checks').appendChild(l);});
+  $('dry-btn').onclick=function(){
+    $('dry-empty').hidden=true;$('dry-result').hidden=true;$('dry-loading').hidden=false;say('Dry run started.');
+    setTimeout(function(){
+      $('dry-loading').hidden=true;var body=$('dry-body');body.textContent='';var tr0=0,tf=0,ts=0;
+      var storage=$('storage').checked;
+      MODULES.forEach(function(m){if(!storage&&m[0]==='attachments')return;var tr=document.createElement('tr');tr.appendChild(td(m[0]));tr.appendChild(td(m[1],'muted'));tr.appendChild(td(m[2].toLocaleString('en-US'),'num'));var f=storage?m[3]:0;tr.appendChild(td(f.toLocaleString('en-US'),'num'));tr.appendChild(td(fmtBytes(m[4]),'num'));body.appendChild(tr);tr0+=m[2];tf+=f;ts+=m[4];});
+      $('dry-rec').textContent=tr0.toLocaleString('en-US');$('dry-files').textContent=tf.toLocaleString('en-US');$('dry-size').textContent='~'+fmtBytes(ts);
+      var gb=parseFloat($('partsize').value)||1;$('dry-parts').textContent='Estimated '+Math.ceil(ts/1e9/gb)+' archive parts of up to '+gb+' GB. Estimates use table statistics; exact counts are recorded in the manifest.';
+      $('dry-result').hidden=false;say('Dry run finished.');
+    },700);
+  };
+  $('new-form').addEventListener('submit',function(e){
+    e.preventDefault();var ok=true;
+    var gb=parseFloat($('partsize').value);var bad=!(gb>=0.0625&&gb<=50);$('partsize-err').hidden=!bad;if(bad){ok=false;$('partsize').focus();}
+    var scope=document.querySelector('input[name=scope]:checked').value;var orgBad=scope==='organization'&&!$('org').value;$('org-err').hidden=!orgBad;if(orgBad){ok=false;$('org').focus();}
+    if(!ok){say('Fix the highlighted fields.');return;}
+    var later=document.querySelector('input[name=when]:checked').value==='later';
+    var mode=document.querySelector('input[name=mode]:checked').value==='plain'?'Plain':'Keep encrypted';
+    state.runs.unshift({id:'n'+Date.now(),scope:(scope==='tenant'?$('tenant').value.replace(' (tenant)','')+' — whole tenant':$('org').value),mode:mode,files:$('storage').checked?'Included':'Excluded',part:gb+' GB',status:later?'scheduled':'queued',pct:0,by:'superadmin · '+(later?'runs '+$('when-at').value.replace('T',' '):'just now')});
+    renderRuns();location.hash='#runs';say(later?'Data exit scheduled.':'Data exit queued. Progress appears in the top bar.');
+    if(!later){var r=state.runs[0];setTimeout(function(){if(r.status==='queued'){r.status='running';r.pct=3;renderRuns();}},900);}
+  });
+  $('cancel-run').onclick=function(){state.runs.forEach(function(r){if(r.id==='r1')r.status='cancelled';});$('run-status').textContent='Cancelled';renderRuns();say('Export cancelled. Sealed parts are kept until expiry.');};
+  // subject
+  $('sdry').onclick=function(){
+    var v=$('idval').value.trim();var kind=$('idkind').value;var bad=!v||(kind==='email'&&v.indexOf('@')<1);$('idval-err').hidden=!bad;$('s-result').hidden=true;$('s-none').hidden=true;
+    if(bad){$('idval').focus();say('Enter a valid value.');return;}
+    if(state.nomatch){$('s-none').hidden=false;say('No match.');return;}
+    $('s-result').hidden=false;say('Dry run finished: 2 people matched.');
+  };
+  $('subject-form').addEventListener('submit',function(e){e.preventDefault();state.runs.unshift({id:'s'+Date.now(),scope:'Subject export — J*** D** (2 people)',mode:'Plain',files:'Included',part:'1 GB',status:'queued',pct:0,by:'superadmin · just now'});renderRuns();location.hash='#runs';say('Subject export queued.');});
+  // backups
+  $('bk-now').onclick=function(){
+    if(state.bkTimer)return;$('bk-idle').hidden=true;$('bk-running').hidden=false;$('bk-now').disabled=true;var p=0;say('Backup started.');
+    state.bkTimer=setInterval(function(){p=Math.min(100,p+9);$('bk-pct').textContent=p+'%';$('bk-bar').style.width=p+'%';if(p>=100){clearInterval(state.bkTimer);state.bkTimer=null;$('bk-now').disabled=false;$('bk-running').hidden=true;$('bk-idle').hidden=false;$('bk-idle').textContent='Last manual backup completed just now.';
+      var tr=document.createElement('tr');['25 Nov 2026 now','manual · superadmin','completed','single-snapshot','36.5 GB','pending',''].forEach(function(t,ix){tr.appendChild(td(t,ix===4?'num':''));});$('bk-body').insertBefore(tr,$('bk-body').firstChild);say('Backup completed.');}},300);
+  };
+  $('bk-save').onclick=function(){$('bk-saved').hidden=false;say('Schedule saved.');};
+  // test states
+  document.querySelectorAll('[data-state]').forEach(function(b){b.onclick=function(){var s=b.getAttribute('data-state');
+    if(s==='empty'){state.runs=[];renderRuns();location.hash='#runs';}
+    if(s==='denied'){state.denied=true;location.hash='#denied';route();}
+    if(s==='fail'){state.runs.forEach(function(r){if(r.status==='running')r.status='failed';});renderRuns();location.hash='#runs';say('Export failed: storage unavailable. Resume continues from the last sealed part.');}
+    if(s==='nomatch'){state.nomatch=true;location.hash='#subject';}
+  };});
+  $('reset').onclick=function(){state.runs=initialRuns();state.denied=false;state.nomatch=false;$('new-form').reset();$('subject-form').reset();['dry-result','dry-loading','s-result','s-none','idval-err','org-err','partsize-err','bk-saved'].forEach(function(id){$(id).hidden=true;});$('dry-empty').hidden=false;syncForm();renderRuns();$('run-status').textContent='Running';location.hash='#runs';route();say('Simulation reset.');};
+  renderRuns();renderRunDetail();syncForm();route();
+})();
+</script>
+</body>
+</html>

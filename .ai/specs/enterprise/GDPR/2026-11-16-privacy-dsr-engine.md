@@ -51,6 +51,8 @@ Classes taking part: every enabled class whose `subjectKinds` contains the subje
 
 ### Export run
 
+> **Superseded by** [`2026-11-25-data-exit-gdpr-subject-export.md`](2026-11-25-data-exit-gdpr-subject-export.md) (subject export runner moves to `data_exit`, pending confirmation on #8593).
+
 1. Validate input (zod). If the lookup is non-empty, call `findSubjects(scope, lookup)` on every class that implements it; matches go to `related` in the result. They are not exported automatically — the admin runs a request per matched subject.
 2. Call `exportSubject(request)` on every taking-part class, in class-id order. A thrown error marks that class `failed`; the run continues and the result is `incomplete`.
 3. Write `subject.json`: request, scope, `generatedAt`, per class `{ classId, sections }`, `files` (`attachmentId`, `fileName`, `path`), `related`, `notCovered` (baseline tables), `coverLetter`.
@@ -123,6 +125,8 @@ A daily system-scoped schedule (registered in `setup.ts` `seedDefaults`, pattern
 **Action-log age bound (#2980).** The OSS `audit_logs` module declares class `audit_logs.action_log` with `retentionSetting` `audit_logs.action_log_retention_days`. Its `pruneExpired` deletes the tenant's action-log entries older than the cutoff in batches, except DSR entries (`command_id` starting `privacy.`), which hold no values. Unset keeps everything; the settings form enforces at least 90 days (the change-log UI reads up to 90 days); the docs recommend 365. The method lives in `audit_logs` because only the owner writes its table; this runner is its only caller, so OSS ships no schedule or setting for it.
 
 ### Tenant export
+
+> **Superseded by** [`../2026-11-25-data-exit-kit.md`](../2026-11-25-data-exit-kit.md) (tenant/organization export moves to `data_exit`, pending confirmation on #8593).
 
 `mercato privacy export-tenant --tenant <id> [--organization <id>] --out <dir>` (CLI only). At the end of service the controller chooses return or deletion (Art. 28(3)(g)); this command is the return. It runs on a live or a soft-deleted tenant and leaves tenant data unchanged. It writes an instance-level audit entry.
 
