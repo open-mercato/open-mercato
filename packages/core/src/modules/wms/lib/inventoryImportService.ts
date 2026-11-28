@@ -19,6 +19,7 @@ import type {
   InventoryImportValidateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from '../commands/shared'
+import { resolveInventoryTrackingError } from './inventoryTrackingValidation'
 import type { InventoryImportRawRow } from './inventoryImportCsv'
 
 type ImportScope = {
@@ -269,7 +270,7 @@ async function loadCurrentOnHand(
     lotId?: string
     serialNumber?: string
   },
-): Promise<number> {
+): Promise<number | null> {
   const balance = await findOneWithDecryption(
     em,
     InventoryBalance,
@@ -284,40 +285,17 @@ async function loadCurrentOnHand(
     undefined,
     scope,
   )
-  return balance ? toNumber(balance.quantityOnHand) : 0
+  return balance ? toNumber(balance.quantityOnHand) : null
 }
 
-async function findMissingTrackingError(
-  em: EntityManager,
-  scope: ImportScope,
-  input: Parameters<typeof loadCurrentOnHand>[2],
-): Promise<'lot_required' | 'serial_required' | null> {
-  const profile = await findOneWithDecryption(
+async function loadTrackingProfile(em: EntityManager, scope: ImportScope, catalogVariantId: string) {
+  return findOneWithDecryption(
     em,
     ProductInventoryProfile,
-    { catalogVariantId: input.catalogVariantId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    { catalogVariantId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
     undefined,
     scope,
   )
-  let error: 'lot_required' | 'serial_required' | null = null
-  if (profile?.trackLot && !input.lotId) error = 'lot_required'
-  else if (profile?.trackSerial && !input.serialNumber) error = 'serial_required'
-  if (!error) return null
-  const existing = await findOneWithDecryption(
-    em,
-    InventoryBalance,
-    {
-      warehouse: input.warehouseId,
-      location: input.locationId,
-      catalogVariantId: input.catalogVariantId,
-      lot: input.lotId ?? null,
-      serialNumber: input.serialNumber ?? null,
-      deletedAt: null,
-    },
-    undefined,
-    scope,
-  )
-  return existing ? null : error
 }
 
 async function verifyApplyRowDeltas(
@@ -346,13 +324,13 @@ async function verifyApplyRowDeltas(
   // against the current balance to guard against staleness between validate/apply.
   const recalculated: InventoryImportApplyRowInput[] = []
   for (const row of rows) {
-    const currentOnHand = await loadCurrentOnHand(em, scope, {
+    const currentOnHand = (await loadCurrentOnHand(em, scope, {
       warehouseId: row.warehouseId,
       locationId: row.locationId,
       catalogVariantId: row.catalogVariantId,
       lotId: row.lotId,
       serialNumber: row.serialNumber,
-    })
+    })) ?? 0
     const serverDelta = row.quantity - currentOnHand
     if (Math.abs(serverDelta - row.delta) > 0.000001) {
       throw new CrudHttpError(400, {
@@ -443,13 +421,14 @@ export async function validateInventoryImport(
     }
 
     const serialNumber = raw.serialNumber?.trim() || undefined
-    const currentOnHand = await loadCurrentOnHand(em, scope, {
+    const existingOnHand = await loadCurrentOnHand(em, scope, {
       warehouseId: warehouse.id,
       locationId: location.id,
       catalogVariantId: variant.id,
       lotId: lot?.id,
       serialNumber,
     })
+    const currentOnHand = existingOnHand ?? 0
     const bucketKey = buildBucketKey({
       warehouseId: warehouse.id,
       locationId: location.id,
@@ -507,11 +486,8 @@ export async function validateInventoryImport(
       }
     }
 
-    if (Math.abs(delta) >= 0.000001) {
-      const trackingError = await findMissingTrackingError(em, scope, {
-        warehouseId: warehouse.id,
-        locationId: location.id,
-        catalogVariantId: variant.id,
+    if (existingOnHand === null && Math.abs(delta) >= 0.000001) {
+      const trackingError = resolveInventoryTrackingError(await loadTrackingProfile(em, scope, variant.id), {
         lotId: lot?.id,
         serialNumber,
       })

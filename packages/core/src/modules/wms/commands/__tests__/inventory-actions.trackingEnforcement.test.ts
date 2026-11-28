@@ -1,12 +1,7 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import {
-  InventoryBalance,
-  ProductInventoryProfile,
-  Warehouse,
-  WarehouseLocation,
-} from '../../data/entities'
+import { InventoryBalance, ProductInventoryProfile, Warehouse, WarehouseLocation } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   emitCrudSideEffects: jest.fn(async () => undefined),
@@ -83,7 +78,10 @@ function untrackedBucket(quantityOnHand: string) {
   }
 }
 
-function mockLookups(profile: TrackingProfile, existingBucket: ReturnType<typeof untrackedBucket> | null) {
+type Bucket = ReturnType<typeof untrackedBucket> | null
+
+function mockLookups(profile: TrackingProfile, existingBucket: Bucket, bucketAfterLock: Bucket = existingBucket) {
+  let balanceLookups = 0
   findOneWithDecryption.mockImplementation(async (_em, entity) => {
     if (entity === Warehouse) return { id: WAREHOUSE_ID, tenantId: TENANT, organizationId: ORG }
     if (entity === WarehouseLocation) {
@@ -92,7 +90,7 @@ function mockLookups(profile: TrackingProfile, existingBucket: ReturnType<typeof
     if (entity === ProductInventoryProfile && profile) {
       return { id: 'profile-1', tenantId: TENANT, organizationId: ORG, catalogVariantId: VARIANT_ID, ...profile }
     }
-    if (entity === InventoryBalance) return existingBucket
+    if (entity === InventoryBalance) return balanceLookups++ === 0 ? existingBucket : bucketAfterLock
     return null
   })
 }
@@ -168,6 +166,16 @@ describe('wms inventory adjust / cycle-count lot and serial tracking', () => {
 
     await run(target, overrides, em)
     expect(existing.quantityOnHand).toBe('2')
+    expect(createdBalances(em)).toHaveLength(0)
+  })
+
+  it('adjust skips the check when the bucket is created concurrently before the lock is taken', async () => {
+    const em = createEm()
+    const concurrent = untrackedBucket('5')
+    mockLookups(lotTracked, null, concurrent)
+
+    await run(adjust, {}, em)
+    expect(concurrent.quantityOnHand).toBe('25')
     expect(createdBalances(em)).toHaveLength(0)
   })
 })

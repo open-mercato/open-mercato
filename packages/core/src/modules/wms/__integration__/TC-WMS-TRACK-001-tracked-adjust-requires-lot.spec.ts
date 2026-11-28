@@ -2,28 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
-import {
-  createProductFixture,
-  createVariantFixture,
-  deleteCatalogProductIfExists,
-} from '@open-mercato/core/helpers/integration/catalogFixtures'
-import {
-  deleteGeneralEntityIfExists,
-  getTokenScope,
-  readJsonSafe,
-} from '@open-mercato/core/helpers/integration/generalFixtures'
-import {
-  createCrudFixture,
-  ensureRoleFeatures,
-  postAction,
-  toNumber,
-} from './helpers/wmsFixtures'
-import {
-  ensureEnglishLocale,
-  fillCombobox,
-  waitForInventoryMutationScope,
-  WMS_INVENTORY_MUTATION_FEATURES,
-} from './helpers/wmsUi'
+import { createProductFixture, createVariantFixture, deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
+import { deleteGeneralEntityIfExists, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createCrudFixture, ensureRoleFeatures, postAction, toNumber } from './helpers/wmsFixtures'
+import { ensureEnglishLocale, fillCombobox, waitForInventoryMutationScope, WMS_IMPORT_FEATURES } from './helpers/wmsUi'
 
 export const integrationMeta = {
   dependsOnModules: ['wms', 'catalog'],
@@ -39,16 +21,14 @@ test.describe('TC-WMS-TRACK-001: adjust, cycle count and import keep lot-tracked
     const scope = getTokenScope(adminToken)
     const scopeIds = { organizationId: scope.organizationId, tenantId: scope.tenantId }
     const suffix = randomUUID().slice(0, 8)
-    const restoreAdminAcl = await ensureRoleFeatures(request, superadminToken, scope.tenantId, 'admin', [
-      ...WMS_INVENTORY_MUTATION_FEATURES,
-      'wms.import',
-    ])
+    const restoreAdminAcl = await ensureRoleFeatures(request, superadminToken, scope.tenantId, 'admin', [...WMS_IMPORT_FEATURES])
 
     let productId: string | null = null
     let warehouseId: string | null = null
     let locationId: string | null = null
     let profileId: string | null = null
     let lotId: string | null = null
+    let stockedAdjust: Record<string, unknown> | null = null
     const warehouseName = `TC-WMS-TRACK-001 Warehouse ${suffix}`
     const locationCode = `BIN-${suffix}`
     const variantSku = `TCWTRK-V-${suffix}`
@@ -93,12 +73,8 @@ test.describe('TC-WMS-TRACK-001: adjust, cycle count and import keep lot-tracked
       const bucket = { ...scopeIds, warehouseId, locationId, catalogVariantId: variantId, performedBy: scope.userId }
       const adjustBody = { ...bucket, reason: 'TC-WMS-TRACK-001', referenceType: 'manual' }
 
-      await postAction(request, adminToken, '/api/wms/inventory/adjust', {
-        ...adjustBody,
-        lotId,
-        delta: 50,
-        referenceId: randomUUID(),
-      })
+      await postAction(request, adminToken, '/api/wms/inventory/adjust', { ...adjustBody, lotId, delta: 50, referenceId: randomUUID() })
+      stockedAdjust = { ...adjustBody, lotId, delta: -50 }
       const adjustWithoutLot = await apiRequest(request, 'POST', '/api/wms/inventory/adjust', {
         token: adminToken,
         data: { ...adjustBody, delta: 20, referenceId: randomUUID() },
@@ -158,6 +134,12 @@ test.describe('TC-WMS-TRACK-001: adjust, cycle count and import keep lot-tracked
       await expect(page.getByText('Lot number is required for this variant.').first()).toBeVisible({ timeout: 10_000 })
     } finally {
       try {
+        if (stockedAdjust) {
+          await apiRequest(request, 'POST', '/api/wms/inventory/adjust', {
+            token: adminToken,
+            data: { ...stockedAdjust, referenceId: randomUUID() },
+          })
+        }
         await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/inventory-profiles', profileId)
         await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/lots', lotId)
         await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/locations', locationId)

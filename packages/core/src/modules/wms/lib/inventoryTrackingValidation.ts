@@ -10,14 +10,19 @@ type InventoryTrackingInput = {
   serialNumber?: string | null
 }
 
+export function resolveInventoryTrackingError(
+  profile: InventoryTrackingProfile,
+  input: InventoryTrackingInput,
+): 'lot_required' | 'serial_required' | null {
+  if (profile?.trackLot && !input.lotId?.trim()) return 'lot_required'
+  if (profile?.trackSerial && !input.serialNumber?.trim()) return 'serial_required'
+  return null
+}
+
 export function enforceInventoryTrackingRequirements(
   profile: InventoryTrackingProfile,
   input: InventoryTrackingInput,
 ): void {
-  if (profile?.trackLot && !input.lotId?.trim()) {
-    throw new CrudHttpError(422, { error: 'lot_required' })
-  }
-  if (profile?.trackSerial && !input.serialNumber?.trim()) {
-    throw new CrudHttpError(422, { error: 'serial_required' })
-  }
+  const error = resolveInventoryTrackingError(profile, input)
+  if (error) throw new CrudHttpError(422, { error })
 }
