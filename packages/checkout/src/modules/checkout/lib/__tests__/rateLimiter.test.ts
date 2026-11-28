@@ -149,6 +149,17 @@ describe('enforceCheckoutRateLimit', () => {
     expect(response?.status).toBe(503)
   })
 
+  it('stays fail-open when no limiter is registered but rate limiting is disabled on purpose', async () => {
+    const previous = process.env.RATE_LIMIT_ENABLED
+    process.env.RATE_LIMIT_ENABLED = 'false'
+    try {
+      expect(await enforce(makeContainer(null), 'fail-closed')).toBeNull()
+    } finally {
+      if (previous === undefined) delete process.env.RATE_LIMIT_ENABLED
+      else process.env.RATE_LIMIT_ENABLED = previous
+    }
+  })
+
   it('localizes the 503 for the request locale when no limiter is registered', async () => {
     mockPolishTranslations()
 
