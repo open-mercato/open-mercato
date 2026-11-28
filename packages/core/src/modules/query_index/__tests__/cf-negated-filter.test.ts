@@ -7,12 +7,15 @@ import {
   PostgresQueryCompiler,
   type Expression,
   type ExpressionBuilder,
+  type SelectQueryBuilder,
 } from 'kysely'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import type { FilterOp } from '@open-mercato/shared/lib/query/types'
 import { HybridQueryEngine } from '../lib/engine'
 
 type IndexDb = { entity_indexes: { id: string; doc: unknown } }
+type AliasDb = { ce: IndexDb['entity_indexes'] }
+type AliasBuilder = SelectQueryBuilder<AliasDb, 'ce', { id: string }>
 type IndexDocSource = { alias: string; entityId: string; recordIdColumn: string }
 
 type HybridInternals = {
@@ -23,6 +26,14 @@ type HybridInternals = {
     value: unknown,
     sources: IndexDocSource[],
   ) => Expression<boolean> | null
+  applyCfFilterFromAlias: (
+    builder: AliasBuilder,
+    alias: string,
+    entityType: string,
+    key: string,
+    op: FilterOp,
+    value: unknown,
+  ) => AliasBuilder
 }
 
 const db = new Kysely<IndexDb>({
@@ -70,5 +81,38 @@ describe('HybridQueryEngine.buildCfFilterExpression ne/nin on multi-value fields
     const compiled = compile('nin', [])
     expect(compiled.sql).toMatch(/where coalesce\(.+\) is not null$/)
     expect(compiled.sql).not.toContain('not in')
+  })
+})
+
+describe('HybridQueryEngine.applyCfFilterFromAlias on multi-value fields (#10167)', () => {
+  function compileAlias(op: FilterOp, value: unknown) {
+    const base = db
+      .selectFrom('entity_indexes as ce')
+      .select('ce.id') as unknown as AliasBuilder
+    return engine.applyCfFilterFromAlias(base, 'ce', 'user:widget', 'cf:labels', op, value).compile()
+  }
+
+  const containment = /coalesce\("ce"\."doc" -> (\$\d+), "ce"\."doc" -> (\$\d+)\) @> \$\d+::jsonb/
+
+  it.each<[FilterOp, unknown]>([
+    ['eq', 'a'], ['in', ['a']], ['overlap', ['a']], ['ne', 'a'], ['nin', ['a']],
+  ])('reads the array for %s from the cf: key or the bare key', (op, value) => {
+    const compiled = compileAlias(op, value)
+    const placeholders = containment.exec(compiled.sql)?.slice(1) ?? []
+    const keys = placeholders.map((placeholder) => compiled.parameters[Number(placeholder.slice(1)) - 1])
+    expect(keys).toEqual(['cf:labels', 'labels'])
+    expect(compiled.parameters).toContain('["a"]')
+  })
+
+  it.each<[FilterOp, FilterOp, unknown]>([
+    ['ne', 'eq', 'a'], ['nin', 'in', ['a', 'b']],
+  ])('compiles %s as the negation of the containment-aware %s', (negated, positive, value) => {
+    const predicate = (op: FilterOp) => compileAlias(op, value).sql.split(' where ')[1]
+    expect(predicate(negated)).toBe(`not ${predicate(positive)}`)
+  })
+
+  it('keeps ne null as is not null and an empty nin as match-all', () => {
+    expect(compileAlias('ne', null).sql).toMatch(/where coalesce\(.+\) is not null$/)
+    expect(compileAlias('nin', []).sql).toMatch(/where true$/)
   })
 })
