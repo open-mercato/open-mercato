@@ -39,6 +39,7 @@ import { DealsSection } from '../../../../components/detail/DealsSection'
 import { TasksSection } from '../../../../components/detail/TasksSection'
 import type { TagSummary } from '../../../../components/detail/types'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
+import { resolveActivityStartOnDay } from '../../../../components/detail/schedule/useScheduleFormState'
 import { PersonDetailHeader } from '../../../../components/detail/PersonDetailHeader'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
 import { PersonDetailTabs, PERSON_DETAIL_TAB_IDS, resolveLegacyTab, type PersonTabId } from '../../../../components/detail/PersonDetailTabs'
@@ -256,8 +257,11 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     }),
   )
 
-  const openNewScheduleDialog = React.useCallback(() => {
-    setScheduleEditData(null)
+  const openNewScheduleDialog = React.useCallback((selectedDate?: unknown) => {
+    setScheduleEditData(selectedDate instanceof Date ? {
+      id: '',
+      scheduledAt: resolveActivityStartOnDay('meeting', selectedDate).toISOString(),
+    } : null)
     setScheduleDialogOpen(true)
   }, [])
 

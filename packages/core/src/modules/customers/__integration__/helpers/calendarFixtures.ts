@@ -28,6 +28,8 @@ export type InteractionFixtureInput = {
   participants?: InteractionParticipant[] | null;
   location?: string | null;
   allDay?: boolean | null;
+  reminderMinutes?: number | null;
+  visibility?: 'private' | 'team' | 'public' | null;
   ownerUserId?: string | null;
   priority?: number | null;
   recurrenceRule?: string | null;
@@ -51,6 +53,8 @@ export async function createInteractionFixture(
   if (input.participants !== undefined) data.participants = input.participants;
   if (input.location !== undefined) data.location = input.location;
   if (input.allDay !== undefined) data.allDay = input.allDay;
+  if (input.reminderMinutes !== undefined) data.reminderMinutes = input.reminderMinutes;
+  if (input.visibility !== undefined) data.visibility = input.visibility;
   if (input.ownerUserId !== undefined) data.ownerUserId = input.ownerUserId;
   if (input.priority !== undefined) data.priority = input.priority;
   if (input.recurrenceRule !== undefined) data.recurrenceRule = input.recurrenceRule;

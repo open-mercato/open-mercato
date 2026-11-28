@@ -19,6 +19,8 @@ interface MiniWeekCalendarProps {
   refreshRef?: React.RefObject<(() => void) | null>
   /** Host refresh signal: the week reloads whenever it changes (an activity was created, changed or deleted elsewhere on the page). */
   refreshKey?: number
+  selectedDay?: Date | null
+  onSelectedDayChange?: (day: Date | null) => void
 }
 
 function getWeekDays(baseDate: Date): Date[] {
@@ -62,7 +64,14 @@ function dotColorForType(type: string, isToday: boolean): string {
   return INTERACTION_TYPE_COLORS[type] ?? INTERACTION_TYPE_FALLBACK_COLOR
 }
 
-export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef, refreshKey = 0 }: MiniWeekCalendarProps) {
+export function MiniWeekCalendar({
+  entityId,
+  useCanonicalInteractions = true,
+  refreshRef,
+  refreshKey = 0,
+  selectedDay: controlledSelectedDay,
+  onSelectedDayChange,
+}: MiniWeekCalendarProps) {
   const t = useT()
   const today = React.useMemo(() => new Date(), [])
   const [weekOffset, setWeekOffset] = React.useState(0)
@@ -176,7 +185,8 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
   }, [events])
 
   // Selected day for summary (defaults to today)
-  const [selectedDay, setSelectedDay] = React.useState<Date | null>(null)
+  const [internalSelectedDay, setSelectedDay] = React.useState<Date | null>(null)
+  const selectedDay = controlledSelectedDay === undefined ? internalSelectedDay : controlledSelectedDay
   const activeDay = selectedDay ?? today
 
   // Collect events for the active day + tomorrow for the summary list
@@ -230,7 +240,7 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
       </div>
 
       {/* Day cells — bordered grid like Figma */}
-      <div className="grid grid-cols-7 border rounded-lg overflow-hidden">
+      <div role="group" aria-label={monthLabel} className="grid grid-cols-7 overflow-hidden rounded-lg border">
         {weekDays.map((day) => {
           const isToday = isSameDay(day, today)
           const isSelected = selectedDay ? isSameDay(day, selectedDay) : isToday
@@ -242,9 +252,14 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
               variant="ghost"
               size="sm"
               key={day.toISOString()}
-              onClick={() => setSelectedDay(isSameDay(day, selectedDay ?? today) ? null : day)}
+              aria-pressed={isSelected}
+              onClick={() => {
+                const nextDay = selectedDay && isSameDay(day, selectedDay) ? null : day
+                setSelectedDay(nextDay)
+                onSelectedDayChange?.(nextDay)
+              }}
               className={cn(
-                'h-auto flex flex-col items-center border-r last:border-r-0 py-3 text-sm transition-colors cursor-pointer rounded-none',
+                'h-auto min-w-0 flex flex-col items-center border-r last:border-r-0 px-0 py-3 text-sm transition-colors cursor-pointer rounded-none',
                 isSelected ? 'bg-foreground text-background font-bold' : 'hover:bg-accent/50',
               )}
             >

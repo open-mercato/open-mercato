@@ -47,7 +47,7 @@ interface InlineActivityComposerProps {
   dealId?: string | null
   onActivityCreated?: () => void
   runGuardedMutation?: GuardedMutationRunner
-  onScheduleRequested?: () => void
+  onScheduleRequested?: (selectedDate?: Date) => void
   useCanonicalInteractions?: boolean
   /** Host refresh signal forwarded to the week preview so it follows activities created, changed or deleted outside the composer. */
   refreshKey?: number
@@ -65,6 +65,7 @@ export function InlineActivityComposer({
 }: InlineActivityComposerProps) {
   const t = useT()
   const calendarRefreshRef = React.useRef<(() => void) | null>(null)
+  const [selectedDay, setSelectedDay] = React.useState<Date | null>(null)
   const [selectedType, setSelectedType] = React.useState<ActivityType | null>('call')
   const [description, setDescription] = React.useState('')
   const [occurredAt, setOccurredAt] = React.useState(() => new Date().toISOString().slice(0, 16))
@@ -189,9 +190,9 @@ export function InlineActivityComposer({
           <SquarePen className="size-4" />
           {t('customers.activityComposer.title', 'Log activity')}
         </h3>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {onScheduleRequested ? (
-            <Button type="button" variant="outline" size="sm" onClick={onScheduleRequested} disabled={saving}>
+            <Button type="button" variant="outline" size="sm" onClick={() => onScheduleRequested(selectedDay ?? undefined)} disabled={saving}>
               <Calendar className="size-4" />
               {t('customers.activityComposer.schedule', 'Schedule')}
             </Button>
@@ -280,6 +281,8 @@ export function InlineActivityComposer({
               useCanonicalInteractions={useCanonicalInteractions}
               refreshRef={calendarRefreshRef}
               refreshKey={refreshKey}
+              selectedDay={selectedDay}
+              onSelectedDayChange={setSelectedDay}
             />
           </div>
         ) : null}

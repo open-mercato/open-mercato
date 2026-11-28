@@ -26,7 +26,7 @@ type ActivityLogTabProps = {
   plannedLoadFailed?: boolean
   onRetryPlannedLoad?: () => void
   onActivityCreated?: () => void
-  onScheduleRequested: () => void
+  onScheduleRequested: (selectedDate?: Date) => void
   /** @deprecated The per-type "Add new" menu was replaced by the shared composer and its Schedule action (#7494); the prop is ignored. Remove after one minor cycle. */
   onAddActivity?: (kind: ActivityKind) => void
   onMarkDone?: (id: string) => void | Promise<void>
