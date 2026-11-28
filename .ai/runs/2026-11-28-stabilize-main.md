@@ -23,6 +23,13 @@ One read-only child investigates unit/timezone logs while the parent handles int
 ## Evidence
 Main unit/timezone diagnosis confirmed the same stale forms header assertion in both jobs. First repair run 46081406661 passes all 15 integration shards and core-timezone; unit job reveals a scheduling-dependent backup-lock test barrier. Fixed by pausing the first stale remover before starting the second contender, with explicit BACKUP_LIVE_LOCK assertion. Production code is unchanged.
 
+Local validation also exposed an undersized OMH-223 example-reading budget. Commit f7b8cc176b recalibrates the ceiling to the measured declared surface plus its existing reserve and extends the reserve regression. Exact file and capability allowlists remain enforced.
+
+## Continuation — 2026-11-28
+The scheduled 08:00 run found this existing PR rather than opening a duplicate. After the ownership conflict was reported, the operator explicitly instructed autonomous continuation. The cockpit confirms original run c5354196-6477-42d1-b33b-7ca6c3b4f09a and its child are done; its recorded validation processes have exited. Run b40fd49b-04fd-4ba4-b6b5-f9c00ed8bc0a therefore recovers the abandoned claim with an audit comment and an exact-SHA lease, then acquires its own lock. It resumes Phase 2 on the same stabilization branch. No live worker is displaced and no base-branch merge is planned.
+
+Head f7b8cc176b passed hosted run 46089946143, including all 15 integration shards, unit tests, timezone coverage, lint, app build and multi-instance checks. All four workflows for that head completed successfully. The continuation runs the configured local gate afresh, dispatches one final independent review, and verifies the final pushed head before adding automerge. Local validation uses a short TMPDIR and Turbo environment passthrough; the already downloaded unzip executable supplies the missing host utility without changing project dependencies.
+
 ## Risks
 The current main integration run is unfinished, so additional failures may emerge. Full CI may take over an hour. Draft PRs cannot run CI in this repository; initial draft will be marked ready to validate. Initial local unit gate failed because Turbo strict mode stripped TMPDIR=/tmp, exposing tsx Unix socket path length limits in the cockpit temporary directory. Retry uses TURBO_ENV_MODE=loose with TMPDIR=/tmp. Record any further environmental blockers; retain full hosted CI as a requirement.
 
@@ -35,7 +42,7 @@ PR: #10995
 ### Phase 1: Diagnosis and repair
 
 - [x] 1.1 Investigate main CI failures and reproduce their causes. — ede2c27bfc
-- [x] 1.2 Apply focused fixes and regression coverage. — ede2c27bfc, 341cdd7398
+- [x] 1.2 Apply focused fixes and regression coverage. — ede2c27bfc, 341cdd7398, f7b8cc176b
 
 ### Phase 2: Validation and handoff
 
