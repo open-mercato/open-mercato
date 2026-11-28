@@ -104,9 +104,7 @@ test('TC-CACC-INVITE-ROLE-001: a restricted portal invitation respects the invit
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(page).toHaveURL(/\/backend(?:\/.*)?$/)
 
-    await page.goto(`/backend/customers/people-v2/${personId}`)
-    await page.getByRole('main').getByRole('button', { name: 'More', exact: true }).first().click()
-    await page.getByRole('menuitem', { name: 'Portal account', exact: true }).click()
+    await page.goto(`/backend/customers/people-v2/${personId}?tab=portal-account`)
     const accountPanel = page.getByRole('tabpanel', { name: 'Portal account' })
     await accountPanel.getByRole('button', { name: 'Invite to Portal', exact: true }).click()
     await accountPanel.getByRole('button', { name: portalRole.name, exact: true }).click()

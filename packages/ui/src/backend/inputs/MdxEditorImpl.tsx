@@ -41,7 +41,7 @@ import { useContentSecurityPolicyNonce } from '../../theme/ContentSecurityPolicy
 import type { MarkdownFieldProps } from './MarkdownField'
 import { resolveMarkdownCodeBlockLanguages } from '../markdown/codeBlockLanguages'
 
-export default function MdxEditorImpl({ value = '', onChange, codeBlockLanguages }: MarkdownFieldProps) {
+export default function MdxEditorImpl({ value = '', onChange, readOnly, codeBlockLanguages }: MarkdownFieldProps) {
   const editorRef = React.useRef<MDXEditorMethods>(null)
   const [container, setContainer] = React.useState<HTMLDivElement | null>(null)
   const latestRef = React.useRef<string>(value)
@@ -67,8 +67,9 @@ export default function MdxEditorImpl({ value = '', onChange, codeBlockLanguages
         ref={editorRef}
         overlayContainer={container.closest<HTMLElement>('[role="dialog"]') ?? undefined}
         markdown={value ?? ''}
+        readOnly={readOnly}
         onChange={(markdown, initialMarkdownNormalize) => {
-          if (initialMarkdownNormalize || markdown === latestRef.current) return
+          if (readOnly || initialMarkdownNormalize || markdown === latestRef.current) return
           latestRef.current = markdown
           onChange(markdown)
         }}

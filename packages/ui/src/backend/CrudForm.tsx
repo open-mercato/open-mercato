@@ -486,6 +486,8 @@ export type CrudFormProps<
   contentHeader?: React.ReactNode
   readOnly?: boolean
   readOnlyOverlay?: React.ReactNode
+  /** Keep form fields visible and disable their controls without applying the lock overlay. */
+  readOnlyDisplay?: 'fields' | 'overlay'
   // Optional mapping of entityId -> form value key storing the selected fieldset code
   customFieldsetBindings?: Record<string, { valueKey: string }>
   resolveCustomFieldText?: (text: string, context: { entityId: string; path: string }) => string
@@ -495,8 +497,9 @@ export type CrudFormProps<
    * - 'page' — navigates straight to the full custom-fields editor page in a
    *   new tab. Use for end-user dialogs (e.g. the calendar event editor) where
    *   the nested admin quick-editor is out of place.
+   * - 'hidden' — hides custom-field management controls.
    */
-  customFieldsManageMode?: 'inline' | 'page'
+  customFieldsManageMode?: 'inline' | 'page' | 'hidden'
   // Optional injection spot ID for widget injection
   injectionSpotId?: string
   /**
@@ -861,6 +864,7 @@ function CrudFormImpl<
   contentHeader,
   readOnly = false,
   readOnlyOverlay,
+  readOnlyDisplay = 'overlay',
   customFieldsetBindings,
   resolveCustomFieldText,
   customFieldsManageMode = 'inline',
@@ -905,6 +909,8 @@ function CrudFormImpl<
   const internalFormId = React.useId()
   const formId = providedFormId ?? internalFormId
   const formReadOnly = Boolean(readOnly)
+  const fieldsReadOnly = formReadOnly && readOnlyDisplay === 'fields'
+  const hideCustomFieldManagement = customFieldsManageMode === 'hidden'
   const [values, setValues] = React.useState<CrudFormValues<TValues>>(
     () => ({ ...(initialValues ?? {}) } as CrudFormValues<TValues>)
   )
@@ -1558,7 +1564,7 @@ function CrudFormImpl<
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {
-      if (!targetEntityId) return null
+      if (!targetEntityId || hideCustomFieldManagement) return null
       try {
         const encoded = encodeURIComponent(targetEntityId)
         return customEntity ? `/backend/entities/user/${encoded}` : `/backend/entities/system/${encoded}`
@@ -1566,7 +1572,7 @@ function CrudFormImpl<
         return null
       }
     },
-    [customEntity],
+    [customEntity, hideCustomFieldManagement],
   )
 
   const refreshCustomFieldDefinitions = React.useCallback(() => {
@@ -2567,7 +2573,7 @@ function CrudFormImpl<
     return (
       <div className="rounded-md border border-dashed border-muted-foreground/50 bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
         <span>{text} </span>
-        {customFieldsManageHref ? (
+        {hideCustomFieldManagement ? null : customFieldsManageHref ? (
           <Link href={customFieldsManageHref} className="font-medium text-primary hover:underline">
             {action}
           </Link>
@@ -2576,7 +2582,7 @@ function CrudFormImpl<
         )}
       </div>
     )
-  }, [customFieldsManageHref, t])
+  }, [customFieldsManageHref, hideCustomFieldManagement, t])
 
   const firstFieldId = React.useMemo(() => {
     if (useGroupedLayout) {
@@ -2761,6 +2767,7 @@ function CrudFormImpl<
   }, [])
 
   const setValue = React.useCallback((id: string, nextValue: unknown) => {
+    if (fieldsReadOnly) return
     const currentValues = valuesRef.current
     if (!Object.is(currentValues[id], nextValue)) {
       pendingDirtyBaselineCommitRef.current = null
@@ -2822,7 +2829,7 @@ function CrudFormImpl<
         return prev
       })
     }
-  }, [embedded, extendedInjectionEventsEnabled, t, trackDirtyWhenEmbedded, translateValidationMessage, updateEditedFieldMarker])
+  }, [embedded, extendedInjectionEventsEnabled, fieldsReadOnly, t, trackDirtyWhenEmbedded, translateValidationMessage, updateEditedFieldMarker])
 
   React.useEffect(() => {
     if (!extendedInjectionEventsEnabled) {
@@ -3709,6 +3716,7 @@ function CrudFormImpl<
     }
   }
 
+  const FieldGrid = fieldsReadOnly ? 'fieldset' : 'div'
   const renderFields = (fieldList: CrudField[]) => {
     const visibleFieldList = fieldList.filter(
       (field) => !hiddenBaseFieldIds.has(field.id) && !hiddenInjectedFieldIds.has(field.id)
@@ -3718,14 +3726,14 @@ function CrudFormImpl<
     )
     const gridClass = usesResponsive ? 'grid grid-cols-1 gap-4 md:grid-cols-6' : 'grid grid-cols-1 gap-4'
     return (
-      <div className={gridClass}>
+      <FieldGrid className={cn(gridClass, fieldsReadOnly && 'min-w-0')} disabled={fieldsReadOnly || undefined}>
         {visibleFieldList.map((f) => {
           const layout = f.layout ?? 'full'
           const wrapperClassName = usesResponsive ? resolveLayoutClass(layout) : undefined
           return (
             <FieldControl
               key={f.id}
-              field={f}
+              field={fieldsReadOnly ? { ...f, disabled: true } : f}
               value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
               error={errors[f.id]}
               options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
@@ -3743,7 +3751,7 @@ function CrudFormImpl<
             />
           )
         })}
-      </div>
+      </FieldGrid>
     )
   }
 
@@ -3786,6 +3794,7 @@ function CrudFormImpl<
               </label>
               <Select
                 value={entityLayout.activeFieldset || undefined}
+                disabled={fieldsReadOnly}
                 onValueChange={(value) =>
                   handleFieldsetSelectionChange(
                     entityLayout.entityId,
@@ -3803,7 +3812,7 @@ function CrudFormImpl<
                   ))}
                 </SelectContent>
               </Select>
-              <IconButton
+              {!hideCustomFieldManagement ? <IconButton
                 variant="outline"
                 className="text-muted-foreground hover:text-foreground"
                 onClick={() =>
@@ -3812,7 +3821,7 @@ function CrudFormImpl<
                 title={manageFieldsetLabel}
               >
                 <Settings className="size-4" />
-              </IconButton>
+              </IconButton> : null}
             </div>
           </div>,
         )
@@ -3841,7 +3850,7 @@ function CrudFormImpl<
                     ) : null}
                   </div>
                 </div>
-                <Button
+                {!hideCustomFieldManagement ? <Button
                   type="button"
                   variant="muted"
                   size="sm"
@@ -3851,7 +3860,7 @@ function CrudFormImpl<
                 >
                   <Settings className="size-4" />
                   {manageFieldsetLabel}
-                </Button>
+                </Button> : null}
               </div>
               {section.groups.map((group) => {
                 const groupKey = `${section.fieldsetCode ?? 'default'}:${group.code ?? 'default'}`
@@ -3896,15 +3905,17 @@ function CrudFormImpl<
     defaultFieldsetLabel,
     emptyFieldsetMessage,
     fieldsetSelectorLabel,
+    fieldsReadOnly,
     handleFieldsetSelectionChange,
     handleOpenFieldsetEditor,
+    hideCustomFieldManagement,
     manageFieldsetLabel,
     getGroupCustomFieldControls,
     renderFields,
     t,
   ])
 
-  const fieldsetManagerDialog = (
+  const fieldsetManagerDialog = hideCustomFieldManagement ? null : (
     <Dialog open={fieldsetEditorTarget !== null} onOpenChange={(open) => { if (!open) setFieldsetEditorTarget(null) }}>
       <DialogContent
         className="max-w-5xl w-full"
@@ -3954,7 +3965,7 @@ function CrudFormImpl<
   }, [formReadOnly])
 
   const wrapFormBody = React.useCallback((children: React.ReactNode, className?: string) => {
-    if (!formReadOnly) return children
+    if (!formReadOnly || fieldsReadOnly) return children
     return (
       <div
         className={cn('relative', className)}
@@ -3969,7 +3980,7 @@ function CrudFormImpl<
         </div>
       </div>
     )
-  }, [formReadOnly, handleReadOnlyFocusCapture, handleReadOnlyKeyDownCapture, readOnlyOverlay])
+  }, [fieldsReadOnly, formReadOnly, handleReadOnlyFocusCapture, handleReadOnlyKeyDownCapture, readOnlyOverlay])
 
   if (sectionDefinitionsPending) return <LoadingMessage label={resolvedCustomFieldsLoadingMessage} />
   if (sectionDefinitionsInvalid) return <CrudFormSectionPolicyError />
@@ -4300,7 +4311,7 @@ function CrudFormImpl<
                 widgetsOverride={stackedInjectionWidgets}
               />
             ) : null}
-            <div className={grid}>
+            <FieldGrid className={cn(grid, fieldsReadOnly && 'min-w-0')} disabled={fieldsReadOnly || undefined}>
               {allFields.map((f) => {
                 if (hiddenBaseFieldIds.has(f.id) || hiddenInjectedFieldIds.has(f.id)) return null
                 const layout = f.layout ?? 'full'
@@ -4308,7 +4319,7 @@ function CrudFormImpl<
                 return (
                   <FieldControl
                     key={f.id}
-                    field={f}
+                    field={fieldsReadOnly ? { ...f, disabled: true } : f}
                     value={readRenderedFieldValue(values as Record<string, unknown>, f.id)}
                     error={errors[f.id]}
                     options={fieldOptionsById.get(f.id) || EMPTY_OPTIONS}
@@ -4326,7 +4337,7 @@ function CrudFormImpl<
                   />
                 )
               })}
-            </div>
+            </FieldGrid>
             {formError ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {renderFooterActions ? (
               <FormFooter
@@ -4717,19 +4728,18 @@ function TextAreaInput({
 }
 
 // Markdown editor — WYSIWYG MDXEditor (Lexical) wired to the CrudForm value/onChange contract.
-type MDProps = { value?: string; onChange: (md: string) => void }
+type RichTextFieldProps = { value?: string; onChange: (content: string) => void; readOnly: boolean }
 
-const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange }: MDProps) {
-  return <MarkdownField value={value} onChange={onChange} />
-}, (prev, next) => prev.value === next.value)
+const MarkdownEditor = React.memo(function MarkdownEditor({ value = '', onChange, readOnly }: RichTextFieldProps) {
+  return <MarkdownField value={value} onChange={onChange} readOnly={readOnly} />
+}, (prev, next) => prev.value === next.value && prev.readOnly === next.readOnly)
 
 // HTML Rich Text editor wrapper for the CrudForm builtin `editor: 'html'`.
 // Maps the existing `ui.forms.richtext.*` i18n keys onto the `RichEditor`
 // `labels` contract and pins the `standard` toolbar variant — heading
 // dropdown + B/I/U + lists + link, matching the legacy behaviour plus
 // the Figma `164611:20259` heading selector.
-type HtmlRichEditorFieldProps = { value?: string; onChange: (html: string) => void }
-const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = '', onChange }: HtmlRichEditorFieldProps) {
+const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = '', onChange, readOnly }: RichTextFieldProps) {
   const t = useT()
   const labels = React.useMemo<Partial<RichEditorLabels>>(() => ({
     bold: t('ui.forms.richtext.bold'),
@@ -4749,12 +4759,11 @@ const HtmlRichEditorField = React.memo(function HtmlRichEditorField({ value = ''
     mention: t('ui.forms.richtext.mention', 'Mention'),
     more: t('ui.forms.richtext.more', 'More'),
   }), [t])
-  return <RichEditor value={value} onChange={onChange} variant="full" labels={labels} />
-}, (prev, next) => prev.value === next.value)
+  return <RichEditor value={value} onChange={onChange} disabled={readOnly} variant="full" labels={labels} />
+}, (prev, next) => prev.value === next.value && prev.readOnly === next.readOnly)
 
 // Very simple markdown editor with Bold/Italic/Underline + shortcuts.
-type SimpleMDProps = { value?: string; onChange: (md: string) => void }
-const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange }: SimpleMDProps) {
+const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = '', onChange, readOnly }: RichTextFieldProps) {
   const t = useT()
   const boldLabel = t('ui.forms.richtext.bold')
   const italicLabel = t('ui.forms.richtext.italic')
@@ -4771,7 +4780,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
 
   const wrap = (before: string, after: string = before) => {
     const el = taRef.current
-    if (!el) return
+    if (!el || readOnly) return
     const start = el.selectionStart ?? 0
     const end = el.selectionEnd ?? 0
     const sel = value.slice(start, end) || sampleText
@@ -4796,12 +4805,13 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
   return (
     <div className="w-full rounded border">
       <div className="flex items-center gap-1 px-2 py-1 border-b">
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</Button>
-        <Button variant="ghost" size="sm" className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</Button>
+        <Button variant="ghost" size="sm" disabled={readOnly} className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('**')}>{boldLabel}</Button>
+        <Button variant="ghost" size="sm" disabled={readOnly} className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('_')}>{italicLabel}</Button>
+        <Button variant="ghost" size="sm" disabled={readOnly} className="h-auto px-2 py-0.5 text-xs" onMouseDown={(e) => e.preventDefault()} onClick={() => wrap('__')}>{underlineLabel}</Button>
       </div>
       <textarea
         ref={taRef}
+        readOnly={readOnly}
         className="w-full min-h-[100px] sm:min-h-[160px] resize-y px-2 py-2 font-mono text-sm outline-none"
         spellCheck={false}
         value={local}
@@ -4812,7 +4822,7 @@ const SimpleMarkdownEditor = React.memo(function SimpleMarkdownEditor({ value = 
       />
     </div>
   )
-}, (prev, next) => prev.value === next.value)
+}, (prev, next) => prev.value === next.value && prev.readOnly === next.readOnly)
 
 type FieldControlProps = {
   field: CrudField
@@ -5175,17 +5185,17 @@ const FieldControl = React.memo(function FieldControlImpl({
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (
         <div role="group" aria-labelledby={labelId}>
-          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+          <SimpleMarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} readOnly={disabled || readOnly} />
         </div>
       )}
       {field.type === 'richtext' && builtin?.editor === 'html' && (
         <div role="group" aria-labelledby={labelId}>
-          <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} />
+          <HtmlRichEditorField value={String(value ?? '')} onChange={fieldSetValue} readOnly={disabled || readOnly} />
         </div>
       )}
       {field.type === 'richtext' && (!builtin?.editor || (builtin.editor !== 'simple' && builtin.editor !== 'html')) && (
         <div role="group" aria-labelledby={labelId}>
-          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} />
+          <MarkdownEditor value={String(value ?? '')} onChange={fieldSetValue} readOnly={disabled || readOnly} />
         </div>
       )}
       {field.type === 'tags' && (

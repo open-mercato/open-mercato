@@ -21,9 +21,8 @@ jest.mock('next/navigation', () => ({
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: ({ label }: { label: string }) => <div role="status">{label}</div>,
-  TabEmptyState: ({ action }: { action: { label: string; onClick: () => void } }) => (
-    <Button type="button" onClick={action.onClick}>{action.label}</Button>
-  ),
+  TabEmptyState: ({ title, action }: { title: string; action?: { label: string; onClick: () => void } }) =>
+    action ? <Button type="button" onClick={action.onClick}>{action.label}</Button> : <div>{title}</div>,
 }))
 jest.mock('../../injection/useRegisteredComponent', () => ({
   useRegisteredComponent: (_handle: string, fallback: React.ComponentType) => fallback,
@@ -87,6 +86,28 @@ describe('localized shared addresses', () => {
   it('keeps addresses readable without a dictionary adapter', () => {
     renderWithProviders(tiles())
     expect(screen.getByText('office')).toBeInTheDocument()
+  })
+
+  it.each([
+    { addresses: [], visibleText: 'Brak adresów' },
+    { addresses: [address], visibleText: 'Biuro W47' },
+  ])('shows $visibleText without mutation controls in read-only mode', async ({ addresses, visibleText }) => {
+    const onActionChange = jest.fn()
+    renderWithProviders(
+      <AddressesSection
+        entityId="member-1"
+        emptyLabel="Brak adresów"
+        addActionLabel="Dodaj adres"
+        emptyState={{ title: 'Brak adresów', actionLabel: 'Dodaj adres' }}
+        dataAdapter={{ ...emptyAdapter, list: async () => addresses }}
+        onActionChange={onActionChange}
+        readOnly
+      />,
+    )
+
+    expect(await screen.findByText(visibleText)).toBeInTheDocument()
+    expect(screen.queryAllByRole('button')).toHaveLength(0)
+    expect(onActionChange).toHaveBeenCalledWith(null)
   })
 
   it.each(['active', 'disabled', 'throwing'] as const)('keeps addresses readable and localizes a dictionary load failure with %s telemetry', async (telemetry) => {

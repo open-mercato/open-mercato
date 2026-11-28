@@ -245,6 +245,71 @@ describe('CrudForm initialValues', () => {
     expect(queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
   })
 
+  it('shows disabled fields without an overlay in fields-only read-only mode', () => {
+    const onSubmit = jest.fn()
+    const { container, getByRole, queryByText } = renderWithProviders(
+      <CrudForm
+        title="Form"
+        fields={fields}
+        initialValues={{ name: 'Alice' }}
+        readOnly
+        readOnlyDisplay="fields"
+        readOnlyOverlay={<div>Locked overlay</div>}
+        onSubmit={onSubmit}
+      />,
+    )
+
+    const name = getByRole('textbox', { name: 'Name' })
+    expect(name).toBeVisible()
+    expect(name).toHaveValue('Alice')
+    expect(name).toBeDisabled()
+    expect(queryByText('Locked overlay')).not.toBeInTheDocument()
+    const form = container.querySelector('form')
+    if (!form) throw new Error('[internal] expected form')
+    fireEvent.submit(form)
+    expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it.each(['form', 'fields'])('sets rich-text editors read-only when the %s become read-only', (mode) => {
+    const fields: CrudField[] = [
+      { id: 'html', label: 'HTML', type: 'richtext', editor: 'html' },
+      { id: 'markdown', label: 'Markdown', type: 'richtext' },
+      { id: 'simple', label: 'Simple Markdown', type: 'richtext', editor: 'simple' },
+    ]
+    const form = (readOnly: boolean) => (
+      <CrudForm
+        fields={mode === 'fields' ? fields.map((field) => ({ ...field, readOnly })) : fields}
+        initialValues={{ html: '<p>HTML value</p>', markdown: 'Markdown value', simple: 'Simple value' }}
+        readOnly={mode === 'form' && readOnly}
+        readOnlyDisplay="fields"
+        onSubmit={() => {}}
+      />
+    )
+    const { container, getByTestId, rerender } = renderWithProviders(form(false))
+    const html = () => container.querySelector('[data-crud-field-id="html"] [contenteditable]')
+    const markdown = () => getByTestId('markdown-field')
+    const simple = () => container.querySelector('[data-crud-field-id="simple"] textarea')
+
+    expect(html()).toHaveAttribute('contenteditable', 'true')
+    expect(markdown()).not.toHaveAttribute('readonly')
+    expect(simple()).not.toHaveAttribute('readonly')
+
+    rerender(form(true))
+
+    expect(html()).toHaveAttribute('contenteditable', 'false')
+    expect(html()).toHaveTextContent('HTML value')
+    expect(markdown()).toHaveAttribute('readonly')
+    expect(markdown()).toHaveValue('Markdown value')
+    expect(simple()).toHaveAttribute('readonly')
+    expect(simple()).toHaveValue('Simple value')
+
+    rerender(form(false))
+
+    expect(html()).toHaveAttribute('contenteditable', 'true')
+    expect(markdown()).not.toHaveAttribute('readonly')
+    expect(simple()).not.toHaveAttribute('readonly')
+  })
+
   it('autofocuses the first combobox without opening suggestions on mount', async () => {
     jest.useFakeTimers()
 

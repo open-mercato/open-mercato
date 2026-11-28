@@ -64,6 +64,27 @@ describe('PersonCompaniesSection', () => {
     confirmMock.mockResolvedValue(true)
   })
 
+  it('shows linked companies without link-management actions for viewers', async () => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [{ companyId: 'company-1', displayName: 'Alpha Corp' }],
+      totalPages: 1,
+    })
+
+    renderWithProviders(
+      <PersonCompaniesSection
+        personId="person-1"
+        personName="Lena Ortiz"
+        canManage={false}
+        initialLinkedCompanies={[{ id: 'company-1', displayName: 'Alpha Corp', isPrimary: true }]}
+      />,
+    )
+
+    expect(await screen.findByText('Alpha Corp')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Search linked companies…')).toBeEnabled()
+    expect(screen.queryByRole('button', { name: /^(manage links|unlink)$/i })).toBeNull()
+    expect(apiCallOrThrowMock).not.toHaveBeenCalled()
+  })
+
   it('selects visible companies and refreshes the linked summary immediately after apply', async () => {
     let linkedItems = [
       {

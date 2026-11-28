@@ -52,6 +52,7 @@ export type ActivitiesSectionProps = {
   onEditActivity?: (activity: InteractionSummary) => void
   /** Hides the row write actions for a user who cannot manage interactions. */
   readOnly?: boolean
+  canViewLegacyActivities?: boolean
   /** Interaction type hidden from the timeline by default ('task' unless overridden); pass null to show every type. */
   excludeInteractionType?: string | null
   /** Sends the search term and a sort choice to the interactions API, shows the sort control and surfaces failed interaction loads as an error with retry. Callers that omit it keep the local filter over loaded rows. */
@@ -176,6 +177,7 @@ export function ActivitiesSection({
   readOnly = false,
   runGuardedMutation,
   excludeInteractionType = 'task',
+  canViewLegacyActivities = true,
   serverHistoryControls = false,
 }: ActivitiesSectionProps) {
   const t = useT()
@@ -304,7 +306,7 @@ export function ActivitiesSection({
         : browsedPages.items
       const canonicalHasMore = browsedPages.hasMore || Boolean(searchedPages?.hasMore)
 
-      if (useCanonicalInteractions) {
+      if (useCanonicalInteractions || !canViewLegacyActivities) {
         setActivities(sortHistoryActivities(canonicalItems, sortMode))
         setHasMore(canonicalHasMore)
         return
@@ -369,7 +371,7 @@ export function ActivitiesSection({
     } finally {
       if (!isStale()) setLoading(false)
     }
-  }, [dealId, entityId, excludeInteractionType, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, serverHistoryControls, serverSearchTerm, sortMode])
+  }, [canViewLegacyActivities, dealId, entityId, excludeInteractionType, filterDateFrom, filterDateTo, filterTypes, loadedPages, useCanonicalInteractions, refreshKey, serverHistoryControls, serverSearchTerm, sortMode])
 
   React.useEffect(() => {
     setLoadedPages(1)

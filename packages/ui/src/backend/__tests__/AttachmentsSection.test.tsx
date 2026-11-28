@@ -79,6 +79,21 @@ describe('AttachmentsSection', () => {
       expect(screen.getByTestId('attachment-metadata-dialog')).toHaveTextContent('Quarterly Report.pdf')
     })
   })
+
+  it('offers file downloads without upload, delete, or metadata editing for readers', async () => {
+    renderWithProviders(
+      <AttachmentsSection entityId="customers:customer_entity" recordId="record-1" readOnly />,
+      { dict: {} },
+    )
+
+    expect(await screen.findByRole('link', { name: 'Quarterly Report.pdf' })).toHaveAttribute(
+      'href',
+      '/api/attachments/file/attachment-1?download=1',
+    )
+    expect(screen.queryByRole('button', { name: 'Choose files' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete attachment' })).not.toBeInTheDocument()
+    expect(screen.queryByTestId('attachment-metadata-dialog')).not.toBeInTheDocument()
+  })
 })
 
 // The load-more guard used to be `page < totalPages`. A `totalPages` derived

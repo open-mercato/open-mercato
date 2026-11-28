@@ -12,6 +12,7 @@ const scopedDeleteHeaderCalls: Array<Record<string, string>> = []
 const crudFormPropsCapture: { current: Record<string, unknown> | null } = { current: null }
 const personDetailTabsPropsCapture: {
   current: {
+    activeTab?: string
     injectedTabs?: Array<{ id: string; label: string; priority?: number }>
     hiddenTabIds?: string[]
   } | null
@@ -121,6 +122,10 @@ jest.mock('../../../../../components/detail/PersonDetailHeader', () => ({
   PersonDetailHeader: () => <div>header</div>,
 }))
 
+jest.mock('../../../../../components/detail/PersonEmailThreadsTab', () => ({
+  PersonEmailThreadsTab: () => <div>emails</div>,
+}))
+
 jest.mock('../../../../../components/detail/PersonDetailTabs', () => ({
   PERSON_DETAIL_TAB_IDS: jest.requireActual<typeof import('../../../../../components/detail/PersonDetailTabs')>('../../../../../components/detail/PersonDetailTabs').PERSON_DETAIL_TAB_IDS,
   resolveLegacyTab: (tab?: string | null) => {
@@ -130,15 +135,17 @@ jest.mock('../../../../../components/detail/PersonDetailTabs', () => ({
     return 'activities'
   },
   PersonDetailTabs: ({
+    activeTab,
     children,
     injectedTabs,
     hiddenTabIds,
   }: {
+    activeTab?: string
     children: React.ReactNode
     injectedTabs?: Array<{ id: string; label: string; priority?: number }>
     hiddenTabIds?: string[]
   }) => {
-    personDetailTabsPropsCapture.current = { injectedTabs, hiddenTabIds }
+    personDetailTabsPropsCapture.current = { activeTab, injectedTabs, hiddenTabIds }
     return <div>{children}</div>
   },
 }))
@@ -186,7 +193,7 @@ jest.mock('../../../../../components/detail/ChangelogTab', () => ({
 describe('PersonDetailV2Page', () => {
   beforeEach(() => {
     activeTabParam = 'changelog'
-    mockGrantedFeatures = ['customers.interactions.*', 'customers.roles.*']
+    mockGrantedFeatures = ['customers.*', 'audit_logs.view_self']
     injectedTabWidgets = []
     personDetailTabsPropsCapture.current = null
     readApiResultOrThrowMock.mockReset()
@@ -301,6 +308,29 @@ describe('PersonDetailV2Page', () => {
     expect(personDetailTabsPropsCapture.current?.hiddenTabIds).toContain('activities')
     expect(screen.queryByText('activities')).not.toBeInTheDocument()
     expect(crudFormPropsCapture.current?.groups).not.toContainEqual({ id: 'roles' })
+  })
+
+  it.each([
+    ['companies', 'companies'],
+    ['deals', 'deals'],
+    ['addresses', 'addresses-section'],
+    ['tasks', 'tasks'],
+    ['files', 'attachments'],
+    ['changelog', 'changelog'],
+  ])('renders Emails instead of a restricted %s deep link', async (tab, content) => {
+    activeTabParam = tab
+    mockGrantedFeatures = ['customers.people.view']
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    expect(await screen.findByText('emails')).toBeInTheDocument()
+    expect(screen.queryByText(content)).not.toBeInTheDocument()
+    expect(personDetailTabsPropsCapture.current?.activeTab).toBe('emails')
+    expect(personDetailTabsPropsCapture.current?.hiddenTabIds).toContain(tab)
+    expect(crudFormPropsCapture.current).toMatchObject({
+      readOnly: true,
+      readOnlyDisplay: 'fields',
+      customFieldsManageMode: 'hidden',
+    })
   })
 
   it('sends no interactions request while a non-activity tab is open (#7494)', async () => {

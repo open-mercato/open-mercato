@@ -358,17 +358,16 @@ test.describe('TC-CRM-090: Customer task navigation to the person Tasks tab', ()
         try {
           await page.goto(`/backend/customers/people-v2/${personId}?tab=tasks`)
           await expect(page.getByRole('heading', { name: personName, exact: true })).toBeVisible()
-          await expect(page.getByRole('tab', { name: /^Tasks(?:\s+\d+)?$/ })).toHaveAttribute('aria-selected', 'true')
+          const tasksTab = page.getByRole('tab', { name: /^Tasks(?:\s+\d+)?$/ })
           if (unified) {
-            await expect.poll(() => browserReads).toContainEqual({ endpoint: INTERACTIONS, status: 403 })
+            await expect(page.getByRole('tab', { name: 'Emails', exact: true })).toHaveAttribute('aria-selected', 'true')
+            await expect(tasksTab).toHaveCount(0)
           } else {
+            await expect(tasksTab).toHaveAttribute('aria-selected', 'true')
             await expect.poll(() => browserReads).toContainEqual({ endpoint: LEGACY_TASKS, status: 200 })
-            const refusedPrimaryRead = browserReads.findIndex(({ endpoint, status }) => endpoint === MERGED_TASKS && status === 403)
-            const successfulFallback = browserReads.findIndex(({ endpoint, status }) => endpoint === LEGACY_TASKS && status === 200)
-            expect(refusedPrimaryRead).toBeGreaterThanOrEqual(0)
-            expect(successfulFallback).toBeGreaterThan(refusedPrimaryRead)
             await expect(page.getByRole('article').filter({ hasText: legacyTitle })).toBeVisible()
           }
+          expect(browserReads.every(({ endpoint, status }) => endpoint === LEGACY_TASKS && status === 200)).toBe(true)
           await expect(page.getByRole('article').filter({ hasText: nativeTitle })).toHaveCount(0)
           await page.screenshot({ path: testInfo.outputPath(`${mode}-legacy-role-tasks.png`), fullPage: true })
         } finally {

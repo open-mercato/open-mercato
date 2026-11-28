@@ -18,7 +18,9 @@ jest.mock('@open-mercato/ui/backend/messages', () => ({
 }))
 
 jest.mock('../hooks/useCustomerDictionary', () => ({
-  useCustomerDictionary: jest.fn(() => ({ data: null })),
+  useCustomerDictionary: jest.fn((kind: string) => ({
+    data: kind === 'job-titles' ? { map: { automation_engineer: { label: 'Automation Engineer' } } } : null,
+  })),
   invalidateCustomerDictionary: (...args: unknown[]) => invalidateCustomerDictionaryMock(...args),
 }))
 
@@ -116,6 +118,58 @@ describe('PersonDetailHeader', () => {
       buttonVariant: 'outline',
       buttonSize: 'icon',
     }))
+  })
+
+  it('keeps person facts readable when write, company, messaging, and history access is unavailable', () => {
+    renderWithProviders(
+      <PersonDetailHeader
+        canManagePerson={false}
+        canSendMessage={false}
+        canViewCompanies={false}
+        canViewHistory={false}
+        data={{
+          person: {
+            id: 'person-1',
+            displayName: 'Jane Doe',
+            organizationId: 'org-1',
+            primaryEmail: 'jane@example.com',
+            status: null,
+            lifecycleStage: null,
+            source: null,
+            temperature: null,
+            renewalQuarter: null,
+          },
+          profile: { id: 'profile-1', jobTitle: 'automation_engineer' },
+          customFields: {},
+          tags: [],
+          comments: [],
+          activities: [],
+          interactions: [],
+          deals: [],
+          todos: [],
+          companies: [{ id: 'company-1', displayName: 'Acme', isPrimary: true }],
+          isPrimary: true,
+          viewer: null,
+        }}
+        onTagsChange={jest.fn()}
+        tagsSectionControllerRef={{ current: null }}
+        onSave={jest.fn()}
+        onDelete={jest.fn(async () => undefined)}
+        isDirty
+        isSaving={false}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: 'Jane Doe' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'jane@example.com' })).toBeInTheDocument()
+    expect(screen.getByText('Automation Engineer')).toBeInTheDocument()
+    expect(screen.queryByText('Acme')).not.toBeInTheDocument()
+    expect(screen.queryByText('PRIMARY')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit tags' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Send message' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'audit_logs.version_history.title' })).not.toBeInTheDocument()
   })
 
   it('triggers deletion directly from the trash action', () => {

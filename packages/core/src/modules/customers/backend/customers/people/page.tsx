@@ -19,6 +19,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { E } from '#generated/entities.ids.generated'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import type { FilterFieldDef, FilterOption as AdvancedFilterOption } from '@open-mercato/shared/lib/query/advanced-filter'
@@ -26,7 +27,7 @@ import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced
 import { createEmptyTree, makeRuleTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { deserializeAdvancedFilter, deserializeTree, flatToTree, mapDictionaryColorToTone, serializeTree } from '@open-mercato/shared/lib/query/advanced-filter'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
-import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { useBackendChrome, useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
 import {
   DictionaryValue,
   dictionaryValueAppearance,
@@ -205,6 +206,9 @@ function mapApiItem(item: Record<string, unknown>): PersonRow | null {
 
 export default function CustomersPeoplePage() {
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { payload: chrome } = useBackendChrome()
+  const canManagePeople = hasFeature(chrome?.grantedFeatures, 'customers.people.manage')
+  const canViewRoles = hasFeature(chrome?.grantedFeatures, 'customers.roles.view')
   const [rows, setRows] = React.useState<PersonRow[]>([])
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(20)
@@ -316,6 +320,10 @@ export default function CustomersPeoplePage() {
   const activeOrgId = useCurrentOrganization()?.id ?? null
   const [ownerFilterOptions, setOwnerFilterOptions] = React.useState<AdvancedFilterOption[]>([])
   React.useEffect(() => {
+    if (!canViewRoles) {
+      setOwnerFilterOptions([])
+      return
+    }
     const controller = new AbortController()
     let cancelled = false
     void fetchAssignableStaffMembers('', { pageSize: 100, activeOrgId, signal: controller.signal })
@@ -329,14 +337,14 @@ export default function CustomersPeoplePage() {
       cancelled = true
       controller.abort()
     }
-  }, [activeOrgId, scopeVersion])
+  }, [activeOrgId, canViewRoles, scopeVersion])
   const resolvedOwnerFilterOptions = React.useMemo(
     () => ensureCurrentUserFilterOption(
-      ownerFilterOptions,
+      canViewRoles ? ownerFilterOptions : [],
       currentUserId,
       t('customers.filters.currentUser', 'Current user'),
     ),
-    [currentUserId, ownerFilterOptions, t],
+    [canViewRoles, currentUserId, ownerFilterOptions, t],
   )
   const loadOwnerFilterOptions = React.useCallback(async (query?: string): Promise<AdvancedFilterOption[]> => {
     const items = await fetchAssignableStaffMembers(query ?? '', { pageSize: 100, activeOrgId })
@@ -711,7 +719,7 @@ export default function CustomersPeoplePage() {
           columnChooserGroup: t('customers.columnGroups.crm', 'CRM'),
           filterType: 'select',
           filterOptions: resolvedOwnerFilterOptions,
-          filterLoadOptions: loadOwnerFilterOptions,
+          filterLoadOptions: canViewRoles ? loadOwnerFilterOptions : undefined,
           filterGroup: t('customers.columnGroups.crm', 'CRM'),
           filterIconName: 'user-round',
           filterKey: 'owner_user_id',
@@ -849,7 +857,7 @@ export default function CustomersPeoplePage() {
       }))
 
     return [...baseColumns, ...customColumns]
-  }, [customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, resolvedOwnerFilterOptions, t])
+  }, [canViewRoles, customFieldDefs, dictionaryMaps, dictionaryOptions, loadOwnerFilterOptions, resolvedOwnerFilterOptions, t])
 
   const { advancedFilterFields } = useAutoDiscoveredFields({ columns, customFieldDefs })
 
@@ -887,13 +895,13 @@ export default function CustomersPeoplePage() {
             label: t('customers.people.list.actions.refresh'),
             onRefresh: () => { setSearch(''); setPage(1); handleRefresh() },
           }}
-          actions={(
+          actions={canManagePeople ? (
             <Button asChild>
               <Link href="/backend/customers/people/create">
                 {t('customers.people.list.actions.new')}
               </Link>
             </Button>
-          )}
+          ) : undefined}
           columns={columns}
           columnChooser={{ auto: true }}
           data={rows}
@@ -908,14 +916,14 @@ export default function CustomersPeoplePage() {
           manualSorting
           sorting={sorting}
           onSortingChange={handleSortingChange}
-          bulkActions={[
+          bulkActions={canManagePeople ? [
             {
               id: 'delete',
               label: t('customers.people.list.bulkDelete.action', 'Delete selected'),
               destructive: true,
               onExecute: handleBulkDelete,
             },
-          ]}
+          ] : undefined}
           rowActions={(row) => (
             <RowActions
               items={[
@@ -929,12 +937,12 @@ export default function CustomersPeoplePage() {
                   label: t('customers.people.list.actions.openInNewTab'),
                   onSelect: () => window.open(`/backend/customers/people-v2/${row.id}`, '_blank', 'noopener'),
                 },
-                {
+                ...(canManagePeople ? [{
                   id: 'delete',
                   label: t('customers.people.list.actions.delete'),
                   destructive: true,
                   onSelect: () => handleDelete(row),
-                },
+                }] : []),
               ]}
             />
           )}
@@ -971,7 +979,7 @@ export default function CustomersPeoplePage() {
           emptyState={(
             <ListEmptyState
               entityName={t('customers.people.entityPlural', 'people')}
-              createHref="/backend/customers/people/create"
+              createHref={canManagePeople ? '/backend/customers/people/create' : undefined}
               createLabel={t('customers.people.list.actions.new')}
             />
           )}
