@@ -122,6 +122,8 @@ export function CompanyKpiBar({ data, canViewDeals = true }: CompanyKpiBarProps)
     clearVersionedPreference(STORAGE_KEY)
   }, [])
 
+  const activeDealsCount = data.kpis?.activeDealsCount ?? activeDeals.length
+
   const kpiTiles = React.useMemo(() => [
     {
       id: 'activeDeals',
@@ -130,7 +132,11 @@ export function CompanyKpiBar({ data, canViewDeals = true }: CompanyKpiBarProps)
       value: activeDealsValue,
       trend: dealTrend,
       formatValue: (v: number) => formatCurrency(v, dealCurrency, locale),
-      comparisonLabel: `${data.kpis?.activeDealsCount ?? activeDeals.length} ${(data.kpis?.activeDealsCount ?? activeDeals.length) === 1 ? 'pipeline' : 'pipelines'}`,
+      comparisonLabel: t(
+        `customers.companies.dashboard.kpi.pipelineCount.${new Intl.PluralRules(locale).select(activeDealsCount)}`,
+        activeDealsCount === 1 ? '{count} pipeline' : '{count} pipelines',
+        { count: activeDealsCount },
+      ),
     },
     {
       id: 'activities',
@@ -164,7 +170,7 @@ export function CompanyKpiBar({ data, canViewDeals = true }: CompanyKpiBarProps)
           ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => isWonDealStatus(d.status)).length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
           : undefined,
     },
-  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis, canViewDeals])
+  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDealsCount, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis, canViewDeals])
 
   const availableTiles = kpiTiles.filter((tile) => canViewDeals || !tile.requiresDealsAccess)
   const visibleTiles = availableTiles.filter((tile) => !hiddenTiles.has(tile.id))

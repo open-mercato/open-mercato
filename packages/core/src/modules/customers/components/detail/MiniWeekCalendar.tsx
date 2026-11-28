@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -64,6 +64,7 @@ function dotColorForType(type: string, isToday: boolean): string {
 
 export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef, refreshKey = 0 }: MiniWeekCalendarProps) {
   const t = useT()
+  const locale = useLocale()
   const today = React.useMemo(() => new Date(), [])
   const [weekOffset, setWeekOffset] = React.useState(0)
   const [events, setEvents] = React.useState<InteractionSummary[]>([])
@@ -79,11 +80,11 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
   const weekEnd = weekDays[6]
 
   const monthLabel = React.useMemo(() => {
-    const month = baseDate.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
+    const month = baseDate.toLocaleDateString(locale, { month: 'long', year: 'numeric' })
     return weekOffset === 0
       ? t('customers.calendar.thisWeek', 'This week') + ' — ' + month
       : month
-  }, [baseDate, t, weekOffset])
+  }, [baseDate, locale, t, weekOffset])
 
   const [localRefreshKey, setLocalRefreshKey] = React.useState(0)
   const refresh = React.useCallback(() => setLocalRefreshKey((k) => k + 1), [])
@@ -191,14 +192,14 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
         ? ''
         : offset === 1
           ? t('customers.calendar.tomorrow', 'Tomorrow') + ' '
-          : d.toLocaleDateString(undefined, { weekday: 'short' }) + ' '
+          : d.toLocaleDateString(locale, { weekday: 'short' }) + ' '
       for (const ev of dayEvents) {
         if (result.length >= 3) break
         result.push({ event: ev, dayLabel: label, isToday: isActiveDay })
       }
     }
     return result
-  }, [eventsByDay, activeDay, t])
+  }, [eventsByDay, activeDay, locale, t])
 
   const dayLabels = getDayLabels(t)
 

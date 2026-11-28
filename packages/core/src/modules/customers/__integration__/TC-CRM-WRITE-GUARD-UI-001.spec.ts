@@ -26,6 +26,8 @@ async function readCall(request: APIRequestContext, token: string, companyId: st
   return data!.items[0]
 }
 
+test.use({ locale: 'en-US' })
+
 test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reject stale changes', async ({ page, request }) => {
   test.slow()
   const fixtureId = randomUUID()
@@ -98,6 +100,10 @@ test('TC-CRM-WRITE-GUARD-UI-001: completed call edits preserve its data and reje
     await page.setViewportSize({ width: 390, height: 844 })
     await page.reload()
     await page.getByRole('tab', { name: 'Dziennik aktywności' }).click()
+    const polishMonth = await page.evaluate(() =>
+      new Date().toLocaleDateString('pl', { month: 'long', year: 'numeric' }),
+    )
+    await expect(page.getByText(`Ten tydzień — ${polishMonth}`, { exact: true })).toBeVisible()
     await historyRow(editedTitle).press('Enter')
     await phone.scrollIntoViewIfNeeded()
     await expect(phone).toBeInViewport()

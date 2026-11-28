@@ -552,7 +552,7 @@ export type CrudCommandActionConfig = {
   // `input` is the mapped command input. It carries `ignoredFields` when the write
   // guard found keys it will not apply, so a response can tell the caller what was
   // dropped instead of answering a bare `{ ok: true }`.
-  response?: (args: { result: any; logEntry: any | null; ctx: CrudCtx; input: unknown }) => any
+  response?: (args: { result: any; logEntry: any | null; ctx: CrudCtx; input?: unknown }) => any
   status?: number
 }
 
