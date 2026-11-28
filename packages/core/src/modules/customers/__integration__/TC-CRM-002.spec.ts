@@ -85,8 +85,8 @@ test.describe('TC-CRM-002: Company Creation Validation Errors', () => {
       await safeFill(page, websiteInput, 'notaurl');
       await submitBtn.click();
 
-      await expect(page.getByText(invalidEmailMessage)).toBeVisible();
-      await expect(page.getByText(invalidUrlMessage)).toBeVisible();
+      await expect(page.locator('[data-crud-field-id="primaryEmail"]').getByText(invalidEmailMessage, { exact: true })).toBeVisible();
+      await expect(page.locator('[data-crud-field-id="websiteUrl"]').getByText(invalidUrlMessage, { exact: true })).toBeVisible();
       // Wait for the form to leave its submitting state before the second safeFill chain;
       // otherwise the inputs may briefly ignore keystrokes while the validation re-render
       // is still settling in CI.

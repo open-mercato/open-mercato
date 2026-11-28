@@ -120,7 +120,13 @@ function publishResponse(result: unknown = response) {
 
 function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = React.useState(() => new QueryClient())
-  return <QueryClientProvider client={queryClient}><I18nProvider locale="en" dict={{}}>{children}</I18nProvider></QueryClientProvider>
+  return (
+    <QueryClientProvider client={queryClient}>
+      <I18nProvider locale="en" dict={{ 'ui.forms.errors.highlighted': 'Please fix the highlighted errors.' }}>
+        {children}
+      </I18nProvider>
+    </QueryClientProvider>
+  )
 }
 
 beforeAll(() => {
@@ -519,7 +525,9 @@ it.each([
   fireEvent.submit(container.querySelector('form')!)
 
   expect(await screen.findByText('test.active')).toBeInTheDocument()
-  expect(screen.getByText('ui.forms.errors.highlighted')).toBeInTheDocument()
+  const alert = await screen.findByRole('alert')
+  expect(alert).toHaveTextContent('Please fix the highlighted errors.')
+  await waitFor(() => expect(alert.closest('[data-crud-form-error]')).toHaveFocus())
   expect(screen.queryByText(code)).not.toBeInTheDocument()
 })
 

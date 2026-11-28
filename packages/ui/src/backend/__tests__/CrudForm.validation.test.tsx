@@ -47,7 +47,7 @@ describe('CrudForm validation state', () => {
 
   it.each(['submit', 'blur'])('localizes structured client schema errors on %s', async (validationTrigger) => {
     const onSubmit = jest.fn()
-    const { container, getByLabelText, findByText, queryByText } = renderWithProviders(
+    const { container, getByLabelText, queryByText } = renderWithProviders(
       <CrudForm
         title="Form"
         schema={z.object({ description: z.string().max(20) })}
@@ -66,19 +66,24 @@ describe('CrudForm validation state', () => {
       else fireEvent.submit(container.querySelector('form') as HTMLFormElement)
     })
 
-    expect(await findByText('Wartość przekracza maksimum 20.')).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('[data-crud-field-id="description"]')).toHaveTextContent('Wartość przekracza maksimum 20.'))
+    if (validationTrigger === 'submit') {
+      expect(container.querySelector('[data-crud-form-error]')).toHaveTextContent('Wartość przekracza maksimum 20.')
+    } else {
+      expect(container.querySelector('[data-crud-form-error]')).toBeNull()
+    }
     expect(queryByText('Too big: expected string to have <=20 characters')).toBeNull()
     expect(onSubmit).not.toHaveBeenCalled()
   })
 
   it('localizes nested client schema errors without losing their complete paths', async () => {
-    const { container, findByText } = renderWithProviders(
+    const { container, getByTestId } = renderWithProviders(
       <CrudForm
         title="Form"
         schema={z.object({ labels: z.array(z.object({ value: z.string().max(3) })) })}
         fields={[]}
         initialValues={{ labels: [{ value: 'Long label' }] }}
-        groups={[{ id: 'labels', component: ({ errors }) => <div>{errors['labels.0.value']}</div> }]}
+        groups={[{ id: 'labels', component: ({ errors }) => <div data-testid="nested-label-error">{errors['labels.0.value']}</div> }]}
         onSubmit={jest.fn()}
       />,
       { dict: { 'ui.forms.errors.tooBig': 'Value exceeds {{maximum}}.' } },
@@ -88,12 +93,13 @@ describe('CrudForm validation state', () => {
       fireEvent.submit(container.querySelector('form') as HTMLFormElement)
     })
 
-    expect(await findByText('Value exceeds 3.')).toBeInTheDocument()
+    await waitFor(() => expect(getByTestId('nested-label-error')).toHaveTextContent('Value exceeds 3.'))
+    expect(container.querySelector('[data-crud-form-error]')).toHaveTextContent('Value exceeds 3.')
   })
 
   it('preserves explicit client schema messages that start with default wording', async () => {
     const message = 'Too big: use a shorter description'
-    const { container, findByText, queryByText } = renderWithProviders(
+    const { container, queryByText } = renderWithProviders(
       <CrudForm
         title="Form"
         schema={z.object({ description: z.string().max(3, message) })}
@@ -108,7 +114,8 @@ describe('CrudForm validation state', () => {
       fireEvent.submit(container.querySelector('form') as HTMLFormElement)
     })
 
-    expect(await findByText(message)).toBeInTheDocument()
+    await waitFor(() => expect(container.querySelector('[data-crud-field-id="description"]')).toHaveTextContent(message))
+    expect(container.querySelector('[data-crud-form-error]')).toHaveTextContent(message)
     expect(queryByText('Value exceeds 3.')).toBeNull()
   })
 
@@ -226,7 +233,7 @@ describe('CrudForm validation state', () => {
       ),
     })
 
-    const { container, getByText } = renderWithProviders(
+    const { container, getByTestId } = renderWithProviders(
       <CrudForm
         title="Form"
         schema={schema}
@@ -235,7 +242,7 @@ describe('CrudForm validation state', () => {
           {
             id: 'customer-fields',
             component: ({ errors }) => (
-              <div>{errors['customerFieldsSchema.0.key'] ?? 'missing'}</div>
+              <div data-testid="nested-schema-error">{errors['customerFieldsSchema.0.key'] ?? 'missing'}</div>
             ),
           },
         ]}
@@ -258,7 +265,7 @@ describe('CrudForm validation state', () => {
     })
 
     await waitFor(() => {
-      expect(getByText('Use camelCase starting with a letter.')).toBeInTheDocument()
+      expect(getByTestId('nested-schema-error')).toHaveTextContent('Use camelCase starting with a letter.')
     })
   })
 
@@ -385,10 +392,11 @@ describe('CrudForm validation state', () => {
     // The banner stays visible even though a field error exists — it must not
     // be hidden by `formError && !Object.keys(errors).length`.
     await waitFor(() => {
-      expect(container.querySelector('.text-sm.text-status-error-text')).toHaveTextContent(
+      expect(container.querySelector('[data-crud-form-error] [role="alert"]')).toHaveTextContent(
         'Please fix the highlighted errors.',
       )
     })
+    await waitFor(() => expect(container.querySelector('[data-crud-form-error]')).toHaveFocus())
     expect(getByText('Value exceeds the maximum of 120.')).toBeInTheDocument()
     // The raw, untranslatable Zod message must not leak to the UI.
     expect(queryByText('Too big: expected string to have <=120 characters')).toBeNull()

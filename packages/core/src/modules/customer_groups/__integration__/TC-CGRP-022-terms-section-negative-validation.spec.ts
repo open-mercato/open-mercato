@@ -63,7 +63,7 @@ test.describe('TC-CGRP-022: Commercial terms section — negative-input client-s
 
       await page.getByRole('button', { name: 'Save terms' }).click();
 
-      await expect(page.getByText('Must be zero or greater.')).toBeVisible({ timeout: 10_000 });
+      await expect(page.locator('[data-crud-field-id="paymentTermsDays"]').getByText('Must be zero or greater.', { exact: true })).toBeVisible({ timeout: 10_000 });
       expect(termsPutUrls, 'client-side validation must block the PUT from ever being sent').toHaveLength(0);
     } finally {
       await deleteCustomerGroupIfExists(page.request, token, groupId);

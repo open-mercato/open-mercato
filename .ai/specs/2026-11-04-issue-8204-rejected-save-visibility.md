@@ -23,7 +23,7 @@ An operator saving near the bottom of a long surface can miss the existing rejec
 ## Proposed Solution and Architecture
 Add a small client hook under `packages/ui/src/backend/utils` that receives an error element ref and a rejection identity. After React commits the message, reveal it using native `scrollIntoView` with immediate start alignment (with scroll margin for surrounding chrome) and focus with `preventScroll`. Cancel scheduled work when the surface unmounts or a newer rejection supersedes it. Native ancestor scrolling supports both document and nested modal/body scroll containers without changing primitive APIs.
 
-CrudForm renders the existing ErrorMessage for top-level rejection text, including injection-only messages, and marks a rejected submission with a new identity so identical repeated errors are reachable again. Field validation remains inline and existing collapsed-group expansion is preserved. Reveal the explanatory message after rejection; avoid triggering on ordinary field editing/blur. TaskDrawer attaches the same behavior to its existing Alert and uses each notice object as the rejection identity, including repeated identical claim failures. Retain the shared conflict store/banner, guard callbacks, request headers and server message translation.
+CrudForm renders the existing ErrorMessage for top-level rejection text, including injection-only messages, and marks a rejected submission with a new identity so identical repeated errors are reachable again. Field validation remains inline and existing collapsed-group expansion is preserved. Reveal the explanatory message after rejection; avoid triggering on ordinary field editing/blur. TaskDrawer attaches the same behavior to its existing Alert and uses each notice object as the rejection identity, including repeated identical claim failures. Retain the shared conflict store/banner, guard callbacks, request headers and server message translation. While the rejection retains focus, observe the form size and reveal the same message again if a resize moves its start out of view. Disconnect the observer when focus moves, the form layout identity changes or the rejection ends.
 
 ## UI / UX
 The same translated reason stays rendered in the original form/drawer. On rejection it becomes visible and receives programmatic focus (`tabIndex=-1`, alert semantics). Users can then tab through the nearby controls or return to fields. No new toast/overlay system, no custom scroll-container traversal and no animation (including reduced-motion users). Success does not invoke the helper. Dialog shortcuts and Escape behavior are unchanged. Existing Alert and ErrorMessage styling and semantic tokens are reused.
@@ -41,6 +41,7 @@ Existing server page roots and providers are unchanged. CrudForm and TaskDrawer 
 | Surface | Scenario | Required evidence |
 | --- | --- | --- |
 | Long CrudForm page | Required/invalid data and server refusal while scrolled to Save; repeat same refusal | Actual message in viewport, focus/alert semantics; existing field errors retained |
+| Catalog create | Form content grows after a rejected title submission | Keep the already-focused title message in the viewport after resize |
 | Embedded CrudForm dialog | Save below fold rejected by server/injection | Actual message visible inside modal and receives focus |
 | Staff board/support task drawer | Claim returns already-taken error | Existing specific notice visible and focused from Properties |
 | Staff task drawer | Outdated status PATCH rejected | Existing refreshed-version notice visible and focused |
@@ -61,6 +62,7 @@ Fixtures create their own project/task records and clean them in finally. Assert
 Scope is one capability implemented at existing consumers. Reuses CrudForm, ErrorMessage and Alert; no primitive/governance changes. Tenant isolation, permission checks, encryption, command/undo effects and optimistic-lock headers are unchanged. No new data or service wiring means data-security/DI/cache migrations are not applicable. Accessibility and success behavior have explicit tests. Validation uses local runner because no compose app was running.
 
 ## Changelog
+- 2026-11-24 — Keep focused CrudForm rejections visible after form resize and cover delayed Catalog layout growth.
 - 2026-11-04: Autonomous skeleton, code research and implementation design for #8204. No blocking product unknowns; assumptions recorded above.
 
 ### Review — 2026-11-04
