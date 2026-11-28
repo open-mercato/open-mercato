@@ -58,6 +58,7 @@ export type DealDetailPayload = {
     userId: string | null
     name: string | null
     email: string | null
+    canReopenDeal?: boolean
   } | null
   pipelineStages: PipelineStageInfo[]
   pipelineName: string | null

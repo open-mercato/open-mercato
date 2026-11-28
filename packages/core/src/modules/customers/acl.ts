@@ -25,6 +25,12 @@ export const features = [
     module: 'customers',
     dependsOn: ['customers.deals.view'],
   },
+  {
+    id: 'sales.reopen',
+    title: 'Reopen CRM deals',
+    module: 'customers',
+    dependsOn: ['customers.deals.manage'],
+  },
   { id: 'customers.activities.view', title: 'View activities', module: 'customers' },
   {
     id: 'customers.activities.manage',

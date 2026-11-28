@@ -33,6 +33,7 @@ import { DealLostSummaryDialog } from '../../../../components/detail/DealLostSum
 import { DealWonPopup } from '../../../../components/detail/DealWonPopup'
 import { InlineActivityComposer } from '../../../../components/detail/InlineActivityComposer'
 import { PipelineStepper } from '../../../../components/detail/PipelineStepper'
+import { ReopenDealAction } from '../../../../components/detail/ReopenDealAction'
 import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
@@ -40,6 +41,7 @@ import type { InteractionSummary } from '../../../../components/detail/types'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
 import { metadata as pipelineMetadata } from '../pipeline/page.meta'
+import { isDealClosedForReopen } from '../../../../lib/dealReopen'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
 import { formatCurrency, startOfNextQuarter } from './hooks/formatters'
@@ -653,7 +655,17 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               pipelineName={currentPipelineName}
               extraActions={<InjectionSpot spotId={extensionPoints.hosts.dealHeader.spotId} context={injectionContext} data={data} />}
               actions={<InjectionSpot spotId={extensionPoints.hosts.dealHeaderActions.spotId} context={{ ...injectionContext, isDirty, isSaving }} data={data} disabled={isSaving} />}
-              secondaryActions={(
+              secondaryActions={isDealClosedForReopen(data.deal) ? (data.viewer?.canReopenDeal ? (
+                <ReopenDealAction
+                  key={data.deal.id}
+                  deal={data.deal}
+                  stages={data.pipelineStages}
+                  disabled={isSaving || isStageSaving}
+                  runMutation={runMutationWithContext}
+                  confirmDiscardIfDirty={confirmDiscardIfDirty}
+                  onReopened={loadData}
+                />
+              ) : null) : (
                 <DealClosureActionBar
                   closureOutcome={data.deal.closureOutcome}
                   onWon={() => { void handleWon() }}
