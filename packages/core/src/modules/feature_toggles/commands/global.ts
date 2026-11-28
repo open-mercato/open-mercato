@@ -235,8 +235,8 @@ const updateToggleCommand: CommandHandler<ToggleUpdateInput, { toggleId: string 
     }
     toggle.identifier = parsed.identifier ?? toggle.identifier
     toggle.name = parsed.name ?? toggle.name
-    toggle.description = parsed.description ?? toggle.description
-    toggle.category = parsed.category ?? toggle.category
+    if (parsed.description !== undefined) toggle.description = parsed.description
+    if (parsed.category !== undefined) toggle.category = parsed.category
     toggle.type = parsed.type ?? toggle.type
     toggle.defaultValue = parsed.defaultValue ?? toggle.defaultValue
     await em.flush()
