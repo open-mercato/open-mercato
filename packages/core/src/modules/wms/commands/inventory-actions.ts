@@ -766,12 +766,14 @@ async function upsertBalanceBucket(
   em: EntityManager,
   scope: Scope,
   input: BalanceBucketInput,
+  beforeCreate?: () => Promise<void>,
 ): Promise<{ balance: InventoryBalance; created: boolean }> {
   const existing = await findExactBalanceForUpdate(em, scope, input)
   if (existing) return { balance: existing, created: false }
   await em.execute(BALANCE_BUCKET_CREATE_LOCK_SQL, [balanceBucketCreateLockKey(input)])
   const createdConcurrently = await findExactBalanceForUpdate(em, scope, input)
   if (createdConcurrently) return { balance: createdConcurrently, created: false }
+  if (beforeCreate) await beforeCreate()
   const balance = em.create(InventoryBalance, {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -788,6 +790,29 @@ async function upsertBalanceBucket(
   em.persist(balance)
   await em.flush()
   return { balance, created: true }
+}
+
+async function enforceTrackingForNewBucket(
+  em: EntityManager,
+  scope: Scope,
+  input: BalanceBucketInput,
+): Promise<void> {
+  const profile = await findOneWithDecryption(
+    em,
+    ProductInventoryProfile,
+    {
+      catalogVariantId: input.catalogVariantId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  enforceInventoryTrackingRequirements(profile, {
+    lotId: input.lotId ?? null,
+    serialNumber: input.serialNumber ?? null,
+  })
 }
 
 async function resolveReceivedAtForBalance(
@@ -1365,13 +1390,16 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
       if (locationWarehouseId !== input.warehouseId) {
         throw new CrudHttpError(422, { error: 'invalid_location' })
       }
-      const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, {
+      const bucket = {
         warehouseId: input.warehouseId,
         locationId: input.locationId,
         catalogVariantId: input.catalogVariantId,
         lotId: input.lotId,
         serialNumber: input.serialNumber,
-      })
+      }
+      const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, bucket, () =>
+        enforceTrackingForNewBucket(trx, scope, bucket),
+      )
       const delta = input.delta
       const performedAt = input.performedAt ?? new Date()
       const movementInput: MovementMutationInput = {
@@ -1939,13 +1967,16 @@ const cycleCountInventoryCommand: CommandHandler<InventoryCycleCountInput, { adj
       if (locationWarehouseId !== input.warehouseId) {
         throw new CrudHttpError(422, { error: 'invalid_location' })
       }
-      const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, {
+      const bucket = {
         warehouseId: input.warehouseId,
         locationId: input.locationId,
         catalogVariantId: input.catalogVariantId,
         lotId: input.lotId,
         serialNumber: input.serialNumber,
-      })
+      }
+      const { balance, created: balanceWasNew } = await upsertBalanceBucket(trx, scope, bucket, () =>
+        enforceTrackingForNewBucket(trx, scope, bucket),
+      )
       const currentOnHand = toNumber(balance.quantityOnHand)
       const delta = input.countedQuantity - currentOnHand
       if (delta === 0) {

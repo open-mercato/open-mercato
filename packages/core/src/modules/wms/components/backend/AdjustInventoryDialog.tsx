@@ -470,6 +470,16 @@ export function AdjustInventoryDialog({
                   ),
                 )
               }
+              if (errorBody?.error === 'lot_required') {
+                throw new Error(
+                  t('wms.backend.inventory.receive.errors.lotRequired', 'Lot number is required for this variant.'),
+                )
+              }
+              if (errorBody?.error === 'serial_required') {
+                throw new Error(
+                  t('wms.backend.inventory.receive.errors.serialRequired', 'Serial number is required for this variant.'),
+                )
+              }
               await raiseCrudError(
                 call.response,
                 t('wms.backend.inventory.adjust.errors.submit', 'Failed to adjust inventory.'),
