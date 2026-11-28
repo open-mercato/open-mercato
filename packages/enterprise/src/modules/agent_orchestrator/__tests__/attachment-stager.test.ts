@@ -6,6 +6,9 @@ import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/atta
 import { registerAttachmentAccessResolvers } from '@open-mercato/core/modules/attachments/lib/access-registry'
 import type { AttachmentAccessInput, AttachmentAccessDecision } from '@open-mercato/core/modules/attachments/lib/access-types'
 import { OcrService } from '@open-mercato/core/modules/attachments/lib/ocrService'
+import { DefaultAttachmentService } from '@open-mercato/core/modules/attachments/lib/attachment-service'
+import type { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { createAttachmentAccessContext } from '@open-mercato/core/modules/attachments/lib/access-runner'
 import { stageAttachments } from '../lib/runtime/attachmentStager'
 
 jest.mock('node:fs/promises', () => ({ writeFile: jest.fn() }))
@@ -40,13 +43,16 @@ function harness() {
     loadAcl: jest.fn(async () => ({ isSuperAdmin: false, organizations: ['org'] })),
     getEffectiveFeatures: jest.fn(async () => ['attachments.view', 'documents.view']),
   }
+  const em = {} as EntityManager
   const container = {
     resolve: jest.fn((name: string) => {
       if (name === 'rbacService') return rbac
-      if (name === 'storageDriverFactory') return factory
+      if (name === 'attachmentService') return service
       throw new Error(`[internal] unexpected service ${name}`)
     }),
   } as unknown as AwilixContainer
+  const service = new DefaultAttachmentService(em, factory as unknown as StorageDriverFactory, null,
+    () => createAttachmentAccessContext(container))
   jest.mocked(findOneWithDecryption).mockImplementation(async (_em, entity, where) => {
     if (entity === AttachmentPartition) return partition as never
     const filter = where as { id: string; tenantId: string; organizationId: string }
@@ -60,7 +66,7 @@ function harness() {
   }])
   register()
   const args = {
-    container, em: {} as EntityManager, userId: 'workflow-execution-principal', ...scope,
+    container, em, userId: 'workflow-execution-principal', ...scope,
     inDir: '/sandbox/in', files: { attachments: [{ attachmentId, ocrText: true }] },
   }
   const expectNoFileEffects = () => {

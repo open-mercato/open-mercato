@@ -28,10 +28,11 @@ export async function assertAttachmentOwnerAccess(input: {
   attachment: AttachmentAccessRecord
   action: AttachmentAccessAction
   persistProtection?: boolean
+  reportMissingStoragePartition?: boolean
 }): Promise<void> {
   const partition = await resolveAttachmentPartition(input.em, input.attachment.partitionCode, input.attachment, { decrypt: true })
   if (!partition) {
-    if (input.action === 'delete') assertAttachmentStoragePartitionExists(false)
+    if (input.action === 'delete' || input.reportMissingStoragePartition) assertAttachmentStoragePartitionExists(false)
     await throwAttachmentAccessError(404)
   }
   if (input.persistProtection) await ensureAttachmentPartitionProtection(input.em, partition!)

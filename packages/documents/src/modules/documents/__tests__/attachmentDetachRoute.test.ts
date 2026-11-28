@@ -1,4 +1,21 @@
 import { Document, DocumentAttachment } from '../data/entities'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { ReadScopedAttachmentInput } from '@open-mercato/core/modules/attachments'
+import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
+import { DefaultAttachmentService } from '@open-mercato/core/modules/attachments/lib/attachment-service'
+import { StorageDriverFactory, registerExternalStorageDriver, registerStorageDriverValidator } from '@open-mercato/core/modules/attachments/lib/drivers'
+import type { StorageDriver } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { attachmentStorageErrorSchema } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { z } from 'zod'
+
+jest.mock('#generated/entities.ids.generated', () => ({ E: { attachments: { attachment: 'attachments:attachment' } } }), { virtual: true })
+jest.mock('@open-mercato/core/modules/attachments/lib/ocrQueue', () => ({ requestOcrProcessing: jest.fn() }))
+jest.mock('@open-mercato/core/modules/attachments/lib/ocrService', () => ({ OcrService: class OcrService {} }))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({
+  t: (key: string, fallback?: string) => key === 'attachments.errors.storageConfigurationInvalid' ? 'Localized storage unavailable' : fallback ?? key,
+  translate: (_key: string, fallback?: string) => fallback,
+}) }))
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORGANIZATION_ID = '22222222-2222-4222-8222-222222222222'
@@ -32,6 +49,8 @@ type AttachmentDetailRoute = typeof import('../api/[id]/attachments/[attachmentI
 
 let DELETE: AttachmentDetailRoute['DELETE']
 let GET: AttachmentDetailRoute['GET']
+let detailOpenApi: AttachmentDetailRoute['openApi']
+let uploadOpenApi: typeof import('../api/[id]/attachments/route')['openApi']
 let features: string[]
 let attachmentRecord: { id: string; updatedAt: Date; deletedAt: Date | null } | null
 /**
@@ -44,7 +63,7 @@ let em: { findOne: jest.Mock; find: jest.Mock; flush: jest.Mock }
 const executeCommand = jest.fn(async () => ({ result: { id: ATTACHMENT_ID }, logEntry: null }))
 const validateUpload = jest.fn()
 const createScoped = jest.fn(async () => ({ id: ATTACHMENT_ID }))
-const readScoped = jest.fn(async () => ({
+const readScoped = jest.fn(async (_input: ReadScopedAttachmentInput) => ({
   buffer: Buffer.from('private document bytes'),
   contentType: 'application/octet-stream',
   contentDisposition: 'inline; filename="document.bin"',
@@ -72,6 +91,8 @@ beforeAll(async () => {
   const route = await import('../api/[id]/attachments/[attachmentId]/route')
   GET = route.GET
   DELETE = route.DELETE
+  detailOpenApi = route.openApi
+  uploadOpenApi = (await import('../api/[id]/attachments/route')).openApi
 })
 
 beforeEach(() => {
@@ -129,6 +150,66 @@ function context() {
 }
 
 describe('document attachment detach', () => {
+  it.each([
+    ['missing partition', null, 'partition_missing'],
+    ['unknown driver', { storageDriver: 'unknown', configJson: {} }, 'unknown_driver'],
+    ['malformed config', { storageDriver: 'document-storage-test', configJson: 'secret-sentinel' }, 'invalid_config'],
+    ['rejected config', { storageDriver: 'document-storage-test', configJson: { bucket: 'secret-sentinel' } }, 'validator_rejected'],
+  ] as const)('maps %s through the real attachment service to a redacted localized 503', async (_case, invalid, reason) => {
+    const priorPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+    process.env.OM_ATTACHMENT_STORAGE_POLICY = 'strict'
+    const driver: StorageDriver = {
+      key: 'document-storage-test', store: jest.fn(), read: jest.fn(), delete: jest.fn(), toLocalPath: jest.fn(),
+    }
+    const construct = jest.fn(() => driver)
+    registerExternalStorageDriver(driver.key, construct)
+    const unregister = registerStorageDriverValidator(driver.key, ({ config }) => config.bucket === 'valid')
+    const serviceEm = {
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity === AttachmentPartition) return invalid === null ? null : { code: 'privateAttachments', isPublic: false, ...invalid }
+        if (entity !== Attachment || where.tenantId !== TENANT_ID || where.organizationId !== ORGANIZATION_ID) return null
+        return {
+          id: ATTACHMENT_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID,
+          entityId: 'documents:document', recordId: DOCUMENT_ID, partitionCode: 'privateAttachments',
+          storagePath: 'private/file', storageMetadata: { assignments: [{ type: 'documents:document', id: DOCUMENT_ID }] },
+        }
+      }),
+      remove: jest.fn(), flush: jest.fn(),
+    }
+    const service = new DefaultAttachmentService(
+      serviceEm as unknown as EntityManager,
+      new StorageDriverFactory(serviceEm as unknown as EntityManager),
+    )
+    readScoped.mockImplementationOnce((input) => service.readScoped(input))
+    try {
+      const response = await GET(request('GET'), context())
+      expect(response.status).toBe(503)
+      const body = await response.json()
+      expect(body).toEqual({ error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason })
+      const documented = detailOpenApi.methods.GET?.errors?.find((entry) => entry.status === 503)?.schema
+      expect(documented?.safeParse(body).success).toBe(true)
+      expect(construct).not.toHaveBeenCalled()
+      expect(driver.read).not.toHaveBeenCalled()
+      expect(driver.delete).not.toHaveBeenCalled()
+      expect(serviceEm.remove).not.toHaveBeenCalled()
+      expect(serviceEm.flush).not.toHaveBeenCalled()
+    } finally {
+      unregister()
+      if (priorPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+      else process.env.OM_ATTACHMENT_STORAGE_POLICY = priorPolicy
+    }
+  })
+
+  it.each([
+    ['attachment read', () => detailOpenApi.methods.GET],
+    ['attachment upload', () => uploadOpenApi.methods.POST],
+  ] as const)('documents the storage 503 code and reason for %s', (_case, method) => {
+    const documented = method()?.errors?.find((entry) => entry.status === 503)?.schema
+    expect(documented?.safeParse({ error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason: 'invalid_config' }).success).toBe(true)
+    expect(documented?.safeParse({ error: 'Attachment service unavailable' }).success).toBe(true)
+    expect(documented instanceof z.ZodUnion ? documented.options : []).toContain(attachmentStorageErrorSchema)
+  })
+
   it('prevents browsers from reusing private bytes after access is revoked', async () => {
     const response = await GET(request('GET'), context())
 

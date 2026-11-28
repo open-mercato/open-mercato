@@ -11,7 +11,9 @@ import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import { readAttachmentUploadForm, resolveAttachmentServicePort } from '../../../lib/attachmentServicePort'
 import { assertTier } from '../../../lib/permissions'
 import {
+  ATTACHMENT_SERVICE_UNAVAILABLE_DESCRIPTION,
   assertDocumentNotArchived,
+  attachmentServiceUnavailableErrorSchema,
   handleDocumentsRouteError,
   loadScopedDocument,
   resolveDocumentsContext,
@@ -164,7 +166,7 @@ export const openApi: OpenApiRouteDoc = withDocumentsContextErrors({
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
         { status: 413, description: 'Attachment too large', schema: routeErrorSchema },
-        { status: 503, description: 'Attachment service unavailable', schema: routeErrorSchema },
+        { status: 503, description: ATTACHMENT_SERVICE_UNAVAILABLE_DESCRIPTION, schema: attachmentServiceUnavailableErrorSchema },
       ],
     },
   },

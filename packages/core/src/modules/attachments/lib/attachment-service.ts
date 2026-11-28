@@ -12,6 +12,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
 import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
 import type { StorageDriverFactory } from './drivers'
+import { assertAttachmentStoragePartitionExists, isAttachmentStorageConfigurationError } from './drivers/storageValidation'
 import { buildAttachmentFileUrl } from './imageUrls'
 import {
   isScopedAttachmentUploadError,
@@ -436,7 +437,8 @@ export class DefaultAttachmentService implements AttachmentService {
     let result: Awaited<ReturnType<typeof driver.read>>
     try {
       result = await driver.read(attachment.partitionCode, attachment.storagePath)
-    } catch {
+    } catch (error) {
+      if (isAttachmentStorageConfigurationError(error)) throw error
       throw new CrudHttpError(404, { error: 'File not available' })
     }
 
@@ -579,6 +581,7 @@ export class DefaultAttachmentService implements AttachmentService {
     )
     if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
     const partition = await resolveAttachmentPartition(this.em, attachment.partitionCode, attachment, { decrypt: true })
+    assertAttachmentStoragePartitionExists(Boolean(partition))
     if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
     await this.assertReadableScoped(input, attachment, partition, this.resolveAccessContext?.())
     return attachment

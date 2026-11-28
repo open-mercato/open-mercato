@@ -26,14 +26,21 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
 }))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: () => Promise.resolve([{ role: { id: 'role-caller' } }]),
+  findOneWithDecryption: async (em: { findOne: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.findOne(...args),
 }))
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({ UserRole: class UserRole {} }))
+jest.mock('#generated/entities.ids.generated', () => jest.requireActual('../../../../../core/jest.mocks/entities.ids.generated.js'), { virtual: true })
 jest.mock('../lib/sdk/defineAgent', () => ({
   ...jest.requireActual<typeof import('../lib/sdk/defineAgent')>('../lib/sdk/defineAgent'),
   ensureAgentsLoaded: jest.fn(async () => undefined),
 }))
 
 import { OpenCodeAgentRunner, type OpenCodeRunnerClient } from '../lib/runtime/openCodeAgentRunner'
+import { AttachmentStorageConfigurationError, isAttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments'
+import { StorageDriverFactory } from '@open-mercato/core/modules/attachments/lib/drivers'
+import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { DefaultAttachmentService } from '@open-mercato/core/modules/attachments/lib/attachment-service'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentRuntimeService } from '../lib/runtime/agentRuntime'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
@@ -124,6 +131,7 @@ function makeHarness() {
 
   const rbacService = {
     loadAcl: async () => ({ isSuperAdmin: false, features: ['agent_orchestrator.agents.run'] }),
+    userHasAllFeatures: async () => true,
   }
   const em = { fork: () => ({}) }
   // Shared cross-process correlation store — the runner opens a row, the fake
@@ -209,6 +217,58 @@ const validOutcome = {
 describe('OpenCodeAgentRunner (integration, fake client)', () => {
   const runCtx = { tenantId: 'tenant-1', organizationId: 'org-1', userId: 'user-1' }
 
+  it.each([
+    ['missing partition', null, 'partition_missing'],
+    ['unknown driver', { storageDriver: 'unknown', configJson: {} }, 'unknown_driver'],
+    ['malformed config', { storageDriver: 'local', configJson: 'secret-sentinel' }, 'invalid_config'],
+  ] as const)('preserves typed %s rejection through real staging and records a redacted run failure', async (_case, partition, reason) => {
+    const priorPolicy = process.env.OM_ATTACHMENT_STORAGE_POLICY
+    const priorFiles = process.env.OM_OPENCODE_FILES_ENABLED
+    process.env.OM_ATTACHMENT_STORAGE_POLICY = 'strict'
+    process.env.OM_OPENCODE_FILES_ENABLED = 'true'
+    const entry: AgentRegistryEntry = { ...registerExampleFileAgent(), files: { enabled: true } }
+    const { calls, commandBus, container, registrations } = makeHarness()
+    const attachmentId = '123e4567-e89b-42d3-a456-426614174001'
+    const em = {
+      fork: () => em,
+      findOne: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
+        if (entity !== Attachment) return partition && { ...partition, code: 'privateAttachments', isPublic: false }
+        if (where.tenantId !== runCtx.tenantId || where.organizationId !== runCtx.organizationId) return null
+        return { id: attachmentId, tenantId: runCtx.tenantId, organizationId: runCtx.organizationId,
+          entityId: 'example:record', recordId: 'record-1',
+          partitionCode: 'privateAttachments', storagePath: 'secret-sentinel', fileName: 'file.txt' }
+      }),
+    }
+    const release = jest.fn(async () => undefined)
+    registrations.em = em
+    registrations.storageDriverFactory = new StorageDriverFactory(em as unknown as EntityManager)
+    registrations.attachmentService = new DefaultAttachmentService(em as unknown as EntityManager, registrations.storageDriverFactory as StorageDriverFactory)
+    registrations.agentWorkspaceManager = { acquire: async () => ({ inDir: '/unused/in', outDir: '/unused/out', release }) }
+    const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef: { value: '' }, agentSentRef: { value: undefined }, container })
+    const sendMessage = jest.spyOn(client, 'sendMessage')
+    const runner = new OpenCodeAgentRunner({ container: container as never, commandBus: commandBus as never, openCodeClient: client })
+    try {
+      const error = await runner.run(entry, { __files: { attachments: [{ attachmentId }] } }, runCtx).catch((caught: unknown) => caught)
+      expect(isAttachmentStorageConfigurationError(error)).toBe(true)
+      expect(error).toBeInstanceOf(AttachmentStorageConfigurationError)
+      expect(error).toMatchObject({ reason })
+      expect(calls).toContainEqual({ id: 'agent_orchestrator.runs.fail', input: expect.objectContaining({
+        errorMessage: `ATTACHMENT_STORAGE_CONFIGURATION_INVALID: ${reason}`,
+      }) })
+      expect(sendMessage).not.toHaveBeenCalled()
+      expect(release).toHaveBeenCalledTimes(1)
+      expect(deleteSessionApiKeyMock).toHaveBeenCalled()
+      expect(JSON.stringify(calls)).not.toContain('secret-sentinel')
+    } finally {
+      if (priorPolicy === undefined) delete process.env.OM_ATTACHMENT_STORAGE_POLICY
+      else process.env.OM_ATTACHMENT_STORAGE_POLICY = priorPolicy
+      if (priorFiles === undefined) delete process.env.OM_OPENCODE_FILES_ENABLED
+      else process.env.OM_OPENCODE_FILES_ENABLED = priorFiles
+      createSessionApiKeyMock.mockClear()
+      deleteSessionApiKeyMock.mockClear()
+    }
+  })
+
   it.each([false, true])('passes the execution principal to staging and fails before prompting on denial (workflow=%s)', async (workflow) => {
     const { calls, commandBus, container } = makeHarness()
     const workspace = { inDir: '/sandbox/in', outDir: '/sandbox/out', release: jest.fn(async () => undefined) }
@@ -234,7 +294,9 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
         userId: ctx.userId, tenantId: ctx.tenantId, organizationId: ctx.organizationId,
       }))
       expect(sendMessage).not.toHaveBeenCalled()
-      expect(calls.find((call) => call.id === 'agent_orchestrator.runs.fail')?.input.errorMessage).toContain('attachment access denied')
+      expect(calls.find((call) => call.id === 'agent_orchestrator.runs.fail')?.input.errorMessage)
+        .toBe('attachment staging failed: attachment input unavailable')
+      expect(JSON.stringify(calls)).not.toContain('attachment access denied')
       expect(calls.some((call) => call.id === 'agent_orchestrator.runs.complete')).toBe(false)
       expect(workspace.release).toHaveBeenCalledTimes(1)
     } finally {

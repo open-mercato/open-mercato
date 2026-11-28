@@ -11,6 +11,11 @@
  * survive the crossing.
  */
 import { POST } from '../api/agents/[id]/run/route'
+import { AttachmentStorageConfigurationError } from '@open-mercato/core/modules/attachments'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: async () => ({
+  t: (key: string, fallback?: string) => key === 'attachments.errors.storageConfigurationInvalid' ? 'Localized storage unavailable' : fallback ?? key,
+}) }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(),
@@ -111,6 +116,16 @@ describe('POST /api/agent_orchestrator/agents/:id/run — a deployment that cann
     const res = await POST(makeRequest(), { params })
     expect(res.status).toBe(503)
     expect(await res.json()).toMatchObject({ code: 'api_key_missing' })
+  })
+
+  it.each(['partition_missing', 'invalid_config', 'validator_rejected'] as const)('maps typed storage %s to a redacted localized 503', async (reason) => {
+    await mockAuthAndScope()
+    await setupContainerThrowing(new AttachmentStorageConfigurationError(reason))
+    const response = await POST(makeRequest(), { params })
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({
+      error: 'Localized storage unavailable', code: 'ATTACHMENT_STORAGE_CONFIGURATION_INVALID', reason,
+    })
   })
 
   it('still reports an unrelated failure as an unclassified 500 that names itself', async () => {
