@@ -441,7 +441,7 @@ describe('cart.get', () => {
   it('resolves a cart by id and by a re-hashed token identically', async () => {
     const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')
     const plaintextToken = 'plaintext-token-value'
-    const cart = makeCartFixture({ tokenHash: hashCartToken(plaintextToken) })
+    const cart = makeCartFixture({ tokenHash: hashCartToken(plaintextToken), storeId: null })
     seededCarts = [cart]
 
     const { em } = makeEm()
@@ -461,6 +461,18 @@ describe('cart.get', () => {
       expect(byId.cart.id).toBe(cart.id)
       expect((byId.cart as Record<string, unknown>).tokenHash).toBeUndefined()
     }
+  })
+
+  it('requires trusted store context to resolve a storefront cart by token', async () => {
+    const handler = commandRegistry.get<CartGetInput, CartGetResult>('cart.get')!
+    const token = 'storefront-token'
+    const cart = makeCartFixture({ tokenHash: hashCartToken(token), storeId: 'store-1' })
+    seededCarts = [cart]
+    const { em } = makeEm()
+    const ctx = makeCtx({ em, dataEngine: makeDataEngine() })
+    const input = { tenantId: TENANT_ID, organizationId: ORG_ID, token }
+
+    await expect(handler.execute(input, ctx)).resolves.toEqual({ found: false })
   })
 
   it('returns the identical uniform not-found result for a wrong tenant, a wrong token, and a nonexistent id', async () => {

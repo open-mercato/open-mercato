@@ -65,3 +65,4 @@ Reviewed provider direction, scope and actor propagation, dry-run behavior, and 
 ## Changelog
 
 - 2026-11-24 — Proposed Business Rules-owned named execution for #10476.
+- 2026-11-24 — Routed named START and transition rules through the active `ruleEngine` registration. Kept two-argument START validation and suppressed START rule actions for dry runs.

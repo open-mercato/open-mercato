@@ -7,6 +7,12 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import { channelOrgScopeWhere } from '../lib/access-control'
+import {
+  captureChannelRestoreRecord,
+  parseChannelRestoreRecord,
+  restoreDeletedChannel,
+  type ChannelRestoreRecord,
+} from '../lib/channel-restore'
 import { pushUnregister } from './push-unregister'
 import { emitCommunicationChannelsEvent } from '../events'
 
@@ -27,7 +33,7 @@ export type AdminDeleteChannelResult =
   | { status: 'noop'; reason: string }
   | { status: 'not_tenant_wide'; reason: string }
 
-export interface AdminDeleteChannelUndoSnapshot {
+export interface AdminDeleteChannelUndoSnapshot extends ChannelRestoreRecord {
   channelId: string
   // Optional only for back-compat with any pre-existing log entries; new
   // snapshots always set it so the undo lookup stays tenant-scoped.
@@ -55,7 +61,9 @@ export const COMMUNICATION_CHANNELS_ADMIN_DELETE_CHANNEL_COMMAND_ID =
  * credentials resolve where they were written (see push-register.ts /
  * connect-credential-channel.ts). Mirrors `delete-channel`'s teardown.
  *
- * Undoable: undo clears `deleted_at` to restore the row. Parity with
+ * Undoable: undo clears `deleted_at` to restore the row, and refuses with a 409
+ * when a live channel has taken the same connection since the delete (see
+ * `lib/channel-restore.ts`). Parity with
  * `delete-channel` — same event, payload, buildLog, and undo shape.
  */
 const adminDeleteChannelCommand: CommandHandler<
@@ -118,6 +126,7 @@ const adminDeleteChannelCommand: CommandHandler<
       }
     }
 
+    const restoreRecord = await captureChannelRestoreRecord(em, channel)
     channel.deletedAt = new Date()
     channel.isPrimary = false
     await em.flush()
@@ -141,7 +150,7 @@ const adminDeleteChannelCommand: CommandHandler<
     return {
       status: 'deleted',
       channelId: channel.id,
-      undo: { channelId: channel.id, tenantId: channel.tenantId },
+      undo: { channelId: channel.id, tenantId: channel.tenantId, ...restoreRecord },
     }
   },
   // Persist the undo snapshot into the action log. Without this, the command bus
@@ -161,18 +170,7 @@ const adminDeleteChannelCommand: CommandHandler<
     const snapshot = extractSnapshotFromLog(logEntry)
     if (!snapshot || !snapshot.tenantId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    // Re-find WITHOUT the `deletedAt: null` filter — the row we are restoring is
-    // soft-deleted. Tenant-scoped to avoid cross-tenant resolution by bare id.
-    const channel = await findOneWithDecryption(
-      em,
-      CommunicationChannel,
-      { id: snapshot.channelId, tenantId: snapshot.tenantId },
-      undefined,
-      { tenantId: snapshot.tenantId, organizationId: null },
-    )
-    if (!channel) return
-    channel.deletedAt = null
-    await em.flush()
+    await restoreDeletedChannel(em, { ...snapshot, tenantId: snapshot.tenantId })
   },
 }
 
@@ -189,6 +187,7 @@ export function extractUndoPayload(value: unknown): AdminDeleteChannelUndoSnapsh
   return {
     channelId: obj.channelId,
     tenantId: typeof obj.tenantId === 'string' ? obj.tenantId : undefined,
+    ...parseChannelRestoreRecord(obj),
   }
 }
 

@@ -1,5 +1,6 @@
 {
   "translations.config.nav.title": "번역",
+  "translations.errors.undoConflict": "되돌리려는 작업 이후에 이 번역이 변경되었습니다. 실행 취소가 거부되었습니다.",
   "translations.locales.add": "추가",
   "translations.locales.addPlaceholder": "예: fr, it, ja...",
   "translations.locales.alwaysServed": "{{locale}}은(는) 기본 언어로 항상 제공되므로 제거할 수 없습니다.",
@@ -19,6 +20,7 @@
   "translations.manager.errors.loadEntities": "엔터티를 불러오지 못했습니다",
   "translations.manager.errors.loadTranslation": "번역을 불러오지 못했습니다",
   "translations.manager.errors.nothingToSave": "저장할 내용이 없습니다 — 먼저 번역을 입력하세요",
+  "translations.manager.errors.organizationChanged": "선택한 조직이 변경되었습니다. 계속하려면 번역 편집기를 닫았다가 다시 여세요.",
   "translations.manager.errors.save": "번역 저장에 실패했습니다",
   "translations.manager.errors.selectRecord": "저장하기 전에 엔터티와 레코드를 선택하세요",
   "translations.manager.fields.baseValue": "기본 값",

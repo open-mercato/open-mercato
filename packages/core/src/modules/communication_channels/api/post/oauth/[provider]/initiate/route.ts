@@ -127,7 +127,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   const credentials = await resolveOAuthClientCredentials(credentialsService, provider, {
     tenantId: auth.tenantId as string,
     organizationId: (auth as { orgId?: string | null }).orgId ?? null,
-  })
+  }, { requireComplete: true })
   if (!credentials) {
     return NextResponse.json(
       {

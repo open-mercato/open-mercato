@@ -404,7 +404,7 @@ describe('runEvalGate with file cases', () => {
       if (commandId === 'agent_orchestrator.evalRuns.start') {
         return { result: { suiteRunId: 'suite-file', caseRunCount: 2 } }
       }
-      return { result: { suiteRunId: 'suite-file', status: 'completed', outcome: 'passed', passScore: 1 } }
+      return { result: { suiteRunId: 'suite-file', status: 'completed', outcome: 'passed', passScore: 1, errorCount: 0 } }
     })
     replay.mockResolvedValue(undefined)
     const container = {
@@ -424,6 +424,40 @@ describe('runEvalGate with file cases', () => {
       expect(startInput.evalCaseIds).toBeUndefined()
       expect(startInput.snapshot).toBeUndefined()
       expect(result.outcome).toBe('passed')
+    } finally {
+      replay.mockRestore()
+    }
+  })
+
+  function gateContainer(completeResult: Row) {
+    const { em } = createFakeEm()
+    const execute = jest.fn(async (commandId: string) => {
+      if (commandId === 'agent_orchestrator.evalRuns.start') {
+        return { result: { suiteRunId: 'suite-file', caseRunCount: 2 } }
+      }
+      return { result: completeResult }
+    })
+    return { resolve: (name: string) => (name === 'em' ? em : { execute }) } as unknown as AwilixContainer
+  }
+
+  it('reports the error count the completing command committed', async () => {
+    const replay = jest.spyOn(replayModule, 'replaySuiteRun').mockResolvedValue(undefined)
+    const container = gateContainer({ suiteRunId: 'suite-file', status: 'completed', outcome: 'passed', passScore: 1, errorCount: 2 })
+    try {
+      const result = await runEvalGate(container, { agentDefinitionId: AGENT, scope: SCOPE, cases: parseEvalSetFile(sampleFile()) })
+      expect(result.errorCount).toBe(2)
+    } finally {
+      replay.mockRestore()
+    }
+  })
+
+  it('fails closed instead of reporting zero errors when the count is missing', async () => {
+    const replay = jest.spyOn(replayModule, 'replaySuiteRun').mockResolvedValue(undefined)
+    const container = gateContainer({ suiteRunId: 'suite-file', status: 'completed', outcome: 'passed', passScore: 1 })
+    try {
+      await expect(
+        runEvalGate(container, { agentDefinitionId: AGENT, scope: SCOPE, cases: parseEvalSetFile(sampleFile()) }),
+      ).rejects.toThrow('completed without an error count')
     } finally {
       replay.mockRestore()
     }

@@ -196,7 +196,8 @@ export function toUserTaskWorkInboxRow(task: UserTask, now: Date): WorkInboxRow 
 
 /**
  * SQL orders by due date (Postgres puts NULLs last on ASC, which is what the
- * inbox wants) and then by recency; the canonical priority → due → created
+ * inbox wants), then by recency, then by `id` so the window is a total order
+ * and tied rows cannot shift between requests; the canonical priority → due → created
  * ordering is applied by the merge service over the returned window, because
  * `priority` is an authored label with no ordinal column to sort on. Phase 1 is
  * a projection — a persisted sort key belongs with the `Task` entity, which
@@ -213,7 +214,7 @@ async function listUserTaskWorkItems(
   const where = buildUserTaskWorkInboxWhere(query, context.scope, options)
 
   const [tasks, total] = await em.findAndCount(UserTask, where, {
-    orderBy: [{ dueDate: 'ASC' }, { createdAt: 'DESC' }],
+    orderBy: [{ dueDate: 'ASC' }, { createdAt: 'DESC' }, { id: 'ASC' }],
     limit: query.offset + query.limit,
     offset: 0,
   })

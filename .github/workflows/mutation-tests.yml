@@ -27,6 +27,11 @@ permissions:
 
 on:
   pull_request:
+    # Draft PRs are not mutated: `scope` still reports (it is a required check) but
+    # finds no work, and `ready_for_review` re-runs it once the PR is marked ready.
+    # The draft state is read live, so re-running an old draft run after the PR
+    # was marked ready does the real work.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
   # Lets a maintainer execute the mutate job on demand against a known file, which
@@ -60,10 +65,33 @@ jobs:
   # than reporting a synthetic score.
   scope:
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       matrix: ${{ steps.scope.outputs.matrix }}
       has_work: ${{ steps.scope.outputs.has_work }}
     steps:
+      - name: Detect draft pull request
+        id: draft
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_DRAFT: ${{ github.event_name == 'pull_request' && github.event.pull_request.draft == true }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          DRAFT=false
+          if [ "${EVENT_DRAFT}" = "true" ]; then
+            DRAFT=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" --jq '.draft' 2>/dev/null || echo false)
+          fi
+          if [ "${DRAFT}" = "true" ]; then
+            echo "Draft pull request: mutation testing skipped. Mark it ready for review to run it." >> "$GITHUB_STEP_SUMMARY"
+          else
+            DRAFT=false
+          fi
+          echo "draft=${DRAFT}" >> "$GITHUB_OUTPUT"
+
       # Pinned to the PR's own head commit, not the default `refs/pull/<n>/merge`.
       # That ref is GitHub's live merge of this branch into whatever the base branch's
       # tip is *at checkout time* — which can already be ahead of `base.sha` below by
@@ -73,12 +101,14 @@ jobs:
       # branched", which is how an unrelated main-side refactor once got mutated as
       # if this PR had written it (and blew the mutate job's timeout doing so).
       - name: Checkout repository
+        if: steps.draft.outputs.draft != 'true'
         uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
       - name: Set up Node
+        if: steps.draft.outputs.draft != 'true'
         uses: actions/setup-node@v7
         with:
           node-version: 24.19.0
@@ -89,6 +119,7 @@ jobs:
       # `mutate` job's own note. A dispatch selection is still filtered by
       # scope.mjs's allowlist and character rules, not trusted verbatim.
       - name: Compute mutation scope
+        if: steps.draft.outputs.draft != 'true'
         id: scope
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -117,7 +148,8 @@ jobs:
     needs: scope
     if: needs.scope.outputs.has_work == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 90
+    # A large shared-package run projected 202 minutes including setup.
+    timeout-minutes: 240
     # Advisory: a low score annotates the PR, it does not fail the check. Flipping
     # MUTATION_ENFORCE to 'true' is what turns this into a real gate.
     continue-on-error: ${{ vars.MUTATION_ENFORCE != 'true' }}

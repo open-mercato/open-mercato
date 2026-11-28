@@ -1,3 +1,4 @@
+import { FORM_LOGO_PARTITION_CODE } from '@open-mercato/core/modules/attachments/lib/partitions'
 /**
  * Form logo upload — POST /api/forms/:id/theme-logo
  *
@@ -33,14 +34,13 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['forms.design'] },
 }
 
-const LOGO_PARTITION_CODE = 'formLogos'
 const MAX_LOGO_BYTES = 2 * 1024 * 1024 // 2 MiB — logos/headers are small
 
 async function ensureLogoPartition(em: EntityManager): Promise<void> {
-  const existing = await em.findOne(AttachmentPartition, { code: LOGO_PARTITION_CODE })
+  const existing = await em.findOne(AttachmentPartition, { code: FORM_LOGO_PARTITION_CODE, tenantId: null, organizationId: null })
   if (existing) return
   const partition = em.create(AttachmentPartition, {
-    code: LOGO_PARTITION_CODE,
+    code: FORM_LOGO_PARTITION_CODE,
     title: 'Form logos',
     description: 'Public logos/headers uploaded for branded forms.',
     storageDriver: 'local',
@@ -96,7 +96,7 @@ export async function POST(
     await ensureLogoPartition(em)
 
     const stored = await storePartitionFile({
-      partitionCode: LOGO_PARTITION_CODE,
+      partitionCode: FORM_LOGO_PARTITION_CODE,
       orgId: null,
       tenantId: null,
       fileName: file.name || 'logo',
@@ -110,7 +110,7 @@ export async function POST(
       recordId: formId,
       organizationId: null,
       tenantId: null,
-      partitionCode: LOGO_PARTITION_CODE,
+      partitionCode: FORM_LOGO_PARTITION_CODE,
       fileName: stored.fileName,
       mimeType: detectedMime ?? 'image/png',
       fileSize: buffer.length,

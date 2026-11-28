@@ -5,7 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import type { QueryEngine, QueryOptions, Where, Sort } from '@open-mercato/shared/lib/query/types'
 import { normalizeExportFormat, serializeExport, defaultExportFilename, ensureColumns } from '@open-mercato/shared/lib/crud/exporters'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { resolveOrganizationScope, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScope, resolveOrganizationScopeForRequest, getSelectedOrganizationFromRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE } from '@open-mercato/shared/lib/data/engine'
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
@@ -138,11 +138,12 @@ export async function GET(req: Request) {
   }
 
   try {
-    const { resolve } = await createRequestContainer()
+    const container = await createRequestContainer()
+    const { resolve } = container
     const qe = resolve('queryEngine') as QueryEngine
     const em = resolve('em') as any
     const rbac = resolve('rbacService') as RbacService
-    const scope = await resolveOrganizationScope({ em, rbac, auth, selectedId: getSelectedOrganizationFromRequest(req) })
+    const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
     let organizationIds: string[] | null = scope.filterIds
     // Module-declared custom entities (ce.ts) carry frozen system-style ids and are never
     // registered in `custom_entities`, so classification checks the declared registry plus
