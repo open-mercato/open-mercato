@@ -73,12 +73,14 @@ describe('POST /communication_channels/messages/[messageId]/reactions existence 
     expect(afterSuccessMock).not.toHaveBeenCalled()
   })
 
-  it('keeps 409 for a duplicate reaction', async () => {
+  it('returns the existing reaction without running mutation callbacks again', async () => {
     commandExecuteMock.mockResolvedValueOnce({
-      result: { status: 'noop', reason: 'duplicate reaction from same user with same emoji' },
+      result: { status: 'added', reactionId, messageId, emoji: '👍', replaced: 0, enqueued: false, alreadyPresent: true },
     })
     const response = await postReaction()
-    expect(response.status).toBe(409)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ id: reactionId, messageId, emoji: '👍', replaced: 0, enqueued: false })
+    expect(afterSuccessMock).not.toHaveBeenCalled()
   })
 
   it('still lets the owner add a reaction', async () => {

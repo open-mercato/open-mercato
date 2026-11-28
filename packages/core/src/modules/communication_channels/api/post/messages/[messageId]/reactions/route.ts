@@ -112,7 +112,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
     return NextResponse.json({ error: result.reason }, { status: 409 })
   }
   if (result.status === 'added') {
-    await guard.afterSuccess()
+    if (!result.alreadyPresent) await guard.afterSuccess()
     return NextResponse.json(
       {
         id: result.reactionId,
@@ -121,7 +121,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
         replaced: result.replaced,
         enqueued: result.enqueued,
       },
-      { status: 201 },
+      { status: result.alreadyPresent ? 200 : 201 },
     )
   }
   return NextResponse.json({ error: 'Unexpected result' }, { status: 500 })
@@ -134,11 +134,12 @@ export const openApi = {
       summary: 'Add a reaction to a channel-linked message',
       tags: ['CommunicationChannels'],
       responses: [
+        { status: 200, description: 'Identical reaction already present' },
         { status: 201, description: 'Reaction added' },
         { status: 400, description: 'Invalid messageId' },
         { status: 401, description: 'Unauthorized' },
         { status: 404, description: 'Message not found or not accessible' },
-        { status: 409, description: 'Message not channel-linked or duplicate reaction' },
+        { status: 409, description: 'Message not channel-linked or conflicting reaction unavailable' },
         { status: 422, description: 'Invalid request body' },
       ],
     },
