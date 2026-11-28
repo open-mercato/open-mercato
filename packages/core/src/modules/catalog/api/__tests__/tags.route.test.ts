@@ -38,7 +38,7 @@ describe('catalog tags list — organization scoping', () => {
     mockEm.findAndCount.mockResolvedValue([[], 0])
   })
 
-  it('scopes by tenant only (no org filter) under the "All organizations" scope', async () => {
+  it('paginates by label and id within the tenant under the "All organizations" scope', async () => {
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({
       sub: 'user-1',
       tenantId: 'tenant-1',
@@ -52,12 +52,14 @@ describe('catalog tags list — organization scoping', () => {
       tenantId: 'tenant-1',
     })
 
-    const response = await GET(request())
+    const response = await GET(request('?page=2&pageSize=2'))
 
     expect(response.status).toBe(200)
-    const where = mockEm.findAndCount.mock.calls[0][1]
-    expect(where).toEqual({ tenantId: 'tenant-1' })
-    expect(where).not.toHaveProperty('organizationId')
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      expect.any(Function),
+      { tenantId: 'tenant-1' },
+      { limit: 2, offset: 2, orderBy: { label: 'asc', id: 'asc' } },
+    )
   })
 
   it('narrows to the caller\'s visible organizations when restricted', async () => {

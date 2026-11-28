@@ -80,7 +80,7 @@ export async function GET(req: Request) {
   const [records, total] = await em.findAndCount(
     CatalogProductTag,
     where,
-    { limit, offset, orderBy: { label: 'asc' } }
+    { limit, offset, orderBy: { label: 'asc', id: 'asc' } }
   )
 
   return NextResponse.json({
