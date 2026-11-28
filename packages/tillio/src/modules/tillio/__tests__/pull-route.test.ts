@@ -27,9 +27,12 @@ function request(body: unknown): Request {
 // The route takes an advisory lock inside a transaction; the stub keeps the section running
 // without a database, which is the only thing these cases need from it.
 function createEm() {
+  const connection = {}
   return {
+    getConnection: () => connection,
+    config: { get: () => ({ max: 2 }) },
     transactional: async <T>(run: (tx: unknown) => Promise<T>): Promise<T> =>
-      run({ execute: async () => undefined }),
+      run({ execute: async () => [{ locked: true }] }),
   }
 }
 
