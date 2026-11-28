@@ -10,9 +10,9 @@ const compactButtonVariants = cva(
   {
     variants: {
       appearance: {
-        stroke: 'border border-input bg-background text-muted-foreground shadow-xs hover:border-transparent hover:bg-muted active:border-transparent active:bg-primary active:text-primary-foreground aria-pressed:border-transparent aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary-hover',
+        stroke: 'border border-input bg-control text-muted-foreground shadow-xs hover:border-transparent hover:bg-muted active:border-transparent active:bg-primary active:text-primary-foreground aria-pressed:border-transparent aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary-hover',
         ghost: 'border border-transparent bg-transparent text-muted-foreground hover:bg-muted active:bg-primary active:text-primary-foreground aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary-hover',
-        white: 'border border-transparent bg-background text-muted-foreground hover:bg-muted active:bg-primary active:text-primary-foreground aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary-hover',
+        white: 'border border-transparent bg-control text-muted-foreground hover:bg-muted active:bg-primary active:text-primary-foreground aria-pressed:bg-primary aria-pressed:text-primary-foreground aria-pressed:hover:bg-primary-hover',
         modifiable: 'border border-transparent bg-transparent text-current hover:bg-current/15 active:border-current active:bg-current/15 aria-pressed:border-current aria-pressed:bg-current/15',
       },
       size: {

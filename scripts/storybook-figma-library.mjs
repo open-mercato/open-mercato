@@ -5,6 +5,25 @@ import path from 'node:path'
 // story must never be promoted automatically to a visual parity claim.
 export function buildFigmaLibrary(root, catalogue) {
   const directory = path.join(root, 'docs/design-system/figma-audit')
+  const catalogueById = new Map(catalogue.map(entry => [entry.id, entry]))
+  const storyForEntry = (id, pageId) => {
+    const entry = catalogueById.get(id)
+    if (!entry) throw new Error(`Figma page ${pageId} links to missing gallery entry ${id}`)
+    return { entryId: entry.id, family: entry.family, title: entry.title, storyId: entry.storyId, variantCount: entry.variantCount }
+  }
+
+  if (!fs.existsSync(path.join(directory, 'pages.json'))) {
+    const snapshotPath = path.join(root, 'packages/core/src/modules/design_system/gallery/source-library.generated.ts')
+    const snapshot = fs.readFileSync(snapshotPath, 'utf8').match(/^export const sourceLibrary = (.+)$/m)
+    if (!snapshot) throw new Error('Missing Figma audit and unreadable gallery snapshot')
+    const library = JSON.parse(snapshot[1])
+    if (!Array.isArray(library.pages) || !library.pages.length) throw new Error('Empty Figma gallery snapshot')
+    for (const page of library.pages) {
+      page.stories = page.stories.map(story => storyForEntry(story.entryId, page.id))
+    }
+    return library
+  }
+
   const read = (name, fallback = {}) => {
     const file = path.join(directory, `${name}.json`)
     return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : fallback
@@ -54,11 +73,7 @@ export function buildFigmaLibrary(root, catalogue) {
       continue
     }
     const record = records.find(record => (record.id ?? record.pageId) === page.id)
-    const stories = (links[page.id] ?? []).map(id => {
-      const entry = catalogue.find(entry => entry.id === id)
-      if (!entry) throw new Error(`Figma page ${page.id} links to missing gallery entry ${id}`)
-      return { entryId: entry.id, family: entry.family, title: entry.title, storyId: entry.storyId, variantCount: entry.variantCount }
-    })
+    const stories = (links[page.id] ?? []).map(id => storyForEntry(id, page.id))
     pages.push({
       id: page.id,
       name: cleanName(page.name),

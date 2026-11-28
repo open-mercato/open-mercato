@@ -112,7 +112,7 @@ function neutralScale(tone: NeutralTone): ColorStop[] {
   const hue = (tone === 'warm' ? 75 : 255) * Math.PI / 180
   return STEPS.map((step, index) => ({
     step,
-    hex: toHex({ lightness: LIGHTNESS[index], chroma: tone === 'neutral' ? 0 : 0.014 * Math.sin(Math.PI * LIGHTNESS[index]), hue }),
+    hex: toHex({ lightness: LIGHTNESS[index], chroma: tone === 'neutral' ? 0 : 0.004 + 0.03 * Math.sin(Math.PI * LIGHTNESS[index]), hue }),
   }))
 }
 

@@ -121,7 +121,7 @@ export function TabsList({ children, className, 'aria-label': ariaLabel }: TabsL
 
   const baseClasses =
     variant === 'card' || variant === 'list'
-      ? cn('inline-flex items-stretch gap-2 text-muted-foreground', orientation === 'vertical' ? 'flex-col' : 'flex-row', variant === 'card' && 'rounded-xl border border-border bg-background p-2.5 shadow-xs')
+      ? cn('inline-flex items-stretch gap-2 text-muted-foreground', orientation === 'vertical' ? 'flex-col' : 'flex-row', variant === 'card' && 'rounded-xl border border-border bg-background p-2 shadow-xs')
       : variant === 'underline'
       ? // Underline strip — flat, full-width border-bottom for the rail,
         // selected trigger gets its own border-b-2 accent below.
@@ -201,11 +201,11 @@ export function TabsTrigger({
       data-slot="tabs-trigger"
       data-state={isSelected ? 'active' : 'inactive'}
       data-variant={variant}
-      className={cn('h-9 justify-start gap-1.5 rounded-md p-2 text-sm font-medium shadow-none', isSelected ? 'bg-muted text-foreground' : 'bg-background text-muted-foreground hover:bg-muted', className)}
+      className={cn('h-9 justify-start gap-2 rounded-md px-3 text-sm font-medium shadow-none', isSelected ? 'bg-muted text-foreground' : 'bg-background text-muted-foreground hover:bg-muted', className)}
     >
       {leading && <span data-slot="tabs-trigger-leading" aria-hidden="true" className="inline-flex size-5 shrink-0 items-center justify-center [&>svg]:size-5">{leading}</span>}
       <span className="min-w-0 flex-1 truncate text-left">{children}</span>
-      {count !== undefined && <span data-slot="tabs-trigger-count" className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-1.5 text-xs">{count}</span>}
+      {count !== undefined && <span data-slot="tabs-trigger-count" className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-muted px-2 text-xs">{count}</span>}
     </Button>
   }
 
@@ -261,7 +261,7 @@ export function TabsTrigger({
           <span
             data-slot="tabs-trigger-count"
             className={cn(
-              'inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-medium',
+              'inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-2 text-xs font-medium',
               isSelected
                 ? 'bg-accent-indigo/10 text-accent-indigo'
                 : 'bg-muted text-muted-foreground',
@@ -313,7 +313,7 @@ export function TabsTrigger({
         <span
           data-slot="tabs-trigger-count"
           className={cn(
-            'inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-xs font-medium',
+            'inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-2 text-xs font-medium',
             isSelected
               ? 'bg-accent-indigo/10 text-accent-indigo'
               : 'bg-background/60 text-muted-foreground',

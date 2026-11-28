@@ -40,7 +40,7 @@ export function StatusBadge({
       disabled={disabled}
       data-appearance={appearance}
       className={cn(
-        dot && 'gap-1.5',
+        dot && 'gap-2',
         appearance === 'stroke' && 'border-border bg-background text-muted-foreground shadow-none',
         disabled && 'border-border-disabled bg-bg-disabled text-text-disabled',
         className,

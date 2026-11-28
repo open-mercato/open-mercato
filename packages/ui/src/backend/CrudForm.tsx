@@ -1551,10 +1551,10 @@ function CrudFormImpl<
   // One step down the DS scale each, never an arbitrary value. `default` returns
   // the exact strings that were inline before this prop existed.
   const isCompactDensity = density === 'compact'
-  const densityStackLg = isCompactDensity ? 'space-y-3' : 'space-y-4'
+  const densityStackLg = 'space-y-field-stack'
   const densityStackMd = isCompactDensity ? 'space-y-2' : 'space-y-3'
-  const densityCardPadding = isCompactDensity ? 'p-3' : 'p-4'
-  const densityGroupCardPadding = isCompactDensity ? 'px-3 py-2' : 'px-4 py-3'
+  const densityCardPadding = 'p-panel'
+  const densityGroupCardPadding = isCompactDensity ? 'px-panel py-2' : 'px-panel py-3'
 
   const buildCustomFieldsManageHref = React.useCallback(
     (targetEntityId: string | null) => {
@@ -3692,10 +3692,10 @@ function CrudFormImpl<
     (field) => field.layout === 'half' || field.layout === 'third'
   )
   const grid = twoColumn
-    ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4'
+    ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-gutter'
     : usesResponsiveLayout
-      ? 'grid grid-cols-1 gap-4 md:grid-cols-6'
-      : 'grid grid-cols-1 gap-4'
+      ? 'grid grid-cols-1 gap-x-gutter gap-y-field-stack md:grid-cols-6'
+      : 'grid grid-cols-1 gap-y-field-stack'
 
   // Helper to render a list of field configs
   const resolveLayoutClass = (layout?: CrudFieldBase['layout']) => {
@@ -3716,7 +3716,7 @@ function CrudFormImpl<
     const usesResponsive = visibleFieldList.some(
       (field) => field.layout === 'half' || field.layout === 'third'
     )
-    const gridClass = usesResponsive ? 'grid grid-cols-1 gap-4 md:grid-cols-6' : 'grid grid-cols-1 gap-4'
+    const gridClass = usesResponsive ? 'grid grid-cols-1 gap-x-gutter gap-y-field-stack md:grid-cols-6' : 'grid grid-cols-1 gap-y-field-stack'
     return (
       <div className={gridClass}>
         {visibleFieldList.map((f) => {
@@ -4172,7 +4172,7 @@ function CrudFormImpl<
     const hasSecondaryColumn = col2Content.length > 0
 
     return (
-      <div className="space-y-4" ref={rootRef} data-component-handle={resolvedReplacementHandle}>
+      <div className="space-y-4" ref={rootRef} data-density={density} data-component-handle={resolvedReplacementHandle}>
         {!embedded ? (
           <FormHeader
             mode="edit"
@@ -4214,8 +4214,8 @@ function CrudFormImpl<
             ) : null}
             <div
               className={hasSecondaryColumn
-                ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-4'
-                : 'grid grid-cols-1 gap-4'}
+                ? 'grid grid-cols-1 lg:grid-cols-[7fr_3fr] gap-gutter'
+                : 'grid grid-cols-1 gap-gutter'}
             >
               {sortableGroupsEnabled ? (
                 <DndContext sensors={sortableSensors} collisionDetection={closestCenter} onDragEnd={handleGroupDragEnd}>
@@ -4255,7 +4255,7 @@ function CrudFormImpl<
 
   // Default single-card layout (compatible with previous API)
   return (
-    <div className="space-y-4" ref={rootRef} data-component-handle={resolvedReplacementHandle}>
+    <div className="space-y-4" ref={rootRef} data-density={density} data-component-handle={resolvedReplacementHandle}>
       {!embedded ? (
         <FormHeader
           mode="edit"
@@ -4986,7 +4986,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   }, [field, hasLoader, loadFieldOptions, t])
 
   const placeholder = builtin?.placeholder
-  const rootClassName = wrapperClassName ? `min-w-0 space-y-1 ${wrapperClassName}` : 'min-w-0 space-y-1'
+  const rootClassName = wrapperClassName ? `min-w-0 space-y-field-label ${wrapperClassName}` : 'min-w-0 space-y-field-label'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
   const singleSelectValue = Array.isArray(value)
     ? String(value[0] ?? '')

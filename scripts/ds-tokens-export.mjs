@@ -229,6 +229,7 @@ export function figmaFor(name, kind) {
 }
 
 export function resolveRadiusPx(expression, basePx = RADIUS_BASE_REM * REM_PX) {
+  if (typeof expression !== 'string') return null
   if (expression === 'var(--radius)') return basePx
   const calcMatch = expression.match(/^calc\(var\(--radius\)\s*([+-])\s*(\d+(?:\.\d+)?)px\)$/)
   if (!calcMatch) return null

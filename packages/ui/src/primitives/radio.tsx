@@ -24,7 +24,7 @@ export const Radio = React.forwardRef<
   <RadioGroupPrimitive.Item
     ref={ref}
     className={cn(
-      'aspect-square size-5 shrink-0 rounded-full border border-input bg-background',
+      'aspect-square size-5 shrink-0 rounded-full border border-input bg-control',
       'flex items-center justify-center transition-colors',
       'hover:border-muted-foreground/40',
       'data-[state=checked]:border-accent-indigo data-[state=checked]:bg-accent-indigo',

@@ -1,0 +1,158 @@
+import { z } from 'zod'
+
+export const componentAvailabilitySchema = z.enum(['public-export', 'module-example', 'not-found'])
+export type ComponentAvailability = z.infer<typeof componentAvailabilitySchema>
+
+export const blockFamilySchema = z.enum(['entity-header', 'key-value', 'timeline', 'kanban', 'wizard', 'stack', 'data-grid', 'form-layout'])
+export type BlockFamily = z.infer<typeof blockFamilySchema>
+
+export const componentPortabilitySchema = z.object({
+  id: z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+  name: z.string().min(1),
+  sourcePath: z.string().min(1),
+  importPath: z.string().startsWith('@open-mercato/').optional(),
+  availability: componentAvailabilitySchema,
+  dataInputs: z.array(z.string().min(1)).min(1),
+  requiredProviders: z.array(z.string().min(1)),
+  optionalHostServices: z.array(z.string().min(1)),
+  extensionPoints: z.array(z.string().min(1)),
+  blockFamily: blockFamilySchema.optional(),
+})
+export type ComponentPortability = z.infer<typeof componentPortabilitySchema>
+
+export const componentPortability: ComponentPortability[] = [
+  {
+    id: 'data-table',
+    name: 'DataTable',
+    sourcePath: 'packages/ui/src/backend/DataTable.tsx',
+    importPath: '@open-mercato/ui/backend/DataTable',
+    availability: 'public-export',
+    dataInputs: ['data', 'columns', 'pagination', 'sorting', 'filters and filterValues', 'searchValue', 'isLoading', 'error'],
+    requiredProviders: [
+      'I18nProvider (useT and useLocale throw without it)',
+      'Next.js app router (useRouter from next/navigation)',
+      'TanStack QueryClientProvider (useQueryClient)',
+    ],
+    optionalHostServices: [
+      '/api/perspectives (saved views, only with the perspective prop; writes go through useGuardedMutation)',
+      '/api/entities/definitions (custom field definitions, via entityId or entityIds)',
+      'useAppEvent (DOM event bridge)',
+      'useConfirmDialog',
+      '/api/auth/feature-check (perspective permissions)',
+      'custom field filter options via useCustomFieldFilterDefs',
+    ],
+    extensionPoints: [
+      'injectionSpotId and extensionTableId (data-table:<id>:columns, row-actions, bulk-actions, filters, toolbar, header, footer)',
+      'rowActions render prop',
+      'bulkActions',
+      'toolbar, actions, emptyState props',
+      'replacementHandle',
+    ],
+    blockFamily: 'data-grid',
+  },
+  {
+    id: 'crud-form',
+    name: 'CrudForm',
+    sourcePath: 'packages/ui/src/backend/CrudForm.tsx',
+    importPath: '@open-mercato/ui/backend/CrudForm',
+    availability: 'public-export',
+    dataInputs: ['fields', 'schema', 'groups', 'initialValues (updatedAt feeds optimistic locking)', 'onSubmit', 'onDelete'],
+    requiredProviders: [
+      'I18nProvider (useT throws without it)',
+      'Next.js app router (useRouter from next/navigation)',
+    ],
+    optionalHostServices: [
+      '/api/entities/definitions (custom field definitions, via entityId or entityIds)',
+      'useConfirmDialog',
+      'version history panel (versionHistory prop)',
+    ],
+    extensionPoints: [
+      'injectionSpotId and legacyInjectionSpotId (InjectionSpot, useInjectionSpotEvents)',
+      'crud-form:<entityId>:fields field widgets (useInjectionDataWidgets)',
+      'groups with custom component',
+      'extraActions slot',
+    ],
+    blockFamily: 'form-layout',
+  },
+  {
+    id: 'email-threads-panel',
+    name: 'EmailThreadsPanel',
+    sourcePath: 'packages/ui/src/backend/messages/EmailThreadsPanel.tsx',
+    importPath: '@open-mercato/ui/backend/messages',
+    availability: 'public-export',
+    dataInputs: ['threads', 'loading', 'error', 'canCompose'],
+    requiredProviders: ['I18nProvider (useT throws without it)'],
+    optionalHostServices: [],
+    extensionPoints: ['onComposeNew', 'onReply', 'onRefresh', 'onRetry', 'composeDisabledHint slot'],
+  },
+  {
+    id: 'lookup-select',
+    name: 'LookupSelect',
+    sourcePath: 'packages/ui/src/backend/inputs/LookupSelect.tsx',
+    importPath: '@open-mercato/ui/backend/inputs',
+    availability: 'public-export',
+    dataInputs: ['value', 'onChange', 'options or fetchItems or fetchOptions'],
+    requiredProviders: ['I18nProvider (useT throws without it)'],
+    optionalHostServices: [],
+    extensionPoints: ['actionSlot', 'onReady controls'],
+  },
+  {
+    id: 'key-value-list',
+    name: 'KeyValueList',
+    sourcePath: 'packages/ui/src/ai/records/RecordCardShell.tsx',
+    importPath: '@open-mercato/ui/ai/records/RecordCardShell',
+    availability: 'public-export',
+    dataInputs: ['items (label and value)'],
+    requiredProviders: [],
+    optionalHostServices: [],
+    extensionPoints: ['item value accepts a ReactNode'],
+    blockFamily: 'key-value',
+  },
+  {
+    id: 'activity-feed',
+    name: 'ActivityFeed',
+    sourcePath: 'packages/ui/src/primitives/activity-feed.tsx',
+    importPath: '@open-mercato/ui/primitives/activity-feed',
+    availability: 'public-export',
+    dataInputs: ['ActivityFeedItem children (avatar, title, time, body)'],
+    requiredProviders: [],
+    optionalHostServices: [],
+    extensionPoints: ['ActivityFeedFileChip', 'ActivityFeedComment', 'ActivityFeedStatusChip'],
+    blockFamily: 'timeline',
+  },
+  {
+    id: 'crm-activity-timeline',
+    name: 'ActivityTimeline (customers)',
+    sourcePath: 'packages/core/src/modules/customers/components/detail/ActivityTimeline.tsx',
+    availability: 'module-example',
+    dataInputs: ['activities (InteractionSummary[] from the customers module)'],
+    requiredProviders: ['I18nProvider (useT throws without it)'],
+    optionalHostServices: [],
+    extensionPoints: ['onEdit', 'onMarkDone', 'onDelete', 'canDelete'],
+    blockFamily: 'timeline',
+  },
+  {
+    id: 'staff-kanban-board',
+    name: 'KanbanBoard (staff time tracking)',
+    sourcePath: 'packages/core/src/modules/staff/lib/time-tracking-ui/KanbanBoard.tsx',
+    availability: 'module-example',
+    dataInputs: ['timeProjectId', 'projectName', 'filters', 'onSummaryChange'],
+    requiredProviders: [
+      'I18nProvider (useT throws without it)',
+      'Next.js app router (useRouter, useSearchParams)',
+      'TanStack QueryClientProvider (useQuery, useQueries, useQueryClient)',
+    ],
+    optionalHostServices: [
+      '/api/staff/timesheets/{tasks,task-statuses,time-entries} (apiCall, apiCallOrThrow)',
+      '/api/staff/team-members and /api/staff/timesheets/tags (via boardDirectory.ts)',
+      'timer routes time-entries/start-timer and time-entries/{id}/timer-stop',
+      'useGuardedMutation (task move and create)',
+      'useAppEvent (DOM event bridge, staff.timesheets.time_task.status_changed, staff.timesheets.time_task.assignee_changed, support activity event)',
+      'useBackendChrome (falls back to an empty payload without a provider)',
+      'feature checks via backend chrome grantedFeatures (hasFeature)',
+      'useOrganizationScopeVersion',
+    ],
+    extensionPoints: ['InjectionSpot taskBoardToolbar (staff extension-points host)'],
+    blockFamily: 'kanban',
+  },
+]

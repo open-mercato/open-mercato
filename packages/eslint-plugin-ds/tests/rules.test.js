@@ -286,3 +286,21 @@ test('no-hardcoded-status-colors', () => {
     ],
   })
 })
+
+test('no-off-grid-spacing', () => {
+  const primitive = '/repo/packages/ui/src/primitives/thing.tsx'
+  ruleTester.run('no-off-grid-spacing', plugin.rules['no-off-grid-spacing'], {
+    valid: [
+      { code: `const P = () => <div className="p-card gap-y-field-stack px-3 py-2 gap-2" />`, filename: primitive },
+      { code: `const variants = cva('h-9 px-4', { variants: { size: { sm: 'h-8 px-3 gap-1' } } })`, filename: primitive },
+      { code: `const P = () => <div className="pl-(--accordion-indent) size-3.5 w-1.5" />`, filename: primitive },
+    ],
+    invalid: [
+      { code: `const P = () => <div className="px-2.5" />`, filename: primitive, errors: [{ messageId: 'offGrid' }] },
+      { code: `const variants = cva('h-9', { variants: { size: { sm: 'gap-1.5 py-0.5' } } })`, filename: primitive, errors: [{ messageId: 'offGrid' }, { messageId: 'offGrid' }] },
+      { code: `const P = () => <div className={cn('hover:p-[13px]', x)} />`, filename: primitive, errors: [{ messageId: 'offGrid' }] },
+      { code: 'const P = () => <div className={`-ml-1.5 ${x}`} />', filename: primitive, errors: [{ messageId: 'offGrid' }] },
+      { code: `const c = '[&>*]:px-3.5'`, filename: primitive, errors: [{ messageId: 'offGrid' }] },
+    ],
+  })
+})

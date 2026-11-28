@@ -89,7 +89,7 @@ const horizontalItemVariants = cva('inline-flex items-center gap-2', {
 // [1.1]` (`cornerRadius: 10`). Active item raises with bg-background;
 // pending / complete items sit on bg-muted/40 (Figma `#F7F7F7`).
 const verticalItemVariants = cva(
-  'inline-flex items-center gap-2.5 rounded-lg px-3 py-2 transition-colors w-full',
+  'inline-flex items-center gap-2 rounded-lg px-3 py-2 transition-colors w-full',
   {
     variants: {
       status: {
@@ -202,7 +202,7 @@ export const StepIndicator = React.forwardRef<HTMLOListElement, StepIndicatorPro
             <div className="min-w-0">
               <span className={cn(labelVariants({ status: step.status }))}>{step.label}</span>
               {step.description && isVertical ? (
-                <span className="mt-0.5 block text-xs text-muted-foreground leading-tight">
+                <span className="mt-1 block text-xs text-muted-foreground leading-tight">
                   {step.description}
                 </span>
               ) : null}
@@ -307,7 +307,7 @@ export const StepperDots = React.forwardRef<HTMLDivElement, StepperDotsProps>(
         aria-label={t('ui.stepIndicator.progress.ariaLabel', 'Step progress')}
         data-slot="stepper-dots"
         data-size={size}
-        className={cn('inline-flex items-center', size === 'xs' ? 'gap-1.5' : 'gap-2.5', className)}
+        className={cn('inline-flex items-center', size === 'xs' ? 'gap-1' : 'gap-2', className)}
         {...props}
       >
         {Array.from({ length: stepCount }, (_, index) => (

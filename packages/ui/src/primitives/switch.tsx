@@ -78,6 +78,7 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
         <span
           aria-hidden
           className={cn(
+            // eslint-disable-next-line om-ds/no-off-grid-spacing -- switch track inset sets the thumb travel
             'pointer-events-none flex h-4 w-7 items-center rounded-full px-0.5 transition-colors duration-150',
             'bg-border group-hover:bg-muted-foreground/30',
             'group-data-[state=checked]:bg-accent-indigo group-data-[state=checked]:group-hover:bg-accent-indigo/85'

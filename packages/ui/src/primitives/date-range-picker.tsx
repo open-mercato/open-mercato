@@ -174,7 +174,7 @@ export function DateRangePicker({
     return matchers
   }, [minDate, maxDate])
 
-  const heightClass = size === 'sm' ? 'h-8 px-2.5 text-xs' : 'h-9 px-3 text-sm'
+  const heightClass = size === 'sm' ? 'h-8 px-3 text-xs' : 'h-9 px-3 text-sm'
 
   return (
     <Popover open={open} onOpenChange={isInteractive ? setOpen : undefined}>
@@ -191,7 +191,7 @@ export function DateRangePicker({
           data-slot="date-range-picker-trigger"
           disabled={disabled}
           className={cn(
-            'w-full inline-flex items-center gap-2 rounded-md border border-input bg-background shadow-xs transition-colors text-left',
+            'w-full inline-flex items-center gap-2 rounded-md border border-input bg-control shadow-xs transition-colors text-left',
             'focus-visible:outline-none focus-visible:shadow-focus focus-visible:border-foreground',
             'disabled:bg-bg-disabled disabled:border-border-disabled disabled:shadow-none disabled:hover:bg-bg-disabled disabled:cursor-not-allowed',
             'aria-invalid:border-destructive',
@@ -220,7 +220,7 @@ export function DateRangePicker({
           {showPresets ? (
             <div
               data-slot="date-range-presets"
-              className="flex w-full shrink-0 flex-col gap-0.5 overflow-y-auto border-b p-2 md:w-48 md:border-b-0 md:border-r"
+              className="flex w-full shrink-0 flex-col gap-1 overflow-y-auto border-b p-2 md:w-48 md:border-b-0 md:border-r"
             >
               {resolvedPresets.map((preset) => {
                 const isActive = activePresetId === preset.id

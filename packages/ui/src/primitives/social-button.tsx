@@ -25,13 +25,13 @@ const filledByBrand: Record<SocialBrand, string> = {
   linkedin: 'bg-brand-linkedin text-white hover:bg-brand-linkedin/90',
 }
 
-const strokeClasses = 'bg-background text-foreground border border-input shadow-xs hover:bg-muted hover:border-transparent hover:shadow-none focus-visible:border-foreground'
+const strokeClasses = 'bg-control text-foreground border border-input shadow-xs hover:bg-muted hover:border-transparent hover:shadow-none focus-visible:border-foreground'
 
 const socialButtonVariants = cva(baseClasses, {
   variants: {
     iconOnly: {
       true: 'w-10 px-0',
-      false: 'pl-2.5 pr-4',
+      false: 'pl-3 pr-4',
     },
   },
   defaultVariants: {

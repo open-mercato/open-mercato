@@ -1,4 +1,5 @@
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { DesignScopeDensityExample, DesignScopeModeExample, DesignScopeNestedExample, DesignScopeShapeExample } from '../demos/result-scope'
 import * as React from 'react'
 import { CryptocurrencyDemo } from '../demos/cryptocurrency'
 import { Archive, Copy, Download, Lock, Plus, Trash2, UserRound } from 'lucide-react'
@@ -10,6 +11,7 @@ import { SectionNav, SectionPage, type SectionNavGroup } from '@open-mercato/ui/
 import { ActionsDropdown, FormFooter, FormHeader, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { PageHeaderExample } from '../demos/shell'
 import { shellExampleCode } from '../demos/shell-code.generated'
+import { SplitterBasicExample, SplitterNestedExample, SplitterVerticalExample } from '../demos/layout-primitives'
 import type { GalleryEntry } from '../types'
 
 // Component titles and variant names are proper nouns from the codebase and
@@ -1453,6 +1455,171 @@ const cryptocurrencyEntry: GalleryEntry = {
     },
   ],
 }
+const SPLITTER_IMPORT = "import { Splitter, SplitterPanel } from '@open-mercato/ui/primitives/splitter'"
+
+const splitterEntry: GalleryEntry = {
+  id: 'splitter',
+  title: 'Splitter',
+  importPath: '@open-mercato/ui/primitives/splitter',
+  descriptionKey: 'design_system.entries.splitter.description',
+  keywords: ['resizable', 'panes', 'panels', 'split view', 'divider'],
+  since: '0.11.0',
+  usage: {
+    do: [
+      'Use it for a list with a preview, an editor with output, or any layout where people choose how much room each part gets',
+      'Set minSize on every panel so content never collapses to an unusable width',
+      'Store the sizes from onResizeEnd when the layout should survive a reload',
+    ],
+    dont: [
+      'Do not use it for fixed page layouts; use Page and section components instead',
+      'Do not nest more than two levels; split the screen into pages instead',
+    ],
+  },
+  accessibility: [
+    'Each handle is a focusable separator with aria-valuenow, aria-valuemin, aria-valuemax and aria-controls',
+    'Arrow keys move the handle by keyboardStep percent; Home and End jump to the limits',
+    'Pass handleLabel when a screen has more than one splitter so each handle has a distinct name',
+  ],
+  faq: [
+    {
+      question: 'Why does the splitter have no height?',
+      answer: 'Panels fill the splitter, and the splitter takes its height from its parent. Give it a height class, or make it a flex child of a container with a height.',
+    },
+    {
+      question: 'How do I keep the sizes after a reload?',
+      answer: 'Save the array from onResizeEnd and pass the values back as defaultSize on each panel.',
+    },
+  ],
+  tokens: ['--border', '--primary', '--card'],
+  variants: [
+    {
+      id: 'basic',
+      title: 'Basic',
+      description: 'Two panels side by side; the list cannot shrink below 20 percent.',
+      render: () => <SplitterBasicExample />,
+      code: `${SPLITTER_IMPORT}
+
+<Splitter className="h-64 rounded-card border border-border bg-card">
+  <SplitterPanel defaultSize={35} minSize={20}>List</SplitterPanel>
+  <SplitterPanel minSize={30}>Preview</SplitterPanel>
+</Splitter>`,
+    },
+    {
+      id: 'vertical',
+      title: 'Vertical',
+      description: 'Panels stacked on top of each other, resized with the up and down arrow keys.',
+      render: () => <SplitterVerticalExample />,
+      code: `${SPLITTER_IMPORT}
+
+<Splitter orientation="vertical" className="h-72 rounded-card border border-border bg-card">
+  <SplitterPanel defaultSize={60} minSize={25}>Editor</SplitterPanel>
+  <SplitterPanel minSize={20}>Output</SplitterPanel>
+</Splitter>`,
+    },
+    {
+      id: 'nested',
+      title: 'Nested',
+      description: 'A vertical splitter inside the second panel of a horizontal one.',
+      render: () => <SplitterNestedExample />,
+      code: `${SPLITTER_IMPORT}
+
+<Splitter className="h-80 rounded-card border border-border bg-card">
+  <SplitterPanel defaultSize={25} minSize={15} maxSize={40}>List</SplitterPanel>
+  <SplitterPanel>
+    <Splitter orientation="vertical" className="h-full">
+      <SplitterPanel defaultSize={65}>Preview</SplitterPanel>
+      <SplitterPanel>Output</SplitterPanel>
+    </Splitter>
+  </SplitterPanel>
+</Splitter>`,
+    },
+  ],
+}
+
+const DESIGN_SCOPE_IMPORT = `import { DesignScope } from '@open-mercato/ui/primitives/design-scope'`
+
+const designScopeEntry: GalleryEntry = {
+  id: 'design-scope',
+  title: 'DesignScope',
+  importPath: '@open-mercato/ui/primitives/design-scope',
+  descriptionKey: 'design_system.entries.design-scope.description',
+  keywords: ['config provider', 'theme', 'dark mode', 'density', 'radius', 'rtl', 'tokens'],
+  since: '0.11.0',
+  usage: {
+    do: [
+      'Wrap a region that needs its own mode, density or shape, such as a dark inspector or a compact side panel',
+      'Nest scopes; the closest one wins and the rest is inherited',
+    ],
+    dont: [
+      'Do not use it to restyle single components; change the tokens or the component instead',
+      'Do not expect portaled overlays to follow it; they mount at the end of the page and use the page scope',
+    ],
+  },
+  accessibility: [
+    'Both modes keep the token contrast, so text and controls stay readable inside any scope',
+    'dir="rtl" mirrors layout for right-to-left languages; set lang on the content as well',
+  ],
+  faq: [
+    {
+      question: 'How is it different from ThemeProvider?',
+      answer: 'ThemeProvider sets the mode for the whole app. DesignScope changes tokens only for the part of the page it wraps.',
+    },
+    {
+      question: 'Can I set my own radius?',
+      answer: 'Yes. Pass radius with button, field, card or badge values in px, rem or percent; other values are ignored.',
+    },
+  ],
+  tokens: ['--om-radius-button', '--om-radius-field', '--om-radius-card', '--om-radius-badge', '--om-space-field-stack', '--background'],
+  variants: [
+    {
+      id: 'mode',
+      title: 'Mode',
+      description: 'The same form in a light and a dark scope on one page.',
+      render: () => <DesignScopeModeExample />,
+      code: `${DESIGN_SCOPE_IMPORT}
+
+<DesignScope mode="dark" className="rounded-card p-4">
+  <InspectorPanel />
+</DesignScope>`,
+    },
+    {
+      id: 'density',
+      title: 'Density',
+      description: 'Compact density tightens every spacing role inside the scope.',
+      render: () => <DesignScopeDensityExample />,
+      code: `${DESIGN_SCOPE_IMPORT}
+
+<DesignScope density="compact">
+  <EditForm />
+</DesignScope>`,
+    },
+    {
+      id: 'shape',
+      title: 'Shape',
+      description: 'Default, round and sharp corner radius for buttons, fields and cards.',
+      render: () => <DesignScopeShapeExample />,
+      code: `${DESIGN_SCOPE_IMPORT}
+
+<DesignScope shape="round">{children}</DesignScope>
+<DesignScope radius={{ card: '20px' }}>{children}</DesignScope>`,
+    },
+    {
+      id: 'nested',
+      title: 'Nested',
+      description: 'A light, compact panel inside a dark, round scope.',
+      render: () => <DesignScopeNestedExample />,
+      code: `${DESIGN_SCOPE_IMPORT}
+
+<DesignScope mode="dark" shape="round">
+  <Main />
+  <DesignScope mode="light" density="compact">
+    <SidePanel />
+  </DesignScope>
+</DesignScope>`,
+    },
+  ],
+}
+
 export const entries: GalleryEntry[] = [
   cryptocurrencyEntry,
   pageEntry,
@@ -1461,4 +1628,6 @@ export const entries: GalleryEntry[] = [
   formHeaderEntry,
   formFooterEntry,
   actionsDropdownEntry,
+  splitterEntry,
+  designScopeEntry,
 ]

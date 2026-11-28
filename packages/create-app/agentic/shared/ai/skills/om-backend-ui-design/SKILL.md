@@ -11,7 +11,7 @@ Implement complete page behavior through real APIs and stable extension hosts; d
 
 Route before reading: an app-owned page and its page-metadata navigation stay `backend-ui`; do not probe the extension guide. Select/read UMES only when injecting, replacing, hiding, or reordering an installed module's surface.
 
-1. Read `.ai/guides/backend-ui.md`; choose backend, settings, profile, frontend, or portal path with `references/page-and-navigation.md`. For public/portal, visually substantial, responsive/mobile/touch, screen-reader, or explicit accessibility work, also load `references/frontend-and-design-system.md`.
+1. Read `.ai/guides/backend-ui.md`; choose backend, settings, profile, frontend, or portal path with `references/page-and-navigation.md`. For public/portal, visually substantial, responsive/mobile/touch, screen-reader, or explicit accessibility work, also load `references/frontend-and-design-system.md`. Load the same reference, section Business Blocks, before building a record header, fact list, activity history, staged board, or multi-step flow.
 2. For list/detail/create/edit, follow `references/crud-surfaces.md`: stable `DataTable`/`CrudForm` IDs, scoped helpers, version data, server errors, conflict UI, and save/reload/clear.
    Preserve the stable host ID (`stable-host-id`) across these CRUD surfaces.
    For page/form/table-only work in an existing module, this UI context is complete: do not load the contracts guide or module-scaffolding skill unless the request also changes a data/API/command/ACL/setup surface.

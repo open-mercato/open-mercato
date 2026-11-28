@@ -5,11 +5,11 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from './button'
 
 const tagVariants = cva(
-  'inline-flex items-center gap-1.5 border text-xs font-medium',
+  'inline-flex h-6 items-center gap-1 border text-xs font-medium',
   {
     variants: {
       variant: {
-        default: 'border-border bg-background text-muted-foreground',
+        default: 'border-border bg-control text-muted-foreground',
         success: 'border-status-success-border bg-status-success-bg text-status-success-text',
         warning: 'border-status-warning-border bg-status-warning-bg text-status-warning-text',
         error:   'border-status-error-border bg-status-error-bg text-status-error-text',
@@ -19,8 +19,8 @@ const tagVariants = cva(
         pink:    'border-status-pink-border bg-status-pink-bg text-status-pink-text',
       },
       shape: {
-        pill: 'rounded-full px-2.5 py-0.5',
-        square: 'rounded-md px-2 py-1',
+        pill: 'rounded-full px-2',
+        square: 'rounded-md px-2',
       },
     },
     defaultVariants: { variant: 'default', shape: 'pill' },
@@ -79,9 +79,9 @@ export function Tag({
     <span
       className={cn(
         tagVariants({ variant, shape }),
-        appearance === 'stroke' && 'border-border bg-background text-muted-foreground',
+        appearance === 'stroke' && 'border-border bg-control text-muted-foreground',
         appearance === 'gray' && 'border-transparent bg-muted text-muted-foreground',
-        appearance && !disabled && 'transition-colors hover:border-transparent hover:bg-muted active:border-foreground active:bg-background active:text-foreground focus-within:border-foreground focus-within:text-foreground',
+        appearance && !disabled && 'transition-colors hover:border-transparent hover:bg-muted active:border-foreground active:bg-control active:text-foreground focus-within:border-foreground focus-within:text-foreground',
         disabled && (appearance ? 'border-border-disabled bg-bg-disabled text-text-disabled' : 'opacity-60'),
         className,
       )}

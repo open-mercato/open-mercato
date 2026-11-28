@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { readGallery } from '../../packages/create-app/scripts/design-system-sources.mjs'
@@ -47,4 +48,18 @@ test('removed product sections stay out of source-library search', { skip: hasFi
     assert.ok(!['3715:42038', '3911:35677', '199833:76012', '2950:5881'].includes(page.id))
     for (const story of page.stories) assert.ok(!removedFamilies.includes(story.family))
   }
+})
+
+test('a checkout without a local Figma export retains pages and resolves their current stories', (context) => {
+  const checkout = fs.mkdtempSync(path.join(os.tmpdir(), 'om-figma-snapshot-'))
+  context.after(() => fs.rmSync(checkout, { recursive: true, force: true }))
+  const gallery = path.join(checkout, 'packages/core/src/modules/design_system/gallery')
+  fs.mkdirSync(gallery, { recursive: true })
+  const snapshot = { pages: [{ id: 'page', stories: [{ entryId: 'button', variantCount: 1 }] }] }
+  fs.writeFileSync(path.join(gallery, 'source-library.generated.ts'), `export const sourceLibrary = ${JSON.stringify(snapshot)}\n`)
+  const catalogue = [{ id: 'button', title: 'Button', family: 'buttons', storyId: 'button--overview', variantCount: 4 }]
+  const library = buildFigmaLibrary(checkout, catalogue)
+  assert.equal(library.pages[0].id, 'page')
+  assert.equal(library.pages[0].stories[0].variantCount, 4)
+  assert.throws(() => buildFigmaLibrary(checkout, []), /links to missing gallery entry/)
 })

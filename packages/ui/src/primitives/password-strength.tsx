@@ -33,7 +33,7 @@ export const PasswordStrength = React.forwardRef<HTMLDivElement, PasswordStrengt
     }
     const level = strengthLevel[strength]
     return (
-      <div ref={ref} data-slot="password-strength" data-strength={strength} className={cn('flex w-75 max-w-full flex-col gap-2 pt-1.5 text-xs leading-4 text-muted-foreground', className)} {...props}>
+      <div ref={ref} data-slot="password-strength" data-strength={strength} className={cn('flex w-75 max-w-full flex-col gap-2 pt-2 text-xs leading-4 text-muted-foreground', className)} {...props}>
         <div
           role="progressbar"
           aria-label={ariaLabel ?? t('ui.passwordStrength.label', 'Password strength')}

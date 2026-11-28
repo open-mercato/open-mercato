@@ -102,10 +102,12 @@ export type ActivityFeedItemProps = Omit<React.HTMLAttributes<HTMLLIElement>, 't
   timestamp?: React.ReactNode
   /** Right slot — typically a `MoreHorizontal` IconButton trigger. */
   actions?: React.ReactNode
+  /** Weight of the title span. `'regular'` leaves hierarchy to size and color. @default 'semibold' */
+  titleWeight?: 'semibold' | 'regular'
 }
 
 const ActivityFeedItem = React.forwardRef<HTMLLIElement, ActivityFeedItemProps>(
-  ({ className, avatar, title, timestamp, actions, children, ...props }, ref) => (
+  ({ className, avatar, title, timestamp, actions, titleWeight = 'semibold', children, ...props }, ref) => (
     <li
       ref={ref}
       data-slot="activity-feed-item"
@@ -115,7 +117,7 @@ const ActivityFeedItem = React.forwardRef<HTMLLIElement, ActivityFeedItemProps>(
       {avatar ? (
         <span
           data-slot="activity-feed-item-avatar"
-          className="mt-0.5 inline-flex shrink-0 items-center justify-center"
+          className="mt-1 inline-flex shrink-0 items-center justify-center"
         >
           {avatar}
         </span>
@@ -125,7 +127,7 @@ const ActivityFeedItem = React.forwardRef<HTMLLIElement, ActivityFeedItemProps>(
           data-slot="activity-feed-item-title"
           className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm leading-6 text-foreground"
         >
-          <span className="font-semibold">{title}</span>
+          <span className={titleWeight === 'regular' ? 'font-normal' : 'font-semibold'}>{title}</span>
           {timestamp ? (
             <span
               data-slot="activity-feed-item-timestamp"
@@ -175,7 +177,7 @@ const ActivityFeedFileChip = React.forwardRef<HTMLDivElement, ActivityFeedFileCh
       ref={ref}
       data-slot="activity-feed-file-chip"
       className={cn(
-        'inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground shadow-xs',
+        'inline-flex items-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-xs',
         className,
       )}
       {...props}
@@ -300,7 +302,7 @@ const ActivityFeedStatusChip = React.forwardRef<HTMLSpanElement, ActivityFeedSta
         data-slot="activity-feed-status-chip"
         data-status={status}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-2 py-1 text-sm font-medium text-foreground shadow-xs',
+          'inline-flex items-center gap-2 rounded-md border border-input bg-background px-2 py-1 text-sm font-medium text-foreground shadow-xs',
           className,
         )}
         {...props}

@@ -3,6 +3,9 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { resolveChartColor } from './ChartUtils'
+import { EmptyState } from '../../primitives/empty-state'
+import { EmptyStateIllustration } from '../../primitives/empty-state-illustration'
 
 export type PieChartDataItem = {
   name: string
@@ -89,7 +92,7 @@ export function PieChart({
       <div className={wrapperClass}>
         {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
-          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          <EmptyState variant="subtle" size="sm" illustration={<EmptyStateIllustration kind="mercato-records" className="size-24" />} title={emptyMessage} />
         </div>
       </div>
     )
@@ -98,7 +101,7 @@ export function PieChart({
   return (
     <div className={wrapperClass}>
       {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
-      <div className="h-52 w-full">
+      <div className="h-48 w-full">
         <PieChartImpl
           data={data}
           colors={colors}
@@ -109,6 +112,22 @@ export function PieChart({
           total={total}
         />
       </div>
+      <ul className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1.5">
+        {data.map((item, idx) => (
+          <li key={`${item.name}-${idx}`} className="flex min-w-0 items-center gap-1.5">
+            <span
+              className="size-2.5 flex-none rounded-sm"
+              style={{ backgroundColor: resolveChartColor(colors?.[idx], idx) }}
+              aria-hidden="true"
+            />
+            <span className="max-w-40 truncate text-xs text-muted-foreground" title={item.name}>{item.name}</span>
+            <span className="text-xs font-medium tabular-nums text-foreground">
+              {valueFormatter(item.value)}
+              {total > 0 ? ` (${Math.round((item.value / total) * 100)}%)` : ''}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

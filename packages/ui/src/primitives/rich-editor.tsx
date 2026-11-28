@@ -198,6 +198,7 @@ export type RichEditorLabels = {
   mention: string
   more: string
   help: string
+  keyboard?: string
   fullscreen: string
   placeholder: string
   colors: Record<RichEditorColorKey, string>
@@ -238,6 +239,7 @@ const DEFAULT_LABELS: RichEditorLabels = {
   mention: 'Mention',
   more: 'More',
   help: 'Help',
+  keyboard: 'Keyboard',
   fullscreen: 'Toggle fullscreen',
   placeholder: 'Placeholder text...',
   colors: COLOR_LABELS_EN,
@@ -712,7 +714,7 @@ export const RichEditorToolbar = React.forwardRef<HTMLDivElement, RichEditorTool
       className={cn(
         // Figma 166331:4006 reference: standalone card with rounded-8 + border + shadow-xs.
         // 2px outer padding, 2px gap between items.
-        'flex w-fit max-w-full flex-wrap items-center gap-0.5 overflow-x-auto rounded-lg border border-border bg-card p-0.5 shadow-xs',
+        'flex w-fit max-w-full flex-wrap items-center gap-1 overflow-x-auto rounded-lg border border-border bg-card p-1 shadow-xs',
         className,
       )}
       data-slot="rich-editor-toolbar"
@@ -736,14 +738,14 @@ const richEditorItemVariants = cva(
   {
     variants: {
       type: {
-        // Figma 166251:2698 — pl-[10px] pr-[4px] py-[4px], gap-[2px].
-        text: 'min-w-0 gap-0.5 pl-2.5 pr-1 py-1 tracking-[-0.084px] [&_svg]:size-4',
-        // Figma 166251:2700 — square icon button p-[4px].
+        // Figma 166251:2698, rounded to the 4 px spacing grid.
+        text: 'min-w-0 gap-1 pl-3 pr-1 py-1 tracking-[-0.084px] [&_svg]:size-4',
+        // Figma 166251:2700, square icon button on the 4 px grid.
         icon: 'aspect-square p-1 [&_svg]:size-4',
-        // Figma 166251:3337 — icon + caret p-[4px] gap-[2px].
-        dropdown: 'gap-0.5 p-1 [&_svg]:size-4',
-        // Figma 166331:4437 — color swatch + caret pl-[8px] pr-[4px] py-[4px].
-        color: 'gap-0.5 pl-2 pr-1 py-1 [&_svg]:size-4',
+        // Figma 166251:3337, icon and caret on the 4 px grid.
+        dropdown: 'gap-1 p-1 [&_svg]:size-4',
+        // Figma 166331:4437, colour swatch and caret on the 4 px grid.
+        color: 'gap-1 pl-2 pr-1 py-1 [&_svg]:size-4',
       },
     },
     defaultVariants: { type: 'icon' },
@@ -983,7 +985,7 @@ export function RichEditorColorPalette({ value, onChange, labels, palette, class
   const keys = palette && palette.length > 0 ? palette : COLOR_KEYS
   return (
     <div
-      className={cn('flex flex-col gap-0.5', className)}
+      className={cn('flex flex-col gap-1', className)}
       data-slot="rich-editor-color-palette"
       role="listbox"
       aria-label="Color palette"
@@ -1000,7 +1002,7 @@ export function RichEditorColorPalette({ value, onChange, labels, palette, class
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onChange?.(key)}
             className={cn(
-              'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+              'flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors hover:bg-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
               isActive && 'font-medium text-foreground',
             )}
             data-color-key={key}
@@ -1045,7 +1047,7 @@ export const RichEditorMenuItem = React.forwardRef<HTMLButtonElement, RichEditor
         onMouseDown?.(e)
       }}
       className={cn(
-        'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
+        'flex w-full cursor-pointer items-center gap-2 rounded px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40 disabled:pointer-events-none disabled:opacity-50',
         destructive && 'text-destructive hover:bg-destructive/10',
         className,
       )}
@@ -1072,7 +1074,7 @@ export function RichEditorDivider({ className }: { className?: string }) {
     <span
       role="separator"
       aria-orientation="vertical"
-      // Figma 166416:52475 — 4×16 container, 1px line. Toolbar `gap-0.5`
+      // Figma 166416:52475 — 4×16 container, 1px line. Toolbar `gap-1`
       // already provides the surrounding 2px gap on each side, so the divider
       // itself only carries the 1px line + 1.5px horizontal padding (mx-px).
       className={cn('mx-px inline-block h-4 w-px shrink-0 bg-border', className)}
@@ -1119,7 +1121,7 @@ export const RichEditorContent = React.forwardRef<HTMLDivElement, RichEditorCont
           '[&_p]:my-1',
           '[&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-6',
           '[&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-6',
-          '[&_li]:my-0.5',
+          '[&_li]:my-1',
           // Task list checklist override — when <ul data-task-list> we drop the
           // disc bullet so the <input type=checkbox> child stands alone.
           '[&_ul[data-task-list]]:list-none [&_ul[data-task-list]]:pl-0',
@@ -1340,24 +1342,24 @@ function usePresetToolbarItems({
 
   const keyboardShortcutsHelp = (
     <div className="flex w-64 flex-col gap-1 p-1 text-sm" role="menu">
-      <div className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Keyboard</div>
+      <div className="px-2 py-1 text-xs text-muted-foreground">{labels.keyboard ?? DEFAULT_LABELS.keyboard}</div>
       <div className="flex items-center justify-between rounded px-2 py-1 hover:bg-muted">
         <span>{labels.bold}</span>
-        <kbd className="rounded border bg-card px-1.5 py-0.5 text-xs">⌘ B</kbd>
+        <kbd className="rounded border bg-card px-2 py-1 text-xs">⌘ B</kbd>
       </div>
       <div className="flex items-center justify-between rounded px-2 py-1 hover:bg-muted">
         <span>{labels.italic}</span>
-        <kbd className="rounded border bg-card px-1.5 py-0.5 text-xs">⌘ I</kbd>
+        <kbd className="rounded border bg-card px-2 py-1 text-xs">⌘ I</kbd>
       </div>
       <div className="flex items-center justify-between rounded px-2 py-1 hover:bg-muted">
         <span>{labels.underline}</span>
-        <kbd className="rounded border bg-card px-1.5 py-0.5 text-xs">⌘ U</kbd>
+        <kbd className="rounded border bg-card px-2 py-1 text-xs">⌘ U</kbd>
       </div>
     </div>
   )
 
   const headingMenu = (
-    <div className="flex flex-col gap-0.5" role="menu">
+    <div className="flex flex-col gap-1" role="menu">
       <button
         type="button"
         role="menuitem"
@@ -1411,7 +1413,7 @@ function usePresetToolbarItems({
   })()
 
   const fontSizeMenu = (
-    <div className="flex flex-col gap-0.5" role="menu">
+    <div className="flex flex-col gap-1" role="menu">
       {FONT_SIZE_OPTIONS.map((size) => (
         <button
           key={size}
@@ -1443,7 +1445,7 @@ function usePresetToolbarItems({
   )
 
   const alignMenu = (
-    <div className="flex flex-col gap-0.5" role="menu">
+    <div className="flex flex-col gap-1" role="menu">
       {(['left', 'center', 'right', 'justify'] as RichEditorAlign[]).map((option) => {
         const Icon = ALIGN_ICONS[option]
         const command = option === 'justify' ? 'justifyFull' : `justify${option[0].toUpperCase()}${option.slice(1)}`
@@ -1594,7 +1596,7 @@ function RichEditorAutoToolbar({
       const moreEl = allEls[allEls.length - 1]
       const itemEls = allEls.slice(0, -1)
       const moreReserved = moreEl.offsetWidth + 4
-      const containerPadding = 4 // p-0.5 left + right
+      const containerPadding = 4 // p-1 left + right
 
       let totalWidth = 0
       for (const el of itemEls) totalWidth += el.offsetWidth + 2
@@ -1637,7 +1639,7 @@ function RichEditorAutoToolbar({
       >
         <div
           ref={measureRef}
-          className="invisible absolute left-0 top-0 flex flex-row flex-nowrap items-center gap-0.5"
+          className="invisible absolute left-0 top-0 flex flex-row flex-nowrap items-center gap-1"
         >
           {arrangedItems.map(renderItem)}
           <RichEditorDropdownButton icon={<MoreVertical />} ariaLabel={labels.more} showChevron={false} menu={<div />} />
@@ -1651,7 +1653,7 @@ function RichEditorAutoToolbar({
             ariaLabel={labels.more}
             showChevron={false}
             menu={
-              <div className="flex max-w-80 flex-row flex-wrap items-center gap-0.5 p-1">
+              <div className="flex max-w-80 flex-row flex-wrap items-center gap-1 p-1">
                 {moreMenu ? (
                   <>
                     <div className="w-full">{moreMenu}</div>

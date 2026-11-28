@@ -28,7 +28,7 @@ export function FileUploadArea({ className, accept = 'image/jpeg,image/png,appli
         aria-labelledby={`${id}-heading`}
         aria-describedby={`${id}-description`}
         aria-disabled={disabled || undefined}
-        className={cn('flex flex-col items-center gap-5 rounded-upload bg-background p-8 text-center outline-1 -outline-offset-1 outline-dashed outline-border transition-colors', disabled ? 'opacity-50' : 'hover:bg-muted', dragActive && !disabled && 'bg-muted')}
+        className={cn('flex flex-col items-center gap-5 rounded-upload bg-control p-8 text-center outline-1 -outline-offset-1 outline-dashed outline-border transition-colors', disabled ? 'opacity-50' : 'hover:bg-muted', dragActive && !disabled && 'bg-muted')}
         onDragEnter={event => {
           event.preventDefault()
           if (disabled || !Array.from(event.dataTransfer.types).includes('Files')) return
@@ -52,7 +52,7 @@ export function FileUploadArea({ className, accept = 'image/jpeg,image/png,appli
         }}
       >
         <CloudUpload aria-hidden="true" className="size-6 text-muted-foreground" />
-        <div className="flex flex-col gap-1.5">
+        <div className="flex flex-col gap-2">
           <p id={`${id}-heading`} className="text-sm font-medium leading-5 text-foreground">{heading ?? t('ui.fileUpload.choose', 'Choose a file or drag & drop it here.')}</p>
           <p id={`${id}-description`} className="text-xs leading-4 text-muted-foreground">{description ?? t('ui.fileUpload.description', 'JPEG, PNG, PDF, and MP4 formats, up to 50 MB.')}</p>
         </div>

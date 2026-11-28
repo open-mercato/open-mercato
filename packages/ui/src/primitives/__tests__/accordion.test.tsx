@@ -174,7 +174,7 @@ describe('Accordion primitive', () => {
     const item = container.querySelector('[data-slot="accordion-item"]')!
     // We can't assert the resolved CSS variable value in jsdom (no real CSS engine),
     // so we assert the Tailwind utility that flips the variable is on the item.
-    expect(item.className).toContain('[--accordion-indent:14px]')
+    expect(item.className).toContain('[--accordion-indent:16px]')
     expect(item.className).toContain('has-[[data-slot=accordion-trigger-left-icon]]:[--accordion-indent:44px]')
   })
 

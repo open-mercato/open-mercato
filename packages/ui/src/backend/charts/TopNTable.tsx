@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { EmptyState } from '../../primitives/empty-state'
+import { EmptyStateIllustration } from '../../primitives/empty-state-illustration'
 
 export type TopNTableColumn<T = Record<string, unknown>> = {
   key: keyof T | string
@@ -18,6 +20,8 @@ export type TopNTableProps<T = Record<string, unknown>> = {
   loading?: boolean
   error?: string | null
   className?: string
+  /** Drops the card frame for hosts that already render one (dashboard tiles). */
+  bare?: boolean
   emptyMessage?: string
   maxRows?: number
 }
@@ -52,13 +56,14 @@ export function TopNTable<T extends Record<string, unknown>>({
   loading,
   error,
   className = '',
+  bare = false,
   emptyMessage = 'No data available',
   maxRows,
 }: TopNTableProps<T>) {
   if (error) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
-        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+      <div className={bare ? className : `rounded-lg border bg-card p-4 ${className}`}>
+        {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <p className="text-sm text-destructive">{error}</p>
         </div>
@@ -68,8 +73,8 @@ export function TopNTable<T extends Record<string, unknown>>({
 
   if (loading) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
-        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+      <div className={bare ? className : `rounded-lg border bg-card p-4 ${className}`}>
+        {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
           <Spinner className="h-6 w-6 text-muted-foreground" />
         </div>
@@ -79,10 +84,10 @@ export function TopNTable<T extends Record<string, unknown>>({
 
   if (!data || data.length === 0) {
     return (
-      <div className={`rounded-lg border bg-card p-4 ${className}`}>
-        {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+      <div className={bare ? className : `rounded-lg border bg-card p-4 ${className}`}>
+        {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
         <div className="flex h-48 items-center justify-center">
-          <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+          <EmptyState variant="subtle" size="sm" illustration={<EmptyStateIllustration kind="mercato-records" className="size-24" />} title={emptyMessage} />
         </div>
       </div>
     )
@@ -97,8 +102,8 @@ export function TopNTable<T extends Record<string, unknown>>({
   }
 
   return (
-    <div className={`rounded-lg border bg-card p-4 ${className}`}>
-      {title && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
+    <div className={bare ? className : `rounded-lg border bg-card p-4 ${className}`}>
+      {title && !bare && <h3 className="mb-4 text-base font-medium text-card-foreground">{title}</h3>}
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>

@@ -268,15 +268,15 @@ test('the inventory covers exactly the checked topic registry, in both direction
     assert.equal(record.requirement, topic?.requirement)
   }
   assert.equal(inventory.derived.recordCount, inventory.records.length)
-  assert.equal(inventory.derived.sourceRequiredCount, 143)
-  assert.equal(inventory.records.length, 169)
-  assert.equal(inventory.derived.renderedLinkCount, 145)
+  assert.equal(inventory.derived.sourceRequiredCount, 150)
+  assert.equal(inventory.records.length, 176)
+  assert.equal(inventory.derived.renderedLinkCount, 152)
 })
 
 test('every source-required record resolves to a file a generated app really contains', () => {
   const inventory = checkedInventory()
   const sourceRequired = inventory.records.filter((record) => record.requirement === 'source-required')
-  assert.equal(sourceRequired.length, 143)
+  assert.equal(sourceRequired.length, 150)
   for (const record of sourceRequired) {
     assert.ok(record.href, `${record.topicId} must record the exact rendered href`)
 
@@ -494,6 +494,13 @@ test('capability joins come from the example surface inventory, not from the top
       'node_modules/@open-mercato/ui/src/backend/DataTable.tsx',
       'node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx',
       'node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts',
+      'node_modules/@open-mercato/ui/src/blocks/contracts/entity-header.ts',
+      'node_modules/@open-mercato/ui/src/blocks/contracts/kanban.ts',
+      'node_modules/@open-mercato/ui/src/blocks/contracts/key-value.ts',
+      'node_modules/@open-mercato/ui/src/blocks/contracts/shared.ts',
+      'node_modules/@open-mercato/ui/src/blocks/contracts/stack.ts',
+      'node_modules/@open-mercato/ui/src/blocks/contracts/timeline.ts',
+      'node_modules/@open-mercato/ui/src/blocks/contracts/wizard.ts',
       'node_modules/@open-mercato/ui/src/primitives/button.tsx',
       'src/app/globals.css',
       'src/modules/example/README.md',

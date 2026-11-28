@@ -6,7 +6,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '@open-mercato/shared/lib/utils'
 
 const counterWrapperVariants = cva(
-  'inline-flex w-full items-center bg-background border border-input shadow-xs transition-colors ' +
+  'inline-flex w-full items-center bg-control border border-input shadow-xs transition-colors ' +
     'focus-within:outline-none focus-within:shadow-focus focus-within:border-foreground ' +
     'has-[input:disabled]:bg-bg-disabled has-[input:disabled]:border-border-disabled has-[input:disabled]:shadow-none has-[input:disabled]:hover:bg-bg-disabled ' +
     'has-[input[aria-invalid=true]]:border-destructive has-[input[aria-invalid=true]]:focus-within:border-destructive',
@@ -14,8 +14,8 @@ const counterWrapperVariants = cva(
     variants: {
       size: {
         sm: 'h-8 gap-1 p-1 rounded-md',
-        default: 'h-9 gap-1.5 p-1.5 rounded-md',
-        lg: 'h-10 gap-2 p-2 rounded-[10px]',
+        default: 'h-9 gap-1 px-1 items-center rounded-md',
+        lg: 'h-10 gap-2 p-2 rounded-lg',
       },
     },
     defaultVariants: { size: 'default' },

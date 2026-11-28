@@ -55,6 +55,12 @@ export const fullWidthEntryIds: ReadonlySet<string> = new Set([
   'schedule-grid',
   'schedule-agenda',
   'email-threads-panel',
+  'stack',
+  'entity-header',
+  'key-value',
+  'timeline',
+  'kanban',
+  'wizard',
 ])
 
 export const assetBrowserEntryIds: ReadonlySet<string> = new Set([

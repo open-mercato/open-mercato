@@ -32,26 +32,38 @@ import { cn } from '@open-mercato/shared/lib/utils'
  * - `<TableCaption>` — accessible caption above the table.
  */
 
+export type TableSize = 'compact' | 'default' | 'comfortable'
+
 type TableContextValue = {
   variant: 'default' | 'striped'
+  size: TableSize
 }
 
-const TableContext = React.createContext<TableContextValue>({ variant: 'default' })
+const TableContext = React.createContext<TableContextValue>({ variant: 'default', size: 'default' })
+
+const CELL_HEIGHT: Record<TableSize, string> = {
+  compact: 'h-8 py-1',
+  default: 'h-10 py-2',
+  comfortable: 'h-12 py-3',
+}
 
 export type TableVariant = 'default' | 'striped'
 
 export type TableProps = React.HTMLAttributes<HTMLTableElement> & {
   /** `striped` adds even-row `bg-muted/20` tint per Figma. */
   variant?: TableVariant
+  /** Row height: compact 32, default 40, comfortable 48 px. */
+  size?: TableSize
 }
 
-export function Table({ className, variant = 'default', ...props }: TableProps) {
-  const contextValue = React.useMemo(() => ({ variant }), [variant])
+export function Table({ className, variant = 'default', size = 'default', ...props }: TableProps) {
+  const contextValue = React.useMemo(() => ({ variant, size }), [variant, size])
   return (
     <TableContext.Provider value={contextValue}>
       <table
         data-slot="table"
         data-variant={variant}
+        data-size={size}
         className={cn('w-full text-sm', className)}
         {...props}
       />
@@ -118,12 +130,14 @@ export function TableHead({
 }: React.ThHTMLAttributes<HTMLTableCellElement> & {
   ref?: React.Ref<HTMLTableCellElement>
 }) {
+  const { size } = React.useContext(TableContext)
   return (
     <th
       ref={ref}
       data-slot="table-head"
       className={cn(
-        'text-left font-medium px-4 py-2 whitespace-nowrap text-muted-foreground',
+        'text-left font-medium px-4 whitespace-nowrap text-muted-foreground',
+        CELL_HEIGHT[size],
         className,
       )}
       {...props}
@@ -135,10 +149,11 @@ export function TableCell({
   className,
   ...props
 }: React.TdHTMLAttributes<HTMLTableCellElement>) {
+  const { size } = React.useContext(TableContext)
   return (
     <td
       data-slot="table-cell"
-      className={cn('px-4 py-2', className)}
+      className={cn('px-4', CELL_HEIGHT[size], className)}
       {...props}
     />
   )

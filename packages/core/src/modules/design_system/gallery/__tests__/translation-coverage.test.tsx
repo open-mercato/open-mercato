@@ -24,6 +24,21 @@ it('has localized variant captions and usage for every registered entry', async 
           const key = `design_system.gallery.variantTitles.${variant.title}`
           if (!dictionary[key]?.trim()) missing.push(`${locale}: ${key}`)
         }
+        for (const variant of entry.variants) {
+          if (!variant.description) continue
+          const key = `design_system.gallery.variantDescriptions.${entry.id}.${variant.id}`
+          if (!dictionary[key]?.trim()) missing.push(`${locale}: ${key}`)
+        }
+        entry.accessibility?.forEach((_, index) => {
+          const key = `design_system.gallery.accessibility.${entry.id}.${index}`
+          if (!dictionary[key]?.trim()) missing.push(`${locale}: ${key}`)
+        })
+        entry.faq?.forEach((_, index) => {
+          for (const part of ['question', 'answer'] as const) {
+            const key = `design_system.gallery.faq.${entry.id}.${index}.${part}`
+            if (!dictionary[key]?.trim()) missing.push(`${locale}: ${key}`)
+          }
+        })
         for (const kind of ['do', 'dont'] as const) {
           entry.usage?.[kind]?.forEach((_, index) => {
             const key = `design_system.gallery.usage.${entry.id}.${kind}.${index}`

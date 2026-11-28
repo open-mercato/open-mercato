@@ -24,7 +24,7 @@ function SourceIconTile({ name }: { name: SourceIconName }) {
         <span className="max-w-full break-words text-center text-xs font-normal leading-4 text-muted-foreground">{name}</span>
       </Button>
     </PopoverTrigger>
-    <PopoverContent className="w-72 space-y-4 p-4" aria-label={name}>
+    <PopoverContent className="w-72 space-y-4 p-panel" aria-label={name}>
       <div className="flex h-24 items-center justify-center rounded-md bg-muted"><SourceIcon name={name} aria-hidden="true" className="size-10" /></div>
       <p className="break-words font-medium">{name}</p>
       <Button type="button" variant="outline" size="sm" onClick={copy}>{t('design_system.gallery.sourceIcons.copy')}</Button>

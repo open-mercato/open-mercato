@@ -63,7 +63,7 @@ When a form field or table column references another record — in this module o
 ## Design-System Contract
 
 - For public/portal or visually substantial app work, use `om-backend-ui-design` → `references/frontend-and-design-system.md` for route-shell, product hierarchy, responsive, accessibility, and UX-state coverage.
-- Reuse existing page, section, form, detail, schedule, messages, notification, chart, KPI, and banner component families before building a local variant.
+- Reuse existing page, section, form, detail, schedule, messages, notification, chart, KPI, and banner component families and `@open-mercato/ui/blocks/<block>` before building a local variant.
 - Use semantic design tokens and `StatusBadge` for status. Do not hard-code Tailwind status colors or arbitrary text sizes.
 - Use `FormField` for standalone forms; `CrudForm` owns field layout and must not be wrapped in it. Use `SectionHeader`, `CollapsibleSection`, standard buttons/dialogs, and Lucide icons.
 - Portal record lists use `DataTable`. Never use raw buttons/checkboxes, a button-styled raw `Link`, or `window.confirm`; use the exported primitives and `useConfirmDialog`.
