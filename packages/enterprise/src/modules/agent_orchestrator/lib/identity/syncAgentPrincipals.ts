@@ -13,6 +13,7 @@ import { emitAgentOrchestratorEvent } from '../../events'
 import { listAgentEntries, type AgentRegistryEntry } from '../sdk/defineAgent'
 import { getAgentActorScope } from './agentWriteScope'
 import type { AgentPrincipalScope } from './agentPrincipalService'
+import { inAgentPrincipalProvisioningTransaction } from './principalProvisioningTransaction'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'principal-sync' })
 
@@ -148,7 +149,6 @@ export async function syncAgentPrincipals(
     logger.warn('feature catalog unavailable; declared principal features are dropped', { tenantId, organizationId })
   }
 
-  const em = (container.resolve('em') as EntityManager).fork()
   const result: SyncAgentPrincipalsResult = { created: [], synced: [], reused: [], disabled: [], droppedFeatures: {} }
   const registered: AgentPrincipal[] = []
   const declaredAgentIds = new Set<string>()
@@ -158,63 +158,64 @@ export async function syncAgentPrincipals(
     if (!declaration) continue
     declaredAgentIds.add(agent.id)
 
-    const existing = await findOneWithDecryption(
-      em,
-      AgentPrincipal,
-      { tenantId, organizationId, agentDefinitionId: agent.id, deletedAt: null },
-      {},
-      { tenantId, organizationId },
-    )
-    if (existing && !(await isDeclarativelyNamed(em, existing, scope))) {
-      result.reused.push(agent.id)
-      continue
-    }
+    const provisioned = await inAgentPrincipalProvisioningTransaction(container, scope, agent.id, async (em, transactionContainer) => {
+      const existing = await findOneWithDecryption(
+        em,
+        AgentPrincipal,
+        { tenantId, organizationId, agentDefinitionId: agent.id, deletedAt: null },
+        {},
+        { tenantId, organizationId },
+      )
+      if (existing && !(await isDeclarativelyNamed(em, existing, scope))) {
+        return { outcome: 'reused' } as const
+      }
 
-    const { granted, dropped } = partitionDeclaredFeatures(declaration.roleFeatures, catalog)
-    if (dropped.length > 0) {
-      result.droppedFeatures[agent.id] = dropped
-      logger.warn('agent principal declares features no enabled module provides; dropping them', {
-        agentId: agent.id,
-        features: dropped,
+      const { granted, dropped } = partitionDeclaredFeatures(declaration.roleFeatures, catalog)
+      if (dropped.length > 0) {
+        logger.warn('agent principal declares features no enabled module provides; dropping them', {
+          agentId: agent.id,
+          features: dropped,
+          tenantId,
+          organizationId,
+        })
+      }
+
+      const provisioned = await provisionExecutionPrincipal(transactionContainer, scope, {
+        principalKey: agentPrincipalKey(agent.id, organizationId),
+        displayName: declaration.displayName ?? agent.label,
+        features: granted,
+        kind: 'agent',
+        namePrefix: AGENT_PRINCIPAL_NAME_PREFIX,
+        mergeFeatures: false,
+      })
+
+      if (existing) {
+        if (!existing.enabled) {
+          existing.enabled = true
+          em.persist(existing)
+          await em.flush()
+        }
+        return { outcome: 'synced', dropped } as const
+      }
+
+      const principal = em.create(AgentPrincipal, {
         tenantId,
         organizationId,
+        userId: provisioned.userId,
+        agentDefinitionId: agent.id,
+        roleId: provisioned.roleId,
+        credentialMode: 'internal',
+        enabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
-    }
-
-    const provisioned = await provisionExecutionPrincipal(container, scope, {
-      principalKey: agentPrincipalKey(agent.id, organizationId),
-      displayName: declaration.displayName ?? agent.label,
-      features: granted,
-      kind: 'agent',
-      namePrefix: AGENT_PRINCIPAL_NAME_PREFIX,
-      mergeFeatures: false,
+      em.persist(principal)
+      await em.flush()
+      return { outcome: 'created', dropped, principal } as const
     })
-
-    if (existing) {
-      if (!existing.enabled) {
-        existing.enabled = true
-        em.persist(existing)
-        await em.flush()
-      }
-      result.synced.push(agent.id)
-      continue
-    }
-
-    const principal = em.create(AgentPrincipal, {
-      tenantId,
-      organizationId,
-      userId: provisioned.userId,
-      agentDefinitionId: agent.id,
-      roleId: provisioned.roleId,
-      credentialMode: 'internal',
-      enabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(principal)
-    await em.flush()
-    registered.push(principal)
-    result.created.push(agent.id)
+    result[provisioned.outcome].push(agent.id)
+    if (provisioned.dropped?.length) result.droppedFeatures[agent.id] = provisioned.dropped
+    if (provisioned.principal) registered.push(provisioned.principal)
   }
 
   if (options.disableUndeclared === false) {
@@ -222,6 +223,7 @@ export async function syncAgentPrincipals(
     return result
   }
 
+  const em = (container.resolve('em') as EntityManager).fork()
   const live = await findWithDecryption(
     em,
     AgentPrincipal,
