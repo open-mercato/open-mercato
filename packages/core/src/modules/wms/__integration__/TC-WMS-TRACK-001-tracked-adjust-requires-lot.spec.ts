@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import {
@@ -31,21 +31,8 @@ export const integrationMeta = {
 
 type BalanceRow = { lot_id?: string | null; quantity_on_hand?: string | number | null }
 
-async function fetchVariantBalances(
-  request: APIRequestContext,
-  token: string,
-  locationId: string,
-  variantId: string,
-): Promise<BalanceRow[]> {
-  const params = new URLSearchParams({ locationId, catalogVariantId: variantId, page: '1', pageSize: '100' })
-  const response = await apiRequest(request, 'GET', `/api/wms/inventory/balances?${params.toString()}`, { token })
-  expect(response.ok(), `Failed GET /api/wms/inventory/balances: ${response.status()}`).toBeTruthy()
-  const body = await readJsonSafe<{ items?: BalanceRow[] }>(response)
-  return body?.items ?? []
-}
-
-test.describe('TC-WMS-TRACK-001: adjust and cycle count keep lot-tracked stock in its lot', () => {
-  test('refuses adjust and cycle count without a lot and shows the reason in the adjust dialog', async ({ page, request }) => {
+test.describe('TC-WMS-TRACK-001: adjust, cycle count and import keep lot-tracked stock in its lot', () => {
+  test('refuses adjust, cycle count and import rows without a lot and shows the reason in the adjust dialog', async ({ page, request }) => {
     test.slow()
     const adminToken = await getAuthToken(request, 'admin')
     const superadminToken = await getAuthToken(request, 'superadmin')
@@ -54,6 +41,7 @@ test.describe('TC-WMS-TRACK-001: adjust and cycle count keep lot-tracked stock i
     const suffix = randomUUID().slice(0, 8)
     const restoreAdminAcl = await ensureRoleFeatures(request, superadminToken, scope.tenantId, 'admin', [
       ...WMS_INVENTORY_MUTATION_FEATURES,
+      'wms.import',
     ])
 
     let productId: string | null = null
@@ -124,7 +112,19 @@ test.describe('TC-WMS-TRACK-001: adjust and cycle count keep lot-tracked stock i
       expect(countWithoutLot.status()).toBe(422)
       await expect(readJsonSafe(countWithoutLot)).resolves.toMatchObject({ error: 'lot_required' })
 
-      const balances = await fetchVariantBalances(request, adminToken, locationId, variantId)
+      const importPreview = await apiRequest(request, 'POST', '/api/wms/inventory/import/validate', {
+        token: adminToken,
+        data: { ...scopeIds, rows: [{ warehouseCode: `TCWTRK${suffix}`, locationCode, sku: variantSku, quantity: '3' }] },
+      })
+      expect(importPreview.status()).toBe(200)
+      await expect(readJsonSafe(importPreview)).resolves.toMatchObject({
+        ok: false,
+        rows: [{ status: 'error', errors: ['lot_required'] }],
+      })
+
+      const balancesResponse = await apiRequest(request, 'GET', `/api/wms/inventory/balances?locationId=${locationId}&catalogVariantId=${variantId}`, { token: adminToken })
+      expect(balancesResponse.ok()).toBeTruthy()
+      const balances = (await readJsonSafe<{ items?: BalanceRow[] }>(balancesResponse))?.items ?? []
       expect(balances.map((row) => [row.lot_id ?? null, toNumber(row.quantity_on_hand)])).toEqual([[lotId, 50]])
 
       await ensureEnglishLocale(page)

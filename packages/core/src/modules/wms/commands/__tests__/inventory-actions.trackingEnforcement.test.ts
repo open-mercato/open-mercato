@@ -8,15 +8,6 @@ import {
   WarehouseLocation,
 } from '../../data/entities'
 
-jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: async () => ({
-    locale: 'en',
-    dict: {},
-    t: (key: string) => key,
-    translate: (_key: string, fallback?: string) => fallback ?? _key,
-  }),
-}))
-
 jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   emitCrudSideEffects: jest.fn(async () => undefined),
 }))

@@ -8,6 +8,7 @@ import { E } from '#generated/entities.ids.generated'
 import {
   InventoryBalance,
   InventoryLot,
+  ProductInventoryProfile,
   Warehouse,
   WarehouseLocation,
 } from '../data/entities'
@@ -286,6 +287,39 @@ async function loadCurrentOnHand(
   return balance ? toNumber(balance.quantityOnHand) : 0
 }
 
+async function findMissingTrackingError(
+  em: EntityManager,
+  scope: ImportScope,
+  input: Parameters<typeof loadCurrentOnHand>[2],
+): Promise<'lot_required' | 'serial_required' | null> {
+  const profile = await findOneWithDecryption(
+    em,
+    ProductInventoryProfile,
+    { catalogVariantId: input.catalogVariantId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    undefined,
+    scope,
+  )
+  let error: 'lot_required' | 'serial_required' | null = null
+  if (profile?.trackLot && !input.lotId) error = 'lot_required'
+  else if (profile?.trackSerial && !input.serialNumber) error = 'serial_required'
+  if (!error) return null
+  const existing = await findOneWithDecryption(
+    em,
+    InventoryBalance,
+    {
+      warehouse: input.warehouseId,
+      location: input.locationId,
+      catalogVariantId: input.catalogVariantId,
+      lot: input.lotId ?? null,
+      serialNumber: input.serialNumber ?? null,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  return existing ? null : error
+}
+
 async function verifyApplyRowDeltas(
   em: EntityManager,
   scope: ImportScope,
@@ -470,6 +504,21 @@ export async function validateInventoryImport(
       }
       if (currentOnHand > 0 && Math.sign(delta) !== 0) {
         warnings.push('overwriting_existing_balance')
+      }
+    }
+
+    if (Math.abs(delta) >= 0.000001) {
+      const trackingError = await findMissingTrackingError(em, scope, {
+        warehouseId: warehouse.id,
+        locationId: location.id,
+        catalogVariantId: variant.id,
+        lotId: lot?.id,
+        serialNumber,
+      })
+      if (trackingError) {
+        errors.push(trackingError)
+        rows.push({ rowNumber, status: 'error', errors, warnings, input: raw })
+        continue
       }
     }
 
