@@ -234,9 +234,10 @@ export function TagsInput({
               disabled={disabled}
               onRemove={() => removeTag(tag)}
               removeAriaLabel={t('ui.inputs.tagsInput.removeTag', 'Remove {label}', { label })}
+              className="max-w-full"
             >
-              <span className="flex flex-col items-start leading-tight">
-                <span className="whitespace-nowrap">{label}</span>
+              <span className="flex min-w-0 flex-col items-start leading-tight">
+                <span className="wrap-anywhere">{label}</span>
                 {description ? (
                   <span className="text-overline text-muted-foreground">{description}</span>
                 ) : null}
