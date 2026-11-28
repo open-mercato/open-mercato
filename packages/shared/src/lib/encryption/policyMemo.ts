@@ -96,6 +96,7 @@ export function resolveMemoizedEncryptionPolicy(
   key: string,
   em: EntityManager | undefined,
   load: () => Promise<ResolvedEncryptionPolicy>,
+  options?: { memoizeNonTransactionalEntityManager?: boolean },
 ): Promise<ResolvedEncryptionPolicy> {
   const inTransaction = em ? readOpenTransaction(em) !== null : false
   const maxAgeMs = inTransaction ? 0 : resolveRequestPolicyMemoMaxAgeMs()
@@ -108,7 +109,7 @@ export function resolveMemoizedEncryptionPolicy(
     rememberUntilRejected(requestMemo.entries, key, { loadedAt: now, policy }, policy)
     return policy
   }
-  if (!em) return load()
+  if (!em || options?.memoizeNonTransactionalEntityManager === false) return load()
   const memo = getEncryptionPolicyMemo(em)
   const pending = memo.get(key)
   if (pending) return pending

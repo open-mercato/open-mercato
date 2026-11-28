@@ -387,7 +387,7 @@ export class TenantDataEncryptionService {
       ? rows.filter((row): row is Record<string, unknown> => Boolean(row) && typeof row === 'object')
       : []
 
-    const map = this.applySystemDefault(this.pickMostSpecificMap(key, records), key.entityId)
+    const map = this.pickMostSpecificMap(key, records)
     const mapRules = normalizeEncryptedFieldRules(map?.fields)
     if (!includeAllOrganizations) return { map, fields: mapRules }
     const organizationRows = records.filter((record) => (
@@ -468,7 +468,19 @@ export class TenantDataEncryptionService {
    * long-lived service EntityManager and are never memoized. See `resolveMemoizedEncryptionPolicy`.
    */
   private resolvePolicy(key: MapCacheKey, em?: EntityManager): Promise<ResolvedEncryptionPolicy> {
-    return resolveMemoizedEncryptionPolicy(cacheKey(key), em, () => this.loadPolicy(key, em))
+    const lookupEm = em ?? this.em
+    return resolveMemoizedEncryptionPolicy(
+      cacheKey(key),
+      lookupEm,
+      () => this.loadPolicy(key, lookupEm),
+      { memoizeNonTransactionalEntityManager: em !== undefined },
+    ).then((policy) => {
+      const map = this.applySystemDefault(policy.map, key.entityId)
+      const declared = this.systemDefaultMaps.get(key.entityId)
+      if (!declared) return policy
+      const defaultFields = normalizeEncryptedFieldRules(declared.fields)
+      return { map, fields: mergeEncryptedFieldRules([defaultFields, policy.fields]) }
+    })
   }
 
   /**

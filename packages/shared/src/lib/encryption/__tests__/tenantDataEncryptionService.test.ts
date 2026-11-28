@@ -1053,6 +1053,44 @@ describe('TenantDataEncryptionService request-scoped policy memo (#8990)', () =>
     expect(transactionalExecute).toHaveBeenCalledTimes(1)
   })
 
+  it('uses the service EntityManager transaction when a call omits its EntityManager', async () => {
+    const entityId = 'test:request_memo_service_transaction'
+    const pendingRows: PolicyRow[] = [{ entity_id: entityId, tenant_id: tenantId, organization_id: null, fields_json: [{ field: 'pending' }] }]
+    const transactionalExecute = jest.fn(async (_sql: string, params: readonly unknown[] = []) => selectPolicyRows(pendingRows, params))
+    const transactionalEm = { execute: transactionalExecute, getTransactionContext: () => ({}) } as never
+    const service = new TenantDataEncryptionService(transactionalEm, {
+      kms: { getTenantDek: jest.fn(async () => null), createTenantDek: jest.fn(async () => null), isHealthy: () => true },
+    })
+    const { service: otherService, newEntityManager } = makeService(entityId)
+
+    await runInOwnedRequestScope(async () => {
+      await otherService.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() })
+      await expect(service.getEncryptedFieldNames(entityId, tenantId, organizationId)).resolves.toEqual(['pending'])
+    })
+
+    expect(transactionalExecute).toHaveBeenCalledTimes(1)
+  })
+
+  it('applies each service instance system defaults after sharing the request policy read', async () => {
+    const entityId = 'test:request_memo_service_defaults'
+    const { execute, newEntityManager } = makeService(entityId)
+    const createService = (field: string) => new TenantDataEncryptionService({ execute } as never, {
+      kms: { getTenantDek: jest.fn(async () => null), createTenantDek: jest.fn(async () => null), isHealthy: () => true },
+      defaultEncryptionMaps: [{ entityId, keyScope: 'system', fields: [{ field }] }],
+    })
+    const first = createService('first_default')
+    const second = createService('second_default')
+
+    await runInOwnedRequestScope(async () => {
+      await expect(first.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() }))
+        .resolves.toEqual(['first_default', 'secret'])
+      await expect(second.getEncryptedFieldNames(entityId, tenantId, organizationId, { em: newEntityManager() }))
+        .resolves.toEqual(['second_default', 'secret'])
+    })
+
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
   it('re-reads after a map write is forgotten or a map is invalidated within the request', async () => {
     const entityId = 'test:request_memo_invalidation'
     const { service, execute, table, newEntityManager } = makeService(entityId)
