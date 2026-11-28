@@ -455,7 +455,7 @@ test.describe('TC-WMS-033: WMS list pages avoid loading flash on background refe
 
       const putawayDialog = page.getByRole('dialog').filter({ hasText: /Complete putaway/i }).first()
       await expect(putawayDialog).toBeVisible()
-      await selectLocationComboboxOption(page, putawayDialog, 'Select destination bin', binCode)
+      await selectLocationComboboxOption(page, putawayDialog, 'Select destination location', binCode)
 
       // The dialog's own submit handler `await`s `invalidateQueries(['wms-putaway-queue'])`
       // before closing — that invalidation is the GET this test observes, so the gate
