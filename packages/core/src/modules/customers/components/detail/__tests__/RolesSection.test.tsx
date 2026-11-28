@@ -221,12 +221,11 @@ describe('RolesSection', () => {
     expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith('/api/customers/dictionaries/person-company-roles')
   })
 
-  it('shows a config CTA instead of fallback role types when the dictionary is empty', async () => {
+  it.each(['company', 'person'] as const)('shows one configuration link when the role type dictionary is empty for a %s', async (entityType) => {
     renderWithProviders(
       <RolesSection
-        entityType="company"
-        entityId="company-1"
-        entityName="Acme Corp"
+        entityType={entityType}
+        entityId={`${entityType}-1`}
       />,
     )
 
@@ -236,12 +235,39 @@ describe('RolesSection', () => {
         )
     })
 
-    expect(await screen.findByText('No role types configured')).toBeInTheDocument()
-    expect(screen.getAllByRole('link', { name: 'Configure role types' })[0]).toHaveAttribute(
-      'href',
-      '/backend/config/customers',
-    )
+    const emptyState = (await screen.findByText('No role types configured')).closest('[data-slot="empty-state"]')
+    const configureLink = screen.getByRole('link', { name: 'Configure role types' })
+
+    expect(emptyState).toContainElement(configureLink)
+    expect(configureLink).toHaveAttribute('href', '/backend/config/customers')
     expect(screen.queryByRole('button', { name: 'Assign role' })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { canManageRoleTypes: false, expectedLinks: 0 },
+    { canManageRoleTypes: true, expectedLinks: 1 },
+  ])('shows $expectedLinks configuration links for an assignment without a configured role type', async ({
+    canManageRoleTypes,
+    expectedLinks,
+  }) => {
+    if (!canManageRoleTypes) {
+      mockGrantedFeatures = mockGrantedFeatures.filter((feature) => feature !== 'customers.settings.manage')
+    }
+    readApiResultOrThrowMock.mockImplementation(async (path: string) => ({
+      items: path === '/api/customers/companies/company-1/roles'
+        ? [{ id: 'role-1', roleType: 'account_manager', userId: 'user-1' }]
+        : [],
+    }))
+
+    renderWithProviders(<RolesSection entityType="company" entityId="company-1" />)
+
+    expect(await screen.findByRole('button', { name: 'change-role-1' })).toBeInTheDocument()
+    const configureLinks = screen.queryAllByRole('link', { name: 'Configure role types' })
+    expect(configureLinks).toHaveLength(expectedLinks)
+    for (const link of configureLinks) {
+      expect(link).toHaveAttribute('href', '/backend/config/customers')
+    }
+    expect(screen.queryByText('No role types configured')).not.toBeInTheDocument()
   })
 
   it('renders the person-scoped group title "My roles with {name}"', async () => {
