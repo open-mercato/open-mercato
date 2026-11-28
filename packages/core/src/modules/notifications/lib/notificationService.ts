@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { runRouteMutationGuards, type RouteMutationGuardPassed } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { Notification, type NotificationStatus } from '../data/entities'
 import type { CreateNotificationInput, CreateBatchNotificationInput, CreateRoleNotificationInput, CreateFeatureNotificationInput, ExecuteActionInput } from '../data/validators'
@@ -262,6 +263,7 @@ export interface NotificationServiceContext {
   organizationId?: string | null
   organizationIds?: string[] | null
   userId?: string | null
+  request?: Request
 }
 
 export type CreateFeatureNotificationServiceInput = CreateFeatureNotificationInput & {
@@ -758,11 +760,44 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         throw actionAlreadyExecuted()
       }
 
+      let targetGuard: RouteMutationGuardPassed | undefined
+      let commandInput: Record<string, unknown> = {
+        ...input.payload,
+        id: notification.sourceEntityId,
+      }
+
       if (action.commandId) {
         const declared = findDeclaredCommandAction(notification.type, action)
-        if (!declared || !(await userHoldsActionFeatures(declared.requiredFeatures, ctx))) {
+        if (!declared || !ctx.userId || !ctx.tenantId || !container || !commandBus
+          || !(await userHoldsActionFeatures(declared.requiredFeatures, ctx))) {
           throw await actionForbidden()
         }
+        const resourceKind = (declared.mutationGuard?.resourceKind
+          ?? notification.sourceEntityType?.replace(/:/g, '.'))?.trim()
+        const resourceId = notification.sourceEntityId ?? null
+        const operation = declared.mutationGuard?.operation ?? 'update'
+        if (!resourceKind || (operation !== 'create' && !resourceId)) throw await actionForbidden()
+
+        const guarded = await runRouteMutationGuards({
+          container: container as Parameters<typeof runRouteMutationGuards>[0]['container'],
+          req: ctx.request ?? new Request('http://localhost/api/notifications/action', { method: 'POST' }),
+          auth: {
+            userId: ctx.userId,
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId ?? null,
+          },
+          input: {
+            resourceKind,
+            resourceId,
+            operation,
+            mutationPayload: commandInput,
+          },
+        })
+        if (!guarded.ok) {
+          throw new CrudHttpError(guarded.errorStatus, guarded.errorBody)
+        }
+        targetGuard = guarded
+        commandInput = { ...commandInput, ...guarded.modifiedPayload, id: notification.sourceEntityId }
       }
 
       const actionedAt = new Date()
@@ -817,11 +852,6 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       let result: unknown = null
 
       if (action.commandId && commandBus && container) {
-        const commandInput = {
-          ...input.payload,
-          id: notification.sourceEntityId,
-        }
-
         // Build a CommandRuntimeContext from the notification service context
         const commandCtx = {
           container,
@@ -833,6 +863,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           organizationScope: null,
           selectedOrganizationId: ctx.organizationId ?? null,
           organizationIds: ctx.organizationId ? [ctx.organizationId] : null,
+          request: ctx.request,
         }
 
         let commandResult: { result: unknown }
@@ -858,6 +889,7 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         }
 
         result = commandResult.result
+        await targetGuard?.runAfterSuccess()
       }
 
       notification.status = 'actioned'

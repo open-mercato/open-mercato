@@ -47,7 +47,7 @@ const approvalType = {
   titleKey: 'tests.sales.approval.title',
   icon: 'bell',
   severity: 'info' as const,
-  actions: [{ id: 'approve', labelKey: 'tests.sales.approval.approve', commandId: 'sales.approve' }],
+  actions: [{ id: 'approve', labelKey: 'tests.sales.approval.approve', commandId: 'sales.approve', mutationGuard: { resourceKind: 'sales.order' } }],
 }
 
 const baseCtx = {

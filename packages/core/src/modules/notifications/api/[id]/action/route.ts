@@ -36,7 +36,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
         operation: 'custom',
         payload: input as Record<string, unknown>,
       },
-      () => service.executeAction(id, input, scope),
+      () => service.executeAction(id, input, { ...scope, request: req }),
     )
     if (!guarded.ok) return guarded.response
     const { notification, result } = guarded.result
@@ -98,7 +98,7 @@ export const openApi = {
         },
       },
       403: {
-        description: 'The stored action command is not declared by the notification type with the same action id and command, or the user lacks the features the declared action requires (`code: notification_action_forbidden`)',
+        description: 'Command authorization failed (`code: notification_action_forbidden`), or a mutation guard refused the request',
         content: {
           'application/json': {
             schema: actionConflictResponseSchema,
@@ -110,6 +110,14 @@ export const openApi = {
         content: {
           'application/json': {
             schema: errorResponseSchema,
+          },
+        },
+      },
+      423: {
+        description: 'The notification or target resource is locked',
+        content: {
+          'application/json': {
+            schema: actionConflictResponseSchema,
           },
         },
       },

@@ -20,7 +20,8 @@ export const NOTIFICATION_ACTION_COMMAND_NOT_ALLOWED_ERROR_CODE = 'notification_
 /**
  * `code` of the 403 body `POST /api/notifications/:id/action` answers with when the stored command
  * is not declared by the notification's registered type with the same action id and `commandId`,
- * or the clicking user lacks the declared action's `requiredFeatures`.
+ * the clicking user lacks the declared action's `requiredFeatures`, or the command target
+ * cannot be resolved.
  */
 export const NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE = 'notification_action_forbidden'
 
@@ -55,6 +56,11 @@ export type NotificationTypeAction = {
    * `POST /api/notifications/:id/action` at execution time.
    */
   requiredFeatures?: string[]
+  /** Server-declared guard target. Defaults to the stored source entity with the update operation. */
+  mutationGuard?: {
+    resourceKind: string
+    operation?: 'create' | 'update' | 'delete'
+  }
 }
 
 export type NotificationRendererProps = {

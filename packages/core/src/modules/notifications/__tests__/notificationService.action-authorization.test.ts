@@ -4,6 +4,7 @@ import type { Notification } from '../data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE } from '@open-mercato/shared/modules/notifications/types'
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import { registerMutationGuards } from '@open-mercato/shared/lib/crud/mutation-guard-store'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
@@ -93,6 +94,7 @@ const buildNotification = (type: string, actions: Array<Record<string, unknown>>
     status: 'unread',
     readAt: null,
     actionedAt: null,
+    sourceEntityType: 'tests:guarded',
     sourceEntityId,
     actionData: { actions },
   }) as unknown as Notification
@@ -111,6 +113,73 @@ describe('notification action authorization', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+  })
+
+  afterEach(() => {
+    registerMutationGuards([])
+  })
+
+  it.each(['sourceEntityType', 'sourceEntityId'] as const)(
+    'rejects a command without %s before claiming or dispatching',
+    async (missingField) => {
+      const { em, claimUpdates } = buildEm()
+      const commandBus = { execute: jest.fn() }
+      const service = createNotificationService({
+        em: em as never,
+        eventBus: { emit: jest.fn() },
+        commandBus,
+        container: buildContainer(jest.fn().mockResolvedValue(true)),
+      })
+      const notification = buildNotification(guardedType.type, [
+        { id: 'approve', label: 'Approve', commandId: 'tests.guarded.approve' },
+      ])
+      notification[missingField] = null
+      jest.mocked(findOneWithDecryption).mockResolvedValue(notification)
+
+      await expect(service.executeAction(notification.id, { actionId: 'approve' }, ctx)).rejects.toMatchObject({
+        status: 403,
+        body: { code: NOTIFICATION_ACTION_FORBIDDEN_ERROR_CODE },
+      })
+      expect(claimUpdates).toHaveLength(0)
+      expect(commandBus.execute).not.toHaveBeenCalled()
+    },
+  )
+
+  it('uses the registered target operation, never a stored or client-supplied override', async () => {
+    const explicitType: NotificationTypeDefinition = {
+      ...guardedType,
+      type: 'tests.explicit-target',
+      actions: [{ ...guardedType.actions[0], mutationGuard: { resourceKind: 'tests.target', operation: 'delete' } }],
+    }
+    registerNotificationTypes([explicitType])
+    const validate = jest.fn().mockResolvedValue({ ok: false, status: 423, body: { code: 'target_locked' } })
+    registerMutationGuards([{ moduleId: 'tests', guards: [{
+      id: 'tests.target.lock', targetEntity: 'tests.target', operations: ['delete'], validate,
+    }] }])
+    const { em, claimUpdates } = buildEm()
+    const commandBus = { execute: jest.fn() }
+    const service = createNotificationService({
+      em: em as never,
+      eventBus: { emit: jest.fn() },
+      commandBus,
+      container: buildContainer(jest.fn().mockResolvedValue(true)),
+    })
+    const notification = buildNotification(explicitType.type, [{
+      id: 'approve', label: 'Approve', commandId: 'tests.guarded.approve',
+      mutationGuard: { resourceKind: 'tests.bypass', operation: 'create' },
+    }])
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(notification)
+
+    await expect(service.executeAction(notification.id, {
+      actionId: 'approve', payload: { id: 'other-id', resourceKind: 'tests.bypass' },
+    }, ctx)).rejects.toMatchObject({ status: 423, body: { code: 'target_locked' } })
+    expect(validate).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'tests.target', resourceId: sourceEntityId, operation: 'delete',
+      tenantId: ctx.tenantId, organizationId: ctx.organizationId, userId: ctx.userId,
+      mutationPayload: expect.objectContaining({ id: sourceEntityId }),
+    }))
+    expect(claimUpdates).toHaveLength(0)
+    expect(commandBus.execute).not.toHaveBeenCalled()
   })
 
   it('refuses a declared action when the clicker lacks its required features, before claiming the row', async () => {
