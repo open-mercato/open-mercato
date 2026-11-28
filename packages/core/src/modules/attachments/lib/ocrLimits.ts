@@ -6,6 +6,12 @@ const DEFAULT_OCR_PAGE_TIMEOUT_MS = 60_000
 const DEFAULT_OCR_MAX_OUTPUT_TOKENS = 4_096
 const DEFAULT_OCR_MAX_CONCURRENCY = 2
 const DEFAULT_OCR_MAX_WAIT_QUEUE = 50
+const DEFAULT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES = 5 * 1024 * 1024
+const DEFAULT_SPREADSHEET_MAX_SHEETS = 10
+const DEFAULT_SPREADSHEET_MAX_CELLS = 1_000_000
+const DEFAULT_SPREADSHEET_MAX_TEXT_CHARS = 1_000_000
+const DEFAULT_SPREADSHEET_MAX_CONCURRENCY = 2
+const DEFAULT_SPREADSHEET_MAX_WAIT_QUEUE = 20
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === '') return fallback
@@ -37,6 +43,45 @@ export function resolveOcrMaxConcurrency(): number {
 /** Max waiters blocked on the in-process OCR concurrency slot (env: OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE). */
 export function resolveOcrMaxWaitQueue(): number {
   return parsePositiveInt(process.env.OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE, DEFAULT_OCR_MAX_WAIT_QUEUE)
+}
+
+/**
+ * Max combined expanded size of all workbook archive entries (env: OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES).
+ * Workbooks over this limit are rejected before extracting text. The low default limits memory use when parsing shared strings.
+ */
+export function resolveSpreadsheetMaxUncompressedBytes(): number {
+  return parsePositiveInt(
+    process.env.OM_ATTACHMENT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES,
+    DEFAULT_SPREADSHEET_MAX_UNCOMPRESSED_BYTES,
+  )
+}
+
+/**
+ * Max worksheets read from one spreadsheet (env: OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS).
+ * The streaming reader parses the shared-strings table again for every sheet, so this also bounds that repeated work.
+ */
+export function resolveSpreadsheetMaxSheets(): number {
+  return parsePositiveInt(process.env.OM_ATTACHMENT_SPREADSHEET_MAX_SHEETS, DEFAULT_SPREADSHEET_MAX_SHEETS)
+}
+
+/** Max grid cells scanned from one spreadsheet across all sheets, empty ones included (env: OM_ATTACHMENT_SPREADSHEET_MAX_CELLS). */
+export function resolveSpreadsheetMaxCells(): number {
+  return parsePositiveInt(process.env.OM_ATTACHMENT_SPREADSHEET_MAX_CELLS, DEFAULT_SPREADSHEET_MAX_CELLS)
+}
+
+/** Max characters of text extracted from one spreadsheet (env: OM_ATTACHMENT_SPREADSHEET_MAX_TEXT_CHARS). */
+export function resolveSpreadsheetMaxTextChars(): number {
+  return parsePositiveInt(process.env.OM_ATTACHMENT_SPREADSHEET_MAX_TEXT_CHARS, DEFAULT_SPREADSHEET_MAX_TEXT_CHARS)
+}
+
+/** Max spreadsheets parsed at once per process; uploads beyond it wait for a slot (env: OM_ATTACHMENT_SPREADSHEET_MAX_CONCURRENCY). */
+export function resolveSpreadsheetMaxConcurrency(): number {
+  return parsePositiveInt(process.env.OM_ATTACHMENT_SPREADSHEET_MAX_CONCURRENCY, DEFAULT_SPREADSHEET_MAX_CONCURRENCY)
+}
+
+/** Max uploads waiting for a spreadsheet slot; beyond it extraction is skipped (env: OM_ATTACHMENT_SPREADSHEET_MAX_WAIT_QUEUE). */
+export function resolveSpreadsheetMaxWaitQueue(): number {
+  return parsePositiveInt(process.env.OM_ATTACHMENT_SPREADSHEET_MAX_WAIT_QUEUE, DEFAULT_SPREADSHEET_MAX_WAIT_QUEUE)
 }
 
 /** How many PDF pages to iterate given document length and the configured cap. */
