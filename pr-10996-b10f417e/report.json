@@ -1,0 +1,599 @@
+{
+  "runId": "b10f417e-7ef0-4aab-89bf-ae460cf55b02",
+  "mode": "pr",
+  "target": {
+    "prNumber": 10996,
+    "title": "fix(core): harden customer group and availability scope (#6812)",
+    "branch": "cez/5a709a12",
+    "headSha": "d471c576ef1afc0015771af6c9bc3911c9c07889"
+  },
+  "verdict": "PARTIAL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:35383",
+    "role": "own tenant-bound narrow actors A/B; separate own tenant-B actor",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "mode": "isolated CLI-managed production app and disposable pgvector/pg16",
+    "browserVersion": "1.61.1",
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "action": "API: /api/availability/policies positive",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"/api/availability/policies positive\",\"status\":200,\"body\":{\"items\":[{\"id\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\",\"organizationId\":\"22626ed1-f354-4650-8c0e-a36a09770408\",\"tenantId\":\"634ed8d1-ff2f-45b9-b9a8-d83950aa854c\",\"storeId\":null,\"productId\":\"ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f\",\"variantId\":null,\"isStockManaged\":false,\"allowBackorder\":false,\"backorderLeadTimeDays\":null,\"preorderReleaseAt\":null,\"lowStockThreshold\":789,\"minOrderQuantity\":null,\"maxOrderQuantity\":null,\"quantityIncrement\":null,\"hideWhenOutOfStock\":false,\"isActive\":true,\"createdAt\":\"2026-11-28T07:25:34.160Z\",\"updatedAt\":\"2026-11-28T07:25:34.160Z\"}],\"total\":1,\"page\":1,\"pageSize\":50,\"totalPages\":1},\"cookieExpired\":false}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "action": "API: /api/availability/policies rejected selection",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"/api/availability/policies rejected selection\",\"status\":422,\"body\":{\"error\":\"Your selected organization is no longer available. Please re-select an organization and try again.\",\"code\":\"organization_selection_invalid\"},\"cookieExpired\":true}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "action": "API: /api/availability/policies/resolve-preview?productId=ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f positive",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"/api/availability/policies/resolve-preview?productId=ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f positive\",\"status\":200,\"body\":{\"policyTrace\":{\"allowBackorder\":{\"value\":false,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"hideWhenOutOfStock\":{\"value\":false,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"isActive\":{\"value\":true,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"isStockManaged\":{\"value\":false,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"backorderLeadTimeDays\":{\"value\":null,\"policySourceId\":null},\"preorderReleaseAt\":{\"value\":null,\"policySourceId\":null},\"lowStockThreshold\":{\"value\":789,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"minOrderQuantity\":{\"value\":null,\"policySourceId\":null},\"maxOrderQuantity\":{\"value\":null,\"policySourceId\":null},\"quantityIncrement\":{\"value\":null,\"policySourceId\":null}}},\"cookieExpired\":false}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "action": "API: /api/availability/policies/resolve-preview?productId=ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f rejected selection",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"/api/availability/policies/resolve-preview?productId=ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f rejected selection\",\"status\":422,\"body\":{\"error\":\"Your selected organization is no longer available. Please re-select an organization and try again.\",\"code\":\"organization_selection_invalid\"},\"cookieExpired\":true}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "action": "API: /api/availability/check positive",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"/api/availability/check positive\",\"status\":200,\"body\":{\"availability\":{\"state\":\"not_tracked\",\"availableQuantity\":null,\"canFulfil\":true,\"leadTimeDays\":null,\"releaseAt\":null,\"isAuthoritative\":true,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"policyTrace\":{\"allowBackorder\":{\"value\":false,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"hideWhenOutOfStock\":{\"value\":false,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"isActive\":{\"value\":true,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"isStockManaged\":{\"value\":false,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"backorderLeadTimeDays\":{\"value\":null,\"policySourceId\":null},\"preorderReleaseAt\":{\"value\":null,\"policySourceId\":null},\"lowStockThreshold\":{\"value\":789,\"policySourceId\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\"},\"minOrderQuantity\":{\"value\":null,\"policySourceId\":null},\"maxOrderQuantity\":{\"value\":null,\"policySourceId\":null},\"quantityIncrement\":{\"value\":null,\"policySourceId\":null}}},\"cookieExpired\":false}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "action": "API: /api/availability/check rejected selection",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"/api/availability/check rejected selection\",\"status\":422,\"body\":{\"error\":\"Your selected organization is no longer available. Please re-select an organization and try again.\",\"code\":\"organization_selection_invalid\"},\"cookieExpired\":true}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "UI: own actor empty preview",
+      "expected": "Enter product prompt",
+      "observed": "Prompt rendered; no fabricated trace",
+      "result": "PASS",
+      "screenshot": "preview-empty.png"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "UI: real persisted policy preview and pending loader",
+      "expected": "200; own policy threshold 789; useful loading; no defaults while pending",
+      "observed": "200 and threshold 789; Loading shown across debounce/pending",
+      "result": "PASS",
+      "screenshot": "preview-positive-en.png"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "UI: real rejected organization preview English",
+      "expected": "422 selection error, expired cookie, alert and no fabricated defaults",
+      "observed": "Real 422 organization_selection_invalid; translated alert; dl absent; selection cookie expired",
+      "result": "PASS",
+      "screenshot": "preview-real-rejection-en.png"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "UI: recover after rejected selection; ten-second observation",
+      "expected": "200 trace, no leftover error",
+      "observed": "Own threshold 789 recovered; no alert after 10s",
+      "result": "PASS",
+      "screenshot": "preview-recovery-en.png"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "UI: real rejected organization preview Polish/mobile",
+      "expected": "Polish error wraps at 390x844, no defaults",
+      "observed": "422 with Polish alert; trace values hidden",
+      "result": "PASS",
+      "screenshot": "preview-real-rejection-pl-mobile.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "UI: injected transport failure Polish",
+      "expected": "Translated generic error, no fabricated defaults",
+      "observed": "Aborted preview request displayed Polish fallback",
+      "result": "PASS",
+      "screenshot": "preview-transport-fallback-pl.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "UI: injected HTTP error without message",
+      "expected": "Translated generic error",
+      "observed": "Synthetic HTTP500 {} displayed Polish fallback; not a server failure observation",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 14,
+      "priority": "P1",
+      "action": "UI: injected long error and HTML-like text",
+      "expected": "Readable long text; HTML escaped",
+      "observed": "Long text wraps at mobile; HTML-like payload remains text, no img element",
+      "result": "PASS",
+      "screenshot": "preview-long-error-mobile.png"
+    },
+    {
+      "step": 15,
+      "priority": "P1",
+      "action": "UI: edit-page preview consumer",
+      "expected": "Persisted threshold visible on edit",
+      "observed": "789 rendered in shared preview on existing policy edit",
+      "result": "PASS",
+      "screenshot": "preview-edit-positive.png"
+    },
+    {
+      "step": 16,
+      "priority": "P1",
+      "action": "UI: own no-permission actor direct route",
+      "expected": "Readable access denied; controls absent",
+      "observed": "Access Denied rendered; separate API refusals recorded",
+      "result": "PASS",
+      "screenshot": "availability-no-permission.png"
+    },
+    {
+      "step": 17,
+      "priority": "P0",
+      "action": "API: finite scope all policies excludes other organization",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"finite scope all policies excludes other organization\",\"status\":200,\"body\":{\"items\":[{\"id\":\"57e7ce42-2ecc-49f8-ad97-cd72244d3d9d\",\"organizationId\":\"22626ed1-f354-4650-8c0e-a36a09770408\",\"tenantId\":\"634ed8d1-ff2f-45b9-b9a8-d83950aa854c\",\"storeId\":null,\"productId\":\"ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f\",\"variantId\":null,\"isStockManaged\":false,\"allowBackorder\":false,\"backorderLeadTimeDays\":null,\"preorderReleaseAt\":null,\"lowStockThreshold\":789,\"minOrderQuantity\":null,\"maxOrderQuantity\":null,\"quantityIncrement\":null,\"hideWhenOutOfStock\":false,\"isActive\":true,\"createdAt\":\"2026-11-28T07:25:34.160Z\",\"updatedAt\":\"2026-11-28T07:25:34.160Z\"}],\"total\":1,\"page\":1,\"pageSize\":50,\"totalPages\":1},\"cookieExpired\":false}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 18,
+      "priority": "P0",
+      "action": "API: /api/availability/policies no permission",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"/api/availability/policies no permission\",\"status\":403,\"body\":{\"error\":\"Forbidden\",\"requiredFeatures\":[\"availability.policies.view\"]},\"cookieExpired\":false}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 19,
+      "priority": "P0",
+      "action": "API: /api/availability/policies/resolve-preview?productId=ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f no permission",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"/api/availability/policies/resolve-preview?productId=ca82195c-a0bb-4b30-a2f6-be33bb3d1f8f no permission\",\"status\":403,\"body\":{\"error\":\"Forbidden\",\"requiredFeatures\":[\"availability.policies.view\"]},\"cookieExpired\":false}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 20,
+      "priority": "P0",
+      "action": "API: /api/availability/check no permission",
+      "expected": "Authorized control or scope refusal; no data leakage",
+      "observed": "{\"name\":\"/api/availability/check no permission\",\"status\":403,\"body\":{\"error\":\"Forbidden\",\"requiredFeatures\":[\"availability.check\"]},\"cookieExpired\":false}",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 21,
+      "priority": "P1",
+      "action": "UI: create long customer group with double-click",
+      "expected": "One group and correct fields persisted",
+      "observed": "One matching group; code/name/description/priority/kind/flags read back",
+      "result": "PASS",
+      "screenshot": "group-created-long.png"
+    },
+    {
+      "step": 22,
+      "priority": "P1",
+      "action": "UI: group long-name narrow layout",
+      "expected": "Long row in a usable horizontal table at390px",
+      "observed": "390x844 screenshot shows contained horizontal table; later Polish mobile action-menu check reached Edit/Delete after scrolling.",
+      "result": "PASS",
+      "screenshot": "group-long-mobile.png"
+    },
+    {
+      "step": 23,
+      "priority": "P1",
+      "action": "UI: ten loading/cancellation attempts",
+      "expected": "Older delayed success never replaces newer failure",
+      "observed": "10/10 attempts retained current real400 alert after delayed real200; pending loader shown",
+      "result": "PASS",
+      "screenshot": "preview-superseded-response.png"
+    },
+    {
+      "step": 24,
+      "priority": "P0",
+      "action": "API: restricted group delete with out-of-scope existing member",
+      "expected": "409 with no whole-record changes",
+      "observed": "409; complete group row unchanged",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 25,
+      "priority": "P1",
+      "action": "API/DB fixture: existing soft-deleted out-of-scope customer",
+      "expected": "409; complete group unchanged",
+      "observed": "Own disposable row soft-retired via DB fixture (no product soft-delete path); API409 and full row preserved",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 26,
+      "priority": "P1",
+      "action": "UI: second-user stale write and keyboard retry",
+      "expected": "409; B description and every other field preserved",
+      "observed": "Different users B200 then A409 twice including Ctrl+Enter; whole row equals B version",
+      "result": "PASS",
+      "screenshot": "group-stale-conflict.png"
+    },
+    {
+      "step": 27,
+      "priority": "P1",
+      "action": "UI: person and company membership extension consumers",
+      "expected": "Groups UI reachable for own authorized user",
+      "observed": "Both own authorized detail pages still had zero Groups tabs after 62 seconds. Registrations detail:customers.person:tabs / detail:customers.company:tabs differ from pages customers.person.detail:tabs / customers.company.detail:tabs; all unchanged by PR.",
+      "result": "NOT_EXERCISED",
+      "screenshot": "person-membership-detail.png"
+    },
+    {
+      "step": 28,
+      "priority": "P1",
+      "action": "UI: refresh and save after stale refusal",
+      "expected": "Fresh save succeeds, no lost fields or leftover conflict after 10s",
+      "observed": "200; all fields except intended name/updatedAt match B version",
+      "result": "PASS",
+      "screenshot": "group-stale-recovered.png"
+    },
+    {
+      "step": 29,
+      "priority": "P1",
+      "action": "API/DB fixture: hard-deleted orphan cleanup and repeated actions",
+      "expected": "Orphan no longer blocks delete; membership retired; reassignment refused",
+      "observed": "Delete200; membership deleted_at set; repeat404; assignment400",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 30,
+      "priority": "P1",
+      "action": "UI: group deletion with allowed membership; Escape and Ctrl+Enter",
+      "expected": "Escape cancels; confirm deletes and retires membership; list refreshes",
+      "observed": "Escape preserved group; Ctrl+Enter DELETE200; membership items[] after10s",
+      "result": "PASS",
+      "screenshot": "group-delete-membership-retired.png"
+    },
+    {
+      "step": 31,
+      "priority": "P0",
+      "action": "API: own tenant-B authorized positive group control",
+      "expected": "Own group200",
+      "observed": "Own tenant-bound user created and listed own group",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 32,
+      "priority": "P0",
+      "action": "API: foreign tenant group/policy IDs and product",
+      "expected": "No tenant-A records; delete/check404; preview excludes789",
+      "observed": "Foreign lists empty; group DELETE404; product check404; preview no tenant-A threshold",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 33,
+      "priority": "P1",
+      "action": "UI/API: second actor revokes previously authorized organization",
+      "expected": "Prior200 then real422 and alert after ACL revoke",
+      "observed": "Own scope initially[A,B] preview654/200; admin revokedB with version header; same actor now422/alert",
+      "result": "PASS",
+      "screenshot": "preview-after-real-revocation.png"
+    },
+    {
+      "step": 34,
+      "priority": "P1",
+      "action": "UI: availability check real rejected selection",
+      "expected": "Readable refusal, no success result",
+      "observed": "Double-click returned422 and English selection-unavailable alert",
+      "result": "PASS",
+      "screenshot": "availability-check-real-rejection.png"
+    },
+    {
+      "step": 35,
+      "priority": "P1",
+      "action": "UI: check keyboard retry after refusal",
+      "expected": "200; readable result; no stale alert after10s",
+      "observed": "Ctrl+Enter returned200, own789 trace, no stale refusal after10s",
+      "result": "PASS",
+      "screenshot": "availability-check-recovered.png"
+    },
+    {
+      "step": 36,
+      "priority": "P1",
+      "action": "UI: availability check Polish/mobile rejected selection",
+      "expected": "Translated error at390x844",
+      "observed": "Real422 showed Polish message within viewport",
+      "result": "PASS",
+      "screenshot": "availability-check-rejection-pl-mobile.png"
+    },
+    {
+      "step": 37,
+      "priority": "P0",
+      "action": "API: explicit empty finite organization scope",
+      "expected": "No data returned with explicit empty organization grants",
+      "observed": "Custom availability wildcard + organizations[]: dispatcher403 on all three routes; no data. Resolver-empty branch verified by unit tests only",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 38,
+      "priority": "P1",
+      "action": "UI: Polish mobile group list and horizontal actions",
+      "expected": "Translated list and action menu reachable at390px",
+      "observed": "Observed Otwórz akcje, Edytuj and Usuń after horizontal scroll; page remains within viewport",
+      "result": "PASS",
+      "screenshot": "groups-polish-mobile-actions.png"
+    },
+    {
+      "step": 39,
+      "priority": "P1",
+      "action": "Runtime: persistent group/membership event delivery",
+      "expected": "Persistent event consumed and downstream UI refreshed",
+      "observed": "Database retirement and HTTP list refresh verified; persistent queue delivery and downstream event subscribers not observed",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 40,
+      "priority": "P1",
+      "action": "UI: remaining group transient and membership-dialog states",
+      "expected": "Every applicable state exercised",
+      "observed": "Membership creation/removal dialogs unavailable because both Groups tabs absent; transient group loader not isolated, beyond captured stable views",
+      "result": "NOT_EXERCISED",
+      "screenshot": null
+    },
+    {
+      "step": 41,
+      "priority": "P1",
+      "action": "UI: policy and group list empty states",
+      "expected": "Readable empty lists",
+      "observed": "Both returned200 and rendered actionable empty states before fixture creation",
+      "result": "PASS",
+      "screenshot": "policies-empty.png"
+    },
+    {
+      "step": 42,
+      "priority": "P1",
+      "action": "Validation: scoped Jest and locking repetitions",
+      "expected": "All targeted tests pass",
+      "observed": "135/135 tests in7 suites including disposable PostgreSQL; locking suite10/10 attempts,4 tests each",
+      "result": "PASS",
+      "screenshot": null
+    },
+    {
+      "step": 43,
+      "priority": "P1",
+      "action": "Validation: production build/browser/locale setup",
+      "expected": "Exact-head app boot, provider launch and complete translation keys",
+      "observed": "Production build passed266s; CLI readiness416s; authenticated warm reuse; Chromium1.61.1 doctor and translation sync passed; keys present en/pl/es/de/ko",
+      "result": "PASS",
+      "screenshot": null
+    }
+  ],
+  "hasUiTest": false,
+  "notes": [
+    "Runner: local; no running compose app container was discovered. Own linked worktree deliberately checked out exact PR head and later restored to cez/b10f417e. No source edits, source commits/pushes, merges, migrations on developer DB, shared QA metadata or QA/pipeline label changes.",
+    "Fixtures: own two organizations, narrow role and distinct users A/B, own denied user; separate own tenantB/user with authorized group control; own products/policies/customer groups/customers/memberships. All disposed with owned ephemeral database. Seed admin/superadmin used only as provisioning/control actors, not as negative isolation actors.",
+    "No product soft-delete API exists for this customer path: DELETE people hard-deletes. Existing soft-deleted customer and orphan states were prepared by ID/tenant-scoped SQL only against the disposable database; marked API/DB fixture. PostgreSQL suite also independently covered lock/orphan paths.",
+    "Injected transport, message-less HTTP500, long error and escaped HTML-like text checks are deliberately synthetic client-boundary tests; real organization errors and ACL revocation were separately observed without interception.",
+    "Harness corrections: root Jest TS5011 resolved by repository core config; i18n tsx IPC EINVAL resolved by short TMPDIR. Early group assertions wrongly treated DELETE people as soft-delete and included the expected updated_at timestamp alias; subsequent scoped fixture/unique-second-user-change runs passed. Empty ACL scope is rejected by dispatcher403 before availability handler, so resolver-empty fallback is unit-covered, not claimed as live handler coverage.",
+    "Decimal-comma money checks inapplicable: changed policy fields are integers; no monetary mutation changed. No .uxproof contract directory exists.",
+    "Teardown initially stopped app but left exact owned DB container; local ignored helper repaired with recorded exact container ID, rerun and idempotency verified. Automatic review rejected a broad rm-style cleanup command; only whitelisted owned temporary files/caches were then removed safely."
+  ],
+  "gaps": [
+    "Person/company membership dialogs could not be exercised: both Groups tabs absent after62 seconds for own authorized actor; unchanged registration/page spot mismatch. Membership setup was API-only.",
+    "Persistent customer_groups lifecycle/membership event delivery and downstream subscriber refresh were not observed. Database retirement, HTTP list refresh and PostgreSQL locking were verified.",
+    "Full state matrix ran on create-preview; edit-preview positive consumer verified. Edit-specific rejection, transient group loading and policy-list UI rejected-selection state were not independently isolated (all three read APIs returned real422).",
+    "Only English and Polish were driven in the browser. New error keys exist in en/pl/es/de/ko and translation sync passes.",
+    "No full repository CI gate or hosted-CI success is claimed. Evidence-only; this run grants no QA approval."
+  ],
+  "commands": [
+    "timeout 600 yarn install --immutable",
+    "timeout 1800 sh .ai/scripts/test-env-up.sh --force-rebuild",
+    "timeout 60 sh .ai/scripts/test-env-up.sh (warm reuse)",
+    "OM_PG_INTEGRATION=1 timeout 300 yarn jest --config packages/core/jest.config.cjs --runInBand --runTestsByPath <seven paths in jest-core.log>",
+    "10 repetitions: OM_PG_INTEGRATION=1 yarn jest --config packages/core/jest.config.cjs --runInBand --runTestsByPath packages/core/src/modules/customer_groups/api/customer-groups/__tests__/membership-scope.integration.test.ts",
+    "TMPDIR=/tmp/qa-b10f timeout 120 yarn i18n:check-sync",
+    "Playwright provider operations: throwaway authored *.cjs scripts in this artifact directory, each timeout60–180, using checkout @playwright/test1.61.1 Chromium, ariaSnapshot/role locators/expect/page.screenshot; browser.close in finally",
+    "timeout 90 sh .ai/scripts/test-env-down.sh; repaired exact-owned-container fallback; repeated idempotent teardown",
+    "Fresh get-lock, all paginated issue comments/events, PR reviews/inline comments, full22-file diff and linked issue6812 inspected; exact PR head and lock reverified before publication"
+  ],
+  "cleanup": {
+    "appPortClosed": true,
+    "databasePortClosed": true,
+    "databaseContainerRemoved": "4eb9fd33cb56",
+    "ephemeralStateAbsent": true,
+    "sourceDiffClean": true,
+    "gitStatus": "",
+    "branch": "cez/b10f417e",
+    "ownedProcesses": [],
+    "teardown": "Generated down script initially left its database container alive. Local exact-container removal fallback repaired and proved; idempotent teardown passed. Shared runtimes untouched."
+  },
+  "screenshots": [
+    {
+      "name": "availability-check-real-rejection.png",
+      "bytes": 55074,
+      "sha256": "5111f7ff8e692c9829298c3c3ebe0bfca5d0dc9e39eb0d5cc0ee89374eacba83"
+    },
+    {
+      "name": "availability-check-recovered.png",
+      "bytes": 104674,
+      "sha256": "3f2e0dc3074e7bd329d2bbd493089c815939ccba57eedf2a976e3f52d50a252a"
+    },
+    {
+      "name": "availability-check-rejection-pl-mobile.png",
+      "bytes": 34149,
+      "sha256": "e74ac08f9ff118fae2d676bcc6b26964c438dce9630baea070c2dbd963aa03b0"
+    },
+    {
+      "name": "availability-no-permission.png",
+      "bytes": 19871,
+      "sha256": "6bd75168d04acb36e60bcfe9f36df5a03cf75c7161c965771f82cf7baa2b0f6c"
+    },
+    {
+      "name": "company-membership-detail.png",
+      "bytes": 124602,
+      "sha256": "d29a0a274e10366feb9e62a19dc538f31bae4c6f81b5a0c5e4218d958d705863"
+    },
+    {
+      "name": "group-create-form.png",
+      "bytes": 83051,
+      "sha256": "40b2395264a83525e77f5fef32172e68bd793428cef151455cbff9e9f5b8e28f"
+    },
+    {
+      "name": "group-created-long.png",
+      "bytes": 71976,
+      "sha256": "0ee3d5a046367e6d6a8f7928b27160f0869ff0b458b345f504d2ecebb42243ef"
+    },
+    {
+      "name": "group-delete-confirmation.png",
+      "bytes": 139798,
+      "sha256": "182da2260a89394a0f8c91349fdff281d3db9b91dcc1ed932c5aa3bc83eaf814"
+    },
+    {
+      "name": "group-delete-membership-retired.png",
+      "bytes": 70081,
+      "sha256": "9476f01cf36b51c20bf79fac434a7a15de51e962db4f073f1e97a5b54e89257d"
+    },
+    {
+      "name": "group-edit-initial.png",
+      "bytes": 127999,
+      "sha256": "620cc0edcc606c235fa6d5d643a6c631326cdda46690a8ef72991b1f8bf119ea"
+    },
+    {
+      "name": "group-long-mobile.png",
+      "bytes": 27244,
+      "sha256": "834d4324b322ab27bee7f8b40b8c35ab5cec9cd43304b768b259bed9290cd72b"
+    },
+    {
+      "name": "group-stale-conflict.png",
+      "bytes": 144538,
+      "sha256": "7e48f4736bbeff2feff57d08d9cc7045310793b86ee10181563381ddf4a1d269"
+    },
+    {
+      "name": "group-stale-recovered.png",
+      "bytes": 78900,
+      "sha256": "192010c910241fae40834b9dd2cd7404f5743c00bb833fe97eea8f2c559dfaf8"
+    },
+    {
+      "name": "groups-empty.png",
+      "bytes": 53288,
+      "sha256": "d42899c906ab767fac4e6818b386235f80eab9f923f735d8a216eb12656be91e"
+    },
+    {
+      "name": "groups-polish-mobile-actions.png",
+      "bytes": 28277,
+      "sha256": "41cfe6e43b139b4814ff333ddbd65abf8b37c501257f8e7f5abb2f4b6fb1377c"
+    },
+    {
+      "name": "person-membership-detail.png",
+      "bytes": 122214,
+      "sha256": "24f6910b79102ccce3b41119288cf8c00966ab06633968578c006afeddfd9e37"
+    },
+    {
+      "name": "policies-empty.png",
+      "bytes": 81270,
+      "sha256": "4b8a9ccf000883dc9e26d005cd457b8c89ee1c5ed1466f2171fcd4413cfce1ef"
+    },
+    {
+      "name": "preview-after-real-revocation.png",
+      "bytes": 114568,
+      "sha256": "05c27e2ef743a080e33e4e267e279319947224fa97ff9d19455be4b3cb1a7438"
+    },
+    {
+      "name": "preview-before-revocation.png",
+      "bytes": 144139,
+      "sha256": "323bc54ed8c58e0fb5b3d791a91fc0f308d9a295c8e1afd1f974c05f13a8c6bc"
+    },
+    {
+      "name": "preview-edit-positive.png",
+      "bytes": 145696,
+      "sha256": "f13a6bebdecc9c8be35a0a91698b12b3b1f104eca3726690b3cde1dedfc27d75"
+    },
+    {
+      "name": "preview-empty.png",
+      "bytes": 130924,
+      "sha256": "bb86a76816a74750bbc78b407aef541357fc468aba9a4ae5b76dc4cbfd28c174"
+    },
+    {
+      "name": "preview-loading.png",
+      "bytes": 109856,
+      "sha256": "b7cf44536f0d3c58cb55b6540ea3ac1a83c4b5a7530eacbabb576a64923fc32f"
+    },
+    {
+      "name": "preview-long-error-mobile.png",
+      "bytes": 170992,
+      "sha256": "e26981444e6ca42d9eb9bf0d7a94f4e70ae43378a53c98ffd4c8718a4bcea767"
+    },
+    {
+      "name": "preview-positive-en.png",
+      "bytes": 144168,
+      "sha256": "31ae3dc86a91047b8fc0b440c066387ddca89a14e2dd776b90806324b9f75606"
+    },
+    {
+      "name": "preview-real-rejection-en.png",
+      "bytes": 114735,
+      "sha256": "668f19f42a4b476f14f548904cc8d2576975fd0c0483e278a565aa88082c6c24"
+    },
+    {
+      "name": "preview-real-rejection-pl-mobile.png",
+      "bytes": 103626,
+      "sha256": "4655250ef8ce4278a0fb61d7bcc9c9140c34c62ca3c81deeca23e04dc119f451"
+    },
+    {
+      "name": "preview-recovery-en.png",
+      "bytes": 144168,
+      "sha256": "31ae3dc86a91047b8fc0b440c066387ddca89a14e2dd776b90806324b9f75606"
+    },
+    {
+      "name": "preview-superseded-response.png",
+      "bytes": 106797,
+      "sha256": "3348bd3babf67b35034191fc7e6744acb2bb58ed898dee47f8b3776810ed36d1"
+    },
+    {
+      "name": "preview-transport-fallback-pl.png",
+      "bytes": 103110,
+      "sha256": "18571fb299184f9c11e1443683b5c3df85a68f035d4f190c74ce2ae3cb7fbebb"
+    }
+  ],
+  "screenshotCount": 29,
+  "priorEvidenceUsedOnlyAsContext": "https://github.com/open-mercato/open-mercato/pull/10996#issuecomment-7233241930",
+  "reviewVerdict": "changes",
+  "reviewReason": "Repaired preview passes; full complex QA cannot be approved while membership/event coverage remains unexercised."
+}
