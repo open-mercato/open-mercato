@@ -107,6 +107,7 @@
   "dashboards.cli.repairRoleWidgets.preview": "Vista previa: se eliminarían {removed} asignaciones a roles de otros inquilinos y se restaurarían {restored} valores predeterminados locales. Añada --apply para guardar los cambios.",
   "dashboards.cli.repairRoleWidgets.unavailableWidgets": "Los widgets del panel no están disponibles. Vuelva a intentarlo cuando se haya cargado el registro de widgets.",
   "dashboards.cli.repairRoleWidgets.usage": "Uso: {command}",
+  "dashboards.errors.forbidden": "Acceso denegado",
   "dashboards.errors.forbidden_scope": "El ámbito solicitado no es accesible",
   "dashboards.errors.organization_required": "Se requiere contexto de organización",
   "dashboards.errors.tenant_required": "Se requiere contexto de inquilino",

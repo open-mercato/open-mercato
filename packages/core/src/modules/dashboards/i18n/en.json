@@ -107,6 +107,7 @@
   "dashboards.cli.repairRoleWidgets.preview": "Preview: would remove {removed} foreign role assignments and restore {restored} missing local defaults. Add --apply to write changes.",
   "dashboards.cli.repairRoleWidgets.unavailableWidgets": "Dashboard widgets are unavailable. Retry once the widget registry is loaded.",
   "dashboards.cli.repairRoleWidgets.usage": "Usage: {command}",
+  "dashboards.errors.forbidden": "Forbidden",
   "dashboards.errors.forbidden_scope": "Requested scope is not accessible",
   "dashboards.errors.organization_required": "Organization context is required",
   "dashboards.errors.tenant_required": "Tenant context is required",

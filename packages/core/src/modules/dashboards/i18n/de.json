@@ -107,6 +107,7 @@
   "dashboards.cli.repairRoleWidgets.preview": "Vorschau: Zu entfernende mandantenfremde Rollenzuweisungen ({removed}), wiederherzustellende lokale Standardzuweisungen ({restored}). Verwenden Sie --apply, um die Änderungen zu speichern.",
   "dashboards.cli.repairRoleWidgets.unavailableWidgets": "Dashboard-Widgets sind nicht verfügbar. Versuchen Sie es erneut, sobald die Widget-Registrierung geladen ist.",
   "dashboards.cli.repairRoleWidgets.usage": "Verwendung: {command}",
+  "dashboards.errors.forbidden": "Zugriff verweigert",
   "dashboards.errors.forbidden_scope": "Angeforderter Bereich ist nicht zugänglich",
   "dashboards.errors.organization_required": "Organisationskontext ist erforderlich",
   "dashboards.errors.tenant_required": "Mandantenkontext ist erforderlich",
