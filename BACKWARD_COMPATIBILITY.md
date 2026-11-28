@@ -516,9 +516,9 @@ Spec: [Error-reporting spec](.ai/specs/2026-09-08-error-reporting-policy.md). Ev
 
 **Volume note for operators.** Reported error *volume* rises where errors were previously only recorded: an integration that writes 115 error rows now also reports 115 errors, grouped by `error.code` at the backend. This is deliberate — see the spec's §S3 — and the controls are the collector's filtering/sampling and the backend's own quotas, not a framework switch.
 
-## Data Sync Adapter Default Batch Size (2026-09-16)
+## Data Sync Batch Size (2026-09-16)
 
-Additive. Explicit size wins, then valid adapter default, then 100. [Details](UPGRADE_NOTES.md).
+Additive. Use explicit size, valid adapter default, then 100. [Details](UPGRADE_NOTES.md).
 
 ## Data Sync Retry, Resume and Run Again (2026-09-16)
 
