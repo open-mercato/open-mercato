@@ -115,6 +115,7 @@ export type LinkedPeopleSectionProps<
   /** Bump to force a reload after the host mutates the links itself. */
   refreshKey?: number
   disabled?: boolean
+  readOnly?: boolean
   translator?: Translator
   runGuardedMutation?: GuardedMutationRunner
   onLoadingChange?: (isLoading: boolean) => void
@@ -258,6 +259,7 @@ export function LinkedPeopleSection<
   showLinkedDate = true,
   refreshKey = 0,
   disabled = false,
+  readOnly = false,
   translator,
   runGuardedMutation,
   onLoadingChange,
@@ -493,7 +495,7 @@ export function LinkedPeopleSection<
     ]
   }, [containerBreakpoint, linkedColumnVisible, nameSortable, recentSortable, translate])
 
-  const linkAction = (
+  const linkAction = readOnly ? null : (
     <Button
       type="button"
       variant="outline"
@@ -505,14 +507,14 @@ export function LinkedPeopleSection<
       {linkActionLabel}
     </Button>
   )
-  const addPersonAction = onAddPerson && addActionLabel ? (
+  const addPersonAction = !readOnly && onAddPerson && addActionLabel ? (
     <Button type="button" size="sm" onClick={onAddPerson} disabled={disabled}>
       <Plus className="mr-1.5 h-4 w-4" />
       {addActionLabel}
     </Button>
   ) : null
 
-  const linkDialog = (
+  const linkDialog = readOnly ? null : (
     <LinkEntityDialog
       open={linkDialogOpen}
       onOpenChange={setLinkDialogOpen}
@@ -524,7 +526,7 @@ export function LinkedPeopleSection<
   )
 
   if (!listLoading && totalLinkedPeople === 0) {
-    const emptyStateAction = onEmptyStateAction ?? onAddPerson
+    const emptyStateAction = readOnly ? undefined : onEmptyStateAction ?? onAddPerson
     return (
       <>
         {header}
@@ -607,7 +609,7 @@ export function LinkedPeopleSection<
                   showQueryTime={false}
                   emptyState={emptyLabel}
                   rowActions={(person) => (
-                    <RowActions items={buildPersonRowActionItems(person, translate, handleRemove)} />
+                    <RowActions items={buildPersonRowActionItems(person, translate, readOnly ? undefined : handleRemove)} />
                   )}
                   pagination={
                     listTotalPages > 1

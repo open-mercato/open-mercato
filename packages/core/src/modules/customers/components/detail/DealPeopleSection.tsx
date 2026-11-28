@@ -42,6 +42,7 @@ export type DealPeopleSectionProps = {
   fallbackPeople?: LinkedPersonSummary[]
   addActionLabel: string
   disabled?: boolean
+  readOnly?: boolean
   emptyLabel: string
   emptyState: TabEmptyStateConfig
   translator?: Translator
@@ -57,6 +58,7 @@ export function DealPeopleSection({
   fallbackPeople,
   addActionLabel,
   disabled = false,
+  readOnly = false,
   emptyLabel,
   emptyState,
   translator,
@@ -231,6 +233,7 @@ export function DealPeopleSection({
         emptyLabel={emptyLabel}
         emptyState={emptyState}
         disabled={disabled}
+        readOnly={readOnly}
         translator={translate}
         runGuardedMutation={runGuardedMutation}
         onLoadingChange={onLoadingChange}

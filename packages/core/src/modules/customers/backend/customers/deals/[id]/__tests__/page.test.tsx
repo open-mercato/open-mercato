@@ -5,6 +5,7 @@ import * as React from 'react'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import DealDetailPage from '../page'
+import { metadata } from '../page.meta'
 
 const readApiResultOrThrowMock = jest.fn()
 const updateCrudMock = jest.fn()
@@ -37,12 +38,16 @@ const plannedActivitiesSectionMock = jest.fn(
   ),
 )
 const dealFormMock = jest.fn(() => <div>form</div>)
+const customFieldDisplayMock = jest.fn(
+  (_entityId: string, _options: { includeDictionaryEntries: boolean }) => ({ definitions: [], dictionaryMapsByKey: {} }),
+)
 const collapsibleZoneLayoutMock = jest.fn(
   ({ zone1, zone2 }: { zone1: React.ReactNode; zone2: React.ReactNode }) => <div>{zone1}{zone2}</div>,
 )
 const dealDetailTabsPropsCapture: {
   current: { injectedTabs?: Array<{ id: string; label: string; priority?: number }> } | null
 } = { current: null }
+let grantedFeatures: string[] = []
 let activeTabParam: string | null = 'activities'
 let detailRequestCount = 0
 let injectedTabWidgets: Array<Record<string, unknown>> = []
@@ -63,6 +68,14 @@ jest.mock('next/navigation', () => ({
   usePathname: () => '/backend/customers/deals/test',
 }))
 
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures }, isReady: true }),
+}))
+
+jest.mock('../../../../../components/detail/hooks/useCustomFieldDisplay', () => ({
+  useCustomFieldDisplay: (entityId: string, options: { includeDictionaryEntries: boolean }) => customFieldDisplayMock(entityId, options),
+}))
+
 jest.mock('@open-mercato/ui/backend/Page', () => ({
   Page: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   PageBody: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -74,19 +87,21 @@ jest.mock('@open-mercato/ui/backend/detail', () => ({
     recordId,
     title,
     description,
+    readOnly,
   }: {
     entityId: string
     recordId: string | null
     title?: string
     description?: string
+    readOnly?: boolean
   }) => (
-    <div data-testid="attachments-section">
+    <div data-testid="attachments-section" data-read-only={readOnly}>
       {entityId}:{recordId}:{title}:{description}
     </div>
   ),
   ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
-  NotesSection: () => <div>notes</div>,
+  NotesSection: ({ readOnly }: { readOnly?: boolean }) => <div data-testid="notes-section" data-read-only={readOnly}>notes</div>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
@@ -327,7 +342,7 @@ function createDealPayload(closureOutcome: 'won' | 'lost' | null = null) {
     deal: {
       id: 'deal-1',
       title: 'Expansion renewal',
-      description: null,
+      description: 'The renewal includes an expanded rollout.',
       status: 'qualified',
       pipelineStage: 'Discovery',
       pipelineId: 'pipeline-1',
@@ -368,7 +383,7 @@ function createDealPayload(closureOutcome: 'won' | 'lost' | null = null) {
       people: 1,
       companies: 1,
     },
-    customFields: {},
+    customFields: { contract_tier: 'Enterprise tier' },
     viewer: {
       userId: 'user-1',
       name: 'Viewer User',
@@ -397,6 +412,7 @@ function createDealPayload(closureOutcome: 'won' | 'lost' | null = null) {
 
 describe('DealDetailPage', () => {
   beforeEach(() => {
+    grantedFeatures = ['customers.deals.view', 'customers.deals.manage', 'customers.interactions.view', 'customers.interactions.manage']
     activeTabParam = 'activities'
     detailRequestCount = 0
     injectedTabWidgets = []
@@ -414,6 +430,7 @@ describe('DealDetailPage', () => {
     activitiesSectionMock.mockClear()
     plannedActivitiesSectionMock.mockClear()
     dealFormMock.mockClear()
+    customFieldDisplayMock.mockClear()
     collapsibleZoneLayoutMock.mockClear()
 
     updateCrudMock.mockResolvedValue(undefined)
@@ -547,6 +564,7 @@ describe('DealDetailPage', () => {
 
   it('renders the attachments section on the files tab', async () => {
     activeTabParam = 'files'
+    grantedFeatures.push('attachments.view', 'attachments.manage')
 
     renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
 
@@ -555,6 +573,64 @@ describe('DealDetailPage', () => {
         'customer_deal:deal-1:Files:',
       )
     })
+  })
+
+  it('renders notes in read-only mode with notes view access', async () => {
+    activeTabParam = 'notes'
+    grantedFeatures = ['customers.deals.view', 'customers.activities.view']
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    expect(await screen.findByTestId('notes-section')).toHaveAttribute('data-read-only', 'true')
+  })
+
+  it('renders attachments in read-only mode with attachment view access', async () => {
+    activeTabParam = 'files'
+    grantedFeatures = ['customers.deals.view', 'attachments.view']
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    expect(await screen.findByTestId('attachments-section')).toHaveAttribute('data-read-only', 'true')
+  })
+
+  it('does not mount attachments from a direct tab URL without attachment view access', async () => {
+    activeTabParam = 'files'
+    grantedFeatures = ['customers.deals.view']
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    expect(await screen.findByText('The renewal includes an expanded rollout.')).toBeVisible()
+    expect(screen.queryByTestId('attachments-section')).not.toBeInTheDocument()
+  })
+
+  it('requires view access for the detail page', () => {
+    expect(metadata.requireFeatures).toEqual(['customers.deals.view'])
+  })
+
+  it('shows a deal and its custom values without mounting edit controls for a viewer', async () => {
+    grantedFeatures = ['customers.deals.view']
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    expect(await screen.findByText('The renewal includes an expanded rollout.')).toBeVisible()
+    expect(screen.getByText('Enterprise tier')).toBeVisible()
+    expect(customFieldDisplayMock).toHaveBeenCalledWith('customer_deal', { includeDictionaryEntries: false })
+    expect(screen.queryByRole('button', { name: 'Won' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Lost' })).not.toBeInTheDocument()
+    expect(dealFormMock).not.toHaveBeenCalled()
+    expect(collapsibleZoneLayoutMock).not.toHaveBeenCalled()
+    const requestedUrls = readApiResultOrThrowMock.mock.calls.map(([url]) => url)
+    expect(requestedUrls).not.toEqual(expect.arrayContaining([expect.stringMatching(/^\/api\/customers\/interactions/)]))
+  })
+
+  it('shows activity history without edit controls for a deal viewer with activity read access', async () => {
+    grantedFeatures = ['customers.deals.view', 'customers.interactions.view']
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    expect(await screen.findByText('activities')).toBeVisible()
+    expect(screen.getByTestId('planned-activities-section')).toHaveTextContent('schedule-disabled')
+    expect(inlineActivityComposerMock).not.toHaveBeenCalled()
   })
 
   it('seeds the embedded deal form with loaded pipeline metadata', async () => {
