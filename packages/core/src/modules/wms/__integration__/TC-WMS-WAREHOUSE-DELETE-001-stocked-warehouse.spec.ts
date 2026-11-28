@@ -40,7 +40,7 @@ type Fixture = {
   locationId: string | null
 }
 
-async function createStockedWarehouse(request: APIRequestContext, fixture: Fixture, quantity: number) {
+async function createStockedWarehouse(request: APIRequestContext, fixture: Fixture, quantity: number, markStocked: () => void) {
   const { token, scope, suffix } = fixture
   fixture.productId = await createProductFixture(request, token, {
     title: `TC-WMS-WAREHOUSE-DELETE ${suffix}`,
@@ -67,6 +67,7 @@ async function createStockedWarehouse(request: APIRequestContext, fixture: Fixtu
     type: 'bin',
     isActive: true,
   })
+  markStocked()
   await postAction(request, token, '/api/wms/inventory/receive', {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -129,8 +130,9 @@ test.describe('TC-WMS-WAREHOUSE-DELETE-001: a warehouse that still holds stock c
     const restoreAdminAcl = await ensureRoleFeatures(request, superadminToken, scope.tenantId, 'admin', STOCK_FEATURES)
 
     try {
-      await createStockedWarehouse(request, fixture, 5)
-      stock = 5
+      await createStockedWarehouse(request, fixture, 5, () => {
+        stock = 5
+      })
       const warehouseId = fixture.warehouseId as string
 
       const refused = await apiRequest(request, 'DELETE', `/api/wms/warehouses?id=${encodeURIComponent(warehouseId)}`, {
@@ -176,8 +178,9 @@ test.describe('TC-WMS-WAREHOUSE-DELETE-001: a warehouse that still holds stock c
     const restoreAdminAcl = await ensureRoleFeatures(request, superadminToken, scope.tenantId, 'admin', STOCK_FEATURES)
 
     try {
-      await createStockedWarehouse(request, fixture, 3)
-      stock = 3
+      await createStockedWarehouse(request, fixture, 3, () => {
+        stock = 3
+      })
 
       await login(page, 'admin')
       await ensureEnglishLocale(page)
