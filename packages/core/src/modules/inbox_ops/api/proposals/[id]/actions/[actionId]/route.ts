@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { LockMode } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
@@ -39,58 +40,56 @@ export async function PATCH(req: Request) {
     }
 
     const ctx = await resolveRequestContext(req)
-    const resolved = await resolveActionAndProposal(new URL(req.url), ctx)
-    if (isErrorResponse(resolved)) return resolved
+    const result = await ctx.em.transactional(async (em) => {
+      const resolved = await resolveActionAndProposal(new URL(req.url), { ...ctx, em }, LockMode.PESSIMISTIC_WRITE)
+      if (isErrorResponse(resolved)) return resolved
 
-    const { action } = resolved
+      const { action } = resolved
+      if (action.status !== 'pending' && action.status !== 'failed') {
+        return NextResponse.json({ error: 'Action already processed' }, { status: 409 })
+      }
 
-    if (action.status !== 'pending' && action.status !== 'failed') {
-      return NextResponse.json({ error: 'Action already processed' }, { status: 409 })
-    }
+      try {
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
+          resourceKind: 'inbox_ops.action',
+          resourceId: action.id,
+          current: action.updatedAt ?? null,
+          request: req,
+        })
+      } catch (err) {
+        if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+        throw err
+      }
 
-    // Optimistic lock: refuse a stale overwrite when two tabs edit the same action
-    // payload. Strictly additive — a no-op without the expected-version header.
-    try {
-      await enforceCommandOptimisticLockWithGuards(ctx.container, {
-        resourceKind: 'inbox_ops.action',
+      const mergedPayload = { ...action.payload, ...parsed.data.payload }
+      const { getInboxAction } = await import('@/.mercato/generated/inbox-actions.generated')
+      const definition = getInboxAction(action.actionType)
+      const payloadValidation = validateActionPayloadForType(action.actionType, mergedPayload, definition?.payloadSchema)
+      if (!payloadValidation.success) {
+        return NextResponse.json({ error: payloadValidation.error }, { status: 400 })
+      }
+
+      const guardResult = await validateCrudMutationGuard(ctx.container, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        userId: ctx.userId,
+        resourceKind: 'inbox_ops:inbox_proposal_action',
         resourceId: action.id,
-        current: action.updatedAt ?? null,
-        request: req,
+        operation: 'update',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        mutationPayload: parsed.data,
       })
-    } catch (err) {
-      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-      throw err
-    }
+      if (guardResult && !guardResult.ok) {
+        return NextResponse.json(guardResult.body, { status: guardResult.status })
+      }
 
-    const mergedPayload = { ...action.payload as Record<string, unknown>, ...parsed.data.payload }
-    const { getInboxAction } = await import('@/.mercato/generated/inbox-actions.generated')
-    const definition = getInboxAction(action.actionType)
-    const payloadValidation = validateActionPayloadForType(
-      action.actionType,
-      mergedPayload,
-      definition?.payloadSchema,
-    )
-    if (!payloadValidation.success) {
-      return NextResponse.json({ error: payloadValidation.error }, { status: 400 })
-    }
-
-    const guardResult = await validateCrudMutationGuard(ctx.container, {
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      userId: ctx.userId,
-      resourceKind: 'inbox_ops:inbox_proposal_action',
-      resourceId: action.id,
-      operation: 'update',
-      requestMethod: req.method,
-      requestHeaders: req.headers,
-      mutationPayload: parsed.data,
+      action.payload = mergedPayload
+      await em.flush()
+      return { action, guardResult }
     })
-    if (guardResult && !guardResult.ok) {
-      return NextResponse.json(guardResult.body, { status: guardResult.status })
-    }
-
-    action.payload = mergedPayload
-    await ctx.em.flush()
+    if (isErrorResponse(result)) return result
+    const { action, guardResult } = result
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(ctx.container, {

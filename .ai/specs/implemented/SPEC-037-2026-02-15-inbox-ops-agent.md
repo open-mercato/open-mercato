@@ -940,16 +940,21 @@ No client or database migration is required. The URL, method, signature headers,
 ```
 - **Errors**: 403 (insufficient permissions in target module), 409 (action already processed — optimistic locking), 422 (execution failed — error in response body)
 
-**PATCH `/api/inbox-ops/proposals/:id/actions/:actionId`**
+**PATCH `/api/inbox_ops/proposals/:id/actions/:actionId`**
 - **Auth**: `requireFeatures: ['inbox_ops.proposals.manage']`
 - **Request**: `{ payload: Record<string, unknown> }` (partial payload update, merged with existing)
 - **Response** (200):
 ```json
 {
+  "ok": true,
   "action": { "id": "uuid", "payload": { "...merged payload..." }, "status": "pending" }
 }
 ```
 - **Errors**: 400 (invalid payload against action-type-specific Zod schema), 409 (action already processed)
+- The edit checks the action status and expected record version under a row lock held through the payload write. A processed action returns `409 { "error": "Action already processed" }` and keeps its stored payload. A stale version on an editable action retains the structured optimistic-lock conflict.
+
+**POST `/api/inbox_ops/proposals/:id/actions/:actionId/reject`**
+- The existing `200 { "ok": true }` response requires the guarded rejection to update the action. If no row was updated, the route returns the existing `409 { "error": "Action already processed" }` body.
 
 **POST `/api/inbox-ops/emails/:id/reprocess`**
 - **Auth**: `requireFeatures: ['inbox_ops.proposals.manage']`
@@ -1927,6 +1932,10 @@ No parallel provider stack is introduced for InboxOps. The worker reuses the exi
 ---
 
 ## Changelog
+
+### 2026-11-24
+
+- **Atomic action edits and rejections** (#7914). Check edit eligibility at the write boundary and propagate a rejected transition to the route. The HTTP response schemas and record version header are preserved. No migration is required.
 
 ### 2026-10-18
 

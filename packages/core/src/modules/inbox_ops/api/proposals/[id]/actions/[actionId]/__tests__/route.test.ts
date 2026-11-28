@@ -2,6 +2,9 @@
 
 import { PATCH } from '@open-mercato/core/modules/inbox_ops/api/proposals/[id]/actions/[actionId]/route'
 import { InboxProposal, InboxProposalAction } from '@open-mercato/core/modules/inbox_ops/data/entities'
+import { LockMode } from '@mikro-orm/core'
+import { emitInboxOpsEvent } from '@open-mercato/core/modules/inbox_ops/events'
+import { invalidateCountsCache } from '@open-mercato/core/modules/inbox_ops/lib/cache'
 import { z } from 'zod'
 
 const mockFindOneWithDecryption = jest.fn()
@@ -20,14 +23,17 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => authResult),
 }))
 
+const mockTransactionEm = { flush: jest.fn() }
 const mockEm = {
   fork: jest.fn(),
-  flush: jest.fn(),
+  transactional: jest.fn(),
 }
+const mockGuard = { validateMutation: jest.fn(), afterMutationSuccess: jest.fn() }
 
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
+    if (token === 'crudMutationGuardService') return mockGuard
     return null
   }),
 }
@@ -44,6 +50,11 @@ jest.mock('@open-mercato/core/modules/inbox_ops/lib/eventBus', () => ({
 
 jest.mock('@open-mercato/core/modules/inbox_ops/events', () => ({
   emitInboxOpsEvent: jest.fn(),
+}))
+
+jest.mock('@open-mercato/core/modules/inbox_ops/lib/cache', () => ({
+  resolveCache: jest.fn(),
+  invalidateCountsCache: jest.fn(),
 }))
 
 const mockGetInboxAction = jest.fn()
@@ -66,7 +77,9 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
-    mockEm.flush.mockResolvedValue(undefined)
+    mockEm.transactional.mockImplementation((work) => work(mockTransactionEm))
+    mockTransactionEm.flush.mockResolvedValue(undefined)
+    mockGuard.validateMutation.mockResolvedValue({ ok: true, shouldRunAfterSuccess: false })
     mockGetInboxAction.mockReturnValue(undefined)
   })
 
@@ -101,15 +114,23 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
     expect(action.payload).toEqual(
       expect.objectContaining({ customerName: 'New Name', currencyCode: 'USD' }),
     )
-    expect(mockEm.flush).toHaveBeenCalled()
+    expect(mockFindOneWithDecryption).toHaveBeenNthCalledWith(
+      1,
+      mockTransactionEm,
+      InboxProposalAction,
+      { id: 'action-1', proposalId: 'proposal-1', tenantId: 'tenant-1', organizationId: 'org-1', deletedAt: null },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+    expect(mockTransactionEm.flush).toHaveBeenCalled()
   })
 
-  it('returns 409 when action is already executed', async () => {
+  it.each(['processing', 'executed'])('leaves a %s action unchanged at the locked read', async (status) => {
     const action = {
       id: 'action-1',
       proposalId: 'proposal-1',
       actionType: 'create_order',
-      status: 'executed',
+      status,
       payload: {},
     } as unknown as InboxProposalAction
 
@@ -126,8 +147,17 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
     const payload = await response.json()
 
     expect(response.status).toBe(409)
-    expect(payload.error).toContain('already processed')
-    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(payload).toEqual({ error: 'Action already processed' })
+    expect(action.payload).toEqual({})
+    expect(mockFindOneWithDecryption).toHaveBeenNthCalledWith(
+      1, mockTransactionEm, InboxProposalAction, expect.anything(),
+      { lockMode: LockMode.PESSIMISTIC_WRITE }, expect.anything(),
+    )
+    expect(mockTransactionEm.flush).not.toHaveBeenCalled()
+    expect(mockGuard.validateMutation).not.toHaveBeenCalled()
+    expect(mockGuard.afterMutationSuccess).not.toHaveBeenCalled()
+    expect(invalidateCountsCache).not.toHaveBeenCalled()
+    expect(emitInboxOpsEvent).not.toHaveBeenCalled()
   })
 
   it('returns 404 when action not found', async () => {
@@ -235,7 +265,7 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
     expect(action.payload).toEqual(
       expect.objectContaining({ customerName: 'Current Name' }),
     )
-    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(mockTransactionEm.flush).not.toHaveBeenCalled()
   })
 
   it('saves the action when the expected version matches the current one', async () => {
@@ -275,7 +305,34 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
     expect(action.payload).toEqual(
       expect.objectContaining({ customerName: 'New Name', currencyCode: 'USD' }),
     )
-    expect(mockEm.flush).toHaveBeenCalled()
+    expect(mockTransactionEm.flush).toHaveBeenCalled()
+  })
+
+  it('runs the mutation success hook, cache invalidation, and event after commit', async () => {
+    mockFindOneWithDecryption
+      .mockResolvedValueOnce({
+        id: 'action-1', proposalId: 'proposal-1', actionType: 'create_quote', status: 'pending',
+        payload: { customerName: 'Old Name' },
+      })
+      .mockResolvedValueOnce({ id: 'proposal-1', isActive: true })
+    mockGetInboxAction.mockReturnValue({ payloadSchema: z.object({ customerName: z.string() }) })
+    const guardMetadata = { approvalId: 'synthetic-approval' }
+    mockGuard.validateMutation.mockResolvedValueOnce({ ok: true, shouldRunAfterSuccess: true, metadata: guardMetadata })
+    mockEm.transactional.mockImplementationOnce(async (work) => {
+      const result = await work(mockTransactionEm)
+      expect(mockTransactionEm.flush).toHaveBeenCalled()
+      expect(mockGuard.afterMutationSuccess).not.toHaveBeenCalled()
+      expect(invalidateCountsCache).not.toHaveBeenCalled()
+      expect(emitInboxOpsEvent).not.toHaveBeenCalled()
+      return result
+    })
+
+    const response = await PATCH(makeRequest({ payload: { customerName: 'New Name' } }))
+
+    expect(response.status).toBe(200)
+    expect(mockGuard.afterMutationSuccess).toHaveBeenCalledWith(expect.objectContaining({ metadata: guardMetadata }))
+    expect(invalidateCountsCache).toHaveBeenCalled()
+    expect(emitInboxOpsEvent).toHaveBeenCalledWith('inbox_ops.action.edited', expect.objectContaining({ actionId: 'action-1' }))
   })
 
   it('validates the edit against an overridden action payloadSchema (#6279)', async () => {
@@ -305,7 +362,7 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
     expect(response.status).toBe(200)
     expect(payload.ok).toBe(true)
     expect(action.payload).toEqual({ customerName: 'B. Person', customerEmail: 'a@example.com' })
-    expect(mockEm.flush).toHaveBeenCalled()
+    expect(mockTransactionEm.flush).toHaveBeenCalled()
   })
 
   it('rejects an edit the overridden action payloadSchema refuses (#6279)', async () => {
@@ -330,7 +387,7 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
 
     expect(response.status).toBe(400)
     expect(payload.error).toContain('customerEmail')
-    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(mockTransactionEm.flush).not.toHaveBeenCalled()
   })
 
   it('falls back to the installed schema when no action definition is registered', async () => {
@@ -351,7 +408,7 @@ describe('PATCH /api/inbox_ops/proposals/[id]/actions/[actionId]', () => {
 
     expect(response.status).toBe(400)
     expect(payload.error).toContain('Invalid payload for create_quote')
-    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(mockTransactionEm.flush).not.toHaveBeenCalled()
   })
 
   it('returns 401 when not authenticated', async () => {

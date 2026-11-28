@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { LockMode } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { EventBus } from '@open-mercato/events/types'
@@ -63,6 +64,7 @@ export function extractPathSegment(url: URL, afterSegment: string): string | nul
 export async function resolveActionAndProposal(
   url: URL,
   ctx: RequestContext,
+  actionLockMode?: LockMode,
 ): Promise<{ action: InboxProposalAction; proposal: InboxProposal } | NextResponse> {
   const proposalId = extractPathSegment(url, 'proposals')
   const actionId = extractPathSegment(url, 'actions')
@@ -81,7 +83,7 @@ export async function resolveActionAndProposal(
       tenantId: ctx.tenantId,
       deletedAt: null,
     },
-    undefined,
+    actionLockMode === undefined ? undefined : { lockMode: actionLockMode },
     ctx.scope,
   )
 

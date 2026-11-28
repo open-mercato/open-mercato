@@ -7,6 +7,7 @@ import {
   recalculateProposalStatus,
   acceptAllActions,
   getRequiredFeature,
+  tryRejectAction,
 } from '../executionEngine'
 import type { InboxProposalAction } from '../../data/entities'
 
@@ -257,7 +258,7 @@ describe('executionEngine', () => {
       const action = makeAction()
       mockFindOneWithDecryption.mockResolvedValueOnce(action)
 
-      await rejectAction(action, makeCtx(em))
+      await expect(rejectAction(action, makeCtx(em))).resolves.toBeUndefined()
 
       expect(em.nativeUpdate).toHaveBeenCalledWith(
         expect.anything(),
@@ -270,13 +271,14 @@ describe('executionEngine', () => {
       )
     })
 
-    it('is a no-op when action was already processed (claimed=0)', async () => {
+    it('reports an unclaimed rejection without running side effects', async () => {
       const em = createMockEm()
       em.nativeUpdate.mockResolvedValue(0)
-      const action = makeAction({ status: 'executed' } as any)
+      const action = makeAction()
 
-      await rejectAction(action, makeCtx(em))
+      await expect(tryRejectAction(action, makeCtx(em))).resolves.toBe(false)
 
+      expect(em.nativeUpdate).toHaveBeenCalledTimes(1)
       expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
       expect(mockEventBus.emit).not.toHaveBeenCalled()
     })
