@@ -80,6 +80,110 @@ describe('canReadSearchEntity', () => {
       canReadSearchEntity('wms:warehouse', lookup, { grantedFeatures: [], isSuperAdmin: true }),
     ).toBe(true)
   })
+
+  it('allows any declared feature when aclFeaturesMode is "any" and filterResults is declared', () => {
+    const polyLookup = {
+      getEntityConfig: (entityId: string): SearchEntityConfig | undefined =>
+        entityId === 'sales:sales_note'
+          ? {
+              entityId: 'sales:sales_note',
+              aclFeatures: ['sales.orders.view', 'sales.quotes.view', 'sales.invoices.manage'],
+              aclFeaturesMode: 'any',
+              filterResults: ({ results }) => results,
+            }
+          : undefined,
+      getAllEntityConfigs: () => [],
+    }
+
+    expect(
+      canReadSearchEntity('sales:sales_note', polyLookup, { grantedFeatures: ['sales.quotes.view'] }),
+    ).toBe(true)
+    expect(
+      canReadSearchEntity('sales:sales_note', polyLookup, { grantedFeatures: ['sales.*'] }),
+    ).toBe(true)
+
+    const reasons: SearchEntityDenyReason[] = []
+    expect(
+      canReadSearchEntity('sales:sales_note', polyLookup, { grantedFeatures: ['customers.people.view'] }, {
+        onDeny: (_entityId, reason) => reasons.push(reason),
+      }),
+    ).toBe(false)
+    expect(reasons).toEqual(['insufficient-features'])
+  })
+
+  it('fails closed when aclFeaturesMode is "any" without a filterResults hook', () => {
+    const unsafeLookup = {
+      getEntityConfig: (): SearchEntityConfig => ({
+        entityId: 'sales:sales_note',
+        aclFeatures: ['sales.orders.view', 'sales.quotes.view'],
+        aclFeaturesMode: 'any',
+      }),
+      getAllEntityConfigs: () => [],
+    }
+    const reasons: SearchEntityDenyReason[] = []
+
+    expect(
+      canReadSearchEntity('sales:sales_note', unsafeLookup, { grantedFeatures: ['sales.orders.view'] }, {
+        onDeny: (_entityId, reason) => reasons.push(reason),
+      }),
+    ).toBe(false)
+    expect(reasons).toEqual(['missing-result-filter'])
+  })
+
+  it('fails closed for empty aclFeatures or unknown aclFeaturesMode', () => {
+    const emptyLookup = {
+      getEntityConfig: (): SearchEntityConfig => ({
+        entityId: 'sales:sales_note',
+        aclFeatures: [],
+        aclFeaturesMode: 'any',
+        filterResults: ({ results }) => results,
+      }),
+      getAllEntityConfigs: () => [],
+    }
+    const emptyReasons: SearchEntityDenyReason[] = []
+    expect(
+      canReadSearchEntity('sales:sales_note', emptyLookup, { grantedFeatures: ['*'] }, {
+        onDeny: (_entityId, reason) => emptyReasons.push(reason),
+      }),
+    ).toBe(false)
+    expect(emptyReasons).toEqual(['no-acl-features'])
+
+    const badModeLookup = {
+      getEntityConfig: (): SearchEntityConfig => ({
+        entityId: 'sales:sales_note',
+        aclFeatures: ['sales.orders.view'],
+        aclFeaturesMode: 'bogus' as never,
+        filterResults: ({ results }) => results,
+      }),
+      getAllEntityConfigs: () => [],
+    }
+    const badModeReasons: SearchEntityDenyReason[] = []
+    expect(
+      canReadSearchEntity('sales:sales_note', badModeLookup, { grantedFeatures: ['*'] }, {
+        onDeny: (_entityId, reason) => badModeReasons.push(reason),
+      }),
+    ).toBe(false)
+    expect(badModeReasons).toEqual(['insufficient-features'])
+  })
+
+  it('requires every declared feature when aclFeaturesMode is omitted or "all"', () => {
+    const multiLookup = {
+      getEntityConfig: (): SearchEntityConfig => ({
+        entityId: 'sales:composite',
+        aclFeatures: ['sales.orders.view', 'sales.quotes.view'],
+      }),
+      getAllEntityConfigs: () => [],
+    }
+
+    expect(
+      canReadSearchEntity('sales:composite', multiLookup, { grantedFeatures: ['sales.orders.view'] }),
+    ).toBe(false)
+    expect(
+      canReadSearchEntity('sales:composite', multiLookup, {
+        grantedFeatures: ['sales.orders.view', 'sales.quotes.view'],
+      }),
+    ).toBe(true)
+  })
 })
 
 describe('resolveReadableEntityTypes', () => {

@@ -87,7 +87,7 @@ Required fields MUST NOT be removed or narrowed. Optional fields may be added fr
 - `InjectionWidgetMetadata`: `id`, `title` — MUST NOT remove
 - `InjectionWidgetComponentProps`: `context`, `data`, `onDataChange`, `disabled` — MUST NOT remove
 - `WidgetInjectionEventHandlers`: all existing handler names (`onLoad`, `onBeforeSave`, `onSave`, `onAfterSave`, `onBeforeDelete`, `onDelete`, `onAfterDelete`, `onDeleteError`) — MUST NOT remove or change signatures
-- `SearchModuleConfig`: `entities` — MUST NOT remove; `SearchEntityConfig.entityId` — MUST NOT remove
+- `SearchModuleConfig.entities` and `SearchEntityConfig.entityId` stay required. Optional, fail-closed `filterResults`, `SearchOptions.viewer`, and `aclFeaturesMode` (`all` default, `any` requires `filterResults`) are additive.
 - `NotificationTypeDefinition`: `type`, `module`, `titleKey`, `icon`, `severity`, `actions` — MUST NOT remove
 - `DashboardWidgetMetadata`: `id`, `title` — MUST NOT remove
 - `DashboardWidgetComponentProps`: `mode`, `layout`, `settings`, `context`, `onSettingsChange`, `refreshToken` — MUST NOT remove

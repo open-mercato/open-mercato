@@ -1,9 +1,196 @@
-import type { SearchBuildContext, SearchIndexSource, SearchModuleConfig, SearchResultPresenter } from '@open-mercato/shared/modules/search'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type {
+  SearchBuildContext,
+  SearchIndexSource,
+  SearchModuleConfig,
+  SearchResult,
+  SearchResultPresenter,
+  SearchResultVisibilityContext,
+} from '@open-mercato/shared/modules/search'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+const SALES_DOCUMENT_VIEW_FEATURE_BY_KIND: Record<SalesDocumentKind, string> = {
+  order: 'sales.orders.view',
+  quote: 'sales.quotes.view',
+  invoice: 'sales.invoices.manage',
+  credit_memo: 'sales.credit_memos.manage',
+}
+
+type ContainerLike = { resolve: <T = unknown>(name: string) => T }
+
+type SalesAclData = {
+  isSuperAdmin: boolean
+  features: string[]
+  organizations: string[] | null
+}
+
+type RbacServiceLike = {
+  loadAcl: (
+    userId: string,
+    scope: { tenantId: string | null; organizationId: string | null },
+  ) => Promise<SalesAclData>
+}
+
+function isContainerLike(value: unknown): value is ContainerLike {
+  return typeof value === 'object' && value !== null && typeof (value as { resolve?: unknown }).resolve === 'function'
+}
+
+function isOrganizationVisible(ctx: SearchResultVisibilityContext, organizationId: string | null): boolean {
+  if (!organizationId) return false
+  if (ctx.organizationId) return organizationId === ctx.organizationId
+  if (Array.isArray(ctx.organizationIds)) return ctx.organizationIds.includes(organizationId)
+  return true
+}
+
+function isValidRbacSubject(sub: unknown): sub is string {
+  if (typeof sub !== 'string' || sub.length === 0) return false
+  if (sub.startsWith('api_key:')) {
+    return UUID_PATTERN.test(sub.slice('api_key:'.length))
+  }
+  return UUID_PATTERN.test(sub)
+}
+
+function resolveSalesDocumentViewFeature(kind: unknown): string | null {
+  if (kind === 'order' || kind === 'quote' || kind === 'invoice' || kind === 'credit_memo') {
+    return SALES_DOCUMENT_VIEW_FEATURE_BY_KIND[kind]
+  }
+  return null
+}
+
+async function filterVisibleSalesPolymorphicRecords(
+  ctx: SearchResultVisibilityContext,
+  loadRows: (
+    em: EntityManager,
+    ids: string[],
+    tenantId: string,
+    decryptionScope: { tenantId: string; organizationId: string | null },
+  ) => Promise<Array<{ id: string; tenantId: string; organizationId: string | null; kind: unknown }>>,
+): Promise<SearchResult[]> {
+  const container = ctx.viewer.container
+  if (!isContainerLike(container)) {
+    throw new Error('[internal] Sales visibility check requires a request container')
+  }
+  const auth = ctx.viewer.auth
+  if (!isValidRbacSubject(auth.sub)) return []
+  const isApiKeySubject = auth.isApiKey === true || auth.sub.startsWith('api_key:')
+  if (isApiKeySubject && auth.tenantId !== ctx.tenantId) return []
+  if (!ctx.organizationId && Array.isArray(ctx.organizationIds) && ctx.organizationIds.length === 0) return []
+
+  const recordIds = Array.from(
+    new Set(ctx.results.map((result) => result.recordId).filter((id) => UUID_PATTERN.test(id))),
+  )
+  if (!recordIds.length) return []
+
+  const em = container.resolve<EntityManager>('em')
+  const rbac = container.resolve<RbacServiceLike>('rbacService')
+  if (!rbac || typeof rbac.loadAcl !== 'function') {
+    throw new Error('[internal] Sales visibility check requires rbacService')
+  }
+
+  const decryptionScope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId ?? null }
+  const rows = await loadRows(em, recordIds, ctx.tenantId, decryptionScope)
+  if (!rows.length) return []
+
+  const aclByOrg = new Map<string, Promise<SalesAclData>>()
+  const loadOrgAcl = (organizationId: string): Promise<SalesAclData> => {
+    let pending = aclByOrg.get(organizationId)
+    if (!pending) {
+      pending = rbac.loadAcl(auth.sub, { tenantId: ctx.tenantId, organizationId })
+      aclByOrg.set(organizationId, pending)
+    }
+    return pending
+  }
+
+  const visibleIds = new Set<string>()
+  for (const row of rows) {
+    if (row.tenantId !== ctx.tenantId) continue
+    const organizationId = row.organizationId ?? null
+    if (!organizationId || !isOrganizationVisible(ctx, organizationId)) continue
+    const requiredFeature = resolveSalesDocumentViewFeature(row.kind)
+    if (!requiredFeature) continue
+    const acl = await loadOrgAcl(organizationId)
+    if (typeof acl?.isSuperAdmin !== 'boolean' || !Array.isArray(acl.features)) {
+      throw new Error('[internal] Invalid ACL data during sales visibility check')
+    }
+    if (auth.tenantId !== ctx.tenantId && !acl.isSuperAdmin) {
+      continue
+    }
+    if (
+      !acl.isSuperAdmin
+      && Array.isArray(acl.organizations)
+      && !acl.organizations.includes(organizationId)
+      && !acl.organizations.includes('__all__')
+    ) {
+      continue
+    }
+    if (
+      authorizeFeatures([requiredFeature], {
+        grantedFeatures: acl.features,
+        unrestricted: acl.isSuperAdmin,
+      })
+    ) {
+      visibleIds.add(row.id)
+    }
+  }
+
+  return ctx.results.filter((result) => visibleIds.has(result.recordId))
+}
+
+/**
+ * Keep only `sales:sales_note` search hits whose `contextType` (`order`, `quote`,
+ * `invoice`, `credit_memo`) the viewer is authorized to view in that row's
+ * organization via live RBAC evaluation. Unknown kinds and missing rows fail closed.
+ */
+export async function filterVisibleSalesNotes(ctx: SearchResultVisibilityContext): Promise<SearchResult[]> {
+  return filterVisibleSalesPolymorphicRecords(ctx, async (em, ids, tenantId, decryptionScope) => {
+    const { SalesNote } = await import('./data/entities')
+    const notes = await findWithDecryption(
+      em,
+      SalesNote,
+      { id: { $in: ids }, tenantId, deletedAt: null },
+      { fields: ['id', 'tenantId', 'organizationId', 'contextType'] },
+      decryptionScope,
+    )
+    return notes.map((note) => ({
+      id: note.id,
+      tenantId: note.tenantId,
+      organizationId: note.organizationId ?? null,
+      kind: note.contextType,
+    }))
+  })
+}
+
+/**
+ * Keep only `sales:sales_document_address` search hits whose `documentKind`
+ * (`order`, `quote`, `invoice`, `credit_memo`) the viewer is authorized to view
+ * in that row's organization via live RBAC evaluation. Unknown kinds fail closed.
+ */
+export async function filterVisibleSalesDocumentAddresses(ctx: SearchResultVisibilityContext): Promise<SearchResult[]> {
+  return filterVisibleSalesPolymorphicRecords(ctx, async (em, ids, tenantId, decryptionScope) => {
+    const { SalesDocumentAddress } = await import('./data/entities')
+    const addresses = await findWithDecryption(
+      em,
+      SalesDocumentAddress,
+      { id: { $in: ids }, tenantId, deletedAt: null },
+      { fields: ['id', 'tenantId', 'organizationId', 'documentKind'] },
+      decryptionScope,
+    )
+    return addresses.map((address) => ({
+      id: address.id,
+      tenantId: address.tenantId,
+      organizationId: address.organizationId ?? null,
+      kind: address.documentKind,
+    }))
+  })
+}
 
 const SALES_CONFIG_URL = '/backend/config/sales'
 const SALES_CHANNELS_URL = '/backend/sales/channels'
@@ -754,9 +941,11 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: 'sales:sales_note',
-      aclFeatures: ['sales.orders.view'],
-      enabled: false,
+      aclFeatures: ['sales.orders.view', 'sales.quotes.view', 'sales.invoices.manage', 'sales.credit_memos.manage'],
+      aclFeaturesMode: 'any',
+      enabled: true,
       priority: 7,
+      filterResults: filterVisibleSalesNotes,
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record
@@ -778,9 +967,11 @@ export const searchConfig: SearchModuleConfig = {
     },
     {
       entityId: 'sales:sales_document_address',
-      aclFeatures: ['sales.orders.view'],
-      enabled: false,
+      aclFeatures: ['sales.orders.view', 'sales.quotes.view', 'sales.invoices.manage', 'sales.credit_memos.manage'],
+      aclFeaturesMode: 'any',
+      enabled: true,
       priority: 7,
+      filterResults: filterVisibleSalesDocumentAddresses,
       buildSource: async (ctx) => {
         const { t: translate } = await resolveTranslations()
         const record = ctx.record

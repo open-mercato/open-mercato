@@ -21,6 +21,8 @@ export type SearchEntityDenyReason =
   | 'unconfigured'
   /** The entity is configured for search but declares no `aclFeatures`. */
   | 'no-acl-features'
+  /** The entity uses `aclFeaturesMode: 'any'` without a `filterResults` hook. */
+  | 'missing-result-filter'
   /** The caller does not hold the entity's declared view feature(s). */
   | 'insufficient-features'
 
@@ -65,12 +67,31 @@ export function canReadSearchEntity(
     return false
   }
 
-  const allowed = authorizeFeatures(required, {
-    grantedFeatures: subject.grantedFeatures,
-    unrestricted: false,
-  })
-  if (!allowed) options.onDeny?.(entityId, 'insufficient-features')
-  return allowed
+  const mode = config.aclFeaturesMode ?? 'all'
+  if (mode === 'all') {
+    const allowed = authorizeFeatures(required, {
+      grantedFeatures: subject.grantedFeatures,
+      unrestricted: false,
+    })
+    if (!allowed) options.onDeny?.(entityId, 'insufficient-features')
+    return allowed
+  }
+
+  if (mode === 'any') {
+    if (typeof config.filterResults !== 'function') {
+      options.onDeny?.(entityId, 'missing-result-filter')
+      return false
+    }
+    const allowed = required.some((feature) => authorizeFeatures([feature], {
+      grantedFeatures: subject.grantedFeatures,
+      unrestricted: false,
+    }))
+    if (!allowed) options.onDeny?.(entityId, 'insufficient-features')
+    return allowed
+  }
+
+  options.onDeny?.(entityId, 'insufficient-features')
+  return false
 }
 
 /**
