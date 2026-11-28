@@ -12,7 +12,7 @@ import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ActionLogDetailsDialog } from './ActionLogDetailsDialog'
 import { Undo2, RotateCcw } from 'lucide-react'
-import { markRedoConsumed, markUndoSuccess } from '@open-mercato/ui/backend/operations/store'
+import { markRedoConsumed, markUndoSuccess, markUndoRefused, useRefusedUndoTokens } from '@open-mercato/ui/backend/operations/store'
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from '@open-mercato/ui/backend/version-history'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -79,6 +79,7 @@ export function AuditLogsActions({
   pagination?: PaginationProps
 }) {
   const t = useT()
+  const refusedUndoTokens = useRefusedUndoTokens()
   const permissions = useAuditPermissions(true)
   const [undoingToken, setUndoingToken] = React.useState<string | null>(null)
   const [redoingId, setRedoingId] = React.useState<string | null>(null)
@@ -131,6 +132,10 @@ export function AuditLogsActions({
       markUndoSuccess(token)
       await onRefresh()
     } catch (err) {
+      if (err instanceof Error && 'status' in err && err.status === 409
+        && 'code' in err && err.code === 'eudr.errors.undoConflict') {
+        markUndoRefused(token)
+      }
       logger.error('Undo action failed', { err })
       onUndoError?.(resolveServerReason(err))
     } finally {
@@ -220,7 +225,7 @@ export function AuditLogsActions({
   const rowActions = React.useCallback((item: ActionLogItem) => {
     const itemCanUndo = canUndoEntry(permissions, item.actorUserId)
     const itemCanRedo = canRedoEntry(permissions, item.actorUserId)
-    const canUndo = itemCanUndo && Boolean(item.undoToken) && item.executionState === 'done' && isLatestUndoableForItem(item)
+    const canUndo = itemCanUndo && !refusedUndoTokens.includes(item.undoToken ?? '') && Boolean(item.undoToken) && item.executionState === 'done' && isLatestUndoableForItem(item)
     const showRedo = itemCanRedo && item.executionState === 'undone'
     const canRedo = showRedo && isRedoCandidate(item)
     if (!canUndo && !showRedo) return null
@@ -263,9 +268,9 @@ export function AuditLogsActions({
         ) : null}
       </AuditLogRowActions>
     )
-  }, [t, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId, permissions])
+  }, [t, handleUndo, handleRedo, isLatestUndoableForItem, isRedoCandidate, undoingToken, redoingId, permissions, refusedUndoTokens])
 
-  const undoButton = latestUndoable?.undoToken && canUndoEntry(permissions, latestUndoable.actorUserId) ? (
+  const undoButton = latestUndoable?.undoToken && !refusedUndoTokens.includes(latestUndoable.undoToken) && canUndoEntry(permissions, latestUndoable.actorUserId) ? (
     <Button
       type="button"
       variant="secondary"

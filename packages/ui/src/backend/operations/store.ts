@@ -15,9 +15,10 @@ export type UndoneEntry = OperationEntry & {
 type OperationStoreState = {
   stack: OperationEntry[]
   undone: UndoneEntry[]
+  refusedUndoTokens: string[]
 }
 
-const DEFAULT_STATE: OperationStoreState = { stack: [], undone: [] }
+const DEFAULT_STATE: OperationStoreState = { stack: [], undone: [], refusedUndoTokens: [] }
 
 const STORAGE_KEY = 'om:last-operations:v1'
 const STACK_LIMIT = 20
@@ -67,7 +68,10 @@ function loadState(): OperationStoreState {
           return { ...hydrated, undoneAt }
         })
       : []
-    return pruneState({ stack, undone })
+    const refusedUndoTokens = Array.isArray(parsed.refusedUndoTokens)
+      ? parsed.refusedUndoTokens.filter((token: unknown): token is string => typeof token === 'string').slice(-STACK_LIMIT)
+      : []
+    return pruneState({ stack, undone, refusedUndoTokens })
   } catch {
     return DEFAULT_STATE
   }
@@ -131,7 +135,7 @@ function pruneState(state: OperationStoreState): OperationStoreState {
     .filter((entry) => timestamp - entry.undoneAt <= STACK_RETENTION_MS)
     .sort((a, b) => a.undoneAt - b.undoneAt)
     .slice(-STACK_LIMIT)
-  const next = { stack, undone }
+  const next = { stack, undone, refusedUndoTokens: state.refusedUndoTokens }
   return next
 }
 
@@ -174,7 +178,7 @@ export function pushOperation(meta: OperationMetadataPayload) {
     }
     const stack = prev.stack.filter((item) => item.id !== entry.id && item.undoToken !== entry.undoToken)
     stack.push(entry)
-    return { stack, undone: [] }
+    return { ...prev, stack, undone: [] }
   })
 }
 
@@ -210,7 +214,7 @@ export function markUndoSuccess(undoTokens: string | string[]) {
     const undone = removed.length
       ? [...prev.undone, ...removed.map((entry) => ({ ...entry, undoneAt: now() }))]
       : prev.undone
-    return { stack: nextStack, undone }
+    return { ...prev, stack: nextStack, undone }
   })
 }
 
@@ -234,8 +238,21 @@ export function dismissOperation(undoTokens: string | string[]) {
         nextStack.push({ ...entry, bulkUndoTokens: remaining, bulkCount: remaining.length })
       }
     }
-    return { stack: nextStack, undone: prev.undone }
+    return { ...prev, stack: nextStack }
   })
+}
+
+export function markUndoRefused(undoToken: string) {
+  if (typeof window === 'undefined') return
+  dismissOperation(undoToken)
+  updateState((prev) => ({
+    ...prev,
+    refusedUndoTokens: [...prev.refusedUndoTokens.filter((token) => token !== undoToken), undoToken].slice(-STACK_LIMIT),
+  }))
+}
+
+export function useRefusedUndoTokens(): string[] {
+  return useOperationStore((state) => state.refusedUndoTokens)
 }
 
 export type CoalesceOptions = {
@@ -275,14 +292,14 @@ export function coalesceLastOperations(count: number, options: CoalesceOptions =
       bulkCount: tail.length,
       receivedAt: now(),
     }
-    return { stack: [...head, synthetic], undone: prev.undone }
+    return { ...prev, stack: [...head, synthetic] }
   })
 }
 
 export function markRedoConsumed(logId: string) {
   if (typeof window === 'undefined') return
   updateState((prev) => ({
-    stack: prev.stack,
+    ...prev,
     undone: prev.undone.filter((entry) => entry.id !== logId),
   }))
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useRefusedUndoTokens } from '@open-mercato/ui/backend/operations/store'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -78,6 +79,7 @@ export default function EudrProductMappingsPage() {
   const [filters, setFilters] = React.useState<FilterValues>({})
   const [loading, setLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const refusedUndoTokens = useRefusedUndoTokens()
   const [suggestionsOpen, setSuggestionsOpen] = React.useState(false)
   const mutationContextId = 'eudr-product-mappings-list:delete'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -140,7 +142,7 @@ export default function EudrProductMappingsPage() {
     return () => {
       cancelled = true
     }
-  }, [queryParams, reloadToken, scopeVersion, translate])
+  }, [queryParams, reloadToken, scopeVersion, translate, refusedUndoTokens])
 
   const refreshRows = React.useCallback(() => {
     setReloadToken((currentToken) => currentToken + 1)

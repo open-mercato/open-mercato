@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { useRefusedUndoTokens } from '@open-mercato/ui/backend/operations/store'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Plus } from 'lucide-react'
@@ -112,6 +113,7 @@ export default function EudrRiskAssessmentsPage() {
   const [search, setSearch] = React.useState('')
   const [loading, setLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const refusedUndoTokens = useRefusedUndoTokens()
   const mutationContextId = 'eudr-risk-assessments-list:delete'
   const { runMutation, retryLastMutation } = useGuardedMutation<MutationContext>({
     contextId: mutationContextId,
@@ -171,7 +173,7 @@ export default function EudrRiskAssessmentsPage() {
     return () => {
       cancelled = true
     }
-  }, [queryParams, reloadToken, scopeVersion, translate])
+  }, [queryParams, reloadToken, scopeVersion, translate, refusedUndoTokens])
 
   const refreshRows = React.useCallback(() => {
     setReloadToken((currentToken) => currentToken + 1)
