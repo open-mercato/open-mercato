@@ -38,6 +38,7 @@ function buildEm(opts: { rejectFlushOnCall?: number } = {}) {
   const calls: string[] = []
   let flushCount = 0
   const em: Record<string, unknown> = {
+    execute: jest.fn(async () => { calls.push('lock') }),
     findOne: jest.fn().mockResolvedValue(null),
     find: jest.fn().mockImplementation(async () => {
       calls.push('find')
@@ -114,7 +115,11 @@ describe('catalog.categories.create atomicity', () => {
     expect(em.commit).toHaveBeenCalledTimes(1)
     expect(em.rollback).not.toHaveBeenCalled()
     // Hierarchy rebuild query must run inside the transaction (after begin, before commit).
-    expect(calls.indexOf('begin')).toBeLessThan(calls.indexOf('find'))
+    expect(em.execute).toHaveBeenCalledWith('select pg_advisory_xact_lock(hashtextextended(?, 0))', [
+      `catalog:category-hierarchy:${TENANT}:${ORG}`,
+    ])
+    expect(calls.indexOf('begin')).toBeLessThan(calls.indexOf('lock'))
+    expect(calls.indexOf('lock')).toBeLessThan(calls.indexOf('flush'))
     expect(calls.indexOf('find')).toBeLessThan(calls.indexOf('commit'))
     expect(dataEngine.markOrmEntityChange).toHaveBeenCalled()
   })

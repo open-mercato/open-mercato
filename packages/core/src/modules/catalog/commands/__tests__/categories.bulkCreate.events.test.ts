@@ -51,6 +51,7 @@ function loadCreateCommand(): CreateCommand {
 function buildEm() {
   let idCounter = 0
   const em: Record<string, unknown> = {
+    execute: jest.fn(async () => undefined),
     findOne: jest.fn().mockResolvedValue(null),
     find: jest.fn().mockResolvedValue([]),
     create: jest.fn().mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({

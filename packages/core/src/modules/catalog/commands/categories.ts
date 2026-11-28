@@ -12,7 +12,7 @@ import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CatalogProductCategory } from '../data/entities'
 import {
@@ -23,7 +23,11 @@ import {
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
-import { findCategoryParentCycle, rebuildCategoryHierarchyForOrganization } from '../lib/categoryHierarchy'
+import {
+  findCategoryParentCycle,
+  lockCategoryHierarchyForOrganization,
+  rebuildCategoryHierarchyForOrganization,
+} from '../lib/categoryHierarchy'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { E } from '#generated/entities.ids.generated'
@@ -91,9 +95,14 @@ const CATEGORY_CHANGE_KEYS = [
   'isActive',
 ] as const satisfies readonly string[]
 
+const lockedUpdateSnapshots = new WeakMap<{ categoryId: string }, CategorySnapshot>()
+
 async function loadCategorySnapshot(em: EntityManager, id: string): Promise<CategorySnapshot | null> {
   const record = await em.findOne(CatalogProductCategory, { id })
-  if (!record) return null
+  return record ? snapshotCategory(em, record) : null
+}
+
+async function snapshotCategory(em: EntityManager, record: CatalogProductCategory): Promise<CategorySnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product_category,
     recordId: record.id,
@@ -162,7 +171,7 @@ async function assertCategoryParentKeepsTreeAcyclic(
     em,
     CatalogProductCategory,
     { organizationId: record.organizationId, tenantId: record.tenantId, deletedAt: null },
-    undefined,
+    { refresh: true },
     { tenantId: record.tenantId, organizationId: record.organizationId },
   )
   if (!findCategoryParentCycle(categories, [String(record.id)])) return
@@ -205,42 +214,45 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const slug = normalizeSlug(parsed.slug ?? null)
-    if (slug) {
-      const conflict = await em.findOne(CatalogProductCategory, {
-        slug,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        deletedAt: null,
-      })
-      if (conflict) {
-        throw new CrudHttpError(400, { error: 'Category slug already exists for this organization.' })
-      }
-    }
-    const parentId = parsed.parentId ? String(parsed.parentId) : null
-    const resolvedParent = await assertParentScope(em, parentId, parsed.organizationId, parsed.tenantId)
-
-    const now = new Date()
-    const record = em.create(CatalogProductCategory, {
-      organizationId: parsed.organizationId,
-      tenantId: parsed.tenantId,
-      name: parsed.name,
-      slug,
-      description: parsed.description?.trim()?.length ? parsed.description.trim() : null,
-      parentId: resolvedParent,
-      depth: 0,
-      ancestorIds: [],
-      childIds: [],
-      descendantIds: [],
-      isActive: parsed.isActive !== false,
-      createdAt: now,
-      updatedAt: now,
-    })
-    em.persist(record)
+    let record!: CatalogProductCategory
     await withAtomicFlush(
       em,
       [
-        () => em.flush(),
+        async () => {
+          await lockCategoryHierarchyForOrganization(em, parsed.organizationId, parsed.tenantId)
+          const slug = normalizeSlug(parsed.slug ?? null)
+          if (slug) {
+            const conflict = await em.findOne(CatalogProductCategory, {
+              slug,
+              organizationId: parsed.organizationId,
+              tenantId: parsed.tenantId,
+              deletedAt: null,
+            })
+            if (conflict) {
+              throw new CrudHttpError(400, { error: 'Category slug already exists for this organization.' })
+            }
+          }
+          const parentId = parsed.parentId ? String(parsed.parentId) : null
+          const resolvedParent = await assertParentScope(em, parentId, parsed.organizationId, parsed.tenantId)
+
+          const now = new Date()
+          record = em.create(CatalogProductCategory, {
+            organizationId: parsed.organizationId,
+            tenantId: parsed.tenantId,
+            name: parsed.name,
+            slug,
+            description: parsed.description?.trim()?.length ? parsed.description.trim() : null,
+            parentId: resolvedParent,
+            depth: 0,
+            ancestorIds: [],
+            childIds: [],
+            descendantIds: [],
+            isActive: parsed.isActive !== false,
+            createdAt: now,
+            updatedAt: now,
+          })
+          em.persist(record)
+        },
         async () => {
           if (ctx.bulkImport?.skipDerivedRebuild) return
           await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
@@ -299,12 +311,14 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    record.deletedAt = new Date()
-    record.isActive = false
     await withAtomicFlush(
       em,
       [
-        () => em.flush(),
+        async () => {
+          await lockCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+          record.deletedAt = new Date()
+          record.isActive = false
+        },
         async () => {
           await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
         },
@@ -329,6 +343,14 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
     seedFromSnapshot: categorySeedFromSnapshot,
     buildResult: (entity) => ({ categoryId: entity.id }),
     events: categoryCrudEvents,
+    transaction: true,
+    findRow: async ({ em, ctx, id, snapshot }) => {
+      const { organizationId, tenantId } = snapshot
+      ensureTenantScope(ctx, tenantId)
+      ensureOrganizationScope(ctx, organizationId)
+      await lockCategoryHierarchyForOrganization(em, organizationId, tenantId)
+      return findOneWithDecryption(em, CatalogProductCategory, { id, organizationId, tenantId })
+    },
     afterRestore: async ({ em, ctx, entity, snapshot }) => {
       await rebuildCategoryHierarchyForOrganization(em, entity.organizationId, entity.tenantId)
       if (snapshot.custom && Object.keys(snapshot.custom).length) {
@@ -339,6 +361,7 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
           organizationId: entity.organizationId,
           tenantId: entity.tenantId,
           values: snapshot.custom,
+          transactionalEm: em,
         })
       }
     },
@@ -347,9 +370,10 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
 
 const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: string }> = {
   id: 'catalog.categories.update',
+  prepareSnapshotInsideTransaction: true,
   async prepare(input, ctx) {
     const id = requireId(input, 'Category id is required')
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadCategorySnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -360,76 +384,89 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
   async execute(input, ctx) {
     const { parsed, custom } = parseWithCustomFields(categoryUpdateSchema, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductCategory, { id: parsed.id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'Catalog category not found' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
+    const target = await findOneWithDecryption(em, CatalogProductCategory, { id: parsed.id, deletedAt: null })
+    if (!target) throw new CrudHttpError(404, { error: 'Catalog category not found' })
+    const { organizationId, tenantId } = target
+    ensureTenantScope(ctx, tenantId)
+    ensureOrganizationScope(ctx, organizationId)
 
-    if (parsed.name !== undefined) {
-      record.name = parsed.name
-    }
+    const dataEngine = ctx.container.resolve<DataEngine>('dataEngine')
+    const result = { categoryId: parsed.id }
+    let record!: CatalogProductCategory
+    let previousParentId: string | null = null
+    let previousDescendantIds: string[] = []
 
-    if (parsed.slug !== undefined) {
-      const slug = normalizeSlug(parsed.slug ?? null)
-      if (slug !== record.slug) {
-        if (slug) {
-          const conflict = await em.findOne(CatalogProductCategory, {
-            slug,
-            organizationId: record.organizationId,
-            tenantId: record.tenantId,
-            deletedAt: null,
-            id: { $ne: record.id },
-          })
-          if (conflict) {
-            throw new CrudHttpError(400, { error: 'Category slug already exists.' })
-          }
-        }
-        record.slug = slug
-      }
-    }
-
-    if (parsed.description !== undefined) {
-      record.description = parsed.description?.trim()?.length ? parsed.description.trim() : null
-    }
-
-    const previousParentId = record.parentId ?? null
-    const previousDescendantIds = readDescendantIds(record.descendantIds)
-
-    if (parsed.parentId !== undefined) {
-      const requestedParent = parsed.parentId ? String(parsed.parentId) : null
-      const safeParent =
-        requestedParent && requestedParent.toLowerCase() !== String(record.id).toLowerCase() ? requestedParent : null
-      record.parentId = await assertParentScope(em, safeParent, record.organizationId, record.tenantId)
-    }
-
-    if (parsed.isActive !== undefined) {
-      record.isActive = parsed.isActive
-    }
-
-    const parentReassigned = !!record.parentId && record.parentId !== previousParentId
     await withAtomicFlush(
       em,
       [
-        () => em.flush(),
         async () => {
-          if (parentReassigned) await assertCategoryParentKeepsTreeAcyclic(em, record, PARENT_CYCLE_ERROR)
+          await lockCategoryHierarchyForOrganization(em, organizationId, tenantId)
+          const current = await findOneWithDecryption(
+            em,
+            CatalogProductCategory,
+            { id: parsed.id, organizationId, tenantId, deletedAt: null },
+            { refresh: true },
+          )
+          if (!current) throw new CrudHttpError(404, { error: 'Catalog category not found' })
+          record = current
+          await ctx.beforeTransactionalWrite?.(em, input)
+          previousParentId = record.parentId ?? null
+          previousDescendantIds = readDescendantIds(record.descendantIds)
+
+          const slug = parsed.slug === undefined ? record.slug : normalizeSlug(parsed.slug)
+          if (slug && slug !== record.slug) {
+            const conflict = await findOneWithDecryption(em, CatalogProductCategory, {
+              slug,
+              organizationId,
+              tenantId,
+              deletedAt: null,
+              id: { $ne: record.id },
+            })
+            if (conflict) {
+              throw new CrudHttpError(400, { error: 'Category slug already exists.' })
+            }
+          }
+
+          if (parsed.parentId !== undefined) {
+            const requestedParent = parsed.parentId ? String(parsed.parentId) : null
+            const safeParent =
+              requestedParent && requestedParent.toLowerCase() !== String(record.id).toLowerCase() ? requestedParent : null
+            record.parentId = await assertParentScope(em, safeParent, organizationId, tenantId)
+          }
+          if (parsed.name !== undefined) record.name = parsed.name
+          if (parsed.slug !== undefined) record.slug = slug
+          if (parsed.description !== undefined) {
+            record.description = parsed.description?.trim()?.length ? parsed.description.trim() : null
+          }
+          if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+        },
+        async () => {
+          if (record.parentId && record.parentId !== previousParentId) {
+            await assertCategoryParentKeepsTreeAcyclic(em, record, PARENT_CYCLE_ERROR)
+          }
           await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+        },
+        async () => {
+          await setCustomFieldsIfAny({
+            dataEngine,
+            entityId: E.catalog.catalog_product_category,
+            recordId: record.id,
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+            values: custom,
+            transactionalEm: em,
+          })
+        },
+        async () => {
+          result.categoryId = record.id
+          lockedUpdateSnapshots.set(result, await snapshotCategory(em, record))
         },
       ],
       { transaction: true }
     )
-    await setCustomFieldsIfAny({
-      dataEngine: ctx.container.resolve('dataEngine'),
-      entityId: E.catalog.catalog_product_category,
-      recordId: record.id,
-      organizationId: record.organizationId,
-      tenantId: record.tenantId,
-      values: custom,
-    })
-    const de = ctx.container.resolve('dataEngine') as DataEngine
     const hierarchyChanged = (record.parentId ?? null) !== previousParentId
     await emitCrudSideEffects({
-      dataEngine: de,
+      dataEngine,
       action: 'updated',
       entity: record,
       identifiers: {
@@ -439,12 +476,9 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       },
       events: hierarchyChanged ? categoryHierarchyChangeEvents(previousDescendantIds) : categoryCrudEvents,
     })
-    return { categoryId: record.id }
+    return result
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadCategorySnapshot(em, result.categoryId)
-  },
+  captureAfter: (_input, result) => lockedUpdateSnapshots.get(result),
   buildLog: async ({ snapshots }) => {
     const before = snapshots.before as CategorySnapshot | undefined
     const after = snapshots.after as CategorySnapshot | undefined
@@ -469,77 +503,85 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(CatalogProductCategory, { id: before.id })
-    const currentParentId = record?.parentId ?? null
-    if (!record) {
-      record = em.create(CatalogProductCategory, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        name: before.name,
-        slug: before.slug,
-        description: before.description,
-        parentId: before.parentId,
-        rootId: before.rootId,
-        treePath: before.treePath,
-        depth: before.depth,
-        ancestorIds: before.ancestorIds,
-        childIds: before.childIds,
-        descendantIds: before.descendantIds,
-        isActive: before.isActive,
-        createdAt: new Date(before.createdAt),
-        updatedAt: new Date(before.updatedAt),
-      })
-      em.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      record.name = before.name
-      record.slug = before.slug
-      record.description = before.description
-      record.parentId = before.parentId
-      record.rootId = before.rootId
-      record.treePath = before.treePath
-      record.depth = before.depth
-      record.ancestorIds = before.ancestorIds
-      record.childIds = before.childIds
-      record.descendantIds = before.descendantIds
-      record.isActive = before.isActive
-      record.deletedAt = null
-    }
-    const restoredRecord = record
-    const parentRestored = !!restoredRecord.parentId && restoredRecord.parentId !== currentParentId
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
+    let restoredRecord!: CatalogProductCategory
+    let parentRestored = false
     await withAtomicFlush(
       em,
       [
-        () => em.flush(),
+        async () => {
+          await lockCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
+          let record = await findOneWithDecryption(em, CatalogProductCategory, {
+            id: before.id, organizationId: before.organizationId, tenantId: before.tenantId,
+          })
+          const currentParentId = record?.parentId ?? null
+          if (!record) {
+            record = em.create(CatalogProductCategory, {
+              id: before.id,
+              organizationId: before.organizationId,
+              tenantId: before.tenantId,
+              name: before.name,
+              slug: before.slug,
+              description: before.description,
+              parentId: before.parentId,
+              rootId: before.rootId,
+              treePath: before.treePath,
+              depth: before.depth,
+              ancestorIds: before.ancestorIds,
+              childIds: before.childIds,
+              descendantIds: before.descendantIds,
+              isActive: before.isActive,
+              createdAt: new Date(before.createdAt),
+              updatedAt: new Date(before.updatedAt),
+            })
+            em.persist(record)
+          } else {
+            record.name = before.name
+            record.slug = before.slug
+            record.description = before.description
+            record.parentId = before.parentId
+            record.rootId = before.rootId
+            record.treePath = before.treePath
+            record.depth = before.depth
+            record.ancestorIds = before.ancestorIds
+            record.childIds = before.childIds
+            record.descendantIds = before.descendantIds
+            record.isActive = before.isActive
+            record.deletedAt = null
+          }
+          restoredRecord = record
+          parentRestored = !!restoredRecord.parentId && restoredRecord.parentId !== currentParentId
+        },
         async () => {
           if (parentRestored) await assertCategoryParentKeepsTreeAcyclic(em, restoredRecord, REPLAY_CYCLE_ERROR)
           await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
         },
+        async () => {
+          if (!Object.keys(resetValues).length) return
+          await setCustomFieldsIfAny({
+            dataEngine: ctx.container.resolve('dataEngine'),
+            entityId: E.catalog.catalog_product_category,
+            recordId: before.id,
+            organizationId: before.organizationId,
+            tenantId: before.tenantId,
+            values: resetValues,
+            transactionalEm: em,
+          })
+        },
       ],
       { transaction: true }
     )
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
-    if (Object.keys(resetValues).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
-        entityId: E.catalog.catalog_product_category,
-        recordId: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        values: resetValues,
-      })
-    }
     if ((before.parentId ?? null) !== (payload?.after?.parentId ?? null)) {
       await emitCrudUndoSideEffects({
         dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
         action: 'updated',
-        entity: record,
+        entity: restoredRecord,
         identifiers: {
-          id: record.id,
-          organizationId: record.organizationId,
-          tenantId: record.tenantId,
+          id: restoredRecord.id,
+          organizationId: restoredRecord.organizationId,
+          tenantId: restoredRecord.tenantId,
         },
         events: categoryHierarchyChangeEvents(readDescendantIds(payload?.after?.descendantIds)),
       })
@@ -549,9 +591,10 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
 
 const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: string }> = {
   id: 'catalog.categories.delete',
+  prepareSnapshotInsideTransaction: true,
   async prepare(input, ctx) {
     const id = requireId(input, 'Category id is required')
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadCategorySnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -562,38 +605,51 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
   async execute(input, ctx) {
     const id = requireId(input, 'Category id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductCategory, { id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'Catalog category not found' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const baseEm = ctx.container.resolve('em') as EntityManager
-    const snapshot = await loadCategorySnapshot(baseEm, id)
+    const target = await findOneWithDecryption(em, CatalogProductCategory, { id, deletedAt: null })
+    if (!target) throw new CrudHttpError(404, { error: 'Catalog category not found' })
+    const { organizationId, tenantId } = target
+    ensureTenantScope(ctx, tenantId)
+    ensureOrganizationScope(ctx, organizationId)
+    let record!: CatalogProductCategory
+    const deletion = { snapshot: null as CategorySnapshot | null }
 
-    record.deletedAt = new Date()
-    record.isActive = false
     await withAtomicFlush(
       em,
       [
-        () => em.flush(),
+        async () => {
+          await lockCategoryHierarchyForOrganization(em, organizationId, tenantId)
+          const current = await findOneWithDecryption(
+            em,
+            CatalogProductCategory,
+            { id, organizationId, tenantId, deletedAt: null },
+            { refresh: true },
+          )
+          if (!current) throw new CrudHttpError(404, { error: 'Catalog category not found' })
+          record = current
+          await ctx.beforeTransactionalWrite?.(em, input)
+          deletion.snapshot = await loadCategorySnapshot(em, id)
+          record.deletedAt = new Date()
+          record.isActive = false
+        },
         async () => {
           await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+        },
+        async () => {
+          const { snapshot } = deletion
+          if (!snapshot?.custom) return
+          await setCustomFieldsIfAny({
+            dataEngine: ctx.container.resolve('dataEngine'),
+            entityId: E.catalog.catalog_product_category,
+            recordId: snapshot.id,
+            organizationId: snapshot.organizationId,
+            tenantId: snapshot.tenantId,
+            values: buildCustomFieldResetMap(snapshot.custom, undefined),
+            transactionalEm: em,
+          })
         },
       ],
       { transaction: true }
     )
-    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
-      if (Object.keys(resetValues).length) {
-        await setCustomFieldsIfAny({
-          dataEngine: ctx.container.resolve('dataEngine'),
-          entityId: E.catalog.catalog_product_category,
-          recordId: snapshot.id,
-          organizationId: snapshot.organizationId,
-          tenantId: snapshot.tenantId,
-          values: resetValues,
-        })
-      }
-    }
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
       dataEngine: de,
@@ -629,63 +685,71 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(CatalogProductCategory, { id: before.id })
-    if (!record) {
-      record = em.create(CatalogProductCategory, {
-        id: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        name: before.name,
-        slug: before.slug,
-        description: before.description,
-        parentId: before.parentId,
-        rootId: before.rootId,
-        treePath: before.treePath,
-        depth: before.depth,
-        ancestorIds: before.ancestorIds,
-        childIds: before.childIds,
-        descendantIds: before.descendantIds,
-        isActive: before.isActive,
-        createdAt: new Date(before.createdAt),
-        updatedAt: new Date(before.updatedAt),
-      })
-      em.persist(record)
-    } else {
-      ensureTenantScope(ctx, before.tenantId)
-      ensureOrganizationScope(ctx, before.organizationId)
-      record.deletedAt = null
-      record.isActive = before.isActive
-      record.name = before.name
-      record.slug = before.slug
-      record.description = before.description
-      record.parentId = before.parentId
-      record.rootId = before.rootId
-      record.treePath = before.treePath
-      record.depth = before.depth
-      record.ancestorIds = before.ancestorIds
-      record.childIds = before.childIds
-      record.descendantIds = before.descendantIds
-    }
+    ensureTenantScope(ctx, before.tenantId)
+    ensureOrganizationScope(ctx, before.organizationId)
+    let record!: CatalogProductCategory
     await withAtomicFlush(
       em,
       [
-        () => em.flush(),
+        async () => {
+          await lockCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
+          const current = await findOneWithDecryption(em, CatalogProductCategory, {
+            id: before.id, organizationId: before.organizationId, tenantId: before.tenantId,
+          })
+          if (!current) {
+            record = em.create(CatalogProductCategory, {
+              id: before.id,
+              organizationId: before.organizationId,
+              tenantId: before.tenantId,
+              name: before.name,
+              slug: before.slug,
+              description: before.description,
+              parentId: before.parentId,
+              rootId: before.rootId,
+              treePath: before.treePath,
+              depth: before.depth,
+              ancestorIds: before.ancestorIds,
+              childIds: before.childIds,
+              descendantIds: before.descendantIds,
+              isActive: before.isActive,
+              createdAt: new Date(before.createdAt),
+              updatedAt: new Date(before.updatedAt),
+            })
+            em.persist(record)
+          } else {
+            record = current
+            record.deletedAt = null
+            record.isActive = before.isActive
+            record.name = before.name
+            record.slug = before.slug
+            record.description = before.description
+            record.parentId = before.parentId
+            record.rootId = before.rootId
+            record.treePath = before.treePath
+            record.depth = before.depth
+            record.ancestorIds = before.ancestorIds
+            record.childIds = before.childIds
+            record.descendantIds = before.descendantIds
+          }
+        },
         async () => {
           await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
+        },
+        async () => {
+          if (!before.custom || !Object.keys(before.custom).length) return
+          await setCustomFieldsIfAny({
+            dataEngine: ctx.container.resolve('dataEngine'),
+            entityId: E.catalog.catalog_product_category,
+            recordId: before.id,
+            organizationId: before.organizationId,
+            tenantId: before.tenantId,
+            values: before.custom,
+            transactionalEm: em,
+          })
         },
       ],
       { transaction: true }
     )
-    if (before.custom && Object.keys(before.custom).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
-        entityId: E.catalog.catalog_product_category,
-        recordId: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        values: before.custom,
-      })
-    }
     await emitCrudUndoSideEffects({
       dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
       action: 'updated',

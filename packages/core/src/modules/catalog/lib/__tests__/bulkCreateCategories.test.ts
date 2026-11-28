@@ -49,9 +49,12 @@ function buildContainer(opts: {
   // needs. Kept so tests can assert that no per-row lookup sneaks back in.
   const findOne = jest.fn().mockResolvedValue(null)
   // The deferred tree rebuild the worker runs once after the batch (`skipDerivedRebuild`) reads
-  // and flushes through this same `em`; `find` above already resolves to `[]` for its unfiltered
-  // organization-wide query, so only `flush` needs a mock here.
+  // and flushes through this same `em`, now with the same transaction lock as single-row writes.
   const flush = jest.fn().mockResolvedValue(undefined)
+  const executeSql = jest.fn().mockResolvedValue(undefined)
+  const begin = jest.fn().mockResolvedValue(undefined)
+  const commit = jest.fn().mockResolvedValue(undefined)
+  const rollback = jest.fn().mockResolvedValue(undefined)
 
   const isCancellationRequested = opts.isCancellationRequested ?? jest.fn().mockResolvedValue(false)
   const updateProgress = jest.fn().mockResolvedValue(undefined)
@@ -68,7 +71,7 @@ function buildContainer(opts: {
       if (name === 'progressService') {
         return { getJob, startJob, updateProgress, isCancellationRequested, markCancelled, completeJob }
       }
-      if (name === 'em') return { find, findOne, flush }
+      if (name === 'em') return { find, findOne, flush, execute: executeSql, begin, commit, rollback }
       return undefined
     }),
   } as unknown as AwilixContainer

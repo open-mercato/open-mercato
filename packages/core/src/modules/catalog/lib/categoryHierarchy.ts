@@ -203,6 +203,16 @@ export function computeHierarchyForCategories(categories: CatalogProductCategory
   return { map: computed, ordered }
 }
 
+export async function lockCategoryHierarchyForOrganization(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+): Promise<void> {
+  await em.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [
+    `catalog:category-hierarchy:${tenantId.toLowerCase()}:${organizationId.toLowerCase()}`,
+  ])
+}
+
 export async function rebuildCategoryHierarchyForOrganization(
   em: EntityManager,
   organizationId: string,
@@ -211,7 +221,7 @@ export async function rebuildCategoryHierarchyForOrganization(
   const categories = await em.find(
     CatalogProductCategory,
     { organizationId, tenantId, deletedAt: null },
-    { orderBy: { name: 'ASC' } }
+    { orderBy: { name: 'ASC' }, refresh: true }
   )
   const hierarchy = computeHierarchyForCategories(categories)
   const now = new Date()
