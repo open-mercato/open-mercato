@@ -2,6 +2,7 @@
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { E } from '#generated/entities.ids.generated'
+import { InventoryBalance } from '../../data/entities'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -56,7 +57,8 @@ function createWarehouseStore(initial: WarehouseRecord[] = []) {
   const records = new Map(initial.map((record) => [record.id, { ...record }]))
 
   const em = {
-    findOne: jest.fn(async (_entity: unknown, filters: Record<string, unknown>) => {
+    findOne: jest.fn(async (entity: unknown, filters: Record<string, unknown>) => {
+      if (entity === InventoryBalance) return null
       for (const record of records.values()) {
         if (filters.id && record.id !== filters.id) continue
         if (filters.deletedAt === null && record.deletedAt !== null) continue

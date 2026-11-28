@@ -1223,6 +1223,7 @@
   "wms.search.profile.productScoped": "Zakres produktu",
   "wms.search.profile.variantScoped": "Zakres wariantu",
   "wms.subscribers.procurementGoodsReceipt.asnNotes": "Utworzono z przyjęcia towaru w zakupach {goodsReceiptId}",
+  "wms.validation.warehouse.deleteHasStock": "Ten magazyn nadal zawiera zapasy. Przenieś lub skoryguj jego stan do zera przed archiwizacją.",
   "wms.validation.warehouse.inactivePrimary": "Nieaktywne magazyny nie mogą być oznaczone jako główne.",
   "wms.validation.warehouse.primaryConflict": "Inny magazyn został właśnie oznaczony jako główny dla tej organizacji. Spróbuj ponownie.",
   "wms.widgets.catalog.inventoryProfile.defaultStrategy": "Strategia rotacji",

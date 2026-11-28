@@ -49,6 +49,7 @@ import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { JsonValue } from '@open-mercato/shared/lib/json'
 import { E } from '#generated/entities.ids.generated'
 import {
+  InventoryBalance,
   InventoryLot,
   type InventoryLotStatus,
   ProductInventoryProfile,
@@ -619,6 +620,34 @@ async function rejectInactivePrimaryWarehouse(ctx: CommandRuntimeContext): Promi
   throw new CrudHttpError(422, { error: message, fieldErrors: { isPrimary: message } })
 }
 
+async function assertWarehouseHasNoStock(em: EntityManager, ctx: CommandRuntimeContext, warehouse: Warehouse): Promise<void> {
+  const stockedBalance = await findOneWithDecryption(
+    em,
+    InventoryBalance,
+    {
+      warehouse: warehouse.id,
+      tenantId: warehouse.tenantId,
+      organizationId: warehouse.organizationId,
+      deletedAt: null,
+      $or: [
+        { quantityOnHand: { $ne: '0' } },
+        { quantityReserved: { $ne: '0' } },
+        { quantityAllocated: { $ne: '0' } },
+      ],
+    },
+    undefined,
+    resolveScope(ctx, { tenantId: warehouse.tenantId, organizationId: warehouse.organizationId }),
+  )
+  if (!stockedBalance) return
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'wms.validation.warehouse.deleteHasStock',
+      'This warehouse still holds inventory. Move or adjust its stock to zero before archiving it.',
+    ),
+  })
+}
+
 const WMS_WAREHOUSE_PRIMARY_UNIQUE_CONSTRAINT = 'wms_warehouses_org_primary_unique_idx'
 
 /**
@@ -878,6 +907,7 @@ const createWarehouseCommand: CommandHandler<
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    await assertWarehouseHasNoStock(em, ctx, record)
     record.deletedAt = new Date()
     await em.flush()
     await persistWarehouseCustomFields(ctx, after, buildCustomFieldResetMap(undefined, after.custom ?? undefined))
@@ -1068,6 +1098,7 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
     const warehouseId = requireId(input?.id, 'Warehouse')
     const em = resolveEm(ctx)
     const warehouse = await loadWarehouse(em, ctx, warehouseId)
+    await assertWarehouseHasNoStock(em, ctx, warehouse)
     warehouse.deletedAt = new Date()
     await em.flush()
     await emitWarehouseCrudSideEffects(ctx, 'deleted', warehouse)
