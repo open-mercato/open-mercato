@@ -55,10 +55,23 @@ write time.
   partial-null scope and accepts both fully-scoped and fully-global rows. The
   attachments upload route (`api/route.ts`) already guards its creation site.
 - **MUST gate every attachment read through `checkAttachmentAccess`** (`lib/access.ts`)
-  so tenant scoping and partition visibility are enforced consistently.
+  so tenant scoping and partition visibility are enforced consistently. The
+  owner-scoped exception is documented below.
 - When copying/cloning attachments across records, **carry the source row's scope
   pair as a unit** (both columns together) rather than overriding one column with a
   possibly-null value.
+- Module code that publishes its own files to anonymous visitors MUST use
+  `attachmentService.readScopedForOwner()` (owner + tenant + organization +
+  partition, no principal) and resolve the attachment id and owner from its own
+  records. Never fabricate an `AuthContext` to call `readScoped`. Omit
+  `expectedPartitionCode` for files uploaded without a partition (it then pins to
+  `resolveDefaultPartitionCode(owner entity)`) rather than hard-coding a partition
+  code. Pass `rendition`
+  to get a resized raster from the shared image pipeline (`lib/imageRendition.ts`),
+  never call Sharp directly. Only `isUndecodableImageError` turns a Sharp failure
+  into a refusal (422); never catch the pipeline's other errors into a 4xx, which
+  would hide I/O or memory faults as missing images. See
+  `.ai/specs/2026-10-06-attachments-owner-scoped-reads.md`.
 - Document section search records MUST be written only through `section-search` queue jobs and the entity's `shouldIndex` gate (live extraction + opted-in partition); purge, supersede and partition toggle-off enqueue the matching deletes.
 
 ## Never
@@ -68,7 +81,11 @@ write time.
   must fail closed.
 - **Never create a partial-null attachment** (one scope column set, the other null).
 - **Never read or expose attachment rows without `checkAttachmentAccess`** — bypassing
-  it reintroduces the cross-tenant fail-open class.
+  it reintroduces the cross-tenant fail-open class. The one sanctioned exception is
+  `readScopedForOwner`, which replaces the principal with a mandatory owner +
+  tenant + organization + partition match and refuses resolver-protected rows.
+- Never call `readScopedForOwner` from an attachments HTTP route, and never pass it
+  an attachment id or owner taken straight from request input.
 
 ## Known cross-module creation paths
 

@@ -238,6 +238,23 @@ Partition endpoints let you route uploads to different buckets or visibility tie
 - Delete partition — `DELETE /attachments/partitions?id=<uuid>` (`attachments.manage`)  
   Default partitions cannot be removed; partitions in use return `409`.
 
+## Owner-scoped reads from module code
+
+The file and image routes below require a signed-in user for tenant-scoped files. A module that publishes one of its own files to anonymous visitors — the checkout pay page logo is the in-repo example — reads it on the server instead:
+
+```ts
+const result = await attachmentService.readScopedForOwner({
+  attachmentId,            // from the module's own record, never from the request
+  tenantId,
+  organizationId,
+  expectedOwner: { entityId, recordId },
+  expectedPartitionCode,   // optional: defaults to the owner entity's upload partition
+  rendition: { width: 640, height: 240, cropType: 'contain' },
+})
+```
+
+It returns the same result as `readScoped` (bytes, content type, inline or download disposition), but only for an attachment owned by that record, in that tenant, organization and partition. Without `expectedPartitionCode` the partition is the one `POST /api/attachments` uses for the owner entity when the upload names none. With `rendition` it returns a resized raster from the same pipeline as the image route below; a missing stored file or a file that cannot be rendered inline returns a `404`. An image Sharp cannot decode returns a `422`. Operational storage, cache and memory failures return a `500`. Attachments protected by a matching resolver declaration or partition requirement return a `404` before storage access. No attachments route exposes this method.
+
 ## Document structure
 
 Structure extraction turns a PDF, DOCX, text or image attachment into an ordered tree of sections (chapters, clauses, paragraphs, list items, tables). Every section carries a page range, heading path, number label (for example `§8.12`), character offsets into the extraction's normalized text and a stable anchor key. Extraction is deterministic and runs in-process with pure-JS engines (`pdf_layout`, `docx`, `ocr`, `text`); no external binaries are used.
@@ -349,4 +366,4 @@ These routes stream files and thumbnails. Access depends on partition visibility
 - Download original file — `GET /attachments/file/{id}`  
   Add `?download=1` to force a download response. Respects partition cache headers.
 - Serve/rescale image — `GET /attachments/image/{id}/{slug?}?width=<n>&height=<n>&cropType=cover|contain`  
-  Returns a resized image (Sharp) and caches thumbnails per size. Omit `width`/`height` to stream the original image type while keeping access controls in place.
+  Returns a resized image (Sharp) and caches thumbnails per size. Omit `width`/`height` to stream the original image type while keeping access controls in place. A stored image that cannot be decoded returns `422`.

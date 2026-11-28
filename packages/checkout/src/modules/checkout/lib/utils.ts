@@ -150,7 +150,7 @@ export function toMoneyString(value: string | number | null | undefined): string
   return parsed ? decimalToString(parsed) : null
 }
 
-export { normalizeOptionalString, buildCheckoutAttachmentPreviewUrl } from './client-utils'
+export { normalizeOptionalString, buildCheckoutAttachmentPreviewUrl, buildCheckoutPublicLogoUrl } from './client-utils'
 
 function normalizeJsonRecord(value: unknown): Record<string, unknown> {
   if (!value) return {}

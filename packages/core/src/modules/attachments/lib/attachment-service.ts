@@ -4,21 +4,31 @@ import { throwAttachmentAccessError } from './access-errors'
 import { ensureAttachmentPartitionProtection } from './access-protection'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { Attachment, AttachmentPartition } from '../data/entities'
+import { attachmentAccessRequirementsSchema } from '../data/validators'
 import { assertAttachmentScopeInvariant, checkAttachmentAccess } from './access'
+import {
+  collectAttachmentAccessTargets,
+  getAttachmentAccessRegistry,
+  matchesAttachmentAccessSelector,
+  matchesAttachmentAccessTargets,
+} from './access-registry'
 import type { StorageDriverFactory } from './drivers'
 import { buildAttachmentFileUrl } from './imageUrls'
+import { renderImageRendition, type ImageRenditionSize } from './imageRendition'
 import {
   isScopedAttachmentUploadError,
   type ScopedAttachmentUploadErrorCode,
   type ScopedAttachmentUploadService,
 } from './scoped-upload-service'
 import { readAttachmentMetadata, type AttachmentAssignment } from './metadata'
+import { resolveDefaultPartitionCode } from './partitions'
 import {
   listAttachmentStorageReferences,
   lockAttachmentStorageReferences,
@@ -98,6 +108,8 @@ const SCOPED_UPLOAD_ERROR_MESSAGES: Record<ScopedAttachmentUploadErrorCode, Atta
   },
 }
 
+const ATTACHMENT_ID_SCHEMA = z.string().uuid()
+
 const UPLOAD_FAILED_MESSAGE: AttachmentErrorMessage = {
   key: 'attachments.errors.uploadFailed',
   fallback: 'Attachment upload failed.',
@@ -160,6 +172,40 @@ export type ReadScopedAttachmentResult = {
   mimeType: string
 }
 
+/**
+ * Server-side read for module code that has already decided, from its own
+ * records, that a file may be published — for example a module serving its
+ * own public logo to anonymous visitors. There is no principal: the caller's
+ * ownership record is the authorization, so the lookup is pinned to the
+ * caller's tenant and organization at the database boundary and the row must
+ * belong to `expectedOwner` in `expectedPartitionCode`. Resolve the attachment
+ * id and the owner from the module's own records, never from request input.
+ * The method refuses any row covered by an access-resolver requirement or
+ * declaration (see `.ai/specs/2026-10-06-attachments-owner-scoped-reads.md`).
+ */
+export type ReadScopedAttachmentForOwnerInput = {
+  attachmentId: string
+  tenantId: string
+  organizationId: string
+  expectedOwner: AttachmentOwner
+  expectedAssignment?: AttachmentAssignment
+  /**
+   * The partition the row must be stored in. When omitted, it is the partition
+   * `POST /api/attachments` stores the owner entity's uploads in when the
+   * upload names no partition (`resolveDefaultPartitionCode`). Pass it for
+   * files uploaded to any other partition.
+   */
+  expectedPartitionCode?: string
+  forceDownload?: boolean
+  /**
+   * Serve a resized rendition instead of the stored bytes, through the same
+   * raster pipeline as `GET /api/attachments/image/{id}` (magic-byte and
+   * dimension checks, Sharp, thumbnail cache). Only inline-safe raster images
+   * have renditions; anything else is a 404.
+   */
+  rendition?: ImageRenditionSize
+}
+
 export type DescribeScopedAttachmentInput = Omit<ReadScopedAttachmentInput, 'forceDownload'>
 
 export type DescribedScopedAttachment = {
@@ -213,6 +259,7 @@ export interface AttachmentService {
   readUploadForm?(request: Request): Promise<FormData>
   createScoped(input: CreateScopedAttachmentInput): Promise<CreatedScopedAttachment>
   readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult>
+  readScopedForOwner?(input: ReadScopedAttachmentForOwnerInput): Promise<ReadScopedAttachmentResult>
   /**
    * Runs every check `readScoped` runs and returns the attachment's metadata
    * without reading its bytes, so a caller can validate a file before it is
@@ -290,6 +337,34 @@ function assignmentMatches(candidate: AttachmentAssignment, expected: Attachment
   return candidate.type === expected.type && candidate.id === expected.id
 }
 
+function assertScopedAttachmentOwner(
+  attachment: Attachment,
+  input: Pick<ReadScopedAttachmentInput, 'expectedOwner' | 'expectedAssignment' | 'expectedPartitionCode'>,
+): void {
+  if (input.expectedPartitionCode && attachment.partitionCode !== input.expectedPartitionCode) {
+    throw new CrudHttpError(404, { error: 'Attachment not found' })
+  }
+  if (
+    attachment.entityId !== input.expectedOwner.entityId ||
+    attachment.recordId !== input.expectedOwner.recordId
+  ) {
+    throw new CrudHttpError(404, { error: 'Attachment not found' })
+  }
+  const { expectedAssignment } = input
+  if (expectedAssignment) {
+    const assignments = readAttachmentMetadata(attachment.storageMetadata).assignments ?? []
+    if (!assignments.some((candidate) => assignmentMatches(candidate, expectedAssignment))) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+  }
+}
+
+function isMissingStorageObject(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  return ('code' in error && error.code === 'ENOENT')
+    || ('name' in error && error.name === 'NoSuchKey')
+}
+
 function partitionMatchesScope(
   partition: AttachmentPartition,
   tenantId: string | null | undefined,
@@ -300,6 +375,30 @@ function partitionMatchesScope(
   if (partitionTenantId === null && partitionOrganizationId === null) return true
   if (partitionTenantId === null || partitionOrganizationId === null) return false
   return partitionTenantId === tenantId && partitionOrganizationId === organizationId
+}
+
+/**
+ * A principal-free owner read cannot evaluate an access resolver, so a row that
+ * a resolver protects must not be served at all. Fail closed on unreadable
+ * requirement data rather than widening the read.
+ */
+function requiresOwnerAccessResolver(attachment: Attachment, partition: AttachmentPartition): boolean {
+  const parsedRequirements = attachmentAccessRequirementsSchema.safeParse(partition.accessResolverRequirements ?? [])
+  if (!parsedRequirements.success) return true
+  const registry = getAttachmentAccessRegistry()
+  if (registry.invalid) return true
+  const targets = collectAttachmentAccessTargets(attachment)
+  const requirements = [
+    ...parsedRequirements.data,
+    ...registry.protectedTargets.filter((target) => (
+      matchesAttachmentAccessSelector(target.targetPartition, partition.code)
+    )),
+  ]
+  if (requirements.some((requirement) => matchesAttachmentAccessTargets(requirement.targetEntity, targets))) return true
+  return registry.resolvers.some((resolver) => (
+    matchesAttachmentAccessSelector(resolver.targetPartition, partition.code)
+    && matchesAttachmentAccessTargets(resolver.targetEntity ?? '*', targets)
+  ))
 }
 
 export class DefaultAttachmentService implements AttachmentService {
@@ -429,29 +528,7 @@ export class DefaultAttachmentService implements AttachmentService {
 
   async readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult> {
     const attachment = await this.findReadableScoped(input)
-    const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, {
-      tenantId: attachment.tenantId ?? '',
-      organizationId: attachment.organizationId ?? '',
-    })
-    let result: Awaited<ReturnType<typeof driver.read>>
-    try {
-      result = await driver.read(attachment.partitionCode, attachment.storagePath)
-    } catch {
-      throw new CrudHttpError(404, { error: 'File not available' })
-    }
-
-    const mimeType = attachment.mimeType || 'application/octet-stream'
-    const renderInline = !input.forceDownload && canRenderInlineAttachment(mimeType)
-    return {
-      buffer: result.buffer,
-      contentType: renderInline ? result.contentType ?? mimeType : 'application/octet-stream',
-      contentDisposition: buildAttachmentContentDisposition(
-        attachment.fileName,
-        renderInline ? 'inline' : 'attachment',
-      ),
-      fileName: attachment.fileName,
-      mimeType,
-    }
+    return this.serveAttachment(attachment, { forceDownload: input.forceDownload })
   }
 
   async describeScoped(input: DescribeScopedAttachmentInput): Promise<DescribedScopedAttachment> {
@@ -601,20 +678,103 @@ export class DefaultAttachmentService implements AttachmentService {
     if (input.requirePrivatePartition && partition.isPublic) {
       throw new CrudHttpError(403, { error: 'Attachment partition is not accessible for this resource' })
     }
-    if (input.expectedPartitionCode && attachment.partitionCode !== input.expectedPartitionCode) {
+    assertScopedAttachmentOwner(attachment, input)
+  }
+
+  async readScopedForOwner(input: ReadScopedAttachmentForOwnerInput): Promise<ReadScopedAttachmentResult> {
+    const tenantId = typeof input.tenantId === 'string' ? input.tenantId.trim() : ''
+    const organizationId = typeof input.organizationId === 'string' ? input.organizationId.trim() : ''
+    const partitionCode = input.expectedPartitionCode === undefined
+      ? resolveDefaultPartitionCode(input.expectedOwner?.entityId)
+      : typeof input.expectedPartitionCode === 'string' ? input.expectedPartitionCode.trim() : ''
+    if (!tenantId || !organizationId || !partitionCode || !input.expectedOwner?.entityId || !input.expectedOwner?.recordId) {
+      throw new CrudHttpError(500, {
+        error: '[internal] Owner-scoped attachment reads require a tenant, organization, partition and owner',
+      })
+    }
+    if (!ATTACHMENT_ID_SCHEMA.safeParse(input.attachmentId).success) {
       throw new CrudHttpError(404, { error: 'Attachment not found' })
     }
-    if (
-      attachment.entityId !== input.expectedOwner.entityId ||
-      attachment.recordId !== input.expectedOwner.recordId
-    ) {
+    const scope = { tenantId, organizationId }
+    const attachment = await findOneWithDecryption(
+      this.em,
+      Attachment,
+      { id: input.attachmentId, tenantId, organizationId },
+      undefined,
+      scope,
+    )
+    if (!attachment || attachment.tenantId !== tenantId || attachment.organizationId !== organizationId) {
       throw new CrudHttpError(404, { error: 'Attachment not found' })
     }
-    if (input.expectedAssignment) {
-      const assignments = readAttachmentMetadata(attachment.storageMetadata).assignments ?? []
-      if (!assignments.some((candidate) => assignmentMatches(candidate, input.expectedAssignment!))) {
-        throw new CrudHttpError(404, { error: 'Attachment not found' })
+    const partition = await findOneWithDecryption(
+      this.em,
+      AttachmentPartition,
+      { code: attachment.partitionCode },
+      undefined,
+      scope,
+    )
+    if (!partition) throw new CrudHttpError(500, { error: '[internal] Attachment partition is not configured' })
+    if (!partitionMatchesScope(partition, tenantId, organizationId)) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+    if (requiresOwnerAccessResolver(attachment, partition)) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+    assertScopedAttachmentOwner(attachment, { ...input, expectedPartitionCode: partitionCode })
+    return this.serveAttachment(attachment, input)
+  }
+
+  private async serveAttachment(
+    attachment: Attachment,
+    input: { forceDownload?: boolean; rendition?: ImageRenditionSize },
+  ): Promise<ReadScopedAttachmentResult> {
+    if (input.rendition && (input.forceDownload || !canRenderInlineAttachment(attachment.mimeType))) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+
+    const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, {
+      tenantId: attachment.tenantId ?? '',
+      organizationId: attachment.organizationId ?? '',
+    })
+    const readStoredBytes = async () => {
+      try {
+        return await driver.read(attachment.partitionCode, attachment.storagePath)
+      } catch (error) {
+        if (input.rendition && !isMissingStorageObject(error)) throw error
+        throw new CrudHttpError(404, { error: 'File not available' })
       }
+    }
+
+    if (input.rendition) {
+      const rendered = await renderImageRendition({
+        attachment,
+        readSource: async () => (await readStoredBytes()).buffer,
+        size: input.rendition,
+        strictInputErrors: true,
+      })
+      if (!rendered.ok) throw new CrudHttpError(rendered.status, { error: rendered.error })
+      return {
+        buffer: rendered.buffer,
+        contentType: attachment.mimeType,
+        contentDisposition: buildAttachmentContentDisposition(attachment.fileName, 'inline'),
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+      }
+    }
+
+    const result = await readStoredBytes()
+
+    const mimeType = attachment.mimeType || 'application/octet-stream'
+    const renderInline = !input.forceDownload && canRenderInlineAttachment(mimeType)
+    return {
+      buffer: result.buffer,
+      contentType: renderInline ? result.contentType ?? mimeType : 'application/octet-stream',
+      contentDisposition: buildAttachmentContentDisposition(
+        attachment.fileName,
+        renderInline ? 'inline' : 'attachment',
+      ),
+      fileName: attachment.fileName,
+      mimeType,
     }
   }
 

@@ -38,11 +38,14 @@ export async function readThumbnailCache(
   partitionCode: string,
   attachmentId: string,
   cacheKey: string,
+  options?: { strictInputErrors?: boolean },
 ): Promise<Buffer | null> {
   const cachePath = resolveCachePath(partitionCode, attachmentId, cacheKey)
   try {
     return await fs.readFile(cachePath)
-  } catch {
+  } catch (error) {
+    const missing = error instanceof Error && 'code' in error && error.code === 'ENOENT'
+    if (options?.strictInputErrors && !missing) throw error
     return null
   }
 }

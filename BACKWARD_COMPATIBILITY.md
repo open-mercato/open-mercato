@@ -605,6 +605,12 @@ Clients use WebAuthn; operators audit key provenance, re-enroll with recovery. [
 
 ---
 
+## Attachment image errors (2026-10-07)
+
+Decode errors now return 422. Other errors still return 500. [Upgrade notes](UPGRADE_NOTES.md).
+
+---
+
 ## Staff Logout Runs Without A Valid Access Token (2026-10-13)
 
 `POST /api/auth/logout` answered `401` before its handler ran once the access token expired, so the remember-me session was never revoked ([#7225](https://github.com/open-mercato/open-mercato/issues/7225)). It now declares `requireAuth: false`, like the portal logout:
