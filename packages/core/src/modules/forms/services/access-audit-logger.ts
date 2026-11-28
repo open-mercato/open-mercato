@@ -36,6 +36,14 @@ export type AccessAuditEvent = {
   revisionId?: string | null
 }
 
+/**
+ * `accessed_by` is a uuid column. An API-key caller has `sub = "api_key:<id>"`,
+ * so record the key id for it, as the command bus action log does.
+ */
+export function resolveAccessAuditActorId(auth: { sub: string; isApiKey?: boolean; keyId?: string }): string {
+  return auth.isApiKey && auth.keyId ? auth.keyId : auth.sub
+}
+
 export interface AccessAuditLogger {
   log(em: EntityManager, event: AccessAuditEvent): Promise<void>
 }
