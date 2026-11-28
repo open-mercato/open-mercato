@@ -29,6 +29,7 @@
   "communication_channels.errors.attachments.tooMany": "Un mensaje puede llevar como máximo {max} adjuntos.",
   "communication_channels.errors.attachments.typeNotAllowed": "Uno de los archivos adjuntos tiene un tipo que este buzón no envía.",
   "communication_channels.errors.attachments.unsupported": "Este buzón no puede enviar adjuntos.",
+  "communication_channels.errors.importHistoryUnavailable": "No se puede importar el historial porque el módulo de progreso está desactivado.",
   "communication_channels.errors.loadDetail": "No se pudo cargar el canal",
   "communication_channels.errors.loadList": "No se pudieron cargar los canales",
   "communication_channels.errors.messageNotFound": "Mensaje no encontrado",

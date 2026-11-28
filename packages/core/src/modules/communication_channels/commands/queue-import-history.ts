@@ -3,6 +3,7 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type {
   ProgressService,
   ProgressServiceContext,
@@ -86,6 +87,16 @@ export interface ChannelImportHistoryJobPayload {
   scope: { tenantId: string; organizationId: string }
 }
 
+async function importHistoryUnavailableMessage(): Promise<string> {
+  const fallback = 'History import is unavailable because the progress module is disabled.'
+  try {
+    const { translate } = await resolveTranslations()
+    return translate('communication_channels.errors.importHistoryUnavailable', fallback)
+  } catch {
+    return fallback
+  }
+}
+
 export async function queueImportHistory(params: {
   container: AwilixContainer
   scope: QueueImportHistoryScope
@@ -165,7 +176,10 @@ export async function queueImportHistory(params: {
     )
   }
 
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = container.resolve<ProgressService | undefined>('progressService', { allowUnregistered: true })
+  if (!progressService) {
+    throw createCrudFormError(await importHistoryUnavailableMessage(), {}, { status: 503 })
+  }
   const progressContext: ProgressServiceContext = {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,

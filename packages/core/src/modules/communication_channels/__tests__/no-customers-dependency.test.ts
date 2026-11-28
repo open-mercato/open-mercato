@@ -1,5 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
+import metadata from '../index'
 
 /**
  * The hub must not depend on the CRM.
@@ -7,8 +9,7 @@ import path from 'node:path'
  * `customers` already subscribes to this module's events (the two
  * `link-channel-message-*` subscribers, and the channel-visibility cache
  * invalidation). If `communication_channels` imports `customers` back, the two
- * become mutually dependent: the hub stops being installable without the CRM,
- * and `requires: ['progress']` silently understates what it needs.
+ * become mutually dependent and the hub stops being installable without the CRM.
  *
  * The regression this pins actually happened: the channel-visibility route
  * imported `customers/lib/personDetailCacheTags` to invalidate the CRM's cache
@@ -43,8 +44,8 @@ describe('communication_channels does not depend on customers', () => {
     expect(offenders).toEqual([])
   })
 
-  it('still declares its real dependencies', async () => {
-    const mod = await import('../index')
-    expect(mod.metadata.requires).toEqual(['progress'])
+  it('can be enabled without the customers module', () => {
+    const info: ModuleInfo = metadata
+    expect(info.requires ?? []).not.toContain('customers')
   })
 })

@@ -205,6 +205,7 @@ export const openApi = {
           status: 429,
           description: 'Another import is already running for this channel',
         },
+        { status: 503, description: 'History import is unavailable because the progress module is disabled' },
       ],
     },
   },

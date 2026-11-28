@@ -8,11 +8,8 @@
  * teammate keeps reading now-private email from their own warm cache entry for
  * the rest of the TTL.
  *
- * The invalidation lives on the CUSTOMERS side because the cache it clears is
- * this module's. `communication_channels` declares `requires: ['progress']` and
- * must not grow a dependency on `customers` to do its own writes — the hub emits
- * the event with the tenant/organization scope, and whoever cares reacts. Same
- * direction as the two `link-channel-message-*` subscribers.
+ * Customers owns the cache it clears. The hub emits the event with the tenant
+ * and organization scope, just as it does for the `link-channel-message-*` subscribers.
  *
  * Ephemeral on purpose. Under single-delivery, persistent subscribers run ONLY
  * in the events worker, which would leave the stale entry readable until the

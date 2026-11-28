@@ -5,6 +5,10 @@
 // handler validated against the env-driven schema, so after an env change the
 // documented and the enforced ceilings disagreed.
 
+import { asValue, createContainer } from 'awilix'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import pl from '../../../../../../i18n/pl.json'
+
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
@@ -15,12 +19,7 @@ const getAuthFromRequestMock = jest.fn()
 
 const em = { fork: () => em }
 
-const container = {
-  resolve: jest.fn((name: string) => {
-    if (name === 'em') return em
-    throw new Error(`Unexpected container resolve: ${name}`)
-  }),
-}
+const container = createContainer().register({ em: asValue(em) })
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => getAuthFromRequestMock(...args),
@@ -32,6 +31,14 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: createFallbackTranslator(pl) }),
+}))
+
+jest.mock('../../../../../../lib/adapter-registry-singleton', () => ({
+  getChannelAdapterRegistry: () => ({ get: () => ({ importHistory: jest.fn() }) }),
 }))
 
 import type { ZodTypeAny } from 'zod'
@@ -75,6 +82,23 @@ describe('POST /communication_channels/channels/[id]/import-history — document
   it('documents a body without channelId, which comes from the path', () => {
     const shape = (documentedSchema() as unknown as { shape: Record<string, unknown> }).shape
     expect(Object.keys(shape).sort()).toEqual(['contactEmails', 'maxMessages', 'sinceDays'])
+  })
+
+  it('returns the translated 503 to the mailbox owner when progress is disabled', async () => {
+    findOneWithDecryptionMock.mockResolvedValue({
+      id: channelId,
+      userId,
+      providerKey: 'imap',
+      isActive: true,
+      status: 'connected',
+    })
+
+    const response = await postImport({ sinceDays: 1, maxMessages: 1 })
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toMatchObject({
+      error: pl['communication_channels.errors.importHistoryUnavailable'],
+    })
+    expect(openApi.methods.POST.responses).toContainEqual(expect.objectContaining({ status: 503 }))
   })
 
   it('agrees with the enforced schema after the ceilings change at runtime', async () => {
