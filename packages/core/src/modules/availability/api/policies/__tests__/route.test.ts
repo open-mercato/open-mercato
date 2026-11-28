@@ -60,6 +60,7 @@ describe('availability read routes', () => {
     const response = await handler(new Request(`http://localhost/api/availability/${path}`, { method }))
 
     expect(response.status).toBe(422)
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0')
     await expect(response.json()).resolves.toMatchObject({ code: 'organization_selection_invalid' })
     expect(mockFindAndCountWithDecryption).not.toHaveBeenCalled()
   })

@@ -66,6 +66,14 @@ describe('resolveAvailabilityOrganizationId', () => {
 
     await expect(resolveAvailabilityOrganizationId(container, auth, request)).resolves.toBeNull()
   })
+
+  it('does not fall back to a home organization outside the approved scope', async () => {
+    resolveScopeMock.mockResolvedValue({
+      selectedId: null, filterIds: [OTHER_ORG], allowedIds: [OTHER_ORG], tenantId: TENANT_ID,
+    })
+
+    await expect(resolveAvailabilityOrganizationId(container, auth, request)).resolves.toBeNull()
+  })
 })
 
 describe('resolveAvailabilityListOrganizationIds', () => {
@@ -123,7 +131,7 @@ describe('resolveAvailabilityListOrganizationIds', () => {
 })
 
 it.each([resolveAvailabilityOrganizationId, resolveAvailabilityListOrganizationIds])(
-  '%p returns the rejected selection response instead of falling back to the home organization',
+  '%p rejects a stale selection despite the home organization fallback',
   async (resolveOrganization) => {
     resolveScopeMock.mockResolvedValue({
       selectedId: null,
@@ -133,12 +141,10 @@ it.each([resolveAvailabilityOrganizationId, resolveAvailabilityListOrganizationI
       selectionRejected: true,
     })
 
-    const response = await resolveOrganization(container, auth, request)
-    expect(response).toBeInstanceOf(Response)
-    if (!(response instanceof Response)) throw new Error('[internal] expected a rejected-selection response')
-    expect(response.status).toBe(422)
-    expect(response.headers.get('set-cookie')).toContain('Max-Age=0')
-    await expect(response.json()).resolves.toMatchObject({ code: 'organization_selection_invalid' })
+    await expect(resolveOrganization(container, auth, request)).rejects.toMatchObject({
+      status: 422,
+      body: { code: 'organization_selection_invalid' },
+    })
   },
 )
 

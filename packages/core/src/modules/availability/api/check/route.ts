@@ -10,7 +10,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { tryResolve } from '../../lib/tryResolve'
 import { findCatalogTargetIssue } from '../../lib/catalogTarget'
-import { resolveAvailabilityOrganizationId } from '../../lib/organizationScope'
+import { resolveAvailabilityOrganizationId, withAvailabilityReadScope } from '../../lib/organizationScope'
 import type { PolicyResolutionService } from '../../lib/policyResolution'
 import { organizationSelectionInvalidError } from '../openapi'
 
@@ -61,7 +61,7 @@ export const openApi: OpenApiRouteDoc = {
   },
 }
 
-export async function POST(req: Request) {
+export const POST = withAvailabilityReadScope(async (req) => {
   const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
@@ -70,7 +70,6 @@ export async function POST(req: Request) {
 
   const container = await createRequestContainer()
   const organizationId = await resolveAvailabilityOrganizationId(container, auth, req)
-  if (organizationId instanceof Response) return organizationId
   if (!organizationId) return organizationScopeRequiredResponse()
 
   const body = await req.json().catch(() => ({}))
@@ -136,4 +135,4 @@ export async function POST(req: Request) {
     : null
 
   return NextResponse.json({ availability: item, policyTrace })
-}
+})

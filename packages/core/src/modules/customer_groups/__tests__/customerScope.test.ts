@@ -38,7 +38,7 @@ describe('findCustomerInScope', () => {
   it('treats every customer as missing when the customers table does not exist', async () => {
     const { em, execute, queryCalls } = makeEm([{ organization_id: 'org-a' }], { tablePresent: false })
     await expect(isCustomerInScope(em, 'customer-1', { tenantId: 'tenant-1', organizationIds: null })).resolves.toBe(false)
-    expect(execute).toHaveBeenCalledWith('select to_regclass(?) is not null as present', ['customer_entities'])
+    expect(execute).toHaveBeenCalledWith('select to_regclass(?) is not null as present', ['customer_entities'], 'all', undefined)
     expect(queryCalls()).toHaveLength(0)
   })
 
@@ -68,7 +68,7 @@ describe('buildCustomerScopeListFilter', () => {
     const filter = await buildCustomerScopeListFilter(em, ['org-a'])
     expect(filter).toEqual({ [`${CUSTOMER_SCOPE_JOIN_ALIAS}.organization_id`]: { $in: ['org-a'] } })
     expect(execute).toHaveBeenCalledTimes(1)
-    expect(execute).toHaveBeenCalledWith('select to_regclass(?) is not null as present', ['customer_entities'])
+    expect(execute).toHaveBeenCalledWith('select to_regclass(?) is not null as present', ['customer_entities'], 'all', undefined)
   })
 
   it('returns no filter when the customers table does not exist', async () => {

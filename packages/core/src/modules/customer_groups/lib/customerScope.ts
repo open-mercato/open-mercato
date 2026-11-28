@@ -21,8 +21,8 @@ export type CustomerScope = {
   organizationIds: string[] | null
 }
 
-async function isCustomerTablePresent(em: EntityManager): Promise<boolean> {
-  const rows = await em.getConnection().execute('select to_regclass(?) is not null as present', [CUSTOMER_TABLE])
+async function isCustomerTablePresent(em: EntityManager, transaction?: ReturnType<EntityManager['getTransactionContext']>): Promise<boolean> {
+  const rows = await em.getConnection().execute('select to_regclass(?) is not null as present', [CUSTOMER_TABLE], 'all', transaction)
   return Array.isArray(rows) && (rows[0] as { present?: unknown } | undefined)?.present === true
 }
 
@@ -78,7 +78,9 @@ export async function countGroupMembershipsOutsideScope(
   scope: CustomerScope,
 ): Promise<number> {
   const organizationIds = scope.organizationIds
-  if (organizationIds === null || !(await isCustomerTablePresent(em))) return 0
+  if (organizationIds === null) return 0
+  const transaction = em.getTransactionContext()
+  if (!(await isCustomerTablePresent(em, transaction))) return 0
   const params: string[] = [scope.tenantId, groupId]
   let sql = `select count(*) as total from ${MEMBERSHIP_TABLE} m
     inner join ${CUSTOMER_TABLE} c on c.id = m.customer_id and c.tenant_id = m.tenant_id
@@ -87,7 +89,7 @@ export async function countGroupMembershipsOutsideScope(
     sql += ` and (c.organization_id is null or c.organization_id not in (${organizationIds.map(() => '?').join(', ')}))`
     params.push(...organizationIds)
   }
-  const rows = await em.getConnection().execute(sql, params, 'all', em.getTransactionContext())
+  const rows = await em.getConnection().execute(sql, params, 'all', transaction)
   const total = Array.isArray(rows) ? Number((rows[0] as { total?: unknown } | undefined)?.total ?? 0) : 0
   return Number.isFinite(total) ? total : 0
 }

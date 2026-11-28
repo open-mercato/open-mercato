@@ -7,7 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPolicyResolutionService } from '../../../lib/policyResolution'
-import { resolveAvailabilityOrganizationId } from '../../../lib/organizationScope'
+import { resolveAvailabilityOrganizationId, withAvailabilityReadScope } from '../../../lib/organizationScope'
 import { organizationSelectionInvalidError } from '../../openapi'
 
 /**
@@ -48,7 +48,7 @@ export const openApi: OpenApiRouteDoc = {
   },
 }
 
-export async function GET(req: Request) {
+export const GET = withAvailabilityReadScope(async (req) => {
   const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
@@ -56,7 +56,6 @@ export async function GET(req: Request) {
   }
   const container = await createRequestContainer()
   const organizationId = await resolveAvailabilityOrganizationId(container, auth, req)
-  if (organizationId instanceof Response) return organizationId
   if (!organizationId) return organizationScopeRequiredResponse()
 
   const url = new URL(req.url)
@@ -83,4 +82,4 @@ export async function GET(req: Request) {
   })
 
   return NextResponse.json({ policyTrace: trace })
-}
+})

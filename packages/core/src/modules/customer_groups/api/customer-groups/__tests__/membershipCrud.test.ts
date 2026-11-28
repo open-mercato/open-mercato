@@ -12,6 +12,7 @@ jest.mock('../../../events', () => ({
 }))
 
 import type { CrudCtx, CrudFactoryOptions } from '@open-mercato/shared/lib/crud/factory'
+import { MetadataStorage, type EventArgs } from '@mikro-orm/core'
 import {
   customerGroupMembershipCrud,
   actorUserIdFromContext,
@@ -102,6 +103,25 @@ beforeEach(() => {
 })
 
 describe('customer group membership CRUD route', () => {
+  it.each([
+    ['beforeCreate', [{ deleted_at: null }], true],
+    ['beforeUpdate', [{ deleted_at: new Date() }], false],
+  ] as const)('locks the group during the ORM %s write hook', async (event, rows, isLive) => {
+    const metadata = Object.values(MetadataStorage.getMetadata()).find((entry) => entry.className === CustomerGroupMembership.name)
+    expect(metadata?.hooks[event]).toContain('assertLiveGroupForAssignment')
+    const membership = Object.assign(new CustomerGroupMembership(), makeMembership())
+    const transaction = {}
+    const execute = jest.fn(async () => rows)
+    const context = {
+      em: { getConnection: () => ({ execute }), getTransactionContext: () => transaction },
+    } as unknown as EventArgs<CustomerGroupMembership>
+
+    const result = membership.assertLiveGroupForAssignment(context)
+    if (isLive) await expect(result).resolves.toBeUndefined()
+    else await expect(result).rejects.toMatchObject({ status: 400 })
+    expect(execute).toHaveBeenCalledWith(expect.stringContaining('for update'), [TENANT_ID, GROUP_ID], 'all', transaction)
+  })
+
   it('rejects a group that is not live in the caller tenant with a 400', async () => {
     const em = createFakeEm({ liveGroupIds: [] })
 

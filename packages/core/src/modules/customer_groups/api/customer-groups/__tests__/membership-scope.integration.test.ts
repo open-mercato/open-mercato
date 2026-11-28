@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import type { StartedTestContainer } from 'testcontainers'
-import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
+import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../../../data/entities'
 import { countGroupMembershipsOutsideScope } from '../../../lib/customerScope'
+import { cascadeGroupDelete } from '../crud'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (key: string, fallback?: string) => fallback ?? key }),
@@ -31,7 +32,7 @@ describeWithPostgres('customer group membership scope on PostgreSQL', () => {
       dbName: database,
       user: database,
       password: database,
-      entities: [CustomerGroup, CustomerGroupMembership],
+      entities: [CustomerGroup, CustomerGroupMembership, CustomerGroupTerms],
     })
     await orm.schema.create()
     await orm.em.fork().execute(
@@ -109,5 +110,29 @@ describeWithPostgres('customer group membership scope on PostgreSQL', () => {
     await expect(countGroupMembershipsOutsideScope(writer, group.id, {
       tenantId: group.tenantId, organizationIds: [],
     })).resolves.toBe(2)
+  })
+
+  it('locks a retired group during scoped cascade cleanup of an orphan membership', async () => {
+    const writer = orm.em.fork()
+    const observer = orm.em.fork()
+    const group = await createGroup(writer)
+    const membership = writer.create(CustomerGroupMembership, {
+      tenantId: group.tenantId, groupId: group.id, customerId: randomUUID(),
+    })
+    await writer.flush()
+    group.deletedAt = new Date()
+    await writer.flush()
+
+    const removed = await cascadeGroupDelete(writer, group.tenantId, group.id, async (transaction) => {
+      await expect(countGroupMembershipsOutsideScope(transaction, group.id, {
+        tenantId: group.tenantId, organizationIds: [randomUUID()],
+      })).resolves.toBe(0)
+      await expect(observer.execute(
+        'select id from customer_groups where id = ? for update nowait', [group.id],
+      )).rejects.toMatchObject({ code: '55P03' })
+    })
+
+    expect(removed.map(({ id }) => id)).toEqual([membership.id])
+    await expect(observer.count(CustomerGroupMembership, { id: membership.id, deletedAt: null })).resolves.toBe(0)
   })
 })
