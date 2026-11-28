@@ -23,6 +23,16 @@ const dealClosurePayloadSchema: EventPayloadSchema = {
   ],
 }
 
+const dealMergedPayloadSchema: EventPayloadSchema = {
+  fields: [
+    { path: 'id', type: 'text' },
+    { path: 'survivorId', type: 'text' },
+    { path: 'sourceId', type: 'text' },
+    { path: 'tenantId', type: 'text' },
+    { path: 'organizationId', type: 'text' },
+  ],
+}
+
 const events = [
   // People
   { id: 'customers.person.created', label: 'Customer (Person) Created', entity: 'person', category: 'crud' },
@@ -40,6 +50,7 @@ const events = [
   { id: 'customers.deal.deleted', label: 'Deal Deleted', entity: 'deal', category: 'crud' },
   { id: 'customers.deal.won', label: 'Deal Won', entity: 'deal', category: 'lifecycle', payloadSchema: dealClosurePayloadSchema },
   { id: 'customers.deal.lost', label: 'Deal Lost', entity: 'deal', category: 'lifecycle', payloadSchema: dealClosurePayloadSchema },
+  { id: 'customers.deal.merged', label: 'Deals Merged', entity: 'deal', category: 'lifecycle', payloadSchema: dealMergedPayloadSchema, clientBroadcast: true },
 
   // Comments
   { id: 'customers.comment.created', label: 'Comment Created', entity: 'comment', category: 'crud' },

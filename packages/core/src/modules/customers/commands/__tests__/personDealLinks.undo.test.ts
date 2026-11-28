@@ -28,7 +28,10 @@ import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
+  CustomerActivity,
+  CustomerComment,
   CustomerDeal,
+  CustomerInteraction,
   CustomerDealPersonLink,
   CustomerEntity,
 } from '../../data/entities'
@@ -36,7 +39,9 @@ import {
 const ORG_ID = 'org-deal-link'
 const TENANT_ID = 'tenant-deal-link'
 const ENTITY_ID = 'person-deal-link'
-const DEAL_ID = 'deal-deal-link'
+const DEAL_ID = '123e4567-e89b-41d3-a456-426614174100'
+const MISSING_DEAL_ID = '123e4567-e89b-41d3-a456-426614174101'
+const CHIP_DEAL_ID = '123e4567-e89b-41d3-a456-426614174102'
 const LINK_ID = 'link-deal-link'
 
 function makeEntity(): CustomerEntity {
@@ -71,6 +76,7 @@ function makeEm(entity: CustomerEntity) {
     findOne: jest.fn(async (ctor: any) => (ctor === CustomerEntity ? entity : null)),
     find: jest.fn(async (ctor: any) => (ctor === CustomerDeal ? [{ id: DEAL_ID }] : [])),
     count: jest.fn(async () => 0),
+    execute: jest.fn(async () => []),
     nativeDelete: jest.fn(async () => undefined),
     remove: jest.fn().mockReturnValue({ flush: jest.fn().mockResolvedValue(undefined) }),
     flush: jest.fn().mockResolvedValue(undefined),
@@ -149,7 +155,7 @@ function makeBefore(dealLink: Record<string, unknown>) {
   }
 }
 
-async function runUndo(before: Record<string, unknown>) {
+async function restoreDeletedCustomer(before: Record<string, unknown>, kind: 'people' | 'companies') {
   const entity = makeEntity()
   const em = makeEm(entity)
   const ctx = makeCtx(em)
@@ -157,9 +163,15 @@ async function runUndo(before: Record<string, unknown>) {
     if (ctor === CustomerEntity) return entity
     return null
   })
-  const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+  if (kind === 'companies') entity.kind = 'company'
+  const handler = commandRegistry.get(`customers.${kind}.delete`) as CommandHandler
   await handler.undo!({ input: undefined, logEntry: { commandPayload: { undo: { before } } } as any, ctx })
-  return (em.create as jest.Mock).mock.calls.find(([ctor]: [any]) => ctor === CustomerDealPersonLink)
+  return em
+}
+
+async function runUndo(before: Record<string, unknown>) {
+  const em = await restoreDeletedCustomer(before, 'people')
+  return (em.create as jest.Mock).mock.calls.find(([ctor]) => ctor === CustomerDealPersonLink)
 }
 
 describe('customers.people.delete — undo restores deal-link primary flag', () => {
@@ -188,5 +200,47 @@ describe('customers.people.delete — undo restores deal-link primary flag', () 
 
     expect(call).toBeDefined()
     expect(call![1]).toMatchObject({ id: LINK_ID, isPrimary: false })
+  })
+})
+
+
+describe.each(['people', 'companies'] as const)('customers.%s.delete — undo serializes Deal restores', (kind) => {
+  afterEach(() => jest.clearAllMocks())
+
+  it('locks Deal references before checking liveness and preserves children when their Deal disappeared', async () => {
+    const liveChip = { type: 'deal', id: DEAL_ID.toUpperCase(), label: 'Live' }
+    const personChip = { type: 'person', id: ENTITY_ID, label: 'Contact' }
+    const em = await restoreDeletedCustomer({
+      ...makeBefore({ id: LINK_ID, dealId: DEAL_ID }),
+      comments: [{ id: 'comment-missing', dealId: MISSING_DEAL_ID }, { id: 'comment-live', dealId: DEAL_ID }],
+      activities: [{ id: 'activity-missing', dealId: MISSING_DEAL_ID }],
+      interactions: [{
+        id: 'interaction-missing',
+        dealId: MISSING_DEAL_ID,
+        interactionType: 'task',
+        linkedEntities: [liveChip, { type: 'deal', id: CHIP_DEAL_ID, label: 'Missing' }, personChip],
+      }],
+    }, kind)
+
+    expect((em.execute as jest.Mock).mock.calls.map(([, [key]]) => key)).toEqual(
+      [DEAL_ID, MISSING_DEAL_ID, CHIP_DEAL_ID].map((id) =>
+        `entity-reference:customers:customer_deal:${TENANT_ID}:${ORG_ID}:${id}`,
+      ),
+    )
+    const dealLookup = (em.find as jest.Mock).mock.calls.findIndex(([entity]) => entity === CustomerDeal)
+    const createdComment = (em.create as jest.Mock).mock.calls.findIndex(([entity]) => entity === CustomerComment)
+    expect(em.find.mock.calls[dealLookup][1]).toMatchObject({
+      tenantId: TENANT_ID, organizationId: ORG_ID, deletedAt: null,
+    })
+    expect(em.begin.mock.invocationCallOrder[0]).toBeLessThan(em.execute.mock.invocationCallOrder[0])
+    expect(em.execute.mock.invocationCallOrder.at(-1)).toBeLessThan(em.find.mock.invocationCallOrder[dealLookup])
+    expect(em.find.mock.invocationCallOrder[dealLookup]).toBeLessThan(em.create.mock.invocationCallOrder[createdComment])
+    expect(em.create.mock.invocationCallOrder[createdComment]).toBeLessThan(em.commit.mock.invocationCallOrder[0])
+    expect(em.create).toHaveBeenCalledWith(CustomerComment, expect.objectContaining({ id: 'comment-missing', deal: null }))
+    expect(em.create).toHaveBeenCalledWith(CustomerComment, expect.objectContaining({ id: 'comment-live', deal: { id: DEAL_ID } }))
+    expect(em.create).toHaveBeenCalledWith(CustomerActivity, expect.objectContaining({ id: 'activity-missing', deal: null }))
+    expect(em.create).toHaveBeenCalledWith(CustomerInteraction, expect.objectContaining({
+      id: 'interaction-missing', dealId: null, linkedEntities: [liveChip, personChip],
+    }))
   })
 })

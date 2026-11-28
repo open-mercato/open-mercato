@@ -1,10 +1,36 @@
 # Upgrade Notes
 
+## Deferred Deal merge events preserve per-record write order (#10680)
+
+The Deal merge effects worker now locks each bounded batch of moved interactions, activities and comments while it validates their merge version and queues matching CRUD events. A concurrent edit waits until the preceding merge event has been queued, preventing consumers from receiving a newer Deal link followed by the superseded one. The locked phase performs only the durable enqueue; ephemeral subscribers, event taps and broadcasts run after the row locks are released, so a subscriber that writes the same record cannot deadlock the worker. If a persistent enqueue fails, this worker rolls back its lock-only transaction and fails the job so the queue can retry; other DataEngine callers keep their existing best-effort behavior. Query-index refreshes still run after the transaction commits.
+
+No action is required. Event payloads, queue payloads, API contracts and database schema are unchanged. Ordering assumes the default single-concurrency FIFO events worker; retries may still duplicate events.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.
 
 Operators using a custom API catch-all should adopt the request-scoped interceptor invocation from the updated create-app template. The framework dispatcher already includes it. This change requires no database migration or credential reissue.
+
+## Deal merge preview visibility and workflow task bindings (#10680)
+
+The Deal merge preview checks the corresponding CRM read features before counting rows and applies email visibility to interactions. The document summary requires document manager access. The attachment summary is omitted when per-record access policies apply. The merge still moves the scoped references in the transaction.
+
+A workflow step that resolves a task binding to a Deal which has since been retired now fails task creation. The workflow engine handles the failure before a task or assignment is persisted. Update the binding to a live Deal before retrying the step.
+
+## Interaction edits and deferred Deal merge events (#10680)
+
+Interaction update, complete, cancel and delete check the supplied optimistic-lock version while holding the interaction row lock. If a Deal merge moved the interaction after the client read it, the command returns the existing HTTP 409 optimistic-lock response.
+
+Deferred Deal merge jobs refresh the query index for records changed since the merge and skip their superseded CRUD events. Earlier jobs without a stored move version build their events from the current row. See the [Deal merge spec](.ai/specs/2026-11-24-deal-merge.md).
+
+## Deal merge side-effect buffering and company undo (#10680)
+
+`DefaultDataEngine` buffered pending side effects by action, record id and scope only, so a second mark for a different entity with the same id (a legacy activity and its bridged canonical interaction share a primary key) silently replaced the first entity's CRUD event and query-index upsert. Marks that declare a different entity identity (explicit `indexer.entityType`, or `events` module/entity) are now buffered and emitted separately; marks with the same or partially declared identity merge exactly as before, and flush order stays chronological. No type, signature, import path or event ID changes. Regression-tested in `engine.side-effect-identity.test.ts`.
+
+`customers.companies.update` undo no longer deletes and rebuilds the company's Deal links from the logged snapshot. The update command never changes Deal links, so undo leaves them as they are; it no longer reverts link changes made by other commands after the edit, such as a Deal merge. Undo of every field the update changes is unchanged.
+
+No action required. No API route, response shape, event ID, ACL feature, DI name or database schema changes. See the [Deal merge spec](.ai/specs/2026-11-24-deal-merge.md).
 
 ## Encrypted tenant custom-field writes require a usable key
 

@@ -511,6 +511,7 @@
   "workflows.create.eventTriggersDescription": "After creating this workflow definition, you can configure event triggers to automatically start the workflow when specific events occur in the system.",
   "workflows.create.eventTriggersTitle": "Event Triggers",
   "workflows.create.title": "Create Automation",
+  "workflows.dealMerge.participantLabel": "Workflow tasks",
   "workflows.definitions.activities": "Activities",
   "workflows.definitions.backToList": "Back to definitions",
   "workflows.definitions.category": "Category",

@@ -511,6 +511,7 @@
   "workflows.create.eventTriggersDescription": "Despues de crear esta definicion de flujo de trabajo, podras configurar disparadores de eventos para iniciar automaticamente el flujo de trabajo cuando ocurran eventos especificos en el sistema.",
   "workflows.create.eventTriggersTitle": "Disparadores de eventos",
   "workflows.create.title": "Crear automatización",
+  "workflows.dealMerge.participantLabel": "Tareas de flujo de trabajo",
   "workflows.definitions.activities": "Actividades",
   "workflows.definitions.backToList": "Volver a definiciones",
   "workflows.definitions.category": "Categoria",

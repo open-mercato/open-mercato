@@ -23,6 +23,9 @@ import {
   createAttachmentDocumentStructureService,
 } from './lib/documentStructure/service'
 import { enqueueDocumentStructureExtraction } from './lib/documentStructure/queue'
+import { registerAttachmentDealMergeParticipant } from './lib/deal-merge-participant'
+
+registerAttachmentDealMergeParticipant()
 
 const attachmentRelationAccess: RelationOptionAccess = async ({ auth, container, tenantId, organizationId }) => {
   const em = container.resolve<EntityManager>('em')

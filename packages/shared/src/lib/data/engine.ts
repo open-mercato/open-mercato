@@ -31,6 +31,11 @@ import { createLogger } from '../logger'
 import { createBoundedTtlMemo } from '../query/bounded-ttl-memo'
 import type { TenantDataEncryptionService } from '../encryption/tenantDataEncryptionService'
 
+type OrmSideEffectOptions = BulkImportSuppression & {
+  rethrowEventErrors?: boolean
+  eventDispatch?: 'enqueue-only' | 'inline-only'
+}
+
 const logger = createLogger('shared').child({ component: 'data-engine' })
 
 const undeclaredEventWarned = new Set<string>()
@@ -95,6 +100,20 @@ type QueuedCrudSideEffect = {
   actorUserId?: string | null
   events?: CrudEventsConfig<unknown>
   indexer?: CrudIndexerConfig<unknown>
+  explicitIndexerEntityType?: string
+}
+
+type SideEffectEntityIdentity = {
+  indexerEntityType?: string
+  eventsEntity?: string
+}
+
+function describeEventsEntity(events: CrudEventsConfig<unknown> | undefined): string | undefined {
+  return events ? `${events.module}.${events.entity}` : undefined
+}
+
+function identitiesConflict(left: string | undefined, right: string | undefined): boolean {
+  return left !== undefined && right !== undefined && left !== right
 }
 
 /**
@@ -195,7 +214,7 @@ export interface DataEngine {
     syncOrigin?: string | null
     actorUserId?: string | null
     /** Bulk-import deferral: skip the domain event and/or inline reindex for this emit. */
-    suppress?: BulkImportSuppression
+    suppress?: OrmSideEffectOptions
   }): Promise<void>
 
   markOrmEntityChange<T>(opts: {
@@ -213,7 +232,7 @@ export interface DataEngine {
    * flagged per-record events / reindex are skipped for every drained entry; the caller
    * is responsible for rebuilding the `query_index` afterwards.
    */
-  flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void>
+  flushOrmEntityChanges(suppress?: OrmSideEffectOptions): Promise<void>
 
   /**
    * Declare the indexer a CRUD route configured, for marks made during one command-bus
@@ -805,7 +824,7 @@ export class DefaultDataEngine implements DataEngine {
     identifiers: CrudEntityIdentifiers
     syncOrigin?: string | null
     actorUserId?: string | null
-    suppress?: BulkImportSuppression
+    suppress?: OrmSideEffectOptions
   }): Promise<void> {
     if (this.commandEffectsDiscarded) return
     if (this.deferredNotifications) {
@@ -873,13 +892,18 @@ export class DefaultDataEngine implements DataEngine {
           )
         : builtPayload
       try {
+        const enqueueOnly = suppress?.eventDispatch === 'enqueue-only'
+        const inlineOnly = suppress?.eventDispatch === 'inline-only'
         await bus.emitEvent(eventName, payload, {
-          persistent: !!events.persistent,
+          persistent: inlineOnly ? false : !!events.persistent,
+          ...(enqueueOnly ? { deliverInline: false, skipInlineDispatch: true } : {}),
+          ...(inlineOnly ? { skipPersistentSubscribersInline: true } : {}),
           tenantId: ctx.identifiers.tenantId ?? null,
           organizationId: ctx.identifiers.organizationId ?? null,
           emitterModuleId: events.module,
         })
-      } catch {
+      } catch (error) {
+        if (suppress?.rethrowEventErrors) throw error
         // non-blocking
       }
     }
@@ -977,7 +1001,10 @@ export class DefaultDataEngine implements DataEngine {
     // query-index obligation — the route hands its `indexer:` down as the default so the
     // handler's own entity and identifiers (the accurate ones) drive the projection write.
     const indexer = opts.indexer ?? this.resolveDefaultIndexer(entity)
-    const key = this.buildSideEffectKey(opts.action, identifiers)
+    const key = this.resolveSideEffectKey(this.buildSideEffectKey(opts.action, identifiers), {
+      indexerEntityType: opts.indexer?.entityType,
+      eventsEntity: describeEventsEntity(opts.events as CrudEventsConfig<unknown> | undefined),
+    })
     const existing = this.pendingSideEffects.get(key)
     if (existing) {
       existing.entity = entity
@@ -992,8 +1019,10 @@ export class DefaultDataEngine implements DataEngine {
       // Explicit always wins, on the merge branch too: a second `events:`-only mark on the same
       // key must not let the route default overwrite the `indexer:` an earlier mark installed,
       // which would silently drop that handler's own `buildUpsertPayload`.
-      if (opts.indexer) existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
-      else if (!existing.indexer && indexer) existing.indexer = indexer
+      if (opts.indexer) {
+        existing.indexer = opts.indexer as CrudIndexerConfig<unknown>
+        existing.explicitIndexerEntityType = opts.indexer.entityType
+      } else if (!existing.indexer && indexer) existing.indexer = indexer
       this.pendingSideEffects.set(key, existing)
       return
     }
@@ -1010,14 +1039,15 @@ export class DefaultDataEngine implements DataEngine {
     }
     if (opts.events) entry.events = opts.events as CrudEventsConfig<unknown>
     if (indexer) entry.indexer = indexer
+    if (opts.indexer) entry.explicitIndexerEntityType = opts.indexer.entityType
     this.pendingSideEffects.set(key, entry)
   }
 
-  async flushOrmEntityChanges(suppress?: BulkImportSuppression): Promise<void> {
+  async flushOrmEntityChanges(suppress?: OrmSideEffectOptions): Promise<void> {
     await this.flushPendingOrmEntityChanges(suppress)
   }
 
-  private async flushPendingOrmEntityChanges(suppress?: BulkImportSuppression, failures?: unknown[]): Promise<void> {
+  private async flushPendingOrmEntityChanges(suppress?: OrmSideEffectOptions, failures?: unknown[]): Promise<void> {
     if (this.commandEffectsDiscarded || !this.pendingSideEffects.size) return
     const entries = Array.from(this.pendingSideEffects.values())
     this.pendingSideEffects.clear()
@@ -1034,7 +1064,7 @@ export class DefaultDataEngine implements DataEngine {
 
   private async emitQueuedCrudEffects(
     entries: readonly QueuedCrudSideEffect[],
-    suppress?: BulkImportSuppression,
+    suppress?: OrmSideEffectOptions,
     failures?: unknown[],
   ): Promise<void> {
     for (const entry of entries) {
@@ -1054,8 +1084,28 @@ export class DefaultDataEngine implements DataEngine {
         })
       } catch (error) {
         if (failures) failures.push(error)
-        else if (isReadProjectionAlwaysConsistent()) throw error
+        else if (suppress?.rethrowEventErrors || isReadProjectionAlwaysConsistent()) throw error
       }
+    }
+  }
+
+  /**
+   * Records of different entity types may share a primary key (the legacy activity bridge creates
+   * the canonical interaction with the activity's id). A mark whose explicit `indexer.entityType`
+   * or `events` module/entity differs from the entry already queued under the same
+   * (action, id, scope) key gets its own slot, so neither record's event nor projection replaces
+   * the other's. Marks that agree on identity, or leave it undeclared, merge exactly as before.
+   */
+  private resolveSideEffectKey(baseKey: string, identity: SideEffectEntityIdentity): string {
+    let key = baseKey
+    for (let slot = 1; ; slot += 1) {
+      const existing = this.pendingSideEffects.get(key)
+      if (!existing) return key
+      const conflicting =
+        identitiesConflict(existing.explicitIndexerEntityType, identity.indexerEntityType)
+        || identitiesConflict(describeEventsEntity(existing.events), identity.eventsEntity)
+      if (!conflicting) return key
+      key = `${baseKey}|${slot}`
     }
   }
 

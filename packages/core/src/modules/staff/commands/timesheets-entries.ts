@@ -8,6 +8,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { LockMode } from '@mikro-orm/core'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import {
@@ -77,6 +78,7 @@ import {
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
 import { restoreSegmentsForEntry, softDeleteSegmentsForEntry } from '../lib/timesheets/timeEntrySegmentCascade'
 import { lockStaffMemberTimers } from '../lib/timesheets/staffTimerLock'
+import { lockLiveStaffDealReference } from '../lib/dealReferenceGuard'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
 
@@ -972,41 +974,50 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     )
 
     const now = new Date()
-    const entry = em.create(StaffTimeEntry, {
-      tenantId: parsed.tenantId,
-      organizationId: parsed.organizationId,
-      staffMemberId: effectiveStaffMemberId,
-      date: parsed.date,
-      durationMinutes: parsed.durationMinutes,
-      roundedMinutes: roundedMinutesFor(parsed.durationMinutes, settings, {
+    const dealId = parsed.dealId ?? null
+    let entry!: StaffTimeEntry
+    await withAtomicFlush(em, [async () => {
+      if (dealId) {
+        await lockLiveStaffDealReference(em, dealId, {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        })
+      }
+      entry = em.create(StaffTimeEntry, {
         tenantId: parsed.tenantId,
         organizationId: parsed.organizationId,
-      }),
-      startedAt: parsed.startedAt ?? null,
-      endedAt: parsed.endedAt ?? null,
-      notes: resolveTimeEntryNotesInput(parsed) ?? null,
-      timeProjectId: project?.id ?? null,
-      taskId: task?.id ?? null,
-      customerId: parsed.customerId ?? null,
-      dealId: parsed.dealId ?? null,
-      orderId: parsed.orderId ?? null,
-      isBillable: resolveTimeEntryBillable({
-        requested: parsed.isBillable,
-        project,
-        settings,
-        scope: { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
-      }),
-      rateOverrideAmount: toStoredTimeEntryRateOverride(parsed.rateOverrideAmount, parsed.rateOverrideAmountExact),
-      // Snapshotted rather than joined at read time so a later project currency
-      // change cannot re-denominate money that has already been reported (D-3).
-      rateCurrencyCode: project?.currencyCode ?? null,
-      source: parsed.source ?? 'manual',
-      createdAt: now,
-      updatedAt: now,
-      deletedAt: null,
-    })
-    em.persist(entry)
-    await em.flush()
+        staffMemberId: effectiveStaffMemberId,
+        date: parsed.date,
+        durationMinutes: parsed.durationMinutes,
+        roundedMinutes: roundedMinutesFor(parsed.durationMinutes, settings, {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        }),
+        startedAt: parsed.startedAt ?? null,
+        endedAt: parsed.endedAt ?? null,
+        notes: resolveTimeEntryNotesInput(parsed) ?? null,
+        timeProjectId: project?.id ?? null,
+        taskId: task?.id ?? null,
+        customerId: parsed.customerId ?? null,
+        dealId,
+        orderId: parsed.orderId ?? null,
+        isBillable: resolveTimeEntryBillable({
+          requested: parsed.isBillable,
+          project,
+          settings,
+          scope: { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+        }),
+        rateOverrideAmount: toStoredTimeEntryRateOverride(parsed.rateOverrideAmount, parsed.rateOverrideAmountExact),
+        // Snapshotted rather than joined at read time so a later project currency
+        // change cannot re-denominate money that has already been reported (D-3).
+        rateCurrencyCode: project?.currencyCode ?? null,
+        source: parsed.source ?? 'manual',
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null,
+      })
+      em.persist(entry)
+    }], { transaction: dealId !== null, label: 'staff.timesheets.time_entries.create' })
 
     if (parsed.tagIds !== undefined) {
       await syncEntryTags(ctx, {
@@ -1107,7 +1118,14 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     // rather than in `beforeRestore` so both queries (entry, then segments) run
     // before any mutation: `restoreCreatedRow` only clears the entry's `deletedAt`
     // after this returns, and one flush then commits the entry and its segments.
+    transaction: true,
     findRow: async ({ em, id, snapshot }) => {
+      if (snapshot.dealId) {
+        await lockLiveStaffDealReference(em, snapshot.dealId, {
+          tenantId: snapshot.tenantId,
+          organizationId: snapshot.organizationId,
+        })
+      }
       // Scope is spelled out rather than taken from `scopedStaffSnapshotWhere` so both
       // keys are always applied: that helper omits `tenantId` or `organizationId`
       // whenever the snapshot's value is falsy, which would silently widen this lookup.
@@ -2066,7 +2084,15 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     }
     if (notes !== undefined) entry.notes = notes
     entry.updatedAt = new Date()
-    await em.flush()
+    const nextDealId = parsed.dealId ?? null
+    await withAtomicFlush(em, [async () => {
+      if (nextDealId) {
+        await lockLiveStaffDealReference(em, nextDealId, {
+          tenantId: entry.tenantId,
+          organizationId: entry.organizationId,
+        })
+      }
+    }], { transaction: nextDealId !== null, label: 'staff.timesheets.time_entries.update' })
 
     if (parsed.tagIds !== undefined) {
       await syncEntryTags(ctx, {
@@ -2173,7 +2199,15 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     // this command can never carry a non-null `before.deletedAt` to restore.
     entry.deletedAt = before.deletedAt ? new Date(before.deletedAt) : null
     entry.updatedAt = new Date()
-    await em.flush()
+    const restoredDealId = before.dealId ?? null
+    await withAtomicFlush(em, [async () => {
+      if (restoredDealId) {
+        await lockLiveStaffDealReference(em, restoredDealId, {
+          tenantId: entry.tenantId,
+          organizationId: entry.organizationId,
+        })
+      }
+    }], { transaction: restoredDealId !== null, label: 'staff.timesheets.time_entries.update.undo' })
 
     await emitCrudUndoSideEffects({
       dataEngine: ctx.container.resolve('dataEngine'),
@@ -2316,6 +2350,12 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     const restoresRunningTimer = Boolean(before.startedAt) && !before.endedAt
 
     const restoredEntry = await em.transactional(async (trx) => {
+      if (before.dealId) {
+        await lockLiveStaffDealReference(trx, before.dealId, {
+          tenantId: before.tenantId,
+          organizationId: before.organizationId,
+        })
+      }
       // Restoring an entry that was deleted while its timer ran reopens that timer,
       // so it passes the same member-scoped gate and single-active-timer check
       // (#2855) as a start: a timer started after the delete must not end up

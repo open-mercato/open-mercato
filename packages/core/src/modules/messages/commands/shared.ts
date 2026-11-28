@@ -3,6 +3,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Message, MessageObject, MessageRecipient, type MessageActionData, type RecipientStatus } from '../data/entities'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { isAttachmentsModuleAvailable } from '../lib/optionalModules'
+import { collectMessageDealIds, lockLiveMessageDealReferences, lockMessageDealReferences } from '../lib/dealReferenceGuard'
 import {
   deleteMessageAttachmentRows,
   enqueueMessageAttachmentSectionCleanup,
@@ -203,9 +204,18 @@ export async function restoreMessageAggregateSnapshot(
     const AttachmentEntity = (await isAttachmentsModuleAvailable(em))
       ? (await import('@open-mercato/core/modules/attachments/data/entities')).Attachment
       : null
+    const dealScope = { tenantId: snapshot.message.tenantId, organizationId: snapshot.message.organizationId }
+    const snapshotDealIds = collectMessageDealIds(snapshot.objects)
+    await lockMessageDealReferences(em, snapshotDealIds, dealScope)
     const existingMessage = await em.findOne(Message, { id: snapshot.message.id })
     const existingRecipients = await em.find(MessageRecipient, { messageId: snapshot.message.id })
     const existingObjects = await em.find(MessageObject, { messageId: snapshot.message.id })
+    const existingDealIds = new Set(collectMessageDealIds(existingObjects))
+    await lockLiveMessageDealReferences(
+      em,
+      snapshotDealIds.filter((dealId) => !existingDealIds.has(dealId)),
+      dealScope,
+    )
     const attachmentsToRelink = AttachmentEntity && snapshot.attachmentIds.length > 0
       ? await em.find(AttachmentEntity, {
           id: { $in: snapshot.attachmentIds },

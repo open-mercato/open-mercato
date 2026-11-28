@@ -10,7 +10,7 @@
  * runner: OSS floor first, optional enterprise record_locks enrichment, fail-closed).
  *
  * This test asserts the migrated `complete` handler awaits the async seam with the
- * loaded interaction's own `updatedAt` BEFORE mutating, and that a seam 409 aborts
+ * interaction's `updatedAt` re-read under its row lock BEFORE mutating, and that a seam 409 aborts
  * the write. (The four handlers share the identical guard call shape.)
  */
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -83,7 +83,11 @@ function makeCtx() {
   // The interaction `complete` handler forks the EM and runs inside
   // `runInTransaction`; provide a fork that lacks begin/commit/rollback so the
   // op runs directly, with a no-op `flush`.
-  const fork = { flush: jest.fn(async () => undefined) }
+  const fork = {
+    flush: jest.fn(async () => undefined),
+    find: jest.fn(async () => []),
+    execute: jest.fn(async () => (loadedInteraction ? [{ updated_at: loadedInteraction.updatedAt }] : [])),
+  }
   const em = { fork: () => fork }
   const dataEngine = {}
   const eventBus = { emitEvent: jest.fn(async () => undefined) }

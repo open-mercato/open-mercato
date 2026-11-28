@@ -193,6 +193,7 @@ describe('customers.interactions.update locked snapshots', () => {
         }),
         persist: jest.fn(),
         create: jest.fn((_entity: unknown, values: Record<string, unknown>) => values),
+        execute: jest.fn(async () => [{ updated_at: interaction.updatedAt }]),
       }
       return em as unknown as TestEntityManager
     }

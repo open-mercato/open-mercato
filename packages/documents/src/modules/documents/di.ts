@@ -14,6 +14,9 @@ import {
   DocumentVersion,
   DocumentWatcher,
 } from './data/entities'
+import { registerDocumentDealMergeParticipant } from './lib/deal-merge-participant'
+
+registerDocumentDealMergeParticipant()
 
 export function register(container: AppContainer) {
   container.register({
