@@ -65,6 +65,21 @@ function parseStageProbabilityInput(value: string): number | null {
   return Math.min(100, Math.max(0, parsed))
 }
 
+function submitOnEnter(event: React.KeyboardEvent, save: () => Promise<void>) {
+  if (event.key !== 'Enter' || event.nativeEvent.isComposing) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (!event.repeat) void save()
+}
+
+function submitOnDialogShortcut(save: () => Promise<void>): React.KeyboardEventHandler {
+  return (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return
+    if (!(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return
+    submitOnEnter(event, save)
+  }
+}
+
 export default function PipelineStagesPage() {
   const t = useT()
   const { payload } = useBackendChrome()
@@ -180,7 +195,7 @@ export default function PipelineStagesPage() {
   }
 
   async function savePipeline() {
-    if (!pipelineName.trim()) return
+    if (saving || !pipelineName.trim()) return
     setSaving(true)
     const pipelinePayload = {
       name: pipelineName.trim(),
@@ -305,7 +320,7 @@ export default function PipelineStagesPage() {
   }
 
   async function saveStage() {
-    if (!stageName.trim() || !selectedPipelineId) return
+    if (saving || !stageName.trim() || !selectedPipelineId) return
     setSaving(true)
     const probabilityPayload = stageProbabilitiesEnabled
       ? { defaultProbability: parseStageProbabilityInput(stageDefaultProbability) }
@@ -605,7 +620,7 @@ export default function PipelineStagesPage() {
         </div>
 
         <Dialog open={pipelineDialog !== null} onOpenChange={(open) => { if (!open) setPipelineDialog(null) }}>
-          <DialogContent>
+          <DialogContent onKeyDownCapture={submitOnDialogShortcut(savePipeline)}>
             <DialogHeader>
               <DialogTitle>
                 {pipelineDialog?.mode === 'create'
@@ -622,7 +637,7 @@ export default function PipelineStagesPage() {
                   value={pipelineName}
                   onChange={(e) => setPipelineName(e.target.value)}
                   placeholder={t('customers.config.pipelineStages.pipelineNamePlaceholder', 'e.g. Sales Pipeline')}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void savePipeline() } }}
+                  onKeyDown={(event) => submitOnEnter(event, savePipeline)}
                   autoFocus
                 />
               </div>
@@ -662,7 +677,7 @@ export default function PipelineStagesPage() {
         </Dialog>
 
         <Dialog open={stageDialog !== null} onOpenChange={(open) => { if (!open) setStageDialog(null) }}>
-          <DialogContent>
+          <DialogContent onKeyDownCapture={submitOnDialogShortcut(saveStage)}>
             <DialogHeader>
               <DialogTitle>
                 {stageDialog?.mode === 'create'
@@ -679,7 +694,7 @@ export default function PipelineStagesPage() {
                   value={stageName}
                   onChange={(e) => setStageName(e.target.value)}
                   placeholder={t('customers.config.pipelineStages.stageNamePlaceholder', 'e.g. Qualification')}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void saveStage() } }}
+                  onKeyDown={(event) => submitOnEnter(event, saveStage)}
                   autoFocus
                 />
               </div>
