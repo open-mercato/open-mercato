@@ -60,24 +60,43 @@ export async function POST(req: Request) {
     : null
   const authToken = bearerToken || parseCookie(req, 'auth_token')
   if (!sessToken && !authToken) return buildSafeRedirectResponse(req, '/login', 303)
-  const claims = extractAuthTokenClaims(authToken)
+  const accessClaims = extractAuthTokenClaims(authToken)
+  let refreshClaims: AuthTokenClaims | null = null
   let sessionRevoked = false
-  if (sessToken || claims.sessionId) {
+  if (sessToken || accessClaims.sessionId) {
     try {
       const c = await createRequestContainer()
       const auth = c.resolve<AuthService>('authService')
-      if (claims.sessionId) {
-        await auth.deleteSessionById(claims.sessionId)
+      if (!accessClaims.userId && sessToken) {
+        try {
+          const refreshSession = await auth.refreshFromSessionToken(sessToken)
+          if (refreshSession) {
+            refreshClaims = {
+              userId: refreshSession.user.id,
+              sessionId: refreshSession.session.id,
+              tenantId: refreshSession.user.tenantId ?? null,
+              organizationId: refreshSession.user.organizationId ?? null,
+            }
+          }
+        } catch (error) {
+          getTelemetryRuntime()?.reportError(error, { module: 'auth', code: 'auth.logout_identity_failed' })
+        }
       }
-      if (sessToken) {
-        await auth.deleteSessionByToken(sessToken)
+      if (accessClaims.sessionId) {
+        await auth.deleteSessionById(accessClaims.sessionId)
       }
-      sessionRevoked = true
+      if (sessToken && refreshClaims) {
+        sessionRevoked = await auth.deleteSessionByTokenWithResult(sessToken)
+      } else {
+        if (sessToken) await auth.deleteSessionByToken(sessToken)
+        sessionRevoked = true
+      }
     } catch (error) {
       getTelemetryRuntime()?.reportError(error, { module: 'auth', code: 'auth.logout_revoke_failed' })
     }
   }
-  if (claims.userId) {
+  const claims = refreshClaims ?? accessClaims
+  if (claims.userId && (!refreshClaims || sessionRevoked)) {
     void emitAuthEvent('auth.logout', {
       id: claims.userId,
       tenantId: claims.tenantId,
