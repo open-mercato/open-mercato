@@ -80,7 +80,7 @@ describe('PUT /api/security/profile/password', () => {
       error: 'La contraseña actual es incorrecta.',
       issues: [{ path: ['currentPassword'], message: 'La contraseña actual es incorrecta.' }],
     })
-    expect(mockChangePassword).toHaveBeenCalledWith('user-1', 'WrongPass1!', 'StrongPass2!')
+    expect(mockChangePassword).toHaveBeenCalledWith('user-1', 'WrongPass1!', 'StrongPass2!', undefined)
   })
 
   test('localizes the schema password policy rejection before the command runs', async () => {
@@ -104,6 +104,6 @@ describe('PUT /api/security/profile/password', () => {
 
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({ ok: true })
-    expect(mockChangePassword).toHaveBeenCalledWith('user-1', 'CurrentPass1!', 'StrongPass2!')
+    expect(mockChangePassword).toHaveBeenCalledWith('user-1', 'CurrentPass1!', 'StrongPass2!', undefined)
   })
 })

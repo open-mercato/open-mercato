@@ -423,6 +423,16 @@ function serializePersonSnapshot(
   }
 }
 
+async function lockPersonRow(em: EntityManager, entity: CustomerEntity): Promise<void> {
+  await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    { id: entity.id, tenantId: entity.tenantId, organizationId: entity.organizationId },
+    { lockMode: LockMode.PESSIMISTIC_WRITE },
+    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+  )
+}
+
 async function loadPersonSnapshot(
   em: EntityManager,
   entityId: string,
@@ -947,6 +957,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       profile = existingProfile
       const survivingEntity = entity
       await withAtomicFlush(em, [
+        () => lockPersonRow(em, survivingEntity),
         () => {
           survivingEntity.deletedAt = null
           survivingEntity.displayName = after.entity.displayName
@@ -1260,6 +1271,7 @@ const updatePersonCommand = {
       ], { transaction: true })
     } else {
       await withAtomicFlush(em, [
+        () => lockPersonRow(em, entity),
         () => {
           entity.displayName = before.entity.displayName
           entity.description = before.entity.description
@@ -1567,7 +1579,7 @@ const deletePersonCommand: CommandHandler<
             tenantId: before.entity.tenantId,
             organizationId: before.entity.organizationId,
           },
-          {},
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
           decryptionScope,
         )
       if (!entity) {

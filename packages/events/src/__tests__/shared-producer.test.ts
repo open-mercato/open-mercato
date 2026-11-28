@@ -95,3 +95,23 @@ describe('persistent-events producer memoization (#2959)', () => {
     expect((globalThis as Record<string, unknown>)[PRODUCER_QUEUE_KEY]).toBeUndefined()
   })
 })
+
+describe('persistent enqueue options', () => {
+  it('forwards stable identity and timeout without changing trusted scope or inline delivery', async () => {
+    const queue = makeFakeQueue(1)
+    createQueueMock.mockReturnValue(queue)
+    const bus = createEventBus({ queueStrategy: 'local', resolve: ((name: string) => name) as never })
+    const inline = jest.fn()
+    bus.on('receipt.received', inline)
+    const options = { persistent: true, tenantId: 'trusted-tenant', organizationId: 'trusted-org',
+      enqueue: { jobId: 'receipt-event-one', timeoutMs: 125 } }
+    await bus.emit('receipt.received', { tenantId: 'payload-tenant' }, options)
+    expect(inline).toHaveBeenCalledTimes(1)
+    expect(inline).toHaveBeenCalledWith({ tenantId: 'payload-tenant' }, expect.objectContaining({
+      tenantId: 'trusted-tenant', organizationId: 'trusted-org',
+    }))
+    expect(queue.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'receipt.received', payload: { tenantId: 'payload-tenant' }, options,
+    }), options.enqueue)
+  })
+})

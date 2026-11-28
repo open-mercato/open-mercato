@@ -34,6 +34,7 @@ const CONFIG_PASSTHROUGH_KEYS: Array<keyof CustomFieldDefinition> = [
   'multi',
   'filterable',
   'formEditable',
+  'sectionOnly',
   'listVisible',
   'indexed',
   'encrypted',

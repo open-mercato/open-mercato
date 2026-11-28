@@ -14,10 +14,11 @@ jest.mock('../generators', () => ({
   generateModuleDi: jest.fn(),
   generateModulePackageSources: jest.fn(),
   generateWebResearchAdapters: jest.fn(),
+  generateCacheProviders: jest.fn(),
   generateOpenApi: jest.fn(),
 }))
 
-const allGroups: GenerateWatchGroup[] = ['entity-ids', 'registry', 'entities', 'di', 'package-sources', 'web-research-adapters', 'openapi']
+const allGroups: GenerateWatchGroup[] = ['entity-ids', 'registry', 'entities', 'di', 'package-sources', 'web-research-adapters', 'cache-providers', 'openapi']
 const calls: GenerateWatchGroup[] = []
 const unchanged = { filesWritten: [], filesUnchanged: ['unchanged'], errors: [] }
 
@@ -36,6 +37,7 @@ describe('runGenerateWatchSuite', () => {
     jest.mocked(generators.generateModuleDi).mockImplementation(async () => { calls.push('di'); return unchanged })
     jest.mocked(generators.generateModulePackageSources).mockImplementation(async () => { calls.push('package-sources'); return unchanged })
     jest.mocked(generators.generateWebResearchAdapters).mockImplementation(async () => { calls.push('web-research-adapters'); return unchanged })
+    jest.mocked(generators.generateCacheProviders).mockImplementation(async () => { calls.push('cache-providers'); return unchanged })
     jest.mocked(generators.generateOpenApi).mockImplementation(async () => { calls.push('openapi'); return unchanged })
   })
 
@@ -45,6 +47,16 @@ describe('runGenerateWatchSuite', () => {
     expect(await runGenerateWatchSuite(true, plan, resolver)).toBe(false)
     expect(calls).toEqual(['entity-ids', 'registry', 'di', 'openapi'])
     expect(generators.generateModuleRegistries).toHaveBeenCalledWith({ resolver, quiet: true, outputGroups: ['api-routes'] })
+  })
+
+  it('regenerates only the cache provider registry when the manifest appears or disappears', async () => {
+    jest.mocked(generators.generateCacheProviders).mockResolvedValueOnce({
+      ...unchanged,
+      filesWritten: ['/virtual/cache-providers.generated.ts'],
+    })
+    expect(await runGenerateWatchSuite(true, selectedPlan(['cache-providers']))).toBe(true)
+    expect(generators.generateModuleRegistries).not.toHaveBeenCalled()
+    expect(generators.generateOpenApi).not.toHaveBeenCalled()
   })
 
   it('does not enter unrelated generators for a single DI edit', async () => {

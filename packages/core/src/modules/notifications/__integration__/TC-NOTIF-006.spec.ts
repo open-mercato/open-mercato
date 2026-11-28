@@ -16,7 +16,7 @@ import {
 test.describe('TC-NOTIF-006: notifications.manage gates settings endpoints', () => {
   test('denies notification settings management to a user without notifications.manage', async ({ request }) => {
     const stamp = Date.now()
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
     const email = `qa-notif-settings-rbac-${stamp}@acme.com`
     const roleName = `qa_notif_settings_rbac_${stamp}`
 

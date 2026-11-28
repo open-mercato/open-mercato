@@ -1,3 +1,4 @@
+import { matchRoutePattern } from '@open-mercato/shared/modules/registry'
 import { sourceHasDefaultExport, sourceExportedHttpMethods } from './source-exports'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -79,6 +80,7 @@ import {
   resolveStandaloneSourceMirrorBase,
 } from './scanner'
 import { loadGeneratorExtensions } from './extensions'
+import { prepareCrudFormSectionRegistries, writeCrudFormSectionRegistries, writeDerivedCrudFormSectionRoutes } from './form-sections'
 import type { ModuleScanContext, StandaloneConfigOptions } from './extension'
 import {
   renderRouteManifestShardOutputs,
@@ -101,6 +103,7 @@ interface ModuleRegistryDiscovery {
   modules: ModuleRegistryDiscoveryEntry[]
   identities: ReturnType<typeof getEnabledModuleIdentities>
   getStructureChecksum: () => string
+  getCrudFormSections: () => ReturnType<typeof prepareCrudFormSectionRegistries>
 }
 
 type DiscoveredSubscriber = {
@@ -127,6 +130,7 @@ type ModuleRegistryDiscoveryEntry = {
   imps: ModuleImports
   appImportBase: string
   isAppModule: boolean
+  formSectionOverrides?: ModuleEntry['formSectionOverrides']
   resolve: (relativePath: string) => ResolvedFile | null
   frontendFiles: ScannedFile[]
   backendFiles: ScannedFile[]
@@ -1923,6 +1927,7 @@ function buildManifestRouteLoader(importPath: string): WriterFunction {
 function buildManifestApiLoader(importPath: string): WriterFunction {
   return arrowFunction({
     async: true,
+    returnType: "ReturnType<ApiRouteManifestEntry['load']>",
     body: importExpression(sanitizeGeneratedModuleSpecifier(importPath)),
   })
 }
@@ -2190,6 +2195,7 @@ async function createModuleRegistryDiscovery(
       imps,
       appImportBase,
       isAppModule: entry.from === '@app',
+      formSectionOverrides: entry.formSectionOverrides,
       resolve,
       frontendFiles: scanModuleDir(roots, SCAN_CONFIGS.frontendPages),
       backendFiles: scanModuleDir(roots, SCAN_CONFIGS.backendPages),
@@ -2207,11 +2213,22 @@ async function createModuleRegistryDiscovery(
   }
 
   let structureChecksum: string | undefined
+  let crudFormSections: ReturnType<typeof prepareCrudFormSectionRegistries> | undefined
+  function getCrudFormSections() {
+    if (crudFormSections) return crudFormSections
+    const requiresByModule = new Map<string, string[]>()
+    for (const module of modules) {
+      const index = module.resolve('index.ts')
+      if (index) collectDeclaredModuleRequires(module.modId, index.absolutePath, requiresByModule, quiet)
+    }
+    return crudFormSections = prepareCrudFormSectionRegistries({ modules, identities, requiresByModule })
+  }
   return {
     enabled,
     modules,
     identities,
     getStructureChecksum: () => structureChecksum ??= calculateStructureChecksum(Array.from(trackedRoots)),
+    getCrudFormSections,
   }
 }
 
@@ -2718,6 +2735,7 @@ function buildModuleCustomFieldSetsValue(options: {
   fieldsImportName?: string | null
   customEntitiesImportName?: string | null
   moduleId: string
+  compiledFields?: readonly import('@open-mercato/shared/modules/entities').CustomFieldSet[]
 }): WriterFunction {
   const parts: WriterFunction[] = []
 
@@ -2772,7 +2790,12 @@ function buildModuleCustomFieldSetsValue(options: {
     parts.push(spreadExpression(mappedEntities))
   }
 
+  if (options.compiledFields?.length) parts.push(spreadExpression(identifier(compiledFieldSetsExpression(options.compiledFields))))
   return arrayLiteral(parts, writeValue)
+}
+
+function compiledFieldSetsExpression(fields: readonly import('@open-mercato/shared/modules/entities').CustomFieldSet[]): string {
+  return `(${JSON.stringify(fields)} satisfies import('@open-mercato/shared/modules/entities').CustomFieldSet[])`
 }
 
 function buildModuleDashboardWidgetsValue(entries: DashboardWidgetEntry[]): WriterFunction {
@@ -3769,6 +3792,22 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const backendRouteMetadataEntries: RouteManifestShardEntry[] = []
   const apiRouteShardEntries: RouteManifestShardEntry[] = []
   const apiRouteMetadataEntries: RouteManifestShardEntry[] = []
+  const needsDerivedRoutes = ['main', 'runtime', 'api-routes'].some((group) => selectsRegistryOutput(options, group))
+  const derivedCrudRoutes = needsDerivedRoutes ? writeDerivedCrudFormSectionRoutes({
+    modules: discovery.modules,
+    identities: discovery.identities,
+    requiresByModule: new Map(),
+    outputDir,
+    structureChecksum: discovery.getStructureChecksum(),
+    result,
+    quiet,
+  }) : []
+  for (const { routePath } of derivedCrudRoutes) {
+    if (!/^(?:\/[A-Za-z0-9_.-]+)+$/.test(routePath) || routePath.split('/').some((segment) => segment === '.' || segment === '..')) {
+      throw new Error(`[generate] Derived CrudForm route requires a literal API path without parameters: "${routePath}"`)
+    }
+  }
+
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
@@ -4012,6 +4051,25 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       apiRouteManifestDecls.push(...generatedApis.manifestApis)
       apiRouteShardEntries.push(...generatedApis.manifestShardApis)
       apiRouteMetadataEntries.push(...generatedApis.metadataApis)
+      for (const derived of derivedCrudRoutes.filter((route) => route.moduleId === modId)) {
+        const importPath = `./${stripModuleCodeExtension(derived.fileName)}`
+        const importName = `DERIVED_CRUD_${importIdRef.value++}`
+        imports.push(buildImportStatement(`* as ${importName}`, importPath))
+        runtimeImports.push(buildImportStatement(`* as ${importName}`, importPath))
+        const entry = `{ path: ${toLiteral(derived.routePath)}, metadata: ${importName}.metadata, handlers: ${importName}, docs: ${importName}.openApi }`
+        apis.push(entry)
+        runtimeApis.push(entry)
+        const entries: GeneratedObjectEntry[] = [
+          { name: 'moduleId', value: modId },
+          { name: 'kind', value: 'route-file' },
+          { name: 'path', value: derived.routePath },
+          { name: 'methods', value: arrayLiteral(derived.methods, writeValue) },
+        ]
+        const manifestEntry = objectLiteral([...entries, { name: 'load', value: buildManifestApiLoader(importPath) }])
+        apiRouteManifestDecls.push(manifestEntry)
+        apiRouteShardEntries.push({ path: derived.routePath, declaration: renderGeneratedValue(manifestEntry) })
+        apiRouteMetadataEntries.push({ path: derived.routePath, declaration: renderGeneratedValue(objectLiteral(entries)) })
+      }
     }
 
     // 15. CLI
@@ -4051,6 +4109,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
         parts.push(
           `((( ${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || []).filter((e: any) => Array.isArray(e.fields) && e.fields.length).map((e: any) => ({ entity: e.id, fields: e.fields, source: ${toLiteral(modId)} }))`
         )
+      const compiledFields = discovery.getCrudFormSections().compiled.customFieldSetsByModule.get(modId)
+      if (compiledFields?.length) parts.push(compiledFieldSetsExpression(compiledFields))
       customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
     }
 
@@ -4330,6 +4390,11 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     imports: backendRouteManifestImports,
     entries: backendRouteManifestDecls,
   }))
+  for (const derived of derivedCrudRoutes) {
+    if (apiRouteMetadataEntries.filter(({ path: routePath }) => matchRoutePattern(routePath, derived.routePath) !== undefined).length !== 1) {
+      throw new Error(`[generate] Derived CrudForm route conflicts with an existing API route "${derived.routePath}"`)
+    }
+  }
   writeOutput('api-routes', 'api-routes.generated.ts', () => renderAstManifestFile({
     fileName: 'api-routes.generated.ts',
     typeName: 'ApiRouteManifestEntry',
@@ -4638,7 +4703,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
 
     const moduleEntries: GeneratedObjectEntry[] = [
       { name: 'id', value: modId },
-      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId }) },
+      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId, compiledFields: discovery.getCrudFormSections().compiled.customFieldSetsByModule.get(modId) }) },
     ]
     const i18nModuleEntries: GeneratedObjectEntry[] = [
       { name: 'id', value: modId },
@@ -4759,8 +4824,20 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     i18nModuleDecls.push(objectLiteral(i18nModuleEntries))
   }
 
-
   exitOnMissingModuleRequires(discovery.identities, requiresByModule)
+
+  if (selectsRegistryOutput(options, 'app')) {
+    writeCrudFormSectionRegistries({
+      prepared: discovery.getCrudFormSections(),
+      modules: discovery.modules,
+      identities: discovery.identities,
+      requiresByModule,
+      outputDir,
+      structureChecksum: discovery.getStructureChecksum(),
+      result,
+      quiet,
+    })
+  }
 
   writeOutput('app', 'modules.app.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.app.generated.ts',
@@ -4991,7 +5068,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
     const moduleEntries: GeneratedObjectEntry[] = [
       { name: 'id', value: modId },
-      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId }) },
+      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId, compiledFields: discovery.getCrudFormSections().compiled.customFieldSetsByModule.get(modId) }) },
     ]
 
     if (infoImportName) {
@@ -5109,7 +5186,6 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
     moduleDecls.push(objectLiteral(moduleEntries))
   }
-
 
   exitOnMissingModuleRequires(discovery.identities, requiresByModule)
 

@@ -56,7 +56,7 @@ test.describe('TC-CRM-7490: role assignment and reassignment share one dialog', 
         const userId = await createUserFixture(request, adminToken, {
           email: `qa-role-${stamp}-${userIds.length}@example.com`,
           name,
-          password: 'Valid1!Pass',
+          password: 'QaValid1!Pass',
           organizationId,
           roles: [],
         })

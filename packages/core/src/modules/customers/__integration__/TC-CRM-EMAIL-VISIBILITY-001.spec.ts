@@ -87,7 +87,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
 
         // -- Setup: create User A (author — has compose, will own interactions)
         const userAEmail = `qa-email-vis-a-${stamp}@acme.com`;
-        const userAPassword = 'Valid1!Pass';
+        const userAPassword = 'QaValid1!Pass';
         userAId = await createUserFixture(request, adminToken, {
           email: userAEmail,
           password: userAPassword,
@@ -99,7 +99,7 @@ test.describe('TC-CRM-EMAIL-VISIBILITY-001: Email interaction visibility filter'
 
         // -- Setup: create User B (other employee — same role, no view_private)
         const userBEmail = `qa-email-vis-b-${stamp}@acme.com`;
-        const userBPassword = 'Valid1!Pass';
+        const userBPassword = 'QaValid1!Pass';
         userBId = await createUserFixture(request, adminToken, {
           email: userBEmail,
           password: userBPassword,

@@ -412,6 +412,25 @@ describe('structured generator inputs', () => {
     return { next, changes: diffGenerateWatchStructureSnapshots(previous, next) }
   }
 
+  it('runs full generation when a CrudForm section definition is added, edited, or removed', () => {
+    const definition = path.join(app, 'form-sections.ts')
+    const baseline = capture()
+    write(definition, 'export const crudFormSections = {}')
+    const added = changesSince(baseline)
+    expect(added.changes).toContainEqual(expect.objectContaining({
+      kind: 'add', category: 'configuration', path: definition,
+    }))
+    expect(planGenerateWatchChanges(added.changes).mode).toBe('full')
+
+    write(definition, 'export const crudFormSections = { descriptors: [] }')
+    const edited = changesSince(added.next)
+    expect(planGenerateWatchChanges(edited.changes).mode).toBe('full')
+
+    fs.rmSync(definition)
+    const removed = changesSince(edited.next)
+    expect(planGenerateWatchChanges(removed.changes).mode).toBe('full')
+  })
+
   it('reuses cached content until stat identity changes or the file is deleted', () => {
     const route = path.join(pkg, 'api/items/route.ts')
     const helper = path.join(pkg, 'api/items/helper.ts')
@@ -812,6 +831,21 @@ describe('structured generator inputs', () => {
     expect(plan.mode).toBe('incremental')
     expect(plan.groups).toEqual(['registry', 'openapi'])
     expect(plan.registryOutputs).toEqual(['registry.search', 'registry.notifications'])
+  })
+
+  it('plans cache-provider generation only when the manifest appears or disappears', () => {
+    const manifest = path.join(root, 'app/src/providers/cache.ts')
+    options.cacheProviderInputs = [manifest]
+    const before = capture()
+    write(manifest, 'export const cacheProviders = []')
+    const added = capture()
+    expect(planGenerateWatchChanges(diffGenerateWatchStructureSnapshots(before, added)).groups).toEqual(['cache-providers'])
+
+    write(manifest, 'export const cacheProviders = [fixture]')
+    expect(changesSince(added).changes).toEqual([])
+
+    fs.unlinkSync(manifest)
+    expect(planGenerateWatchChanges(changesSince(added).changes).groups).toEqual(['cache-providers'])
   })
 
   it('plans OpenAPI helpers and adapter manifests without a full fallback', () => {

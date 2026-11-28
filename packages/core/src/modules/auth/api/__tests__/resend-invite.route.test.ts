@@ -1,4 +1,5 @@
 import { POST } from '@open-mercato/core/modules/auth/api/users/resend-invite/route'
+import { UserAcl } from '@open-mercato/core/modules/auth/data/entities'
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoadAcl = jest.fn()
@@ -232,7 +233,24 @@ describe('POST /api/auth/users/resend-invite', () => {
     expect(body.ok).toBe(true)
     expect(body).not.toHaveProperty('warning')
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
+    expect(mockSendEmail).toHaveBeenCalledWith(expect.objectContaining({ tenantId: tenantA, organizationId: orgId }))
     expect(mockCreate).toHaveBeenCalledTimes(1)
+  })
+
+  test('uses instance delivery when the invite recipient has a superadmin grant', async () => {
+    mockLoadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockFindOne.mockImplementation(async (entity: unknown) => entity === UserAcl
+      ? { isSuperAdmin: true }
+      : makeUser())
+
+    const response = await POST(makeRequest({ id: userId }))
+
+    expect(await response.json()).toEqual({ ok: true })
+    expect(mockSendEmail).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'invited@example.com',
+      tenantId: undefined,
+      organizationId: undefined,
+    }))
   })
 
   test('returns ok with warning when email fails', async () => {

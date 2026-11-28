@@ -47,7 +47,11 @@ import { parseModuleInstallArgs } from './lib/module-install-args'
 import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
-import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
+import {
+  assertSingleInstanceStrategies,
+  readInfraStrategySnapshot,
+  resolveEffectiveCacheProviderSnapshot,
+} from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
 import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
@@ -893,6 +897,7 @@ async function createGenerateWatchRuntime(quiet = false) {
     { resolveStandaloneSourceMirrorBase },
     { getOpenApiWatchInputs },
     { getWebResearchAdapterWatchInputs },
+    { getCacheProviderManifestPaths },
   ] = await Promise.all([
     import('./lib/resolver'),
     import('./lib/generate-watch-structure'),
@@ -901,6 +906,7 @@ async function createGenerateWatchRuntime(quiet = false) {
     import('./lib/generators/scanner'),
     import('./lib/generators/openapi'),
     import('./lib/generators/web-research-adapters'),
+    import('./lib/generators/cache-providers'),
   ])
 
   let latestSnapshot: GenerateWatchSnapshot | undefined
@@ -945,6 +951,7 @@ async function createGenerateWatchRuntime(quiet = false) {
       openapiInputs,
       webResearchAdapterInputs: adapterInputs.manifestPaths,
       webResearchAdapterFullReasons: adapterInputs.fullReasons,
+      cacheProviderInputs: getCacheProviderManifestPaths(resolver.getAppDir()),
       shallowDirectories: adapterInputs.directoryPaths,
       appSourceDir: path.join(resolver.getAppDir(), 'src'),
       outputDir: resolver.getOutputDir(),
@@ -1262,7 +1269,7 @@ export async function run(argv = process.argv) {
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters, generateCacheProviders } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistries({ resolver, quiet: true })
@@ -1270,6 +1277,7 @@ export async function run(argv = process.argv) {
       await generateModuleDi({ resolver, quiet: true })
       await generateModulePackageSources({ resolver, quiet: true })
       await generateWebResearchAdapters({ resolver, quiet: true })
+      await generateCacheProviders({ resolver, quiet: true })
       await generateOpenApi({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
@@ -1563,12 +1571,13 @@ export async function run(argv = process.argv) {
       const commandArgs = remaining.filter(Boolean)
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
-        console.log('Usage: yarn mercato module <add|enable|eject|search|info> ...')
+        console.log('Usage: yarn mercato module <add|enable|eject|search|info|scaffold> ...')
         console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
         console.log('  yarn mercato module search [<query>] [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]')
         console.log('  yarn mercato module info <package-or-module-id> [--json]')
+        console.log('  yarn mercato module scaffold <moduleId> --entity <entity> --fields "<fields>" [--with-ui] [--target app|packages/core] [--features-prefix <prefix>] [--dry-run]')
         return 0
       }
 
@@ -1611,6 +1620,11 @@ export async function run(argv = process.argv) {
 
       if (subcommand === 'eject') {
         return handleDirectEjectCommand(commandArgs)
+      }
+
+      if (subcommand === 'scaffold') {
+        const { runModuleScaffold } = await import('./lib/scaffold')
+        return await runModuleScaffold(commandArgs)
       }
 
       console.error(`Unknown module subcommand "${subcommand}".`)
@@ -2646,7 +2660,10 @@ export async function run(argv = process.argv) {
           applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
           // Throws on single-instance strategies under a multi-instance topology,
           // aborting before the start lock is acquired or any process is spawned.
-          assertSingleInstanceStrategies(runtimeEnv)
+          const cacheProvider = await resolveEffectiveCacheProviderSnapshot(appDir, runtimeEnv)
+          assertSingleInstanceStrategies(runtimeEnv, {
+            snapshot: readInfraStrategySnapshot(runtimeEnv, { cacheProvider }),
+          })
           const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,
@@ -2919,7 +2936,24 @@ export async function run(argv = process.argv) {
     }
     return commandExitCode
   } catch (e: any) {
-    console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
+    const message = formatCliFailureMessage(modName, cmdName, e)
+    if (modName === 'entities' && cmdName === 'rotate-encryption-key' && process.env.OM_ROTATION_PROGRESS === 'json') {
+      process.stderr.write(JSON.stringify({
+        schemaVersion: 1,
+        type: 'phase.changed',
+        runId: 'rotation',
+        phase: 'rotation.failed',
+        entity: message,
+        rowsDone: '0',
+        rowsTotal: '0',
+        rowsTotalExact: false,
+        bytesDone: '0',
+        chunksDone: 0,
+        at: new Date().toISOString(),
+      }) + '\n')
+    } else {
+      console.error(`💥 Failed: ${message}`)
+    }
     return 1
   }
 }

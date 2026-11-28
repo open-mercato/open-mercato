@@ -1,7 +1,23 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import type { DashboardWidgetMetadata } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DashboardRoleWidgets } from '../data/entities'
 import { loadAllWidgets } from './widgets'
+
+export const dashboardDefaultRoleNames = ['superadmin', 'admin', 'employee'] as const
+
+type WidgetWithMetadata = { metadata: DashboardWidgetMetadata }
+
+export function selectDefaultRoleWidgetIds(widgets: WidgetWithMetadata[], roleName: string): string[] {
+  const isAdminRole = roleName === 'admin' || roleName === 'superadmin'
+  return widgets.filter(({ metadata }) => isAdminRole || metadata.defaultEnabled).map(({ metadata }) => metadata.id)
+}
+
+export function selectAnalyticsWidgetIds(widgets: WidgetWithMetadata[]): string[] {
+  return widgets
+    .filter(({ metadata }) => metadata.category === 'analytics' || metadata.id.startsWith('dashboards.analytics.'))
+    .map(({ metadata }) => metadata.id)
+}
 
 type RoleWidgetScope = {
   tenantId: string
@@ -21,10 +37,7 @@ export async function findRoleByName(
 }
 
 export async function resolveAnalyticsWidgetIds(): Promise<string[]> {
-  const widgets = await loadAllWidgets()
-  return widgets
-    .filter((widget) => widget.metadata.category === 'analytics' || widget.metadata.id.startsWith('dashboards.analytics.'))
-    .map((widget) => widget.metadata.id)
+  return selectAnalyticsWidgetIds(await loadAllWidgets())
 }
 
 export async function appendWidgetsToRoles(

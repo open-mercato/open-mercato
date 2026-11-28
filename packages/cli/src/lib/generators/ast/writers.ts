@@ -449,6 +449,7 @@ export function objectFromEntries(value: GeneratedValue): WriterFunction {
 export function arrowFunction(options: {
   async?: boolean
   parameters?: string[]
+  returnType?: string
   body: WriterFunction
 }): WriterFunction {
   return (writer) => {
@@ -457,7 +458,11 @@ export function arrowFunction(options: {
     }
     writer.write('(')
     writeCommaSeparated(writer, options.parameters ?? [], (currentWriter, parameter) => currentWriter.write(parameter))
-    writer.write(') => ')
+    writer.write(')')
+    if (options.returnType) {
+      writer.write(`: ${options.returnType}`)
+    }
+    writer.write(' => ')
     options.body(writer)
   }
 }

@@ -3,6 +3,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -133,10 +134,30 @@ const createCommentCommand: CommandHandler<
     const commentId = logEntry?.resourceId ?? null
     if (!commentId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(ResourcesResourceComment, { id: commentId })
+    const existing = await findOneWithDecryption(em, ResourcesResourceComment, {
+      id: commentId,
+      ...(ctx.auth?.tenantId ? { tenantId: ctx.auth.tenantId } : {}),
+      ...(ctx.selectedOrganizationId ? { organizationId: ctx.selectedOrganizationId } : {}),
+    }, undefined, { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? null })
     if (existing) {
-      em.remove(existing)
+      ensureTenantScope(ctx, existing.tenantId)
+      ensureOrganizationScope(ctx, existing.organizationId)
+      existing.deletedAt = new Date()
       await em.flush()
+
+      const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+      await emitCrudUndoSideEffects({
+        dataEngine,
+        action: 'deleted',
+        entity: existing,
+        identifiers: {
+          id: existing.id,
+          organizationId: existing.organizationId,
+          tenantId: existing.tenantId,
+        },
+        events: resourcesResourceCommentCrudEvents,
+        indexer: commentCrudIndexer,
+      })
     }
   },
   redo: makeCreateRedo<ResourcesResourceComment, CommentSnapshot, ResourcesResourceCommentCreateInput, { commentId: string; authorUserId: string | null }>({
@@ -151,9 +172,23 @@ const createCommentCommand: CommandHandler<
       appearanceColor: after.appearanceColor,
       createdAt: after.createdAt ?? new Date(),
     }, ['createdAt']),
-    beforeRestore: async ({ em, snapshot }) => {
+    beforeRestore: async ({ em, ctx, snapshot }) => {
+      ensureTenantScope(ctx, snapshot.tenantId)
+      ensureOrganizationScope(ctx, snapshot.organizationId)
       const resource = await requireResource(em, snapshot.resourceId, 'Resource not found')
+      ensureTenantScope(ctx, resource.tenantId)
+      ensureOrganizationScope(ctx, resource.organizationId)
       return { resource }
+    },
+    findRow: async ({ em, ctx, id, snapshot }) => {
+      const comment = await findOneWithDecryption(em, ResourcesResourceComment, {
+        id, tenantId: snapshot.tenantId, organizationId: snapshot.organizationId,
+      }, undefined, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
+      if (comment) {
+        ensureTenantScope(ctx, comment.tenantId)
+        ensureOrganizationScope(ctx, comment.organizationId)
+      }
+      return comment
     },
     buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
     events: resourcesResourceCommentCrudEvents,
@@ -172,7 +207,7 @@ const updateCommentCommand: CommandHandler<ResourcesResourceCommentUpdateInput, 
   async execute(rawInput, ctx) {
     const parsed = resourcesResourceCommentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await em.findOne(ResourcesResourceComment, { id: parsed.id })
+    const comment = await em.findOne(ResourcesResourceComment, { id: parsed.id, deletedAt: null })
     if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)
@@ -296,7 +331,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
   async execute(input, ctx) {
     const id = requireId(input, 'Comment id required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await em.findOne(ResourcesResourceComment, { id })
+    const comment = await em.findOne(ResourcesResourceComment, { id, deletedAt: null })
     if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)

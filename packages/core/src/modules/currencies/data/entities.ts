@@ -104,6 +104,12 @@ export class ExchangeRate {
   @Property({ type: 'text', nullable: true })
   type?: string | null
 
+  @Property({ name: 'external_reference', type: 'text', nullable: true })
+  externalReference?: string | null
+
+  @Property({ name: 'undo_lineage', type: 'jsonb', nullable: true, hidden: true })
+  undoLineage?: { restoredUpdatedAt: string; writtenUpdatedAt: string } | null
+
   @Property({ type: 'jsonb', nullable: true })
   metadata?: Record<string, unknown> | null
 
@@ -114,7 +120,7 @@ export class ExchangeRate {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  @Property({ name: 'updated_at', type: Date, onUpdate: (rate: ExchangeRate) => new Date(Math.max(Date.now(), rate.updatedAt.getTime() + 1)) })
   updatedAt: Date = new Date()
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
