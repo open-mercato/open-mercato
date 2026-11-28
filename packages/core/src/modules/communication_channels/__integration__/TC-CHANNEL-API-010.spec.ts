@@ -33,7 +33,7 @@ import {
 const UNDO_PATH = '/api/audit_logs/audit-logs/actions/undo'
 const DUPLICATE_MESSAGE =
   'This channel was connected again after it was deleted. Delete the newer connection before undoing this delete.'
-const PASSWORD = 'Valid1!Pass'
+const PASSWORD = 'QaValid1!Pass'
 
 type Fixture = {
   adminToken: string | null

@@ -1,5 +1,4 @@
 import * as filesystem from 'node:fs/promises'
-import { constants } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -40,47 +39,28 @@ describe('backup file lock ownership', () => {
       runId: oldRunId, host: hostname(), pid: 2147483647, startedAt: staleAt, heartbeatAt: staleAt,
     }))
     const actual = jest.requireActual<typeof import('node:fs/promises')>('node:fs/promises')
-    const originalStat = actual.lstat
     const originalUnlink = actual.unlink
-    const originalOpen = actual.open
-    const validatedOldInode = deferred()
-    const firstReplacementCreated = deferred()
-    let statCount = 0
-    let unlinkCount = 0
-    let replacementCreated = false
+    const firstAtRemoval = deferred()
+    const continueFirst = deferred()
+    let removalCount = 0
 
-    jest.spyOn(filesystem, 'lstat').mockImplementation((async (...args: Parameters<typeof filesystem.lstat>) => {
-      const result = await originalStat(...args)
-      if (args[0] === lockPath && ++statCount === 4) validatedOldInode.complete()
-      return result
-    }) as typeof filesystem.lstat)
     jest.spyOn(filesystem, 'unlink').mockImplementation(async (path) => {
-      if (path === lockPath) {
-        const attempt = ++unlinkCount
-        if (attempt <= 2) {
-          await validatedOldInode.promise
-          if (attempt === 2 && !replacementCreated) await firstReplacementCreated.promise
-        }
+      if (path === lockPath && ++removalCount === 1) {
+        firstAtRemoval.complete()
+        await continueFirst.promise
       }
       return originalUnlink(path)
     })
-    jest.spyOn(filesystem, 'open').mockImplementation(async (...args) => {
-      const handle = await originalOpen(...args)
-      if (args[0] === lockPath && typeof args[1] === 'number' && (args[1] & constants.O_CREAT) && !replacementCreated) {
-        replacementCreated = true
-        firstReplacementCreated.complete()
-      }
-      return handle
-    })
 
     const first = acquireBackupLock(lockPath, randomUUID())
-    const second = acquireBackupLock(lockPath, randomUUID())
-    void second.then(validatedOldInode.complete, validatedOldInode.complete)
+    await firstAtRemoval.promise
+    const second = acquireBackupLock(lockPath, randomUUID()).finally(continueFirst.complete)
     const results = await Promise.allSettled([first, second])
     const owners = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : [])
     try {
       expect(owners).toHaveLength(1)
-      expect(results.filter(result => result.status === 'rejected')).toHaveLength(1)
+      expect(results[0].status).toBe('fulfilled')
+      expect(results[1]).toMatchObject({ status: 'rejected', reason: { code: 'BACKUP_LIVE_LOCK' } })
     } finally {
       for (const release of owners) await release()
     }
