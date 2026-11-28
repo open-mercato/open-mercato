@@ -54,7 +54,10 @@ function createStore(stockedBalance: { id: string } | null) {
   const balanceQueries: Array<Record<string, unknown>> = []
   const em = {
     findOne: jest.fn(async (entity: unknown, filters: Record<string, unknown>) => {
-      if (entity === Warehouse) return filters.id === warehouse.id && warehouse.deletedAt === null ? warehouse : null
+      if (entity === Warehouse) {
+        const visible = warehouse.deletedAt === null || !('deletedAt' in filters)
+        return filters.id === warehouse.id && visible ? warehouse : null
+      }
       if (entity === InventoryBalance) {
         balanceQueries.push(filters)
         return stockedBalance
@@ -140,6 +143,7 @@ describe('wms.warehouses.delete stock guard', () => {
 
     expect(failure).toBeInstanceOf(CrudHttpError)
     expect((failure as CrudHttpError).status).toBe(409)
+    expect((failure as CrudHttpError).body).toMatchObject({ code: 'warehouse_has_stock' })
     expect(store.warehouse.deletedAt).toBeNull()
     expect(store.em.flush).not.toHaveBeenCalled()
   })
@@ -160,5 +164,20 @@ describe('wms.warehouses.delete stock guard', () => {
     expect((failure as CrudHttpError).status).toBe(409)
     expect(store.warehouse.deletedAt).toBeNull()
     expect(store.em.flush).not.toHaveBeenCalled()
+  })
+
+  it('does not check stock when undoing the creation of a warehouse that is already archived', async () => {
+    const store = createStore({ id: '66666666-6666-4666-8666-666666666666' })
+    store.warehouse.deletedAt = new Date('2026-05-01T00:00:00.000Z')
+
+    await getHandler('wms.warehouses.create').undo({
+      input: {},
+      logEntry: { commandPayload: { undo: { after: buildWarehouse() } } },
+      ctx: createCtx(store.em),
+      undoToken: 'undo-create',
+    })
+
+    expect(store.balanceQueries).toEqual([])
+    expect(store.em.flush).toHaveBeenCalled()
   })
 })

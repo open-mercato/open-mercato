@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { expect, test, type APIRequestContext } from '@playwright/test'
+import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import {
@@ -9,10 +9,12 @@ import {
 } from '@open-mercato/core/helpers/integration/catalogFixtures'
 import {
   deleteGeneralEntityIfExists,
+  expectId,
   getTokenScope,
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { waitForApiMutation } from '@open-mercato/core/helpers/integration/ui'
+import { expectOperation, skipIfUndoTestsDisabled, undoByToken } from '@open-mercato/core/helpers/integration/undoHarness'
 import { createCrudFixture, ensureRoleFeatures, postAction } from './helpers/wmsFixtures'
 import { ensureEnglishLocale } from './helpers/wmsUi'
 
@@ -29,6 +31,7 @@ const STOCK_FEATURES = [
 ]
 
 const HAS_STOCK_MESSAGE = 'This warehouse still holds inventory. Move or adjust its stock to zero before archiving it.'
+const HAS_STOCK_MESSAGE_PL = 'Ten magazyn nadal zawiera zapasy. Przenieś lub skoryguj jego stan do zera przed archiwizacją.'
 
 type Fixture = {
   token: string
@@ -38,9 +41,29 @@ type Fixture = {
   variantId: string | null
   warehouseId: string | null
   locationId: string | null
+  stock: number
+  restoreAcl: () => Promise<void>
 }
 
-async function createStockedWarehouse(request: APIRequestContext, fixture: Fixture, quantity: number, markStocked: () => void) {
+async function startFixture(request: APIRequestContext): Promise<Fixture> {
+  const token = await getAuthToken(request, 'admin')
+  const superadminToken = await getAuthToken(request, 'superadmin')
+  const scope = getTokenScope(token)
+  const restoreAcl = await ensureRoleFeatures(request, superadminToken, scope.tenantId, 'admin', STOCK_FEATURES)
+  return {
+    token,
+    scope,
+    suffix: randomUUID().slice(0, 8),
+    productId: null,
+    variantId: null,
+    warehouseId: null,
+    locationId: null,
+    stock: 0,
+    restoreAcl,
+  }
+}
+
+async function createStockedWarehouse(request: APIRequestContext, fixture: Fixture, quantity: number): Promise<APIResponse> {
   const { token, scope, suffix } = fixture
   fixture.productId = await createProductFixture(request, token, {
     title: `TC-WMS-WAREHOUSE-DELETE ${suffix}`,
@@ -51,14 +74,20 @@ async function createStockedWarehouse(request: APIRequestContext, fixture: Fixtu
     name: `TC-WMS-WAREHOUSE-DELETE Variant ${suffix}`,
     sku: `TCWD-${suffix}`,
   })
-  fixture.warehouseId = await createCrudFixture(request, token, '/api/wms/warehouses', {
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    name: `TC-WMS-WAREHOUSE-DELETE ${suffix}`,
-    code: `TCWD${suffix}`,
-    isActive: true,
-    timezone: 'UTC',
+  const warehouseCreated = await apiRequest(request, 'POST', '/api/wms/warehouses', {
+    token,
+    data: {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      name: `TC-WMS-WAREHOUSE-DELETE ${suffix}`,
+      code: `TCWD${suffix}`,
+      isActive: true,
+      timezone: 'UTC',
+    },
   })
+  expect(warehouseCreated.ok(), `Failed POST /api/wms/warehouses: ${warehouseCreated.status()}`).toBeTruthy()
+  const warehouseBody = await readJsonSafe<{ id?: string }>(warehouseCreated)
+  fixture.warehouseId = expectId(warehouseBody?.id, 'Missing id in /api/wms/warehouses create response')
   fixture.locationId = await createCrudFixture(request, token, '/api/wms/locations', {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -67,7 +96,7 @@ async function createStockedWarehouse(request: APIRequestContext, fixture: Fixtu
     type: 'bin',
     isActive: true,
   })
-  markStocked()
+  fixture.stock = quantity
   await postAction(request, token, '/api/wms/inventory/receive', {
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -79,34 +108,54 @@ async function createStockedWarehouse(request: APIRequestContext, fixture: Fixtu
     referenceId: randomUUID(),
     performedBy: scope.userId,
   })
+  return warehouseCreated
 }
 
-async function adjustStock(request: APIRequestContext, fixture: Fixture, delta: number) {
+async function adjustStockToZero(request: APIRequestContext, fixture: Fixture) {
   await postAction(request, fixture.token, '/api/wms/inventory/adjust', {
     organizationId: fixture.scope.organizationId,
     tenantId: fixture.scope.tenantId,
     warehouseId: fixture.warehouseId,
     locationId: fixture.locationId,
     catalogVariantId: fixture.variantId,
-    delta,
+    delta: -fixture.stock,
     reason: 'TC-WMS-WAREHOUSE-DELETE cleanup',
     referenceType: 'manual',
     referenceId: randomUUID(),
     performedBy: fixture.scope.userId,
   })
+  fixture.stock = 0
 }
 
-async function cleanupFixture(request: APIRequestContext, fixture: Fixture, remainingStock: () => number) {
-  if (fixture.warehouseId && fixture.locationId && fixture.variantId && remainingStock() > 0) {
-    await adjustStock(request, fixture, -remainingStock()).catch(() => undefined)
+async function cleanupFixture(request: APIRequestContext, fixture: Fixture) {
+  if (fixture.warehouseId && fixture.locationId && fixture.variantId && fixture.stock > 0) {
+    await adjustStockToZero(request, fixture).catch(() => undefined)
   }
   await deleteGeneralEntityIfExists(request, fixture.token, '/api/wms/locations', fixture.locationId)
   await deleteGeneralEntityIfExists(request, fixture.token, '/api/wms/warehouses', fixture.warehouseId)
   await deleteCatalogProductIfExists(request, fixture.token, fixture.productId)
+  await fixture.restoreAcl()
 }
 
-async function isWarehouseListed(request: APIRequestContext, token: string, warehouseId: string): Promise<boolean> {
-  const response = await apiRequest(request, 'GET', `/api/wms/warehouses?ids=${encodeURIComponent(warehouseId)}`, { token })
+async function deleteWarehouse(request: APIRequestContext, fixture: Fixture, locale?: string): Promise<APIResponse> {
+  return apiRequest(request, 'DELETE', `/api/wms/warehouses?id=${encodeURIComponent(fixture.warehouseId ?? '')}`, {
+    token: fixture.token,
+    ...(locale ? { headers: { 'Accept-Language': locale } } : {}),
+  })
+}
+
+async function expectHasStockRefusal(response: APIResponse, message?: string) {
+  expect(response.status()).toBe(409)
+  const body = await readJsonSafe<{ error?: string; code?: string }>(response)
+  expect(body?.code).toBe('warehouse_has_stock')
+  if (message) expect(body?.error).toBe(message)
+}
+
+async function isWarehouseListed(request: APIRequestContext, fixture: Fixture): Promise<boolean> {
+  const warehouseId = fixture.warehouseId ?? ''
+  const response = await apiRequest(request, 'GET', `/api/wms/warehouses?ids=${encodeURIComponent(warehouseId)}`, {
+    token: fixture.token,
+  })
   expect(response.ok()).toBeTruthy()
   const body = await readJsonSafe<{ items?: Array<{ id?: string }> }>(response)
   return (body?.items ?? []).some((item) => item.id === warehouseId)
@@ -114,46 +163,42 @@ async function isWarehouseListed(request: APIRequestContext, token: string, ware
 
 test.describe('TC-WMS-WAREHOUSE-DELETE-001: a warehouse that still holds stock cannot be archived', () => {
   test('DELETE answers 409 while stock remains and succeeds once the stock is adjusted to zero', async ({ request }) => {
-    const adminToken = await getAuthToken(request, 'admin')
-    const superadminToken = await getAuthToken(request, 'superadmin')
-    const scope = getTokenScope(adminToken)
-    const fixture: Fixture = {
-      token: adminToken,
-      scope,
-      suffix: randomUUID().slice(0, 8),
-      productId: null,
-      variantId: null,
-      warehouseId: null,
-      locationId: null,
-    }
-    let stock = 0
-    const restoreAdminAcl = await ensureRoleFeatures(request, superadminToken, scope.tenantId, 'admin', STOCK_FEATURES)
-
+    const fixture = await startFixture(request)
     try {
-      await createStockedWarehouse(request, fixture, 5, () => {
-        stock = 5
-      })
-      const warehouseId = fixture.warehouseId as string
+      await createStockedWarehouse(request, fixture, 5)
 
-      const refused = await apiRequest(request, 'DELETE', `/api/wms/warehouses?id=${encodeURIComponent(warehouseId)}`, {
-        token: adminToken,
-      })
-      expect(refused.status()).toBe(409)
-      const refusedBody = await readJsonSafe<{ error?: string }>(refused)
-      expect(refusedBody?.error).toBe(HAS_STOCK_MESSAGE)
-      expect(await isWarehouseListed(request, adminToken, warehouseId)).toBe(true)
+      await expectHasStockRefusal(await deleteWarehouse(request, fixture), HAS_STOCK_MESSAGE)
+      await expectHasStockRefusal(await deleteWarehouse(request, fixture, 'pl'), HAS_STOCK_MESSAGE_PL)
+      expect(await isWarehouseListed(request, fixture)).toBe(true)
 
-      await adjustStock(request, fixture, -5)
-      stock = 0
+      await adjustStockToZero(request, fixture)
 
-      const archived = await apiRequest(request, 'DELETE', `/api/wms/warehouses?id=${encodeURIComponent(warehouseId)}`, {
-        token: adminToken,
-      })
+      const archived = await deleteWarehouse(request, fixture)
       expect(archived.ok(), `Failed DELETE warehouse: ${archived.status()}`).toBeTruthy()
-      expect(await isWarehouseListed(request, adminToken, warehouseId)).toBe(false)
+      expect(await isWarehouseListed(request, fixture)).toBe(false)
     } finally {
-      await cleanupFixture(request, fixture, () => stock)
-      await restoreAdminAcl()
+      await cleanupFixture(request, fixture)
+    }
+  })
+
+  test('undoing the warehouse create answers 409 while stock remains and succeeds once the stock is adjusted to zero', async ({
+    request,
+  }) => {
+    skipIfUndoTestsDisabled()
+    const fixture = await startFixture(request)
+    try {
+      const operation = expectOperation(await createStockedWarehouse(request, fixture, 4), 'warehouse create')
+
+      await expectHasStockRefusal(await undoByToken(request, fixture.token, operation.undoToken))
+      expect(await isWarehouseListed(request, fixture)).toBe(true)
+
+      await adjustStockToZero(request, fixture)
+
+      const undone = await undoByToken(request, fixture.token, operation.undoToken)
+      expect(undone.ok(), `Failed undo of warehouse create: ${undone.status()}`).toBeTruthy()
+      expect(await isWarehouseListed(request, fixture)).toBe(false)
+    } finally {
+      await cleanupFixture(request, fixture)
     }
   })
 
@@ -162,25 +207,9 @@ test.describe('TC-WMS-WAREHOUSE-DELETE-001: a warehouse that still holds stock c
     request,
   }) => {
     test.slow()
-    const adminToken = await getAuthToken(request, 'admin')
-    const superadminToken = await getAuthToken(request, 'superadmin')
-    const scope = getTokenScope(adminToken)
-    const fixture: Fixture = {
-      token: adminToken,
-      scope,
-      suffix: randomUUID().slice(0, 8),
-      productId: null,
-      variantId: null,
-      warehouseId: null,
-      locationId: null,
-    }
-    let stock = 0
-    const restoreAdminAcl = await ensureRoleFeatures(request, superadminToken, scope.tenantId, 'admin', STOCK_FEATURES)
-
+    const fixture = await startFixture(request)
     try {
-      await createStockedWarehouse(request, fixture, 3, () => {
-        stock = 3
-      })
+      await createStockedWarehouse(request, fixture, 3)
 
       await login(page, 'admin')
       await ensureEnglishLocale(page)
@@ -209,8 +238,7 @@ test.describe('TC-WMS-WAREHOUSE-DELETE-001: a warehouse that still holds stock c
       await expect(page.getByText(HAS_STOCK_MESSAGE)).toBeVisible({ timeout: 10_000 })
       await expect(row).toHaveCount(1)
     } finally {
-      await cleanupFixture(request, fixture, () => stock)
-      await restoreAdminAcl()
+      await cleanupFixture(request, fixture)
     }
   })
 })

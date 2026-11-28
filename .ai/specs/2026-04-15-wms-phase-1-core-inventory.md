@@ -680,6 +680,9 @@ None.
 
 ## Changelog
 
+### 2026-11-28
+- Archiving a warehouse that still had stock left its balances live, so the stock kept counting as available while the warehouse disappeared from the configuration page and pickers. `wms.warehouses.delete` and the undo of `wms.warehouses.create` now refuse with `409 warehouse_has_stock` while any live balance in the warehouse has non-zero on-hand, reserved or allocated quantity. Warehouses already archived with stock are not repaired. Coverage: `configuration.warehouseDeleteStock.test.ts`, `TC-WMS-WAREHOUSE-DELETE-001`.
+
 ### 2026-11-22
 - A lot update that sent only one or two dates compared them with each other but not with the lot's stored dates, so `PUT /api/wms/lots` with just `expiresAt` could save an expiry earlier than the stored manufactured or best-before date. `wms.lots.update` now checks the stored dates merged with the patched ones before writing and answers with the same 400 validation error as create. Updates that don't touch a date are not re-checked, and existing lots are not repaired. Coverage: `configuration.lotDateOrdering.test.ts`, `TC-WMS-036`.
 

@@ -645,6 +645,7 @@ async function assertWarehouseHasNoStock(em: EntityManager, ctx: CommandRuntimeC
       'wms.validation.warehouse.deleteHasStock',
       'This warehouse still holds inventory. Move or adjust its stock to zero before archiving it.',
     ),
+    code: 'warehouse_has_stock',
   })
 }
 
@@ -907,7 +908,7 @@ const createWarehouseCommand: CommandHandler<
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    await assertWarehouseHasNoStock(em, ctx, record)
+    if (!record.deletedAt) await assertWarehouseHasNoStock(em, ctx, record)
     record.deletedAt = new Date()
     await em.flush()
     await persistWarehouseCustomFields(ctx, after, buildCustomFieldResetMap(undefined, after.custom ?? undefined))
