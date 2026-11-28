@@ -41,6 +41,8 @@ const DELIVERY_KEYS = ['companyName', 'buildingNumber', 'flatNumber'] as const
 const ADDRESS_FIELDS = {
   id: ADDRESS_ID,
   name: 'Warehouse',
+  recipientName: 'Receiving Desk',
+  phone: '+48 600 100 200',
   purpose: 'shipping',
   addressLine1: 'Delivery Street',
   addressLine2: 'North entrance',

@@ -580,6 +580,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
         "postal_code": {
           "name": "postal_code",
           "type": "text",
@@ -599,6 +616,23 @@
         },
         "purpose": {
           "name": "purpose",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
+        },
+        "recipient_name": {
+          "name": "recipient_name",
           "type": "text",
           "unsigned": false,
           "autoincrement": false,
