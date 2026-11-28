@@ -254,11 +254,23 @@ describe('GmailChannelAdapter.sendMessage', () => {
     }
     setGmailApiClient(api)
     const adapter = getGmailChannelAdapter()
+    const converted = await adapter.convertOutbound({
+      body: '<p>hi</p>',
+      bodyFormat: 'html',
+      channelMetadata: {
+        to: ['bob@example.com'],
+        subject: 'Hi',
+        gmailThreadId: 'gm-thread-1',
+        fromName: 'Chris "Orders"\r\nX-Injected: 1',
+        fromAddress: 'other@example.com',
+      },
+    })
+    expect(converted.metadata?.fromName).toBe('Chris "Orders" X-Injected: 1')
     const result = await adapter.sendMessage({
-      content: { html: '<p>hi</p>', bodyFormat: 'html' },
+      content: converted.content,
       credentials: userCredentials,
       scope: { tenantId: 't', organizationId: 'o' },
-      metadata: { to: ['bob@example.com'], subject: 'Hi', gmailThreadId: 'gm-thread-1' },
+      metadata: converted.metadata,
     })
     expect(result.status).toBe('sent')
     expect(result.externalMessageId).toMatch(/^<[^@]+@gmail\.com>$/)
@@ -271,6 +283,9 @@ describe('GmailChannelAdapter.sendMessage', () => {
         '='.repeat((4 - (sent[0].rawBase64Url.length % 4)) % 4),
       'base64',
     ).toString('utf-8')
+    expect(decoded).toContain(String.raw`From: "Chris \"Orders\" X-Injected: 1" <alice@gmail.com>`)
+    expect(decoded).not.toMatch(/^X-Injected:/m)
+    expect(decoded).not.toContain('other@example.com')
     expect(decoded).toContain('To: bob@example.com')
     expect(decoded).toContain('<p>hi</p>')
     expect(Buffer.from(sent[0].rawMessage!).toString('utf-8')).toBe(decoded)
@@ -294,6 +309,25 @@ describe('GmailChannelAdapter.sendMessage', () => {
     scope: { tenantId: 't', organizationId: 'o' },
     metadata: { to: ['bob@example.com'], subject: 'Hi' },
   }
+
+  it('gets the authenticated address for a named send with older credentials', async () => {
+    const getProfile = jest.fn(async () => ({ emailAddress: 'orders@example.com', historyId: '1' }))
+    const sendRawMessage = jest.fn(async (_auth: unknown, _input: { rawBase64Url: string }) => ({
+      id: 'sent', threadId: 'thread',
+    }))
+    setGmailApiClient(buildSendApi({ getProfile, sendRawMessage }))
+
+    const result = await getGmailChannelAdapter().sendMessage({
+      ...sendInput,
+      credentials: { ...userCredentials, email: undefined },
+      metadata: { ...sendInput.metadata, fromName: 'Chris at Orders' },
+    })
+
+    expect(result.status).toBe('sent')
+    expect(getProfile).toHaveBeenCalledWith({ accessToken: 'access' })
+    const mime = Buffer.from(sendRawMessage.mock.calls[0][1].rawBase64Url, 'base64url').toString('utf-8')
+    expect(mime).toContain('From: Chris at Orders <orders@example.com>')
+  })
 
   it('uses the stored mailbox address without requesting the Gmail profile', async () => {
     const api = buildSendApi()
@@ -348,7 +382,7 @@ describe('GmailChannelAdapter.sendMessage', () => {
     expect(sent.rawMessage?.toString('utf-8')).toContain('In-Reply-To: <parent@example.com>\r\n')
   })
 
-  it('fails the send when the Gmail profile has no mailbox address', async () => {
+  it.each([undefined, 'Chris at Orders'])('refuses a profile with no address (%s)', async (fromName) => {
     const api = buildSendApi({
       getProfile: async () => ({ emailAddress: '', historyId: '1' }),
     })
@@ -358,6 +392,7 @@ describe('GmailChannelAdapter.sendMessage', () => {
     const result = await getGmailChannelAdapter().sendMessage({
       ...sendInput,
       credentials: { accessToken: 'legacy-access' },
+      metadata: { ...sendInput.metadata, fromName },
     })
 
     expect(result.status).toBe('failed')

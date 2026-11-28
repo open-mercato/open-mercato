@@ -8,6 +8,7 @@ import {
   generateMessageId,
   htmlToText,
   referencesFromMeta,
+  sanitizeHeaderValue,
   stringOrUndefined,
   toAddressList,
 } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
@@ -67,6 +68,7 @@ export function prepareOutboundForGmail(input: ConvertOutboundInput, fromAddress
   const references = referencesFromMeta(meta.references)
   const messageId = stringOrUndefined(meta.messageId) ?? generateMessageId(fromAddress, 'gmail.com')
   const threadId = deriveGmailThreadId(meta)
+  const fromName = stringOrUndefined(meta.fromName)
 
   const html = input.bodyFormat === 'html' ? input.body : undefined
   const text = input.bodyFormat === 'html' ? htmlToText(input.body) : input.body
@@ -78,6 +80,7 @@ export function prepareOutboundForGmail(input: ConvertOutboundInput, fromAddress
       ...raw,
       cc: cc.length ? cc : undefined,
       bcc: bcc.length ? bcc : undefined,
+      ...(fromName ? { fromName: sanitizeHeaderValue(fromName) } : {}),
     },
   }
 }
@@ -88,8 +91,10 @@ export async function convertOutboundForGmail(
   const { content, metadata } = prepareOutboundForGmail(input, input.fromAddress)
   const { subject, to, cc, bcc, inReplyTo, references, messageId } = content.raw
   const { text, html } = content
+  const explicitFromName = stringOrUndefined(input.fromName)
+  const fromName = explicitFromName ? sanitizeHeaderValue(explicitFromName) : metadata.fromName
   const rawMessage = await composeEmailMessage({
-    from: input.fromName ? `"${escapeQuotes(input.fromName)}" <${input.fromAddress}>` : input.fromAddress,
+    from: fromName ? `"${escapeQuotes(fromName)}" <${input.fromAddress}>` : input.fromAddress,
     to,
     cc,
     bcc,
@@ -112,7 +117,7 @@ export async function convertOutboundForGmail(
     metadata: {
       ...metadata,
       fromAddress: input.fromAddress,
-      fromName: input.fromName,
+      fromName,
       rawMessage,
     } satisfies GmailEmailNativeMetadata,
   }
