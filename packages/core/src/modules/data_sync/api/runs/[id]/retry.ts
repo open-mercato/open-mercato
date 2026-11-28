@@ -7,7 +7,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { IntegrationStateService } from '../../../../integrations/lib/state-service'
 import { resolveProgressService } from '../../../lib/resolve-progress-service'
-import type { SyncRunService } from '../../../lib/sync-run-service'
+import { SYNC_RUN_OVERLAP_MESSAGE, SyncRunOverlapError, type SyncRunService } from '../../../lib/sync-run-service'
 import { retrySyncSchema } from '../../../data/validators'
 import { startDataSyncRun } from '../../../lib/start-run'
 import { normalizeRunParameters } from '../../../lib/run-parameters'
@@ -84,7 +84,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
     scope,
   )
   if (overlap) {
-    return NextResponse.json({ error: 'A sync run is already in progress for this integration and entity direction' }, { status: 409 })
+    return NextResponse.json({ error: SYNC_RUN_OVERLAP_MESSAGE }, { status: 409 })
   }
 
   const guardResult = await validateCrudMutationGuard(container, {
@@ -142,7 +142,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
       scope,
     })
 
-  const { run, progressJob } = await startDataSyncRun({
+  const started = await startDataSyncRun({
     syncRunService,
     progressService,
     scope: {
@@ -161,7 +161,14 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
         name: `Retry data sync ${previous.integrationId} — ${previous.entityType}`,
       },
     },
+  }).catch((error: unknown) => {
+    if (error instanceof SyncRunOverlapError) return null
+    throw error
   })
+  if (!started) {
+    return NextResponse.json({ error: SYNC_RUN_OVERLAP_MESSAGE }, { status: 409 })
+  }
+  const { run, progressJob } = started
 
   if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
     await runCrudMutationGuardAfterSuccess(container, {

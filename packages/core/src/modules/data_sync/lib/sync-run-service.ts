@@ -1,4 +1,5 @@
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import { IsolationLevel } from '@mikro-orm/core'
 import { findAndCountWithDecryption, findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -24,6 +25,40 @@ function buildRunSearchFilter(search: string): FilterQuery<SyncRun>[] | null {
 type SyncScope = {
   organizationId: string
   tenantId: string
+}
+
+export const SYNC_RUN_OVERLAP_MESSAGE = 'A sync run is already in progress for this integration and entity direction'
+
+export class SyncRunOverlapError extends Error {
+  constructor() {
+    super(SYNC_RUN_OVERLAP_MESSAGE)
+    this.name = 'SyncRunOverlapError'
+  }
+}
+
+async function findRunningOverlap(
+  em: EntityManager,
+  integrationId: string,
+  entityType: string,
+  direction: SyncRun['direction'],
+  scope: SyncScope,
+): Promise<SyncRun | null> {
+  const [run] = await findWithDecryption(
+    em,
+    SyncRun,
+    {
+      integrationId,
+      entityType,
+      direction,
+      status: { $in: ['pending', 'running'] },
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    { limit: 1 },
+    scope,
+  )
+  return run ?? null
 }
 
 export type CursorCommitOptions = {
@@ -116,24 +151,35 @@ export function createSyncRunService(em: EntityManager) {
       progressJobId?: string | null
       jobId?: string | null
       parameters?: Record<string, unknown> | null
-    }, scope: SyncScope): Promise<SyncRun> {
-      const row = em.create(SyncRun, {
-        integrationId: input.integrationId,
-        entityType: input.entityType,
-        direction: input.direction,
-        status: 'pending',
-        cursor: input.cursor,
-        initialCursor: input.cursor,
-        triggeredBy: input.triggeredBy,
-        progressJobId: input.progressJobId,
-        jobId: input.jobId,
-        parameters: input.parameters ?? null,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-      })
+    }, scope: SyncScope, prepareProgressJob?: () => Promise<string | null>): Promise<SyncRun> {
+      const { integrationId, entityType, direction } = input
+      const lockKey = `data_sync:run:${JSON.stringify([
+        scope.tenantId.toLowerCase(), scope.organizationId.toLowerCase(), integrationId, entityType, direction,
+      ])}`
+      return em.transactional(async (tx) => {
+        await tx.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [lockKey])
+        if (await findRunningOverlap(tx, integrationId, entityType, direction, scope)) {
+          throw new SyncRunOverlapError()
+        }
 
-      await em.persist(row).flush()
-      return row
+        const progressJobId = prepareProgressJob ? await prepareProgressJob() : input.progressJobId
+        const row = tx.create(SyncRun, {
+          integrationId,
+          entityType,
+          direction,
+          status: 'pending',
+          cursor: input.cursor,
+          initialCursor: input.cursor,
+          triggeredBy: input.triggeredBy,
+          progressJobId,
+          jobId: input.jobId,
+          parameters: input.parameters ?? null,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+        })
+        await tx.persist(row).flush()
+        return row
+      }, { isolationLevel: IsolationLevel.READ_COMMITTED })
     },
 
     async getRun(runId: string, scope: SyncScope, options?: { disableIdentityMap: boolean }): Promise<SyncRun | null> {
@@ -427,23 +473,8 @@ export function createSyncRunService(em: EntityManager) {
       )
     },
 
-    async findRunningOverlap(integrationId: string, entityType: string, direction: 'import' | 'export', scope: SyncScope): Promise<SyncRun | null> {
-      const [run] = await findWithDecryption(
-        em,
-        SyncRun,
-        {
-          integrationId,
-          entityType,
-          direction,
-          status: { $in: ['pending', 'running'] },
-          organizationId: scope.organizationId,
-          tenantId: scope.tenantId,
-          deletedAt: null,
-        },
-        { limit: 1 },
-        scope,
-      )
-      return run ?? null
+    findRunningOverlap(integrationId: string, entityType: string, direction: 'import' | 'export', scope: SyncScope): Promise<SyncRun | null> {
+      return findRunningOverlap(em, integrationId, entityType, direction, scope)
     },
   }
 }

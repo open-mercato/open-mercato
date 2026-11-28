@@ -1,8 +1,9 @@
 /** @jest-environment node */
 
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SyncCursor, SyncRun } from '../../data/entities'
-import { createSyncRunService, SyncRunOwnershipConflictError } from '../sync-run-service'
+import { createSyncRunService, SyncRunOverlapError, SyncRunOwnershipConflictError } from '../sync-run-service'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
@@ -11,6 +12,44 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 const SCOPE = { organizationId: 'org-1', tenantId: 'tenant-1' }
+
+it('checks for an active run only after taking the transaction lock and refuses its side effects', async () => {
+  const events: string[] = []
+  const tx = {
+    execute: jest.fn(async () => { events.push('lock') }),
+    create: jest.fn(),
+  }
+  const em = {
+    transactional: jest.fn(async (work: (manager: typeof tx) => Promise<unknown>) => work(tx)),
+  }
+  jest.mocked(findWithDecryption).mockImplementationOnce(async () => {
+    events.push('overlap check')
+    return [{ id: 'active-run' }]
+  })
+  const prepareProgressJob = jest.fn()
+  const service = createSyncRunService(em as unknown as EntityManager)
+
+  await expect(service.createRun(
+    { integrationId: 'sync_fixture', entityType: 'products', direction: 'import' },
+    SCOPE,
+    prepareProgressJob,
+  )).rejects.toBeInstanceOf(SyncRunOverlapError)
+  expect(events).toEqual(['lock', 'overlap check'])
+  expect(findWithDecryption).toHaveBeenLastCalledWith(
+    tx, SyncRun, {
+      ...SCOPE,
+      integrationId: 'sync_fixture',
+      entityType: 'products',
+      direction: 'import',
+      status: { $in: ['pending', 'running'] },
+      deletedAt: null,
+    },
+    { limit: 1 },
+    SCOPE,
+  )
+  expect(tx.create).not.toHaveBeenCalled()
+  expect(prepareProgressJob).not.toHaveBeenCalled()
+})
 
 function buildFakeEm() {
   return {

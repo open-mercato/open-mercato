@@ -22,6 +22,7 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
 
 import { registerDataSyncAdapter } from '../adapter-registry'
 import { startDataSyncRun, type StartDataSyncRunInput } from '../start-run'
+import { SyncRunOverlapError } from '../sync-run-service'
 
 const REGISTRY_KEY = Symbol.for('@open-mercato/data-sync/adapter-registry')
 const SCOPE = { organizationId: 'org-1', tenantId: 'tenant-1', userId: 'user-1' }
@@ -42,7 +43,11 @@ function buildAdapter(overrides: Partial<DataSyncAdapter> = {}): DataSyncAdapter
 
 function buildServices() {
   const createJob = jest.fn(async () => ({ id: 'progress-1' }))
-  const createRun = jest.fn(async () => ({ id: 'run-1' }))
+  const createRun = jest.fn(async (
+    _input: Parameters<SyncRunService['createRun']>[0],
+    _scope: Parameters<SyncRunService['createRun']>[1],
+    prepareProgressJob: NonNullable<Parameters<SyncRunService['createRun']>[2]>,
+  ) => ({ id: 'run-1', progressJobId: await prepareProgressJob() }))
   return {
     createJob,
     createRun,
@@ -94,7 +99,7 @@ describe('startDataSyncRun — adapter-described progress job', () => {
     })
 
     expect(result.progressJob).toBeNull()
-    expect(createRun).toHaveBeenCalledWith(expect.objectContaining({ progressJobId: null }), expect.anything())
+    await expect(createRun.mock.results[0].value).resolves.toMatchObject({ progressJobId: null })
     expect(mockEnqueue).toHaveBeenCalledTimes(1)
   })
 
@@ -110,7 +115,7 @@ describe('startDataSyncRun — adapter-described progress job', () => {
     const { createJob, createRun } = await start()
 
     expect(createdJob(createJob)).toEqual(DEFAULT_JOB)
-    expect(createRun).toHaveBeenCalledWith(expect.objectContaining({ progressJobId: 'progress-1' }), expect.anything())
+    await expect(createRun.mock.results[0].value).resolves.toMatchObject({ progressJobId: 'progress-1' })
   })
 
   it('keeps the core defaults when the hook answers undefined', async () => {
@@ -248,6 +253,23 @@ describe('startDataSyncRun — adapter-described progress job', () => {
 
     expect(describeProgressJob).not.toHaveBeenCalled()
     expect(createJob).not.toHaveBeenCalled()
-    expect(createRun).toHaveBeenCalledWith(expect.objectContaining({ progressJobId: null }), expect.anything())
+    await expect(createRun.mock.results[0].value).resolves.toMatchObject({ progressJobId: null })
+  })
+
+  it('does not create a progress job or enqueue a run that was refused admission', async () => {
+    const { syncRunService, progressService, createRun, createJob } = buildServices()
+    createRun.mockRejectedValueOnce(new SyncRunOverlapError())
+    const onAdmitted = jest.fn()
+
+    await expect(startDataSyncRun({
+      syncRunService,
+      progressService,
+      scope: SCOPE,
+      input: { integrationId: 'sync_feed', entityType: 'sales.order', direction: 'import' },
+      onAdmitted,
+    })).rejects.toBeInstanceOf(SyncRunOverlapError)
+    expect(onAdmitted).not.toHaveBeenCalled()
+    expect(createJob).not.toHaveBeenCalled()
+    expect(mockEnqueue).not.toHaveBeenCalled()
   })
 })

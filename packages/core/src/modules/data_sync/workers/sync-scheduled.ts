@@ -3,7 +3,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import { resolveProgressService } from '../lib/resolve-progress-service'
-import type { SyncRunService } from '../lib/sync-run-service'
+import { SyncRunOverlapError, type SyncRunService } from '../lib/sync-run-service'
 import { SyncSchedule } from '../data/entities'
 import { startDataSyncRun } from '../lib/start-run'
 import { resolveAdapterForIntegration, resolveStartCursor } from '../lib/start-cursor'
@@ -105,13 +105,14 @@ export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: 
     ? normalizedParameters.values
     : null
 
-  schedule.lastRunAt = new Date()
-  await em.flush()
-
   await startDataSyncRun({
     syncRunService,
     progressService,
     scope: job.payload.scope,
+    onAdmitted: async () => {
+      schedule.lastRunAt = new Date()
+      await em.flush()
+    },
     input: {
       integrationId: schedule.integrationId,
       entityType: schedule.entityType,
@@ -120,5 +121,7 @@ export default async function handle(job: QueuedJob<ScheduledSyncPayload>, ctx: 
       triggeredBy: 'scheduler',
       parameters,
     },
+  }).catch((error: unknown) => {
+    if (!(error instanceof SyncRunOverlapError)) throw error
   })
 }

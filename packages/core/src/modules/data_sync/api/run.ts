@@ -6,7 +6,7 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
 import { resolveProgressService } from '../lib/resolve-progress-service'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
-import type { SyncRunService } from '../lib/sync-run-service'
+import { SYNC_RUN_OVERLAP_MESSAGE, SyncRunOverlapError, type SyncRunService } from '../lib/sync-run-service'
 import { runSyncSchema } from '../data/validators'
 import { startDataSyncRun } from '../lib/start-run'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
@@ -104,7 +104,7 @@ export async function POST(req: Request) {
       scope,
     )
     if (overlap) {
-      return NextResponse.json({ error: 'A sync run is already in progress for this integration and entity direction' }, { status: 409 })
+      return NextResponse.json({ error: SYNC_RUN_OVERLAP_MESSAGE }, { status: 409 })
     }
 
     const guardResult = await validateCrudMutationGuard(container, {
@@ -169,6 +169,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ id: run.id, progressJobId: progressJob?.id ?? null }, { status: 201 })
   } catch (error) {
+    if (error instanceof SyncRunOverlapError) {
+      return NextResponse.json({ error: SYNC_RUN_OVERLAP_MESSAGE }, { status: 409 })
+    }
     const message = error instanceof Error ? error.message : String(error)
     const stack = error instanceof Error ? error.stack : undefined
     logger.error('Unhandled error starting sync run', { message, stack })
