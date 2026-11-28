@@ -223,6 +223,11 @@ describe('provider-scoped runtime origins', () => {
     expect(isBaseurlAllowlisted(baseUrl, allowlist, 'fixture-secondary', knownProviders)).toBe(true)
   })
 
+  it('preserves legacy origin entries with query parameters', () => {
+    const allowlist = ['https://model-proxy.example.invalid/v1?region=eu']
+    expect(isBaseurlAllowlisted(baseUrl, allowlist, 'fixture-secondary', knownProviders)).toBe(true)
+  })
+
   it('retains scheme, effective port, and wildcard boundaries inside a scope', () => {
     const allowlist = ['fixture-primary=https://*.example.invalid:8443']
     const matches = (url: string) => isBaseurlAllowlisted(url, allowlist, 'fixture-primary', knownProviders)

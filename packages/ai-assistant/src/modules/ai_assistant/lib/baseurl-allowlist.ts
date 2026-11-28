@@ -46,7 +46,7 @@ function effectivePort(url: URL): string | null {
 
 function parseAllowlistEntry(entry: string): AllowlistEntry | null {
   const scoped = SCOPED_ENTRY.exec(entry)
-  if (!scoped && entry.includes('=')) return null
+  if (!scoped && /^[^/:?#]*=/.test(entry)) return null
   const origin = scoped?.[2] ?? entry
   let url: URL
   try {
