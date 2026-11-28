@@ -63,6 +63,7 @@ import {
   syncEntityTags,
   loadEntityTagIds,
   shouldBumpOptimisticLockVersion,
+  resolveCreatorUserId,
   ensureDictionaryEntry,
   invalidateDictionaryKindCaches,
   emitQueryIndexDeleteEvents,
@@ -180,6 +181,7 @@ type PersonSnapshot = {
     displayName: string
     description: string | null
     ownerUserId: string | null
+    createdByUserId: string | null
     primaryEmail: string | null
     primaryPhone: string | null
     status: string | null
@@ -322,6 +324,7 @@ function serializePersonSnapshot(
       displayName: entity.displayName,
       description: entity.description ?? null,
       ownerUserId: entity.ownerUserId ?? null,
+      createdByUserId: entity.createdByUserId ?? null,
       primaryEmail: entity.primaryEmail ?? null,
       primaryPhone: entity.primaryPhone ?? null,
       status: entity.status ?? null,
@@ -627,6 +630,7 @@ type PersonGraphValues = {
   displayName: string
   description: string | null
   ownerUserId: string | null
+  createdByUserId: string | null
   primaryEmail: string | null
   primaryPhone: string | null
   status: string | null
@@ -666,6 +670,7 @@ function buildPersonGraph(
     displayName: values.displayName,
     description: values.description,
     ownerUserId: values.ownerUserId,
+    createdByUserId: values.createdByUserId,
     primaryEmail: values.primaryEmail,
     primaryPhone: values.primaryPhone,
     status: values.status,
@@ -730,6 +735,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const nextInteractionRefId = normalizeOptionalString(parsed.nextInteraction?.refId)
     const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
     const nextInteractionColor = normalizeHexColor(parsed.nextInteraction?.color)
+    const createdByUserId = resolveCreatorUserId(ctx, { tenantId: parsed.tenantId })
     if (!firstName || !lastName) {
       throw new CrudHttpError(400, { error: 'First and last name are required' })
     }
@@ -748,6 +754,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           displayName,
           description,
           ownerUserId: parsed.ownerUserId ?? null,
+          createdByUserId,
           primaryEmail,
           primaryPhone,
           status,
@@ -916,6 +923,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
             displayName: after.entity.displayName,
             description: after.entity.description,
             ownerUserId: after.entity.ownerUserId,
+            createdByUserId: after.entity.createdByUserId ?? null,
             primaryEmail: after.entity.primaryEmail,
             primaryPhone: after.entity.primaryPhone,
             status: after.entity.status,
@@ -1236,6 +1244,7 @@ const updatePersonCommand = {
             displayName: before.entity.displayName,
             description: before.entity.description,
             ownerUserId: before.entity.ownerUserId,
+            createdByUserId: before.entity.createdByUserId ?? null,
             primaryEmail: before.entity.primaryEmail,
             primaryPhone: before.entity.primaryPhone,
             status: before.entity.status,
@@ -1591,6 +1600,7 @@ const deletePersonCommand: CommandHandler<
           displayName: before.entity.displayName,
           description: before.entity.description,
           ownerUserId: before.entity.ownerUserId,
+          createdByUserId: before.entity.createdByUserId ?? null,
           primaryEmail: before.entity.primaryEmail,
           primaryPhone: before.entity.primaryPhone,
           status: before.entity.status,

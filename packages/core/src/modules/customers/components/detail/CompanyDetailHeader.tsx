@@ -18,6 +18,7 @@ import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import type { CompanyOverview } from '../formConfig'
 import type { CustomerDictionaryMap } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { formatFallbackLabel } from './utils'
+import { CreatedByFact } from './CreatedByFact'
 
 const HEADER_ICON_BUTTON_CLASS = 'size-8 rounded-md'
 
@@ -30,6 +31,7 @@ type CompanyDetailHeaderProps = {
   isDirty: boolean
   isSaving: boolean
   actions?: React.ReactNode
+  createdByUserId?: string | null
   onFocusField?: (fieldName: string) => void
   onDataReload?: () => void
 }
@@ -59,6 +61,7 @@ export function CompanyDetailHeader({
   isDirty,
   isSaving,
   actions,
+  createdByUserId,
   onFocusField,
   onDataReload,
 }: CompanyDetailHeaderProps) {
@@ -147,6 +150,10 @@ export function CompanyDetailHeader({
               </span>
             )}
           </div>
+
+          <dl className="mt-2 flex flex-wrap gap-x-10 gap-y-3">
+            <CreatedByFact createdByUserId={createdByUserId} />
+          </dl>
 
           {/* Status badges + temperature + renewal quarter + inline tags */}
           <div className="mt-2.5 flex flex-wrap items-center gap-1.5">

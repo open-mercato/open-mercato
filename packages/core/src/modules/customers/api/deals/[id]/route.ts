@@ -820,6 +820,7 @@ export async function GET(request: Request, context: { params?: Record<string, u
       probability: deal.probability ?? null,
       expectedCloseAt: deal.expectedCloseAt ? deal.expectedCloseAt.toISOString() : null,
       ownerUserId: deal.ownerUserId ?? null,
+      createdByUserId: deal.createdByUserId ?? null,
       source: deal.source ?? null,
       closureOutcome: deal.closureOutcome ?? null,
       lossReasonId: deal.lossReasonId ?? null,
@@ -911,6 +912,11 @@ const dealDetailResponseSchema = z.object({
     probability: z.number().nullable().optional(),
     expectedCloseAt: z.string().nullable().optional(),
     ownerUserId: z.string().uuid().nullable().optional(),
+    createdByUserId: z
+      .string()
+      .uuid()
+      .nullable()
+      .describe('Read-only server-assigned creator attribution.'),
     source: z.string().nullable().optional(),
     closureOutcome: z.enum(['won', 'lost']).nullable().optional(),
     lossReasonId: z.string().uuid().nullable().optional(),

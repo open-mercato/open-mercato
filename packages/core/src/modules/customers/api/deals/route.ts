@@ -516,6 +516,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
       'probability',
       'expected_close_at',
       'owner_user_id',
+      'created_by_user_id',
       'source',
       'closure_outcome',
       'loss_reason_id',
@@ -703,6 +704,7 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
             const organizationId = organizationIdRaw && organizationIdRaw.trim().length ? organizationIdRaw.trim() : null
             return {
               ...data,
+              created_by_user_id: data.created_by_user_id ?? null,
               personIds: people.map((entry) => entry.id),
               people,
               companyIds: companies.map((entry) => entry.id),
@@ -726,6 +728,8 @@ const crud = makeCrudRoute<unknown, unknown, DealListQuery>({
           if (!item || typeof item !== 'object') return item
           return {
             ...(item as Record<string, unknown>),
+            created_by_user_id:
+              (item as Record<string, unknown>).created_by_user_id ?? null,
             _associations: {
               ok: false,
               reason: err instanceof Error ? err.message : 'unknown',
@@ -761,6 +765,12 @@ const dealListItemSchema = z
     probability: z.number().nullable().optional(),
     expected_close_at: z.string().nullable().optional(),
     owner_user_id: z.string().uuid().nullable().optional(),
+    created_by_user_id: z
+      .string()
+      .uuid()
+      .nullable()
+      .optional()
+      .describe('Read-only server-assigned creator attribution.'),
     source: z.string().nullable().optional(),
     organization_id: z.string().uuid().nullable().optional(),
     tenant_id: z.string().uuid().nullable().optional(),

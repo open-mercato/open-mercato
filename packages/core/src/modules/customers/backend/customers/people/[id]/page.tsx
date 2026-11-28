@@ -59,6 +59,7 @@ type PersonOverview = {
     id: string
     displayName: string
     description?: string | null
+    createdByUserId?: string | null
     primaryEmail?: string | null
     primaryPhone?: string | null
     status?: string | null
@@ -697,6 +698,7 @@ export default function CustomerPersonDetailPage({ params }: { params?: { id?: s
           <PersonHighlights
             person={person}
             profile={profile}
+            createdByUserId={person.createdByUserId}
             validators={{
               email: validators.email,
               phone: validators.phone,

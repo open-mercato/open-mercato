@@ -1,5 +1,13 @@
 # Upgrade Notes
 
+## CRM records expose immutable creator provenance (#7700)
+
+People, companies and deals now record and expose immutable, read-only creator attribution. List items gain `created_by_user_id`; detail records gain `createdByUserId`. Each field contains a UUID or `null`, and people, companies and deals list exports gain the nullable `created_by_user_id` column. Existing rows are not backfilled. Imports and creates by API keys, system jobs or agent principals store `null`; a tenant-switched super-admin whose home tenant differs from the record tenant also stores `null`. Create and update payloads cannot set or change the value.
+
+During a rolling upgrade, clients must treat an absent `created_by_user_id` in a list payload as `null`. Operators using the opt-in `ENABLE_CRUD_API_CACHE=true` with a persistent store should purge the customers people, companies and deals list cache once the last instance running the previous version has stopped serving requests. Cached list payloads created before the upgrade have no TTL and can omit the new key until the next write invalidates them.
+
+See [CRM record creation provenance](.ai/specs/2026-10-22-crm-record-creation-provenance.md) for the attribution and compatibility details.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.

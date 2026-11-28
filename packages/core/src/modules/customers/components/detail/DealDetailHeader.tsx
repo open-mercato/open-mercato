@@ -14,6 +14,7 @@ import { useCustomerDictionary } from './hooks/useCustomerDictionary'
 import { formatFallbackLabel } from './utils'
 import { isTerminalPipelineOutcomeLabel } from './pipelineStageUtils'
 import { StageSelectMenu, type StageSelectOption } from './StageSelectMenu'
+import { CreatedByFact } from './CreatedByFact'
 
 type DealAssociation = {
   id: string
@@ -36,6 +37,7 @@ type DealDetailHeaderProps = {
     organizationId: string | null
   }
   owner?: { id: string; name: string; email: string } | null
+  createdByUserId?: string | null
   people: DealAssociation[]
   companies: DealAssociation[]
   pipelineName?: string | null
@@ -123,6 +125,7 @@ function HeaderChip({
 export function DealDetailHeader({
   deal,
   owner,
+  createdByUserId,
   people,
   companies,
   pipelineName,
@@ -204,6 +207,11 @@ export function DealDetailHeader({
                 </span>
               </HeaderFact>
             ) : null}
+            <CreatedByFact
+              createdByUserId={createdByUserId}
+              ownerUserId={owner?.id}
+              ownerName={owner?.name}
+            />
             {expectedCloseLabel ? (
               <HeaderFact label={t('customers.deals.detail.facts.expectedClose', 'Expected close')}>
                 <span className={cn(expectedCloseOverdue && 'text-status-error-text')}>{expectedCloseLabel}</span>

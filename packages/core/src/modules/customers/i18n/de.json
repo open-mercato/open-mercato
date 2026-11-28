@@ -1670,6 +1670,8 @@
   "customers.deals.presets.myDeals": "Meine Geschäfte",
   "customers.deals.presets.wonQuarter": "Gewonnen in diesem Quartal",
   "customers.detail.comingSoon": "Coming soon",
+  "customers.detail.createdBy.label": "Erstellt von",
+  "customers.detail.createdBy.unknown": "Unbekannter Ersteller",
   "customers.detail.saveGuide": "Profilfelder werden mit der Hauptschaltfläche „Speichern“ gesichert. Tags speichern automatisch. Die zugehörigen Bereiche darunter speichern unabhängig in ihren eigenen Tabs und Panels.",
   "customers.dictionaries.defaults.activity_type.call": "Anruf",
   "customers.dictionaries.defaults.activity_type.email": "E-Mail",

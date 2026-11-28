@@ -1670,6 +1670,8 @@
   "customers.deals.presets.myDeals": "My deals",
   "customers.deals.presets.wonQuarter": "Won this quarter",
   "customers.detail.comingSoon": "Coming soon",
+  "customers.detail.createdBy.label": "Created by",
+  "customers.detail.createdBy.unknown": "Unknown creator",
   "customers.detail.saveGuide": "Profile fields save with the main Save button. Tags save automatically. The related sections below save independently inside their own tabs and panels.",
   "customers.dictionaries.defaults.activity_type.call": "Call",
   "customers.dictionaries.defaults.activity_type.email": "Email",

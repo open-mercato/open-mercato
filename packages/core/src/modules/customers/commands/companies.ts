@@ -62,6 +62,7 @@ import {
   syncEntityTags,
   loadEntityTagIds,
   shouldBumpOptimisticLockVersion,
+  resolveCreatorUserId,
   emitQueryIndexDeleteEvents,
   emitQueryIndexUpsertEvents,
   type QueryIndexEventEntry,
@@ -227,6 +228,7 @@ type CompanySnapshot = {
     displayName: string
     description: string | null
     ownerUserId: string | null
+    createdByUserId: string | null
     primaryEmail: string | null
     primaryPhone: string | null
     status: string | null
@@ -348,6 +350,7 @@ async function loadCompanySnapshot(
       displayName: entity.displayName,
       description: entity.description ?? null,
       ownerUserId: entity.ownerUserId ?? null,
+      createdByUserId: entity.createdByUserId ?? null,
       primaryEmail: entity.primaryEmail ?? null,
       primaryPhone: entity.primaryPhone ?? null,
       status: entity.status ?? null,
@@ -558,6 +561,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
     const nextInteractionIcon = normalizeOptionalString(parsed.nextInteraction?.icon)
     const nextInteractionColor = normalizeHexColor(parsed.nextInteraction?.color)
     const primaryPhone = normalizeOptionalString(parsed.primaryPhone)
+    const createdByUserId = resolveCreatorUserId(ctx, { tenantId: parsed.tenantId })
     const entity = em.create(CustomerEntity, {
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -565,6 +569,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       displayName: parsed.displayName,
       description: parsed.description ?? null,
       ownerUserId: parsed.ownerUserId ?? null,
+      createdByUserId,
       primaryEmail: parsed.primaryEmail ?? null,
       primaryPhone,
       status: parsed.status ?? null,
@@ -706,6 +711,7 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
         displayName: after.entity.displayName,
         description: after.entity.description,
         ownerUserId: after.entity.ownerUserId,
+        createdByUserId: after.entity.createdByUserId ?? null,
         primaryEmail: after.entity.primaryEmail,
         primaryPhone: after.entity.primaryPhone,
         status: after.entity.status,
@@ -956,6 +962,7 @@ const updateCompanyCommand = {
         displayName: before.entity.displayName,
         description: before.entity.description,
         ownerUserId: before.entity.ownerUserId,
+        createdByUserId: before.entity.createdByUserId ?? null,
         primaryEmail: before.entity.primaryEmail,
         primaryPhone: before.entity.primaryPhone,
         status: before.entity.status,
@@ -1325,6 +1332,7 @@ const deleteCompanyCommand: CommandHandler<
           displayName: before.entity.displayName,
           description: before.entity.description,
           ownerUserId: before.entity.ownerUserId,
+          createdByUserId: before.entity.createdByUserId ?? null,
           primaryEmail: before.entity.primaryEmail,
           primaryPhone: before.entity.primaryPhone,
           status: before.entity.status,

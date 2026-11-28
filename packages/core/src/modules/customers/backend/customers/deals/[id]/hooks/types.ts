@@ -36,6 +36,7 @@ export type DealDetailPayload = {
     probability: number | null
     expectedCloseAt: string | null
     ownerUserId: string | null
+    createdByUserId?: string | null
     source: string | null
     closureOutcome: 'won' | 'lost' | null
     lossReasonId: string | null

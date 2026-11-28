@@ -1670,6 +1670,8 @@
   "customers.deals.presets.myDeals": "Moje szanse",
   "customers.deals.presets.wonQuarter": "Wygrane w tym kwartale",
   "customers.detail.comingSoon": "Wkrótce",
+  "customers.detail.createdBy.label": "Utworzone przez",
+  "customers.detail.createdBy.unknown": "Nieznany twórca",
   "customers.detail.saveGuide": "Pola profilu zapisują się głównym przyciskiem Zapisz. Tagi zapisują się automatycznie. Powiązane sekcje poniżej zapisują się niezależnie w swoich kartach i panelach.",
   "customers.dictionaries.defaults.activity_type.call": "Telefon",
   "customers.dictionaries.defaults.activity_type.email": "E-mail",

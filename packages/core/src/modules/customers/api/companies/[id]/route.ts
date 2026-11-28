@@ -959,6 +959,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       displayName: company.displayName,
       description: company.description,
       ownerUserId: company.ownerUserId,
+      createdByUserId: company.createdByUserId ?? null,
       primaryEmail: company.primaryEmail,
       primaryPhone: company.primaryPhone,
       status: company.status,
@@ -1194,6 +1195,11 @@ const companyDetailResponseSchema = z.object({
     displayName: z.string().nullable().optional(),
     description: z.string().nullable().optional(),
     ownerUserId: z.string().uuid().nullable().optional(),
+    createdByUserId: z
+      .string()
+      .uuid()
+      .nullable()
+      .describe('Read-only server-assigned creator attribution.'),
     primaryEmail: z.string().nullable().optional(),
     primaryPhone: z.string().nullable().optional(),
     status: z.string().nullable().optional(),

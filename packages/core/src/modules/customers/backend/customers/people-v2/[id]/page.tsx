@@ -62,6 +62,10 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 const logger = createLogger('customers')
 const HIDDEN_INTERACTION_TABS = ['activities']
 
+type PersonDetailOverview = PersonOverview & {
+  person: PersonOverview['person'] & { createdByUserId?: string | null }
+}
+
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
@@ -82,7 +86,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const formSchema = React.useMemo(() => createPersonEditSchema(), [])
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
 
-  const [data, setData] = React.useState<PersonOverview | null>(null)
+  const [data, setData] = React.useState<PersonDetailOverview | null>(null)
   // Mirror the latest `data` into a ref so save handlers always read the current
   // optimistic-lock token (`person.updatedAt`) instead of the value captured in
   // their `useCallback` closure. Without this, a header-field save issued after a
@@ -162,7 +166,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
     setError(null)
     setIsNotFound(false)
     try {
-      const payload = await readApiResultOrThrow<PersonOverview>(
+      const payload = await readApiResultOrThrow<PersonDetailOverview>(
         `/api/customers/people/${encodeURIComponent(id)}`,
         undefined,
         { errorMessage: t('customers.people.detail.error.load', 'Failed to load person.') },
@@ -175,7 +179,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
       const next = lockTokenOverride && payload?.person
         ? { ...payload, person: { ...payload.person, updatedAt: lockTokenOverride, updated_at: lockTokenOverride } }
         : payload
-      setData(next as PersonOverview)
+      setData(next)
     } catch (err) {
       if (isDetailNotFoundStatus((err as { status?: number }).status)) {
         setIsNotFound(true)
@@ -519,6 +523,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           <PersonDetailHeader
             actions={<InjectionSpot spotId={extensionPoints.hosts.personHeaderActions.spotId} context={injectionContext} data={data} disabled={isSaving} />}
             data={data}
+            createdByUserId={data.person.createdByUserId}
             onTagsChange={handleTagsChange}
             tagsSectionControllerRef={tagsSectionControllerRef}
             onSave={handleHeaderSave}
