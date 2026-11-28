@@ -4,6 +4,7 @@ import {
   parseOptimisticLockEnv,
   type OptimisticLockCurrentReader,
 } from '../optimistic-lock'
+import { assertOptimisticLock } from '../optimistic-lock-command'
 import {
   OPTIMISTIC_LOCK_CONFLICT_CODE,
   OPTIMISTIC_LOCK_CONFLICT_ERROR,
@@ -217,6 +218,33 @@ describe('createOptimisticLockGuardService — short-circuits', () => {
 })
 
 describe('createOptimisticLockGuardService — match / mismatch', () => {
+  it.each(['sales.credit_memo', 'sales.credit.memo'])(
+    'enforces route and command locks with the allow-list entry %s',
+    async (envValue) => {
+      const expected = '2026-05-25T08:00:00.000Z'
+      const current = '2026-05-25T08:00:01.000Z'
+      const resourceId = 'credit-memo-1'
+      const service = makeService({
+        envValue,
+        readers: { 'sales.credit.memo': async () => current },
+      })
+
+      await expect(service.validateMutation(makeInput({
+        resourceKind: 'sales.credit.memo',
+        resourceId,
+        requestHeaders: new Headers({ [OPTIMISTIC_LOCK_HEADER_NAME]: expected }),
+      }))).resolves.toMatchObject({ ok: false, status: 409 })
+
+      expect(() => assertOptimisticLock({
+        resourceKind: 'sales.credit_memo',
+        resourceId,
+        expected,
+        current,
+        envValue,
+      })).toThrow(expect.objectContaining({ status: 409 }))
+    },
+  )
+
   it('passes when expected matches current exactly', async () => {
     const iso = '2026-05-25T08:00:00.000Z'
     const headers = new Headers()

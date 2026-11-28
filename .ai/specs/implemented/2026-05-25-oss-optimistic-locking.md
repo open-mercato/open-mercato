@@ -211,7 +211,7 @@ For each `update` or `delete` mutation reaching `makeCrudRoute`:
 ```
 1. Resolve config = parseOptimisticLockEnv(process.env.OM_OPTIMISTIC_LOCK)
 2. If config.mode === 'off' → PASS.
-3. If config.mode === 'allowlist' && !config.entities.has(input.resourceKind) → PASS.
+3. In allow-list mode, match the resource kind against the configured entries, treating underscores and dots as equivalent. If no entry matches → PASS.
 4. Read expected = parseHeader(input.requestHeaders, OPTIMISTIC_LOCK_HEADER_NAME)
 5. If expected === null → PASS (client did not opt in).
 6. Read current = em.findOne(entity, { id: input.resourceId }, { fields: ['id', 'updated_at'] })
@@ -454,5 +454,6 @@ generalist primitive `enforceCommandOptimisticLock(...)`
 
 ## 11. Changelog
 
+- **2026-11-25 — shared allow-list matching (#10239).** CRUD routes, command guards, and conditional encryption-map writes treat underscores and dots as equivalent when matching resource kinds in `OM_OPTIMISTIC_LOCK`.
 - **2026-07-16 — standalone DI safety fix (#4201).** The platform default `crudMutationGuardService` now uses a CLASSIC-compatible named `em` factory parameter, so Awilix no longer attempts to resolve the nonexistent `scopedEm` dependency. Guard resolution failures emit one structured warning per process instead of silently disabling the bridge. Standalone and monorepo app bootstraps now pass `src/di.ts`'s registrar explicitly into the shared bootstrap factory, restoring the documented app-level override hook without relying on a package-internal `@/di` import.
 - **2026-09-18 — the named `em` parameter above did not survive bundling.** `createRequestContainer()` declares `const em` in the same scope as the registration, so the factory parameter added in #4201 shadowed it and esbuild renamed the inner binding to `em2`. Under `InjectionMode.CLASSIC` Awilix resolves by parameter name, so the published package asked the container for an unregistered `em2` and every CRUD update/delete logged `AwilixResolutionError: Could not resolve 'em2'` with the guard bridge disabled — costing lost-update protection (a second concurrent write won silently instead of returning `409`) while auth, tenancy scoping, validation and audit, which are enforced elsewhere, were unaffected. The factory is now parameterless and closes over the enclosing `em`, so the wiring no longer depends on a parameter name surviving the build. The defect was invisible to `tsc`, ESLint and Jest — all of which read unbundled source — so `yarn check:classic-di-injection` (`scripts/check-classic-di-injection.mjs`) now analyses `packages/*/dist` in CI and fails on any CLASSIC `asFunction` parameter that no registration provides, or any destructuring factory that did not opt into `.proxy()`.

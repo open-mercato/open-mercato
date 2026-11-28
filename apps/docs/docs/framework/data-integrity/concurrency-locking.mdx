@@ -99,6 +99,10 @@ no separate `record_locks` off switch.
 | `off` / `false` / `0` / `no` / `disabled` / `none` | OFF — guard short-circuits and the mutation path runs unchanged. |
 | Off-token mixed with entries (e.g. `off,customers.company`) | OFF wins (invalid input → fail safe). |
 
+The allow-list treats underscores and dots interchangeably in resource kinds.
+For example, `sales.credit_memo` and `sales.credit.memo` each enable both the
+CRUD route and command-level checks for credit memos.
+
 ```bash
 # .env or .env.local — opt out completely
 OM_OPTIMISTIC_LOCK=off

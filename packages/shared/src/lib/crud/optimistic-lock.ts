@@ -94,6 +94,16 @@ export function parseOptimisticLockEnv(raw: string | undefined | null): Optimist
   return { mode: 'allowlist', entities: new Set(tokens) }
 }
 
+/** @internal */
+export function isResourceLockEnabled(config: OptimisticLockConfig, resourceKind: string): boolean {
+  if (config.mode !== 'allowlist') return config.mode === 'all'
+  const normalizedResourceKind = resourceKind.toLowerCase().replaceAll('_', '.')
+  for (const entity of config.entities) {
+    if (entity.replaceAll('_', '.') === normalizedResourceKind) return true
+  }
+  return false
+}
+
 export type OptimisticLockResolverInput = {
   expectedFromHeader: string | null
   resourceKind: string
@@ -292,22 +302,13 @@ export function createOptimisticLockGuardService(
   const resolveExpected = opts.resolveExpected ?? defaultResolveExpectedUpdatedAt
   const debugEnabled = process.env.OM_OPTIMISTIC_LOCK_DEBUG === '1'
 
-  function isEntityEnabled(resourceKind: string): boolean {
-    if (config.mode === 'off') return false
-    if (config.mode === 'all') return true
-    return config.entities.has(resourceKind.toLowerCase())
-  }
-
   async function validateMutation(
     input: CrudMutationGuardValidateInput,
   ): Promise<CrudMutationGuardValidationResult> {
-    if (config.mode === 'off') {
-      return { ok: true, shouldRunAfterSuccess: false }
-    }
     if (input.operation !== 'update' && input.operation !== 'delete') {
       return { ok: true, shouldRunAfterSuccess: false }
     }
-    if (!isEntityEnabled(input.resourceKind)) {
+    if (!isResourceLockEnabled(config, input.resourceKind)) {
       return { ok: true, shouldRunAfterSuccess: false }
     }
     const readers = opts.readers ?? getAllOptimisticLockReaders()
