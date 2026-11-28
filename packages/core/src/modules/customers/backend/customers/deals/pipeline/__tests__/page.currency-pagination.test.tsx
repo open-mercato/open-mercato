@@ -14,7 +14,10 @@ const mockLane = jest.fn((_props: LaneProps) => undefined)
 const mockReadApiResultOrThrow = jest.fn()
 const mockApiCall = jest.fn()
 
-jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn() }) }))
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+}))
 jest.mock('@dnd-kit/core', () => ({
   DndContext: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   DragOverlay: () => null,
