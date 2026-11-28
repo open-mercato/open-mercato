@@ -196,7 +196,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: { contentType: 'application/json', schema: cartLineAddRequestSchema },
       responses: [{ status: 201, description: 'Line added' }, { status: 200, description: 'Line merged into an existing line, or rejected as a non-fatal warning' }],
       errors: [
-        { status: 400, description: 'Invalid request body' },
+        { status: 400, description: 'Invalid request body or cart_quantity_invalid for an unsupported computed quantity' },
         { status: 404, description: 'No `X-Cart-Token` header, or the token does not resolve a cart' },
         { status: 409, description: 'Optimistic-lock conflict, or the cart is a `proposal` cart' },
         { status: 422, description: 'Quantity rule violation, idempotency key mismatch, or an unpriceable product' },

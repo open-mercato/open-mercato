@@ -5,6 +5,7 @@
   "cart.audit.lines.remove": "Remove cart line",
   "cart.audit.merge": "Merge cart",
   "cart.errors.busy": "Cart is busy. Please try again.",
+  "cart.errors.quantity_invalid": "Quantity must be greater than zero, at most 999999999999.9999, and have no more than four decimal places.",
   "cart.errors.store_context_unavailable": "Cart is unavailable for this store right now",
   "cart.errors.unexpected": "Unexpected error",
   "cart.warnings.code_no_longer_valid": "A previously applied code is no longer valid",

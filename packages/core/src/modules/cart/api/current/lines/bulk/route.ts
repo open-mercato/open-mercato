@@ -179,7 +179,7 @@ export const openApi: OpenApiRouteDoc = {
       requestBody: { contentType: 'application/json', schema: cartLineBulkAddRequestSchema },
       responses: [{ status: 200, description: 'Batch processed — see `outcome.results` for per-entry outcomes' }],
       errors: [
-        { status: 400, description: 'Invalid request body, or more than 100 entries' },
+        { status: 400, description: 'Invalid request body, more than 100 entries, or cart_quantity_invalid for an unsupported computed quantity' },
         { status: 404, description: 'No `X-Cart-Token` header, or the token does not resolve a cart' },
         { status: 409, description: 'Optimistic-lock conflict' },
         { status: 422, description: 'Idempotency key mismatch' },

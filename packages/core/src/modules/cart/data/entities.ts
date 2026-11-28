@@ -314,7 +314,7 @@ export class CartLine {
 
   // Decimal amounts travel as strings end-to-end (matches promotions'
   // decimalStringSchema convention) so precision never rounds through IEEE-754 floats.
-  @Property({ name: 'quantity', type: 'numeric', precision: 16, scale: 4 })
+  @Property({ name: 'quantity', type: ExactDecimalType, columnType: 'numeric(16,4)', precision: 16, scale: 4 })
   quantity!: string
 
   @Property({ name: 'quantity_unit', type: 'text', nullable: true })

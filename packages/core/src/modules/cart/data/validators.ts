@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isDecimalInput } from '@open-mercato/shared/lib/decimal'
+import { CART_QUANTITY_STORAGE_MAX, fitsCartQuantityStorage } from '../lib/quantity'
 
 // Mirrors promotions/data/validators.ts's helper set — kept minimal to what this step's
 // entities actually need validated at the data layer. A full command-input surface
@@ -39,15 +40,12 @@ const clearableUuidSchema = z.preprocess(emptyStringToNull, uuid().nullable().op
 // Decimal amounts travel as strings end-to-end (§Data Models: price columns are
 // unconstrained numeric, quantity numeric(16,4)) so a caller never loses precision to
 // IEEE-754 float rounding — same convention as promotions/data/validators.ts's decimalStringSchema.
-export const MAX_CART_LINE_QUANTITY = 999_999_999_999.9999
+export const MAX_CART_LINE_QUANTITY = Number(CART_QUANTITY_STORAGE_MAX)
 
 const cartQuantitySchema = z.string()
   .regex(/^-?\d+(\.\d+)?$/, 'Must be a decimal string')
   .refine(isDecimalInput, 'Must be a decimal string')
-  .refine((value) => {
-    const [, fraction = ''] = value.split('.')
-    return Math.abs(Number(value)) <= MAX_CART_LINE_QUANTITY && /^0*$/.test(fraction.slice(4))
-  })
+  .refine(fitsCartQuantityStorage)
 
 const currencyCodeSchema = z
   .string()
