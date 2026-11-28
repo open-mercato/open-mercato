@@ -666,7 +666,7 @@ STABLE API §7: `GET /api/checkout/pay/:slug` omits admin fields; retaining them
 
 ## Checkout #9159 (2026-11-15)
 
-STABLE submit/template bridges retain email injection. Named maintainer waiver pending. [Upgrade](UPGRADE_NOTES.md).
+STABLE submit/template bridges keep email injection. Await named maintainer waiver. [Notes](UPGRADE_NOTES.md).
 
 ## #3805 2026-10-31
 
