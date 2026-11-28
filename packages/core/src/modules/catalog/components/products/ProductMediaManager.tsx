@@ -16,18 +16,24 @@ export type ProductMediaItem = {
   thumbnailUrl?: string | null
 }
 
-type Props = {
-  entityId: string
-  draftRecordId: string
-  items: ProductMediaItem[]
-  defaultMediaId: string | null
-  onItemsChange: (items: ProductMediaItem[]) => void
-  onDefaultChange: (attachmentId: string | null) => void
-  onUploadingChange?: (isUploading: boolean) => void
+export type CatalogMediaItem = Omit<ProductMediaItem, 'fileSize'> & {
+  fileSize?: number | null
 }
 
-function humanFileSize(size: number): string {
-  if (!Number.isFinite(size)) return `${size}`
+type Props<TItem extends CatalogMediaItem> = {
+  entityId: string
+  draftRecordId: string
+  items: TItem[]
+  defaultMediaId: string | null
+  onItemsChange: (items: Array<TItem | ProductMediaItem>) => void
+  onDefaultChange: (attachmentId: string | null) => void
+  onUploadingChange?: (isUploading: boolean) => void
+  translationPrefix?: 'catalog.products.media' | 'catalog.services.media'
+  showLabel?: boolean
+}
+
+function humanFileSize(size: number | null | undefined): string | null {
+  if (typeof size !== 'number' || !Number.isFinite(size)) return null
   const units = ['B', 'KB', 'MB', 'GB']
   let idx = 0
   let value = size
@@ -38,7 +44,7 @@ function humanFileSize(size: number): string {
   return `${value.toFixed(idx === 0 ? 0 : 1)} ${units[idx]}`
 }
 
-export function ProductMediaManager({
+export function ProductMediaManager<TItem extends CatalogMediaItem = ProductMediaItem>({
   entityId,
   draftRecordId,
   items,
@@ -46,7 +52,9 @@ export function ProductMediaManager({
   onItemsChange,
   onDefaultChange,
   onUploadingChange,
-}: Props) {
+  translationPrefix = 'catalog.products.media',
+  showLabel = true,
+}: Props<TItem>) {
   const t = useT()
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
   const [error, setError] = React.useState<string | null>(null)
@@ -59,12 +67,12 @@ export function ProductMediaManager({
       setError(null)
       setUploading(true)
       onUploadingChange?.(true)
-      let nextItems = items
+      let nextItems: Array<TItem | ProductMediaItem> = items
       let defaultId = defaultMediaId
       try {
         for (const file of Array.from(files)) {
           if (!file.type.startsWith('image/')) {
-            setError(t('catalog.products.media.errors.imagesOnly', 'Only image files are supported.'))
+            setError(t(`${translationPrefix}.errors.imagesOnly`, 'Only image files are supported.'))
             continue
           }
           const fd = new FormData()
@@ -78,7 +86,7 @@ export function ProductMediaManager({
             { fallback: null },
           )
           if (!call.ok || !call.result?.item) {
-            const message = call.result?.error ?? t('catalog.products.media.errors.uploadFailed', 'Upload failed.')
+            const message = call.result?.error ?? t(`${translationPrefix}.errors.uploadFailed`, 'Upload failed.')
             setError(message)
             break
           }
@@ -110,7 +118,7 @@ export function ProductMediaManager({
         }
       }
     },
-    [defaultMediaId, draftRecordId, entityId, items, onDefaultChange, onItemsChange, onUploadingChange, t],
+    [defaultMediaId, draftRecordId, entityId, items, onDefaultChange, onItemsChange, onUploadingChange, t, translationPrefix],
   )
 
   const handleRemove = React.useCallback(
@@ -123,7 +131,7 @@ export function ProductMediaManager({
         { fallback: null },
       )
       if (!call.ok) {
-        setError(call.result?.error ?? t('catalog.products.media.errors.deleteFailed', 'Failed to delete media.'))
+        setError(call.result?.error ?? t(`${translationPrefix}.errors.deleteFailed`, 'Failed to delete media.'))
         return
       }
       const next = items.filter((item) => item.id !== attachmentId)
@@ -132,7 +140,7 @@ export function ProductMediaManager({
         onDefaultChange(next[0]?.id ?? null)
       }
     },
-    [defaultMediaId, items, onDefaultChange, onItemsChange, t],
+    [defaultMediaId, items, onDefaultChange, onItemsChange, t, translationPrefix],
   )
 
   const onDrop = React.useCallback(
@@ -163,7 +171,7 @@ export function ProductMediaManager({
 
   return (
     <div className="space-y-3">
-      <label className="text-sm font-medium">{t('catalog.products.media.label', 'Media')}</label>
+      {showLabel ? <label className="text-sm font-medium">{t(`${translationPrefix}.label`, 'Media')}</label> : null}
       <div
         className={cn(
           'flex flex-col items-center justify-center rounded-lg border border-dashed p-6 text-center transition-colors',
@@ -176,10 +184,10 @@ export function ProductMediaManager({
       >
         <Upload className="mx-auto h-6 w-6 text-muted-foreground" />
         <p className="mt-2 text-sm text-muted-foreground">
-          {t('catalog.products.media.dropHint', 'Drag and drop images here or click to upload.')}
+          {t(`${translationPrefix}.dropHint`, 'Drag and drop images here or click to upload.')}
         </p>
         <Button type="button" variant="outline" size="sm" className="mt-4" onClick={pickFiles} disabled={isUploading}>
-          {isUploading ? t('catalog.products.media.uploading', 'Uploading…') : t('catalog.products.media.choose', 'Choose files')}
+          {isUploading ? t(`${translationPrefix}.uploading`, 'Uploading…') : t(`${translationPrefix}.choose`, 'Choose files')}
         </Button>
         <input
           ref={fileInputRef}
@@ -196,6 +204,7 @@ export function ProductMediaManager({
           {items.map((item) => {
             const isDefault = defaultMediaId === item.id
             const slug = slugifyAttachmentFileName(item.fileName)
+            const displaySize = humanFileSize(item.fileSize)
             const thumbnail =
               item.thumbnailUrl ||
               buildAttachmentImageUrl(item.id, { width: 360, height: 360, slug })
@@ -226,10 +235,10 @@ export function ProductMediaManager({
                 </div>
                 <div className="p-2">
                   <p className="line-clamp-1 text-sm font-medium">{item.fileName}</p>
-                  <p className="text-xs text-muted-foreground">{humanFileSize(item.fileSize)}</p>
+                  {displaySize ? <p className="text-xs text-muted-foreground">{displaySize}</p> : null}
                   {isDefault ? (
                     <p className="text-xs font-semibold text-primary">
-                      {t('catalog.products.media.default', 'Default preview')}
+                      {t(`${translationPrefix}.default`, 'Default preview')}
                     </p>
                   ) : null}
                 </div>
@@ -239,9 +248,11 @@ export function ProductMediaManager({
         </div>
       ) : (
         <p className="text-xs text-muted-foreground">
-          {t('catalog.products.media.empty', 'No media uploaded yet.')}
+          {t(`${translationPrefix}.empty`, 'No media uploaded yet.')}
         </p>
       )}
     </div>
   )
 }
+
+export const CatalogMediaManager = ProductMediaManager

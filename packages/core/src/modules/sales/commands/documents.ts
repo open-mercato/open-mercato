@@ -177,6 +177,18 @@ import {
   resolveUpsertCalculatedAmounts,
   type SalesPersistedLineSnapshot,
 } from "../lib/lineSnapshots";
+import { assertLineReferencesConsistent } from "../lib/lineReferences";
+import {
+  buildLineUomInput,
+  canConvertLineUnitPrices,
+  isCarriedOverLineUnit,
+  normalizeWithCarriedUnitFallback,
+} from "../lib/lineUomInput";
+import {
+  assertLineServicesExistInScope,
+  changedLineServiceReference,
+  type LineServiceReference,
+} from "../lib/serviceReferences";
 import {
   assertAmountsModeUnsupportedOnQuote,
   assertExternalHeaderComplete,
@@ -343,6 +355,7 @@ type QuoteLineSnapshot = {
   status: string | null;
   productId: string | null;
   productVariantId: string | null;
+  serviceId: string | null;
   catalogSnapshot: Record<string, unknown> | null;
   name: string | null;
   description: string | null;
@@ -463,6 +476,7 @@ type OrderLineSnapshot = {
   status: string | null;
   productId: string | null;
   productVariantId: string | null;
+  serviceId: string | null;
   catalogSnapshot: Record<string, unknown> | null;
   name: string | null;
   description: string | null;
@@ -559,6 +573,7 @@ type InvoiceLineSnapshot = {
   orderLineId: string | null;
   lineNumber: number;
   kind: string;
+  serviceId?: string | null;
   name: string | null;
   sku: string | null;
   description: string | null;
@@ -608,6 +623,8 @@ type CreditMemoLineSnapshot = {
   id: string;
   orderLineId: string | null;
   lineNumber: number;
+  kind?: string;
+  serviceId?: string | null;
   name: string | null;
   sku: string | null;
   description: string | null;
@@ -1867,6 +1884,7 @@ async function loadQuoteSnapshot(
       status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
+      serviceId: line.serviceId ?? null,
       catalogSnapshot: line.catalogSnapshot
         ? cloneJson(line.catalogSnapshot)
         : null,
@@ -2171,6 +2189,7 @@ async function loadOrderSnapshot(
       status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
+      serviceId: line.serviceId ?? null,
       catalogSnapshot: line.catalogSnapshot
         ? cloneJson(line.catalogSnapshot)
         : null,
@@ -2286,6 +2305,7 @@ async function loadInvoiceSnapshot(
       orderLineId: line.orderLineId ?? null,
       lineNumber: line.lineNumber,
       kind: line.kind ?? "product",
+      serviceId: line.serviceId ?? null,
       name: line.name ?? null,
       sku: line.sku ?? null,
       description: line.description ?? null,
@@ -2354,6 +2374,8 @@ async function loadCreditMemoSnapshot(
       id: line.id,
       orderLineId: line.orderLineId ?? null,
       lineNumber: line.lineNumber,
+      kind: line.kind ?? "product",
+      serviceId: line.serviceId ?? null,
       name: line.name ?? null,
       sku: line.sku ?? null,
       description: line.description ?? null,
@@ -3274,6 +3296,7 @@ function createLineSnapshotFromInput(
     kind: line.kind ?? "product",
     productId: line.productId ?? null,
     productVariantId: line.productVariantId ?? null,
+    serviceId: line.serviceId ?? null,
     name: line.name ?? null,
     description: line.description ?? null,
     comment: line.comment ?? null,
@@ -3399,6 +3422,7 @@ function convertLineCalculationToEntityInput(
     statusEntryId: sourceLine.statusEntryId ?? null,
     productId: sourceLine.productId ?? null,
     productVariantId: sourceLine.productVariantId ?? null,
+    serviceId: sourceLine.serviceId ?? null,
     catalogSnapshot: sourceLine.catalogSnapshot
       ? cloneJson(sourceLine.catalogSnapshot)
       : null,
@@ -4587,6 +4611,7 @@ async function restoreQuoteGraph(
       status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
+      serviceId: line.serviceId ?? null,
       catalogSnapshot: line.catalogSnapshot
         ? cloneJson(line.catalogSnapshot)
         : null,
@@ -5142,6 +5167,7 @@ async function restoreOrderGraph(
       status: line.status ?? null,
       productId: line.productId ?? null,
       productVariantId: line.productVariantId ?? null,
+      serviceId: line.serviceId ?? null,
       catalogSnapshot: line.catalogSnapshot
         ? cloneJson(line.catalogSnapshot)
         : null,
@@ -5340,6 +5366,14 @@ const createQuoteCommand = {
       parsed.statusEntryId ?? null,
       { tenantId: parsed.tenantId },
     );
+    await assertLineServicesExistInScope(
+      em,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      (parsed.lines ?? []).map((line, index) => ({
+        serviceId: line.serviceId,
+        lineNumber: line.lineNumber ?? index + 1,
+      })),
+    );
     const quoteId = randomUUID();
     const quote = em.create(SalesQuote, {
       id: quoteId,
@@ -5515,6 +5549,9 @@ const createQuoteCommand = {
       (line, index) =>
         createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
     );
+    for (const line of lineSnapshots) {
+      await assertLineReferencesConsistent(line, line.lineNumber ?? 1);
+    }
     const adjustmentDrafts: SalesAdjustmentDraft[] = adjustmentInputs
       ? adjustmentInputs.map((adj) => createAdjustmentDraftFromInput(adj))
       : [];
@@ -6737,6 +6774,14 @@ const createOrderCommand = {
       deliveryWindow,
       paymentMethod,
     } = await resolveDocumentReferences(em, parsed);
+    await assertLineServicesExistInScope(
+      em,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      (parsed.lines ?? []).map((line, index) => ({
+        serviceId: line.serviceId,
+        lineNumber: line.lineNumber ?? index + 1,
+      })),
+    );
 
     const orderId = randomUUID()
     const order = em.create(SalesOrder, {
@@ -6955,6 +7000,9 @@ const createOrderCommand = {
       (line, index) =>
         createLineSnapshotFromInput(line, line.lineNumber ?? index + 1),
     );
+    for (const line of lineSnapshots) {
+      await assertLineReferencesConsistent(line, line.lineNumber ?? 1);
+    }
     const adjustmentDrafts: SalesAdjustmentDraft[] = adjustmentInputs
       ? adjustmentInputs.map((adj) => createAdjustmentDraftFromInput(adj))
       : [];
@@ -7575,6 +7623,7 @@ const convertQuoteToOrderCommand: CommandHandler<
           status: (line as any).status ?? null,
           productId: line.productId ?? null,
           productVariantId: line.productVariantId ?? null,
+          serviceId: line.serviceId ?? null,
           catalogSnapshot: line.catalogSnapshot
             ? cloneJson(line.catalogSnapshot)
             : null,
@@ -7942,6 +7991,13 @@ const SHIPPED_LINE_DERIVED_TOTAL_FIELDS = [
   "totalGrossAmount",
 ] as const;
 
+const SHIPPED_LINE_REFERENCE_FIELDS = [
+  "kind",
+  "productId",
+  "productVariantId",
+  "serviceId",
+] as const;
+
 type ShippedLineLockedAmountField = (typeof SHIPPED_LINE_LOCKED_AMOUNT_FIELDS)[number];
 
 type ShippedLineComparable = Pick<
@@ -7952,6 +8008,7 @@ type ShippedLineComparable = Pick<
   | `${ShippedLineLockedAmountField}Exact`
   | (typeof SHIPPED_LINE_LOCKED_RATE_FIELDS)[number]
   | (typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]
+  | (typeof SHIPPED_LINE_REFERENCE_FIELDS)[number]
   | `${(typeof SHIPPED_LINE_DERIVED_TOTAL_FIELDS)[number]}Exact`
 >;
 
@@ -8035,8 +8092,9 @@ const hasUnitChange = (
   next: string | null | undefined,
   previous: string | null | undefined,
 ): boolean => {
-  if (next === undefined || next === null) return false;
+  if (next === undefined) return false;
   const normalizedPrevious = (previous ?? "").trim().toLowerCase();
+  if (next === null) return normalizedPrevious.length > 0;
   if (!normalizedPrevious) return false;
   return next.trim().toLowerCase() !== normalizedPrevious;
 };
@@ -8119,6 +8177,18 @@ function hasShippedLinePricingChange(
   );
 }
 
+function hasShippedLineReferenceChange(
+  next: Partial<ShippedLineComparable>,
+  previous: ShippedLineComparable,
+  exact: boolean,
+): boolean {
+  return SHIPPED_LINE_REFERENCE_FIELDS.some((field) => {
+    const nextValue = next[field];
+    if (nextValue === undefined && !exact) return false;
+    return (nextValue ?? null) !== (previous[field] ?? null);
+  });
+}
+
 async function assertShippedOrderLineChangeAllowed(
   existingSnapshot: SalesLineSnapshot,
   nextSnapshot: Partial<ShippedLineComparable> | null,
@@ -8136,6 +8206,9 @@ async function assertShippedOrderLineChangeAllowed(
   const quantityInvalid =
     nextQuantity === undefined ||
     nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE;
+  const referenceChanged =
+    nextSnapshot !== null &&
+    hasShippedLineReferenceChange(nextSnapshot, existingSnapshot, exact);
   const pricingChanged =
     nextSnapshot !== null &&
     hasShippedLinePricingChange(
@@ -8145,7 +8218,7 @@ async function assertShippedOrderLineChangeAllowed(
       exact,
       amountDecimalPlaces,
     );
-  if (!quantityInvalid && !pricingChanged) return;
+  if (!quantityInvalid && !referenceChanged && !pricingChanged) return;
 
   const { translate } = await resolveTranslations();
   if (quantityInvalid) {
@@ -8154,6 +8227,14 @@ async function assertShippedOrderLineChangeAllowed(
         "sales.documents.items.errorQuantityBelowShipped",
         "You cannot lower the quantity below the {{shipped}} already shipped.",
         { shipped: shippedQuantity },
+      ),
+    });
+  }
+  if (referenceChanged) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorReferenceShipped",
+        "You cannot change the item type or catalog reference of a line that has shipped items.",
       ),
     });
   }
@@ -8405,16 +8486,6 @@ async function buildUpsertedOrderLineSnapshot(
   const statusEntryId =
     parsed.statusEntryId ?? existingSnapshot?.statusEntryId ?? null;
   const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-  const lineUomInput = {
-    productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-    productVariantId:
-      parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-    quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-    quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-    normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
-    normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
-    uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
-  };
   const lineUomPrices = () => {
     const netExactCandidates = [
       parsed.unitPriceNetExact,
@@ -8434,34 +8505,44 @@ async function buildUpsertedOrderLineSnapshot(
       ),
     };
   };
-  let normalizedUom = await normalizeLineUom({
-    em,
-    resolver: uomResolver,
-    organizationId: order.organizationId,
-    tenantId: order.tenantId,
-    amountDecimalPlaces: lineAmountDecimalPlaces,
-    line: { ...lineUomInput, ...lineUomPrices() },
-  });
-  const convertedPrices = convertLineUnitPricesOnUnitChange({
-    existingSnapshot,
-    nextQuantityUnit: normalizedUom.quantityUnit,
-    nextUomSnapshot: normalizedUom.uomSnapshot,
-    unitPriceNet,
-    unitPriceNetExact: exactFor(
-      unitPriceNet,
-      parsed.unitPriceNetExact,
-      existingSnapshot?.unitPriceNetExact,
-      unitPriceExactFromTax?.net,
-    ),
-    unitPriceGross,
-    unitPriceGrossExact: exactFor(
-      unitPriceGross,
-      parsed.unitPriceGrossExact,
-      existingSnapshot?.unitPriceGrossExact,
-      unitPriceExactFromTax?.gross,
-    ),
-    amountDecimalPlaces: lineAmountDecimalPlaces,
-  });
+  const normalizedFirstPass = await normalizeWithCarriedUnitFallback(
+    buildLineUomInput(parsed, existingSnapshot),
+    isCarriedOverLineUnit(parsed, existingSnapshot),
+    (candidate) =>
+      normalizeLineUom({
+        em,
+        resolver: uomResolver,
+        organizationId: order.organizationId,
+        tenantId: order.tenantId,
+        amountDecimalPlaces: lineAmountDecimalPlaces,
+        line: { ...candidate, ...lineUomPrices() },
+      }),
+  );
+  const lineUomInput = normalizedFirstPass.lineUomInput;
+  let normalizedUom = normalizedFirstPass.result;
+  const convertedPrices: ReturnType<typeof convertLineUnitPricesOnUnitChange> =
+    canConvertLineUnitPrices(parsed, lineUomInput, existingSnapshot)
+      ? convertLineUnitPricesOnUnitChange({
+          existingSnapshot,
+          nextQuantityUnit: normalizedUom.quantityUnit,
+          nextUomSnapshot: normalizedUom.uomSnapshot,
+          unitPriceNet,
+          unitPriceNetExact: exactFor(
+            unitPriceNet,
+            parsed.unitPriceNetExact,
+            existingSnapshot?.unitPriceNetExact,
+            unitPriceExactFromTax?.net,
+          ),
+          unitPriceGross,
+          unitPriceGrossExact: exactFor(
+            unitPriceGross,
+            parsed.unitPriceGrossExact,
+            existingSnapshot?.unitPriceGrossExact,
+            unitPriceExactFromTax?.gross,
+          ),
+          amountDecimalPlaces: lineAmountDecimalPlaces,
+        })
+      : { unitPriceNet, unitPriceGross, didConvert: false };
   if (convertedPrices.didConvert) {
     unitPriceNet = convertedPrices.unitPriceNet;
     unitPriceGross = convertedPrices.unitPriceGross;
@@ -8485,9 +8566,10 @@ async function buildUpsertedOrderLineSnapshot(
       existingSnapshot?.lineNumber ??
       fallbackLineNumber,
     kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
-    productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+    productId: parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null),
     productVariantId:
-      parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+      parsed.productVariantId !== undefined ? parsed.productVariantId : (existingSnapshot?.productVariantId ?? null),
+    serviceId: parsed.serviceId !== undefined ? parsed.serviceId : (existingSnapshot?.serviceId ?? null),
     name: parsed.name ?? existingSnapshot?.name ?? null,
     description: parsed.description ?? existingSnapshot?.description ?? null,
     comment: parsed.comment ?? existingSnapshot?.comment ?? null,
@@ -8548,7 +8630,9 @@ async function buildUpsertedOrderLineSnapshot(
     amountsMode: order.totalsMode ?? "computed",
     statusEntryId,
     catalogSnapshot:
-      parsed.catalogSnapshot ?? existingSnapshot?.catalogSnapshot ?? null,
+      parsed.catalogSnapshot !== undefined
+        ? parsed.catalogSnapshot
+        : (existingSnapshot?.catalogSnapshot ?? null),
     promotionSnapshot:
       parsed.promotionSnapshot ?? existingSnapshot?.promotionSnapshot ?? null,
   };
@@ -8561,6 +8645,8 @@ async function buildUpsertedOrderLineSnapshot(
     updatedSnapshot,
     resolveUpsertCalculatedAmounts(parsed, updatedSnapshot, existingSnapshot, lineAmountDecimalPlaces),
   );
+
+  await assertLineReferencesConsistent(updatedSnapshot, updatedSnapshot.lineNumber ?? 1);
 
   if (isExternalAmountsMode(order.totalsMode ?? "computed")) {
     await assertExternalLineComplete(
@@ -8645,6 +8731,11 @@ const orderLineUpsertCommand: CommandHandler<
         existingSnapshot,
         lineSnapshots.length + 1,
       );
+      await assertLineServicesExistInScope(
+        em,
+        { tenantId: order.tenantId, organizationId: order.organizationId },
+        changedLineServiceReference(updatedSnapshot, existingSnapshot?.serviceId),
+      );
       const lineId = updatedSnapshot.id;
       const mergedLines = parsed.id
         ? lineSnapshots.map((line) =>
@@ -8657,6 +8748,19 @@ const orderLineUpsertCommand: CommandHandler<
         parsed.lineNumber ?? null,
         existingSnapshot?.lineNumber ?? null,
       );
+
+      const firstLineCurrency =
+        typeof updatedSnapshot.currencyCode === "string"
+          ? updatedSnapshot.currencyCode.trim().toUpperCase()
+          : null;
+      if (
+        !parsed.id &&
+        lineSnapshots.length === 0 &&
+        firstLineCurrency &&
+        firstLineCurrency !== order.currencyCode
+      ) {
+        order.currencyCode = firstLineCurrency;
+      }
 
       const sourceInputs = nextLines.map((line, index) => ({
         ...line,
@@ -9024,6 +9128,7 @@ const orderLineBulkUpsertCommand: CommandHandler<
         (line) => !deleteIds.has(line.id),
       );
       const lineIds: string[] = [];
+      const serviceReferences: LineServiceReference[] = [];
       for (const entry of parsed.lines) {
         const existingSnapshot = entry.id
           ? (existingSnapshotsById.get(entry.id) ?? null)
@@ -9047,9 +9152,17 @@ const orderLineBulkUpsertCommand: CommandHandler<
           existingSnapshot,
           nextLines.length + 1,
         );
+        serviceReferences.push(
+          ...changedLineServiceReference(upserted, existingSnapshot?.serviceId),
+        );
         nextLines = placeOrderLine(nextLines, upserted, entry.lineNumber ?? null);
         lineIds.push(upserted.id);
       }
+      await assertLineServicesExistInScope(
+        em,
+        { tenantId: order.tenantId, organizationId: order.organizationId },
+        serviceReferences,
+      );
 
       if (!nextLines.length) {
         throw new CrudHttpError(409, {
@@ -9238,16 +9351,6 @@ const quoteLineUpsertCommand: CommandHandler<
       const statusEntryId =
         parsed.statusEntryId ?? (existingSnapshot as any)?.statusEntryId ?? null;
       const lineId = parsed.id ?? existingSnapshot?.id ?? randomUUID();
-      const lineUomInput = {
-        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
-        productVariantId:
-          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
-        quantity: parsed.quantity ?? existingSnapshot?.quantity ?? 0,
-        quantityUnit: parsed.quantityUnit ?? existingSnapshot?.quantityUnit ?? null,
-        normalizedQuantity: existingSnapshot?.normalizedQuantity ?? null,
-        normalizedUnit: existingSnapshot?.normalizedUnit ?? null,
-        uomSnapshot: existingSnapshot?.uomSnapshot ?? null,
-      };
       const lineUomPrices = () => {
         const netExactCandidates = [
           parsed.unitPriceNetExact,
@@ -9268,34 +9371,44 @@ const quoteLineUpsertCommand: CommandHandler<
         };
       };
       const uomResolver = createUomResolver();
-      let normalizedUom = await normalizeLineUom({
-        em,
-        resolver: uomResolver,
-        organizationId: quote.organizationId,
-        tenantId: quote.tenantId,
-        amountDecimalPlaces: lineAmountDecimalPlaces,
-        line: { ...lineUomInput, ...lineUomPrices() },
-      });
-      const convertedPrices = convertLineUnitPricesOnUnitChange({
-        existingSnapshot,
-        nextQuantityUnit: normalizedUom.quantityUnit,
-        nextUomSnapshot: normalizedUom.uomSnapshot,
-        unitPriceNet,
-        unitPriceNetExact: exactFor(
-          unitPriceNet,
-          parsed.unitPriceNetExact,
-          existingSnapshot?.unitPriceNetExact,
-          unitPriceExactFromTax?.net,
-        ),
-        unitPriceGross,
-        unitPriceGrossExact: exactFor(
-          unitPriceGross,
-          parsed.unitPriceGrossExact,
-          existingSnapshot?.unitPriceGrossExact,
-          unitPriceExactFromTax?.gross,
-        ),
-        amountDecimalPlaces: lineAmountDecimalPlaces,
-      });
+      const normalizedFirstPass = await normalizeWithCarriedUnitFallback(
+        buildLineUomInput(parsed, existingSnapshot),
+        isCarriedOverLineUnit(parsed, existingSnapshot),
+        (candidate) =>
+          normalizeLineUom({
+            em,
+            resolver: uomResolver,
+            organizationId: quote.organizationId,
+            tenantId: quote.tenantId,
+            amountDecimalPlaces: lineAmountDecimalPlaces,
+            line: { ...candidate, ...lineUomPrices() },
+          }),
+      );
+      const lineUomInput = normalizedFirstPass.lineUomInput;
+      let normalizedUom = normalizedFirstPass.result;
+      const convertedPrices: ReturnType<typeof convertLineUnitPricesOnUnitChange> =
+        canConvertLineUnitPrices(parsed, lineUomInput, existingSnapshot)
+          ? convertLineUnitPricesOnUnitChange({
+              existingSnapshot,
+              nextQuantityUnit: normalizedUom.quantityUnit,
+              nextUomSnapshot: normalizedUom.uomSnapshot,
+              unitPriceNet,
+              unitPriceNetExact: exactFor(
+                unitPriceNet,
+                parsed.unitPriceNetExact,
+                existingSnapshot?.unitPriceNetExact,
+                unitPriceExactFromTax?.net,
+              ),
+              unitPriceGross,
+              unitPriceGrossExact: exactFor(
+                unitPriceGross,
+                parsed.unitPriceGrossExact,
+                existingSnapshot?.unitPriceGrossExact,
+                unitPriceExactFromTax?.gross,
+              ),
+              amountDecimalPlaces: lineAmountDecimalPlaces,
+            })
+          : { unitPriceNet, unitPriceGross, didConvert: false };
       if (convertedPrices.didConvert) {
         unitPriceNet = convertedPrices.unitPriceNet;
         unitPriceGross = convertedPrices.unitPriceGross;
@@ -9323,9 +9436,10 @@ const quoteLineUpsertCommand: CommandHandler<
           existingSnapshot?.lineNumber ??
           lineSnapshots.length + 1,
         kind: parsed.kind ?? existingSnapshot?.kind ?? "product",
-        productId: parsed.productId ?? existingSnapshot?.productId ?? null,
+        productId: parsed.productId !== undefined ? parsed.productId : (existingSnapshot?.productId ?? null),
         productVariantId:
-          parsed.productVariantId ?? existingSnapshot?.productVariantId ?? null,
+          parsed.productVariantId !== undefined ? parsed.productVariantId : (existingSnapshot?.productVariantId ?? null),
+        serviceId: parsed.serviceId !== undefined ? parsed.serviceId : (existingSnapshot?.serviceId ?? null),
         name: parsed.name ?? existingSnapshot?.name ?? null,
         description: parsed.description ?? existingSnapshot?.description ?? null,
         comment: parsed.comment ?? existingSnapshot?.comment ?? null,
@@ -9390,13 +9504,19 @@ const quoteLineUpsertCommand: CommandHandler<
       );
       (updatedSnapshot as any).statusEntryId = statusEntryId;
       (updatedSnapshot as any).catalogSnapshot =
-        parsed.catalogSnapshot ??
-        (existingSnapshot as any)?.catalogSnapshot ??
-        null;
+        parsed.catalogSnapshot !== undefined
+          ? parsed.catalogSnapshot
+          : ((existingSnapshot as any)?.catalogSnapshot ?? null);
       (updatedSnapshot as any).promotionSnapshot =
         parsed.promotionSnapshot ??
         (existingSnapshot as any)?.promotionSnapshot ??
         null;
+      await assertLineReferencesConsistent(updatedSnapshot, updatedSnapshot.lineNumber ?? 1);
+      await assertLineServicesExistInScope(
+        em,
+        { tenantId: quote.tenantId, organizationId: quote.organizationId },
+        changedLineServiceReference(updatedSnapshot, existingSnapshot?.serviceId),
+      );
 
       const mergedLines = parsed.id
         ? lineSnapshots.map((line) =>
@@ -9409,6 +9529,19 @@ const quoteLineUpsertCommand: CommandHandler<
         parsed.lineNumber ?? null,
         existingSnapshot?.lineNumber ?? null,
       );
+
+      const firstLineCurrency =
+        typeof updatedSnapshot.currencyCode === "string"
+          ? updatedSnapshot.currencyCode.trim().toUpperCase()
+          : null;
+      if (
+        !parsed.id &&
+        lineSnapshots.length === 0 &&
+        firstLineCurrency &&
+        firstLineCurrency !== quote.currencyCode
+      ) {
+        quote.currencyCode = firstLineCurrency;
+      }
 
       const sourceInputs = nextLines.map((line, index) => ({
         ...line,
@@ -10404,6 +10537,14 @@ const createInvoiceCommand: CommandHandler<
     if (!ensuredInvoiceNumber) {
       throw new CrudHttpError(400, { error: "Invoice number is required." });
     }
+    const inputLines = parsed.lines ?? [];
+    for (let i = 0; i < inputLines.length; i++) {
+      const line = inputLines[i];
+      await assertLineReferencesConsistent(
+        { kind: line.kind ?? "product", serviceId: line.serviceId ?? null },
+        line.lineNumber ?? i + 1,
+      );
+    }
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const status = await resolveDictionaryEntryValue(
       em,
@@ -10432,6 +10573,15 @@ const createInvoiceCommand: CommandHandler<
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
     }
+    await assertLineServicesExistInScope(
+      em,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      inputLines.map((line, index) => ({
+        serviceId: line.serviceId,
+        lineNumber: line.lineNumber ?? index + 1,
+      })),
+      { includeDeleted: true },
+    );
 
     const invoiceId = randomUUID();
     const invoice = em.create(SalesInvoice, {
@@ -10484,6 +10634,7 @@ const createInvoiceCommand: CommandHandler<
                   tenantId: parsed.tenantId,
                   lineNumber: line.lineNumber ?? i + 1,
                   kind: line.kind ?? "product",
+                  serviceId: line.serviceId ?? null,
                   name: line.name ?? null,
                   sku: line.sku ?? null,
                   description: line.description ?? null,
@@ -10931,7 +11082,8 @@ const deleteInvoiceCommand: CommandHandler<
         organizationId: before.invoice.organizationId,
         tenantId: before.invoice.tenantId,
         lineNumber: line.lineNumber,
-        kind: line.kind,
+        kind: line.kind ?? "product",
+        serviceId: line.serviceId ?? null,
         name: line.name,
         sku: line.sku,
         description: line.description,
@@ -10988,6 +11140,14 @@ const createCreditMemoCommand: CommandHandler<
     if (!ensuredCreditMemoNumber) {
       throw new CrudHttpError(400, { error: "Credit memo number is required." });
     }
+    const inputLines = parsed.lines ?? [];
+    for (let i = 0; i < inputLines.length; i++) {
+      const line = inputLines[i];
+      await assertLineReferencesConsistent(
+        { kind: line.kind ?? "product", serviceId: line.serviceId ?? null },
+        line.lineNumber ?? i + 1,
+      );
+    }
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const status = await resolveDictionaryEntryValue(
       em,
@@ -11029,6 +11189,15 @@ const createCreditMemoCommand: CommandHandler<
         throw new CrudHttpError(400, { error: "Referenced invoice not found in current scope." });
       }
     }
+    await assertLineServicesExistInScope(
+      em,
+      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      inputLines.map((line, index) => ({
+        serviceId: line.serviceId,
+        lineNumber: line.lineNumber ?? index + 1,
+      })),
+      { includeDeleted: true },
+    );
 
     const creditMemoId = randomUUID();
     const creditMemo = em.create(SalesCreditMemo, {
@@ -11078,6 +11247,8 @@ const createCreditMemoCommand: CommandHandler<
                   organizationId: parsed.organizationId,
                   tenantId: parsed.tenantId,
                   lineNumber: line.lineNumber ?? i + 1,
+                  kind: line.kind ?? "product",
+                  serviceId: line.serviceId ?? null,
                   name: line.name ?? null,
                   sku: line.sku ?? null,
                   description: line.description ?? null,
@@ -11475,6 +11646,8 @@ const deleteCreditMemoCommand: CommandHandler<
         organizationId: before.creditMemo.organizationId,
         tenantId: before.creditMemo.tenantId,
         lineNumber: line.lineNumber,
+        kind: line.kind ?? "product",
+        serviceId: line.serviceId ?? null,
         name: line.name,
         sku: line.sku,
         description: line.description,

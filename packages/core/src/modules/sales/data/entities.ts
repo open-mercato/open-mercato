@@ -594,6 +594,9 @@ export class SalesOrderLine {
   @Property({ name: 'product_variant_id', type: 'uuid', nullable: true })
   productVariantId?: string | null
 
+  @Property({ name: 'service_id', type: 'uuid', nullable: true })
+  serviceId?: string | null
+
   @Property({ name: 'catalog_snapshot', type: 'jsonb', nullable: true })
   catalogSnapshot?: Record<string, unknown> | null
 
@@ -1055,6 +1058,9 @@ export class SalesQuoteLine {
   @Property({ name: 'product_variant_id', type: 'uuid', nullable: true })
   productVariantId?: string | null
 
+  @Property({ name: 'service_id', type: 'uuid', nullable: true })
+  serviceId?: string | null
+
   @Property({ name: 'catalog_snapshot', type: 'jsonb', nullable: true })
   catalogSnapshot?: Record<string, unknown> | null
 
@@ -1508,6 +1514,9 @@ export class SalesInvoiceLine {
   @Property({ name: 'kind', type: 'text', default: 'product' })
   kind: SalesLineKind = 'product'
 
+  @Property({ name: 'service_id', type: 'uuid', nullable: true })
+  serviceId?: string | null
+
   @Property({ name: 'name', type: 'text', nullable: true })
   name?: string | null
 
@@ -1665,6 +1674,12 @@ export class SalesCreditMemoLine {
 
   @Property({ name: 'line_number', type: 'integer', default: 0 })
   lineNumber: number = 0
+
+  @Property({ name: 'kind', type: 'text', default: 'product' })
+  kind: SalesLineKind = 'product'
+
+  @Property({ name: 'service_id', type: 'uuid', nullable: true })
+  serviceId?: string | null
 
   @Property({ name: 'name', type: 'text', nullable: true })
   name?: string | null

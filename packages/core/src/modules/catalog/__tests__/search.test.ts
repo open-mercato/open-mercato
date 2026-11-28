@@ -13,6 +13,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { searchConfig } from '../search'
+import { metadata as serviceEditPageMetadata } from '../backend/catalog/services/[id]/edit/page.meta'
 
 describe('catalog search config', () => {
   test('product formatResult subtitle uses the translated product type label (#6174)', async () => {
@@ -48,5 +49,20 @@ describe('catalog search config', () => {
     })
 
     expect(presenter.subtitle).toBe('WIDGET-001 · unknown_type')
+  })
+
+  test('service results link to a page the search ACL already lets the user open', async () => {
+    const serviceConfig = searchConfig.entities.find((entity) => entity.entityId === 'catalog:catalog_service')
+    expect(serviceConfig?.aclFeatures).toEqual(['catalog.services.view'])
+
+    const url = await serviceConfig!.resolveUrl!({
+      record: { id: 'service-1', title: 'Workshop' },
+      customFields: {},
+    } as never)
+
+    expect(url).toBe('/backend/catalog/services/service-1/edit')
+    for (const feature of serviceEditPageMetadata.requireFeatures) {
+      expect(serviceConfig!.aclFeatures).toContain(feature)
+    }
   })
 })
