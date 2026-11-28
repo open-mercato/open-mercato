@@ -22,6 +22,7 @@ import {
   attachInventoryProfileCatalogLabelsToListItems,
   attachLocationLabelsToListItems,
   attachProductLabelsToListItems,
+  attachReservationAllocationStateToListItems,
   attachReservationSourceLabelsToListItems,
   attachVariantLabelsToListItems,
   attachVendorLabelsToListItems,
@@ -370,5 +371,38 @@ describe('attachReservationSourceLabelsToListItems', () => {
       }),
     )
     expect(payload.items[0]).toMatchObject({ source_label: 'SO-1042' })
+  })
+})
+
+describe('attachReservationAllocationStateToListItems', () => {
+  it('exposes allocation_state from metadata and drops the raw metadata blob', () => {
+    const payload = {
+      items: [
+        { id: 'res-allocated', status: 'active', metadata: { allocationState: 'allocated', allocatedBuckets: [{ quantity: 8 }] } },
+        { id: 'res-reserved', status: 'active', metadata: { allocationState: 'reserved' } },
+        { id: 'res-legacy', status: 'active', metadata: null },
+        { id: 'res-string', status: 'released', metadata: JSON.stringify({ allocationState: 'allocated' }) },
+        { id: 'res-invalid', status: 'active', metadata: '{not-json' },
+      ] as Array<Record<string, unknown>>,
+    }
+
+    attachReservationAllocationStateToListItems(payload)
+
+    expect(payload.items.map((item) => item.allocation_state)).toEqual([
+      'allocated',
+      'reserved',
+      'reserved',
+      'allocated',
+      'reserved',
+    ])
+    for (const item of payload.items) {
+      expect(item).not.toHaveProperty('metadata')
+    }
+  })
+
+  it('is a no-op for an empty payload', () => {
+    const payload = { items: [] as Array<Record<string, unknown>> }
+    attachReservationAllocationStateToListItems(payload)
+    expect(payload.items).toEqual([])
   })
 })

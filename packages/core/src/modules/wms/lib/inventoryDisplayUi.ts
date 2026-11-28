@@ -32,6 +32,7 @@ const REFERENCE_TYPE_FALLBACKS: Record<string, string> = {
 
 const RESERVATION_STATUS_FALLBACKS: Record<string, string> = {
   active: 'Active',
+  allocated: 'Allocated',
   released: 'Released',
   fulfilled: 'Fulfilled',
 }
@@ -140,6 +141,15 @@ export function inventoryReservationStatusLabel(status: string, t: InventoryDisp
     `wms.backend.inventory.reservationStatuses.${normalized}`,
     RESERVATION_STATUS_FALLBACKS[normalized] ?? normalized,
   )
+}
+
+export function resolveInventoryReservationDisplayStatus(row: {
+  status?: string | null
+  allocation_state?: string | null
+}): string {
+  const status = (row.status ?? '').trim().toLowerCase()
+  if (status === 'active' && row.allocation_state === 'allocated') return 'allocated'
+  return status
 }
 
 export function inventoryRotationStrategyLabel(strategy: string, t: InventoryDisplayTranslator): string {

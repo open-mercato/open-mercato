@@ -274,6 +274,8 @@ test.describe('TC-WMS-019: Cycle count and reservation allocation', () => {
       })
       expect(reservations).toHaveLength(1)
       expect(reservations[0]?.status).toBe('active')
+      expect(reservations[0]?.allocation_state).toBe('allocated')
+      expect(reservations[0]).not.toHaveProperty('metadata')
 
       const balance = await fetchBalance(request, adminToken, warehouseId, variantId)
       expect(balance).toBeTruthy()

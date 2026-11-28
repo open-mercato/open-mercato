@@ -351,3 +351,39 @@ export async function attachReservationSourceLabelsToListItems(
     if (orderNumber) decorateOnce(item, 'source_label', orderNumber)
   }
 }
+
+// ---------------------------------------------------------------------------
+// Reservation allocation state
+// ---------------------------------------------------------------------------
+
+export type ReservationAllocationState = 'reserved' | 'allocated'
+
+function readReservationMetadata(value: unknown): Record<string, unknown> | null {
+  if (typeof value === 'string') {
+    try {
+      return readReservationMetadata(JSON.parse(value))
+    } catch {
+      return null
+    }
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+export function resolveReservationAllocationState(metadata: unknown): ReservationAllocationState {
+  return readReservationMetadata(metadata)?.allocationState === 'allocated' ? 'allocated' : 'reserved'
+}
+
+/**
+ * Expose the reservation allocation state (stored only in `metadata`) as a
+ * flat `allocation_state` field and drop the raw `metadata` blob, which holds
+ * internal bucket bookkeeping that the list contract never exposed.
+ */
+export function attachReservationAllocationStateToListItems(payload: AnyListPayload): void {
+  const items = Array.isArray(payload?.items) ? payload.items : []
+  for (const item of items) {
+    if (!item || typeof item !== 'object') continue
+    decorateOnce(item, 'allocation_state', resolveReservationAllocationState(item.metadata))
+    delete item.metadata
+  }
+}

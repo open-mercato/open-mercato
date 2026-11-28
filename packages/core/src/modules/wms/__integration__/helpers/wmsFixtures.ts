@@ -52,6 +52,7 @@ export type InventoryReservationListResponse = {
     source_type?: string | null
     source_id?: string | null
     status?: string | null
+    allocation_state?: 'reserved' | 'allocated'
     metadata?: Record<string, unknown> | null
   }>
 }
