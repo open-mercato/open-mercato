@@ -67,6 +67,7 @@
   "availability.policies.form.group.sellPolicy": "Política de venta",
   "availability.policies.form.group.thresholds": "Umbrales y límites",
   "availability.policies.form.preview.enterProduct": "Introduce un ID de producto arriba para ver su cadena de resolución actual.",
+  "availability.policies.form.preview.failed": "No se pudo cargar la vista previa de resolución. Inténtalo de nuevo.",
   "availability.policies.form.preview.moduleDefault": "valor predeterminado del módulo",
   "availability.policies.form.preview.notSet": "sin definir",
   "availability.policies.form.preview.title": "Vista previa de la cadena de resolución",

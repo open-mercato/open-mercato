@@ -67,6 +67,7 @@
   "availability.policies.form.group.sellPolicy": "Polityka sprzedaży",
   "availability.policies.form.group.thresholds": "Progi i limity",
   "availability.policies.form.preview.enterProduct": "Wprowadź ID produktu powyżej, aby zobaczyć podgląd jego bieżącego łańcucha rozstrzygania.",
+  "availability.policies.form.preview.failed": "Nie udało się wczytać podglądu rozstrzygnięcia. Spróbuj ponownie.",
   "availability.policies.form.preview.moduleDefault": "wartość domyślna modułu",
   "availability.policies.form.preview.notSet": "nie ustawiono",
   "availability.policies.form.preview.title": "Podgląd łańcucha rozstrzygania",

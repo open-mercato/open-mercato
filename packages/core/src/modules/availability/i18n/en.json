@@ -67,6 +67,7 @@
   "availability.policies.form.group.sellPolicy": "Sell policy",
   "availability.policies.form.group.thresholds": "Thresholds & limits",
   "availability.policies.form.preview.enterProduct": "Enter a product ID above to preview its current resolution chain.",
+  "availability.policies.form.preview.failed": "Failed to load the resolution preview. Try again.",
   "availability.policies.form.preview.moduleDefault": "module default",
   "availability.policies.form.preview.notSet": "not set",
   "availability.policies.form.preview.title": "Resolution chain preview",

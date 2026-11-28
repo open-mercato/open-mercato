@@ -67,6 +67,7 @@
   "availability.policies.form.group.sellPolicy": "Verkaufsrichtlinie",
   "availability.policies.form.group.thresholds": "Schwellenwerte & Limits",
   "availability.policies.form.preview.enterProduct": "Geben Sie oben eine Produkt-ID ein, um die aktuelle Auflösungskette anzuzeigen.",
+  "availability.policies.form.preview.failed": "Die Auflösungsvorschau konnte nicht geladen werden. Versuchen Sie es erneut.",
   "availability.policies.form.preview.moduleDefault": "Modulstandard",
   "availability.policies.form.preview.notSet": "nicht festgelegt",
   "availability.policies.form.preview.title": "Vorschau der Auflösungskette",
