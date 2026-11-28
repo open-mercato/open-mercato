@@ -178,7 +178,7 @@ export class CustomerGroupMembership {
     const sourceGroupId = previous && !previous.deletedAt && typeof previous.groupId === 'string'
       ? previous.groupId.toLowerCase()
       : null
-    const groupIds = sourceGroupId ? [...new Set([sourceGroupId, destinationGroupId])].sort() : [destinationGroupId]
+    const groupIds = sourceGroupId ? [...new Set([sourceGroupId, destinationGroupId])].sort((left, right) => left.localeCompare(right)) : [destinationGroupId]
     for (const groupId of groupIds) {
       const group = await lockCustomerGroup(em, this.tenantId, groupId)
       if (group?.deleted_at !== null) {
