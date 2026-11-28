@@ -153,33 +153,33 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     }
 
     const protection = getSystemDictionaryProtectionMessage(dictionary, context.translate)
-    const changesKey = payload.key && payload.key.trim().toLowerCase() !== dictionary.key
+    const key = dictionary.isSystem && payload.key === dictionary.key
+      ? dictionary.key
+      : payload.key?.trim().toLowerCase()
+    const changesKey = key !== undefined && key !== dictionary.key
     if (protection && (changesKey || payload.isActive === false)) {
       throw new CrudHttpError(400, { error: protection })
     }
 
-    if (payload.key) {
-      const key = payload.key.trim().toLowerCase()
-      if (key !== dictionary.key) {
-        const strictKey = dictionaryKeySchema.safeParse(key)
-        if (!strictKey.success) {
-          throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.invalid_key', 'Use lowercase letters, numbers, hyphen, or underscore.') })
-        }
-        const organizationId = context.organizationId
-        if (!organizationId) {
-          throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.organization_required', 'Organization context is required') })
-        }
-        const existing = await context.em.findOne(Dictionary, {
-          key,
-          organizationId,
-          tenantId: context.tenantId,
-          deletedAt: null,
-        })
-        if (existing) {
-          throw new CrudHttpError(409, { error: context.translate('dictionaries.errors.duplicate', 'A dictionary with this key already exists') })
-        }
-        dictionary.key = key
+    if (key !== undefined && changesKey) {
+      const strictKey = dictionaryKeySchema.safeParse(key)
+      if (!strictKey.success) {
+        throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.invalid_key', 'Use lowercase letters, numbers, hyphen, or underscore.') })
       }
+      const organizationId = context.organizationId
+      if (!organizationId) {
+        throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.organization_required', 'Organization context is required') })
+      }
+      const existing = await context.em.findOne(Dictionary, {
+        key,
+        organizationId,
+        tenantId: context.tenantId,
+        deletedAt: null,
+      })
+      if (existing) {
+        throw new CrudHttpError(409, { error: context.translate('dictionaries.errors.duplicate', 'A dictionary with this key already exists') })
+      }
+      dictionary.key = key
     }
 
     if (payload.name) {
