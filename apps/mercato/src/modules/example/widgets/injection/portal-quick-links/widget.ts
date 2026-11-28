@@ -4,8 +4,8 @@ import PortalQuickLinksWidget from './widget.client'
 const widget: InjectionWidgetModule = {
   metadata: {
     id: 'example.injection.portal-quick-links',
-    title: 'Quick Links',
-    description: 'Shortcut cards for common portal actions.',
+    title: 'example.portal.dashboard.quickLinks.title',
+    description: 'example.portal.dashboard.quickLinks.description',
     priority: 20,
     enabled: true,
   },

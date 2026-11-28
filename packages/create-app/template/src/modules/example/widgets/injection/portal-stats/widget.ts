@@ -4,8 +4,8 @@ import PortalStatsWidget from './widget.client'
 const widget: InjectionWidgetModule = {
   metadata: {
     id: 'example.injection.portal-stats',
-    title: 'Account Overview',
-    description: 'Key account metrics at a glance.',
+    title: 'example.portal.dashboard.accountOverview.title',
+    description: 'example.portal.dashboard.accountOverview.description',
     priority: 5,
     enabled: true,
   },

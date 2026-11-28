@@ -1,13 +1,17 @@
 "use client"
 
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
 const LINKS = [
-  { label: 'My Orders', description: 'View order history', href: '#', icon: 'O' },
-  { label: 'Invoices', description: 'Download invoices', href: '#', icon: 'I' },
-  { label: 'Addresses', description: 'Manage addresses', href: '#', icon: 'A' },
-  { label: 'Support', description: 'Contact support', href: '#', icon: 'S' },
+  { label: 'example.portal.dashboard.quickLinks.orders.label', description: 'example.portal.dashboard.quickLinks.orders.description', href: '#', icon: 'O' },
+  { label: 'example.portal.dashboard.quickLinks.invoices.label', description: 'example.portal.dashboard.quickLinks.invoices.description', href: '#', icon: 'I' },
+  { label: 'example.portal.dashboard.quickLinks.addresses.label', description: 'example.portal.dashboard.quickLinks.addresses.description', href: '#', icon: 'A' },
+  { label: 'example.portal.dashboard.quickLinks.support.label', description: 'example.portal.dashboard.quickLinks.support.description', href: '#', icon: 'S' },
 ]
 
 export default function PortalQuickLinksWidget() {
+  const t = useT()
+
   return (
     <div className="grid grid-cols-2 gap-2">
       {LINKS.map((link) => (
@@ -20,8 +24,8 @@ export default function PortalQuickLinksWidget() {
             {link.icon}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-medium">{link.label}</p>
-            <p className="text-overline text-muted-foreground">{link.description}</p>
+            <p className="text-sm font-medium">{t(link.label)}</p>
+            <p className="text-overline text-muted-foreground">{t(link.description)}</p>
           </div>
         </a>
       ))}
