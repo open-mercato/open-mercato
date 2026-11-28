@@ -11,4 +11,22 @@ export type {
 } from './types'
 
 export { createMeilisearchDriver, type MeilisearchDriverOptions } from './drivers/meilisearch'
-export { createFulltextDriver } from './drivers'
+export {
+  FULLTEXT_DRIVER_ENV,
+  UNAVAILABLE_FULLTEXT_DRIVER_ID,
+  createFulltextDriver,
+  createUnavailableFulltextDriver,
+  getFulltextDriverFactory,
+  listFulltextDriverFactories,
+  meilisearchDriverFactory,
+  registerFulltextDriverFactory,
+  resolveFulltextDriverId,
+  resolveFulltextDriverSelection,
+  type FulltextDriverDescriptor,
+  type FulltextDriverEnvVar,
+  type FulltextDriverFactory,
+  type FulltextDriverFactoryOptions,
+  type FulltextDriverSelection,
+  type FulltextDriverSelectionReason,
+  type FulltextDriverSelectionSource,
+} from './drivers'

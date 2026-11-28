@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Fulltext driver registry and `FULLTEXT_DRIVER` (#10986)
+
+`@open-mercato/search` now resolves the fulltext driver through a registry (`registerFulltextDriverFactory`, `resolveFulltextDriverSelection`). Provider packages register their driver from a module `di.ts`; the built-in Meilisearch driver is registered the same way. A new optional `FULLTEXT_DRIVER` variable pins the driver id. Unset, the single configured driver is auto-detected, so an existing deployment with `MEILISEARCH_HOST` keeps its behaviour unchanged. When more than one driver is configured, Meilisearch is preferred and a warning names `FULLTEXT_DRIVER`; an unknown or unconfigured `FULLTEXT_DRIVER` registers an unavailable fulltext strategy (driver id `unavailable`, `isHealthy()` false) so queued indexing jobs are retried rather than completed without indexing, and reports `search.fulltext_driver_unknown` / `search.fulltext_driver_unconfigured` once per process. Leaving `FULLTEXT_DRIVER` unset with no driver configured still registers no fulltext strategy.
+
+`FulltextDriverFactoryOptions` gains an optional `driver` override; its `meilisearch` and `algolia` keys are unchanged. No database migration or configuration change is required.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.
