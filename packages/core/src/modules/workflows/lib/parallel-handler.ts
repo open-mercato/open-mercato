@@ -620,6 +620,8 @@ async function cancelSiblings(
   const siblings = await em.find(WorkflowBranchInstance, {
     workflowInstanceId: instance.id,
     forkStepId: failedBranch.forkStepId,
+    tenantId: instance.tenantId,
+    organizationId: instance.organizationId,
   })
 
   const now = new Date()
@@ -630,15 +632,13 @@ async function cancelSiblings(
       sibling.updatedAt = now
 
       // Best-effort: cancel the branch's open user tasks.
-      const openTasks = await em.find(UserTask, {
+      await em.nativeUpdate(UserTask, {
         workflowInstanceId: instance.id,
         branchInstanceId: sibling.id,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
         status: 'PENDING',
-      })
-      for (const task of openTasks) {
-        task.status = 'CANCELLED'
-        task.updatedAt = now
-      }
+      }, { status: 'CANCELLED', updatedAt: now })
 
       await em.flush()
 

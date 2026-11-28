@@ -221,7 +221,7 @@ export async function runTaskSlaJob(
     id: options.userTaskId,
     tenantId,
     organizationId,
-  })
+  }, { disableIdentityMap: true })
 
   if (!task) return 'noop'
   if (!OPEN_TASK_STATUSES.includes(task.status as (typeof OPEN_TASK_STATUSES)[number])) return 'noop'
@@ -245,31 +245,36 @@ export async function runTaskSlaJob(
     return 'reminded'
   }
 
-  // Claim the breach with a conditional UPDATE rather than a read-then-write:
-  // the queue delivers at least once, and two deliveries reading `escalated_at
-  // IS NULL` would both fire. The loser updates zero rows and no-ops.
+  if (task.escalatedAt) return 'noop'
+
   const now = new Date()
+  const handling = await resolveBreachHandling(em, task, options, now)
+  const changes = { escalatedAt: now, updatedAt: now, ...handling.taskChanges }
+
+  // Claim the breach and apply its task transition in one write, so only the
+  // winner can announce the breach or advance the workflow.
   const claimed = await em.nativeUpdate(
     UserTask,
     {
       id: task.id,
       tenantId,
       organizationId,
-      status: { $in: [...OPEN_TASK_STATUSES] },
+      status: task.status,
+      assignedTo: task.assignedTo ?? null,
+      assignedToRoles: task.assignedToRoles == null ? null : { $eq: task.assignedToRoles },
+      assigneeKind: task.assigneeKind,
+      claimedBy: task.claimedBy ?? null,
       escalatedAt: null,
     },
-    { escalatedAt: now, updatedAt: now }
+    changes
   )
 
   if (claimed === 0) return 'noop'
 
-  task.escalatedAt = now
-  task.updatedAt = now
-
-  // WHICH path the breach took is part of the audit trail, not an implementation
-  // detail: "the deadline passed" and "the deadline passed and the run was
-  // routed away from this task" are different facts about the same instant.
-  const handling = await applyBreachHandling(em, container, task, options, now)
+  Object.assign(task, changes)
+  if (handling.attention) {
+    await markInstanceForAttention(em, handling.attention.instance, handling.attention.stepId, task, now)
+  }
 
   await logTaskSlaEvent(em, container, options, 'USER_TASK_DEADLINE_BREACHED', {
     taskId: task.id,
@@ -306,9 +311,14 @@ type BreachOutcome =
   | 'attention'
   | 'attention_skipped_closed_run'
 
-interface AppliedBreachHandling {
+interface ResolvedBreachHandling {
   outcome: BreachOutcome
   detail?: Record<string, unknown>
+  taskChanges?: Partial<Pick<UserTask,
+    'status' | 'assignedTo' | 'assignedToRoles' | 'claimedBy' | 'claimedAt' |
+    'escalatedTo' | 'reassignedAt' | 'reassignReason'
+  >>
+  attention?: { instance: WorkflowInstance; stepId: string | null }
   resumeInstance?: { stepId: string; toStepId: string; transitionId?: string }
 }
 
@@ -327,7 +337,7 @@ function isInvokeAgentStepDef(step: AgentReviewStepLike | undefined): boolean {
 }
 
 /**
- * Apply the resolver's answer to the task row. Routing itself is deferred to
+ * Prepare the resolver's answer for the conditional task write. Routing is deferred to
  * `resumeAfterBreachRoute` so the workflow only advances after the breach has
  * been recorded and announced.
  *
@@ -341,13 +351,12 @@ function isInvokeAgentStepDef(step: AgentReviewStepLike | undefined): boolean {
  * transition on an agent step therefore cannot fire either: the branch below is
  * taken from the STEP's shape, not from the config the author supplied.
  */
-async function applyBreachHandling(
+async function resolveBreachHandling(
   em: EntityManager,
-  container: AwilixContainer,
   task: UserTask,
   options: RunTaskSlaJobOptions,
   now: Date
-): Promise<AppliedBreachHandling> {
+): Promise<ResolvedBreachHandling> {
   let resolution: BreachResolution = { kind: 'none' }
   let stepId: string | null = null
   let instance: WorkflowInstance | null = null
@@ -367,7 +376,10 @@ async function applyBreachHandling(
     })
 
     if (stepId && instance) {
-      const definition = await findDefinitionForInstance(em, instance)
+      const definition = await findDefinitionForInstance(em, instance, {
+        tenantId: options.tenantId,
+        organizationId: options.organizationId,
+      })
       const stepDef = (definition?.definition?.steps ?? []).find(
         (step: { stepId?: string }) => step.stepId === stepId
       ) as
@@ -384,7 +396,7 @@ async function applyBreachHandling(
     }
   } catch (error) {
     // A definition the engine can no longer read must not strand the breach:
-    // the task is already marked escalated and the event still fires.
+    // the task can still be marked escalated and the event can still fire.
     logger.error('Failed to resolve breach handling; falling back to notify-only', {
       component: 'task-sla',
       taskId: task.id,
@@ -400,23 +412,22 @@ async function applyBreachHandling(
     if (isRunClosedToUserTasks(instance.status)) {
       return { outcome: 'attention_skipped_closed_run', detail: { stepId, status: instance.status } }
     }
-    await markInstanceForAttention(em, instance, stepId, task, now)
-    return { outcome: 'attention', detail: { stepId } }
+    return { outcome: 'attention', detail: { stepId }, attention: { instance, stepId } }
   }
 
   if (resolution.kind === 'reassign') {
-    task.assignedTo = resolution.assignedTo
-    task.assignedToRoles = resolution.assignedToRoles
-    task.claimedBy = null
-    task.claimedAt = null
-    task.status = 'PENDING'
-    task.escalatedTo = resolution.assignedTo ?? resolution.assignedToRoles?.[0] ?? null
-    task.reassignedAt = now
-    task.reassignReason = 'sla_breach'
-    task.updatedAt = now
-    await em.flush()
     return {
       outcome: 'reassigned',
+      taskChanges: {
+        assignedTo: resolution.assignedTo,
+        assignedToRoles: resolution.assignedToRoles,
+        claimedBy: null,
+        claimedAt: null,
+        status: 'PENDING',
+        escalatedTo: resolution.assignedTo ?? resolution.assignedToRoles?.[0] ?? null,
+        reassignedAt: now,
+        reassignReason: 'sla_breach',
+      },
       detail: {
         reassignedTo: resolution.assignedTo,
         reassignedToRoles: resolution.assignedToRoles,
@@ -444,14 +455,9 @@ async function applyBreachHandling(
       }
     }
 
-    // The task is superseded by the route, not abandoned: `ESCALATED` is an
-    // existing `UserTaskStatus`, so no state machine changes.
-    task.status = 'ESCALATED'
-    task.updatedAt = now
-    await em.flush()
-
     return {
       outcome: 'routed',
+      taskChanges: { status: 'ESCALATED' },
       detail: { transitionId: resolution.transition.transitionId, toStepId },
       resumeInstance: { stepId, toStepId, transitionId: resolution.transition.transitionId },
     }

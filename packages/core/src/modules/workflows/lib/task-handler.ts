@@ -38,6 +38,7 @@ import { isRunClosedToUserTasks } from './instance-status'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('workflows')
 
@@ -595,6 +596,9 @@ export async function claimUserTask(
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       status: 'PENDING',
+      assignedTo: null,
+      assignedToRoles: { $eq: task.assignedToRoles },
+      assigneeKind: task.assigneeKind,
       claimedBy: null,
     },
     {
@@ -613,18 +617,11 @@ export async function claimUserTask(
     )
   }
 
-  // The conditional update above already wrote the row; mirroring it onto the
-  // managed entity keeps the caller's identity-mapped copy from reporting the
-  // pre-claim state back to the client.
-  task.claimedBy = userId
-  task.claimedAt = now
-  task.status = 'IN_PROGRESS'
-  task.updatedAt = now
-
-  await em.flush()
+  // Refresh the identity map without issuing a second, unguarded write.
+  await em.findOne(UserTask, { id: taskId, ...scope }, { refresh: true })
 
   // Log event
-  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  const instance = await em.findOne(WorkflowInstance, { id: task.workflowInstanceId, ...scope })
   if (instance) {
     await logWorkflowEvent(em, {
       workflowInstanceId: instance.id,
@@ -710,14 +707,9 @@ export async function releaseUserTask(
     )
   }
 
-  task.claimedBy = null
-  task.claimedAt = null
-  task.status = 'PENDING'
-  task.updatedAt = now
+  await em.findOne(UserTask, { id: taskId, ...scope }, { refresh: true })
 
-  await em.flush()
-
-  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  const instance = await em.findOne(WorkflowInstance, { id: task.workflowInstanceId, ...scope })
   if (instance) {
     await logWorkflowEvent(em, {
       workflowInstanceId: instance.id,
@@ -804,7 +796,7 @@ export async function reassignUserTask(
     id: taskId,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-  })
+  }, { disableIdentityMap: true })
 
   if (!task) {
     throw new UserTaskError('Task not found', 'TASK_NOT_FOUND', { taskId })
@@ -830,26 +822,45 @@ export async function reassignUserTask(
 
   const now = new Date()
 
-  task.assignedTo = assignedTo
   // Reassignment is a backoffice administration act and its target is resolved
   // from the tenant's user/role vocabulary, so the row lands in the backoffice
   // namespace. Portal reassignment would need a portal principal picker and is
   // not part of this surface.
-  task.assigneeKind = 'user'
-  task.assignedToRoles = assignedToRoles
-  task.claimedBy = null
-  task.claimedAt = null
-  // A queued task must be PENDING to be claimable, and a task whose claim was
-  // just released is exactly as pending as it was before anyone claimed it.
-  if (task.status === 'IN_PROGRESS') task.status = 'PENDING'
-  task.reassignedBy = userId
-  task.reassignedAt = now
-  task.reassignReason = reason ?? null
-  task.updatedAt = now
+  const status: UserTask['status'] = task.status === 'IN_PROGRESS' ? 'PENDING' : task.status
+  const changes = {
+    assignedTo,
+    assigneeKind: 'user' as const,
+    assignedToRoles,
+    claimedBy: null,
+    claimedAt: null,
+    status,
+    reassignedBy: userId,
+    reassignedAt: now,
+    reassignReason: reason ?? null,
+    updatedAt: now,
+  }
 
-  await em.flush()
+  const reassigned = await em.nativeUpdate(UserTask, {
+    id: taskId,
+    ...scope,
+    status: task.status,
+    assignedTo: previous.assignedTo,
+    assignedToRoles: previous.assignedToRoles === null ? null : { $eq: previous.assignedToRoles },
+    assigneeKind: task.assigneeKind,
+    claimedBy: previous.claimedBy,
+  }, changes)
+  if (reassigned === 0) {
+    const { translate } = await resolveTranslations()
+    throw new UserTaskError(
+      translate('workflows.tasks.messages.reassignFailed', 'Failed to reassign task'),
+      'TASK_NOT_REASSIGNABLE',
+      { taskId },
+    )
+  }
 
-  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
+  Object.assign(task, changes)
+
+  const instance = await em.findOne(WorkflowInstance, { id: task.workflowInstanceId, ...scope })
   if (instance) {
     await logWorkflowEvent(em, {
       workflowInstanceId: instance.id,

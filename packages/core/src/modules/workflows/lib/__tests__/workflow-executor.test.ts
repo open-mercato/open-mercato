@@ -121,6 +121,7 @@ describe('Workflow Executor (Unit Tests)', () => {
       persist: jest.fn(function persist(this: any) { return this }),
       flush: jest.fn(),
       nativeDelete: jest.fn(),
+      createQueryBuilder: jest.fn(),
       transactional: jest.fn(async (callback: (trx: EntityManager) => Promise<unknown>) => callback(mockEm)),
     } as any
 
@@ -1202,7 +1203,29 @@ describe('Workflow Executor (Unit Tests)', () => {
       const loggedEvents = () =>
         mockEm.create.mock.calls.map((call) => call[1] as Record<string, unknown>)
 
-      test('CANCELLED closes PENDING and IN_PROGRESS tasks in the flush that persists the status', async () => {
+      const storeTaskUpdates = (tasks: UserTask[]) => {
+        mockEm.createQueryBuilder.mockReturnValue({
+          update: (changes: Partial<UserTask>) => ({
+            where: (where: Pick<UserTask, 'workflowInstanceId' | 'tenantId' | 'organizationId'> & {
+              id: { $in: string[] }
+              status: { $in: UserTask['status'][] }
+            }) => ({
+              returning: () => ({
+                execute: async () => tasks.filter((task) =>
+                  where.id.$in.includes(task.id) && task.workflowInstanceId === where.workflowInstanceId &&
+                  task.tenantId === where.tenantId && task.organizationId === where.organizationId &&
+                  where.status.$in.includes(task.status)
+                ).map((task) => {
+                  Object.assign(task, changes)
+                  return { id: task.id }
+                }),
+              }),
+            }),
+          }),
+        })
+      }
+
+      test('CANCELLED closes PENDING and IN_PROGRESS tasks in the run cancellation transaction', async () => {
         const instance = buildInstance('PAUSED')
         const pendingTask = buildTask({})
         const claimedTask = buildTask({
@@ -1213,6 +1236,7 @@ describe('Workflow Executor (Unit Tests)', () => {
           claimedBy: 'user-1',
         })
         mockEm.findOne.mockResolvedValue(instance)
+        storeTaskUpdates([pendingTask, claimedTask])
 
         const operations: Array<Record<string, unknown>> = []
         const snapshot = () => ({
@@ -1241,8 +1265,6 @@ describe('Workflow Executor (Unit Tests)', () => {
 
         await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
 
-        // The task read runs before the run is dirtied, and no read runs
-        // between the task writes and the flush that persists them.
         const firstFlush = operations.findIndex((entry) => entry.op === 'flush')
         expect(operations[0]).toEqual({
           op: 'find',
@@ -1258,7 +1280,7 @@ describe('Workflow Executor (Unit Tests)', () => {
         ).toBe(true)
         expect(operations[firstFlush]).toMatchObject({
           instance: 'CANCELLED',
-          tasks: ['CANCELLED', 'CANCELLED'],
+          tasks: ['PENDING', 'IN_PROGRESS'],
         })
 
         expect(mockEm.find).toHaveBeenCalledTimes(1)
@@ -1267,7 +1289,7 @@ describe('Workflow Executor (Unit Tests)', () => {
           tenantId: testTenantId,
           organizationId: testOrgId,
           status: { $in: ['PENDING', 'IN_PROGRESS'] },
-        }, undefined)
+        }, { disableIdentityMap: true })
 
         expect(pendingTask.status).toBe('CANCELLED')
         expect(claimedTask.status).toBe('CANCELLED')
@@ -1275,11 +1297,11 @@ describe('Workflow Executor (Unit Tests)', () => {
         expect(claimedTask.updatedAt).toBe(instance.updatedAt)
         expect(instance.status).toBe('CANCELLED')
 
-        // One flush carries the run status AND the task statuses, before any
-        // event row exists.
+        expect(mockEm.transactional).toHaveBeenCalledTimes(1)
+        expect(mockEm.createQueryBuilder).toHaveBeenCalledTimes(1)
         expect(statusesAtFlush[0]).toEqual({
           instance: 'CANCELLED',
-          tasks: ['CANCELLED', 'CANCELLED'],
+          tasks: ['PENDING', 'IN_PROGRESS'],
           events: 0,
         })
 
@@ -1316,6 +1338,7 @@ describe('Workflow Executor (Unit Tests)', () => {
         const encryptedTask = buildTask({ taskName: 'enc:v1:cipher' })
         mockEm.findOne.mockResolvedValue(instance)
         mockEm.find.mockResolvedValue([encryptedTask] as never)
+        storeTaskUpdates([encryptedTask])
         jest.mocked(decryptEntitiesWithFallbackScope).mockImplementationOnce(async (targets) => {
           for (const target of targets as UserTask[]) target.taskName = 'Review order'
         })
@@ -1339,6 +1362,7 @@ describe('Workflow Executor (Unit Tests)', () => {
         const branchTask = buildTask({ branchInstanceId })
         mockEm.findOne.mockResolvedValue(instance)
         mockEm.find.mockResolvedValue([branchTask] as never)
+        storeTaskUpdates([branchTask])
 
         await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
 
@@ -1363,6 +1387,38 @@ describe('Workflow Executor (Unit Tests)', () => {
         await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
 
         expect(loggedEvents().map((event) => event.eventType)).toEqual(['WORKFLOW_CANCELLED'])
+      })
+
+      test('CANCELLED leaves a task completed after the read intact and logs only the tasks it closed', async () => {
+        const instance = buildInstance('PAUSED')
+        const staleTask = buildTask({ status: 'IN_PROGRESS' })
+        const completedTask = buildTask({
+          status: 'COMPLETED',
+          completedBy: 'user-1',
+          formData: { approved: true },
+        })
+        const openTask = buildTask({ id: '00000000-0000-4000-8000-000000000011' })
+        mockEm.findOne.mockResolvedValue(instance)
+        mockEm.find.mockResolvedValue([staleTask, openTask] as never)
+        storeTaskUpdates([completedTask, openTask])
+
+        await workflowExecutor.completeWorkflow(mockEm, mockContainer, testInstanceId, 'CANCELLED')
+
+        expect(instance.status).toBe('CANCELLED')
+        expect(completedTask).toMatchObject({
+          status: 'COMPLETED',
+          completedBy: 'user-1',
+          formData: { approved: true },
+        })
+        expect(staleTask.status).toBe('IN_PROGRESS')
+        expect(openTask.status).toBe('CANCELLED')
+        expect(loggedEvents()).toEqual([
+          expect.objectContaining({
+            eventType: 'USER_TASK_CANCELLED',
+            eventData: expect.objectContaining({ taskId: openTask.id }),
+          }),
+          expect.objectContaining({ eventType: 'WORKFLOW_CANCELLED' }),
+        ])
       })
 
       test('COMPLETED leaves open tasks untouched', async () => {

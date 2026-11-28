@@ -1579,7 +1579,7 @@ export async function completeWorkflow(
   // Original completion logic (no compensation needed or status is COMPLETED/CANCELLED)
 
   // A cancelled run has no recovery path, so its open tasks can never become
-  // actionable again: close them in the same flush as the status. CANCELLED
+  // actionable again: close them in the same transaction as the status. CANCELLED
   // only — a FAILED run parked on a task is retried against that same task.
   // Loaded before the run is mutated so no read sits between a scalar change
   // and the flush that persists it.
@@ -1594,7 +1594,7 @@ export async function completeWorkflow(
             organizationId: instance.organizationId,
             status: { $in: ['PENDING', 'IN_PROGRESS'] },
           },
-          undefined,
+          { disableIdentityMap: true },
           { tenantId: instance.tenantId, organizationId: instance.organizationId }
         )
       : []
@@ -1626,16 +1626,31 @@ export async function completeWorkflow(
 
   await writeRunOutcome(em, instance, status)
 
-  for (const task of cancelledTasks) {
-    task.status = 'CANCELLED'
-    task.updatedAt = now
+  let closedTasks: UserTask[] = []
+  if (cancelledTasks.length > 0) {
+    const closedIds = await em.transactional(async (trx) => {
+      await trx.flush()
+      return (trx as PostgreSqlEntityManager).createQueryBuilder(UserTask)
+        .update({ status: 'CANCELLED', updatedAt: now })
+        .where({
+          id: { $in: cancelledTasks.map((task) => task.id) },
+          workflowInstanceId: instance.id,
+          tenantId: instance.tenantId,
+          organizationId: instance.organizationId,
+          status: { $in: ['PENDING', 'IN_PROGRESS'] },
+        })
+        .returning('id')
+        .execute<Array<Pick<UserTask, 'id'>>>('all')
+    })
+    const closedIdSet = new Set(closedIds.map((task) => task.id))
+    closedTasks = cancelledTasks.filter((task) => closedIdSet.has(task.id))
+  } else {
+    await em.flush()
   }
-
-  await em.flush()
 
   // Logged before the terminal event so WORKFLOW_CANCELLED stays last in the
   // run's timeline.
-  for (const task of cancelledTasks) {
+  for (const task of closedTasks) {
     await logWorkflowEvent(em, {
       workflowInstanceId: instanceId,
       stepInstanceId: task.stepInstanceId,

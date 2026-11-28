@@ -38,6 +38,7 @@ let instance: WorkflowInstance | null
 let created: CreatedEvent[]
 let em: {
   findOne: jest.Mock
+  nativeUpdate: jest.Mock
   flush: jest.Mock
   create: jest.Mock
   persist: jest.Mock
@@ -80,6 +81,7 @@ beforeEach(() => {
       if (entity === WorkflowInstance) return instance
       return null
     }),
+    nativeUpdate: jest.fn(async () => 1),
     flush: jest.fn(async () => undefined),
     create: jest.fn((_entity: unknown, data: CreatedEvent) => {
       created.push(data)
@@ -109,7 +111,16 @@ describe('reassignUserTask', () => {
     expect(result.reassignedBy).toBe(ADMIN_ID)
     expect(result.reassignedAt).toBeInstanceOf(Date)
     expect(result.reassignReason).toBe('Escalated by the duty manager')
-    expect(em.flush).toHaveBeenCalled()
+    expect(em.nativeUpdate).toHaveBeenCalledWith(UserTask, {
+      id: TASK_ID,
+      ...scope(),
+      status: 'PENDING',
+      assignedTo: WORKER_ID,
+      assignedToRoles: null,
+      assigneeKind: 'user',
+      claimedBy: null,
+    }, expect.objectContaining({ assignedTo: ADMIN_ID, reassignedBy: ADMIN_ID }))
+    expect(em.flush).not.toHaveBeenCalled()
 
     expect(em.create).toHaveBeenCalledWith(WorkflowEvent, expect.anything())
     expect(created).toHaveLength(1)
@@ -211,6 +222,43 @@ describe('reassignUserTask', () => {
       ).rejects.toBeInstanceOf(UserTaskError)
     }
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  test.each([
+    { status: 'COMPLETED' as const, completedBy: CLAIMANT_ID },
+    { assignedTo: ADMIN_ID },
+    { assignedToRoles: ['manager'] },
+  ])('refuses a stale reassignment and leaves the snapshot and audit untouched (%j)', async (current) => {
+    const snapshot = makeTask({
+      status: 'IN_PROGRESS',
+      assignedTo: WORKER_ID,
+      assignedToRoles: ['approver'],
+      claimedBy: CLAIMANT_ID,
+    })
+    task = snapshot
+    const stored = { ...snapshot, ...current }
+    em.nativeUpdate.mockImplementation(async (_entity, filter, changes) => {
+      const where = filter as {
+        status: string
+        assignedTo: string
+        assignedToRoles: { $eq: string[] }
+      }
+      if (where.status !== stored.status || where.assignedTo !== stored.assignedTo
+        || JSON.stringify(where.assignedToRoles.$eq) !== JSON.stringify(stored.assignedToRoles)) {
+        return 0
+      }
+      Object.assign(stored, changes)
+      return 1
+    })
+
+    await expect(
+      run({ taskId: TASK_ID, userId: ADMIN_ID, target: { assignedTo: 'new-owner' }, scope: scope() }),
+    ).rejects.toMatchObject({ code: 'TASK_NOT_REASSIGNABLE' })
+
+    expect(stored).toMatchObject(current)
+    expect(snapshot).toMatchObject({ status: 'IN_PROGRESS', assignedTo: WORKER_ID, claimedBy: CLAIMANT_ID })
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(created).toHaveLength(0)
   })
 
   test('a missing workflow instance does not fail the reassignment', async () => {

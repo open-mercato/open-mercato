@@ -39,6 +39,7 @@ function makeTask(overrides: TaskRow = {}): TaskRow {
     status: 'PENDING',
     assignedTo: null,
     assignedToRoles: ['approver'],
+    assigneeKind: 'user',
     claimedBy: null,
     formSchema: null,
     ...overrides,
@@ -49,6 +50,9 @@ function matchesFilter(row: TaskRow, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, value]) => {
     if (value !== null && typeof value === 'object' && '$in' in (value as Record<string, unknown>)) {
       return ((value as { $in: unknown[] }).$in).includes(row[key])
+    }
+    if (value !== null && typeof value === 'object' && '$eq' in value) {
+      return JSON.stringify((value as { $eq: unknown }).$eq) === JSON.stringify(row[key])
     }
     return row[key] === value
   })
@@ -207,6 +211,9 @@ describe('claimUserTask concurrency', () => {
         tenantId: TENANT_A,
         organizationId: ORG_A,
         status: 'PENDING',
+        assignedTo: null,
+        assignedToRoles: { $eq: APPROVER_ROLES },
+        assigneeKind: 'user',
         claimedBy: null,
       },
       expect.objectContaining({ claimedBy: USER_A, status: 'IN_PROGRESS' }),
@@ -235,6 +242,26 @@ describe('claimUserTask concurrency', () => {
     })
     expect(row.claimedBy).toBeNull()
     expect(row.status).toBe('PENDING')
+  })
+
+  test.each([
+    { assignedTo: USER_B, assignedToRoles: null },
+    { assignedTo: null, assignedToRoles: ['manager'] },
+  ])('keeps the current assignment when the queue snapshot is stale (%j)', async (assignment) => {
+    const row = makeTask()
+    const { em, findOne, flush } = makeEm([row])
+    findOne.mockImplementationOnce(async () => {
+      const snapshot = { ...row }
+      Object.assign(row, assignment)
+      return snapshot
+    })
+
+    await expect(claimUserTask(em, TASK_ID, USER_A, scopeA, APPROVER_ROLES)).rejects.toMatchObject({
+      code: 'TASK_NOT_FOUND',
+    })
+
+    expect(row).toMatchObject({ ...assignment, claimedBy: null, status: 'PENDING' })
+    expect(flush).not.toHaveBeenCalled()
   })
 })
 
