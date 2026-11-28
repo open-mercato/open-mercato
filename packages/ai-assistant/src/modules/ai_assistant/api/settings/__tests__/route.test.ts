@@ -1,3 +1,5 @@
+import type { AwilixContainer } from 'awilix'
+
 /**
  * Tests for Phase 4a additions to /api/ai_assistant/settings:
  *   - PUT /api/ai_assistant/settings — upsert + ACL gate
@@ -46,10 +48,9 @@ const readBaseurlAllowlistMock = jest.fn()
 const isBaseurlAllowlistedMock = jest.fn()
 
 jest.mock('../../../lib/baseurl-allowlist', () => ({
+  ...jest.requireActual('../../../lib/baseurl-allowlist'),
   readBaseurlAllowlist: (...args: unknown[]) => readBaseurlAllowlistMock(...args),
   isBaseurlAllowlisted: (...args: unknown[]) => isBaseurlAllowlistedMock(...args),
-  resolveAllowlistedBaseurl: (...args: [string | null | undefined, string[]?]) =>
-    jest.requireActual('../../../lib/baseurl-allowlist').resolveAllowlistedBaseurl(...args),
 }))
 
 jest.mock('../../../data/repositories/AiTenantModelAllowlistRepository', () => ({
@@ -73,6 +74,7 @@ jest.mock('@open-mercato/shared/lib/ai/llm-provider-registry', () => ({
   llmProviderRegistry: {
     get: jest.fn(),
     list: jest.fn(() => []),
+    resolveFirstConfigured: jest.fn(),
   },
 }))
 
@@ -82,6 +84,7 @@ jest.mock('../../../lib/agent-registry', () => ({
 }))
 
 jest.mock('../../../lib/model-factory', () => ({
+  ...jest.requireActual('../../../lib/model-factory'),
   createModelFactory: jest.fn(() => ({
     resolveModel: (...args: unknown[]) => resolveModelMock(...args),
   })),
@@ -382,6 +385,71 @@ describe('PUT /api/ai_assistant/settings', () => {
     expect(json.code).toBe('provider_unknown')
   })
 
+  describe('provider-scoped baseURL writes', () => {
+    const originalAllowlist = process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+    const baseURL = 'https://settings-proxy.example.invalid/v1'
+    const providers = ['fixture-primary', 'fixture-secondary'].map((id) => ({
+      id,
+      isConfigured: () => true,
+      defaultModel: 'fixture-model',
+      createModel: jest.fn(),
+      name: id,
+      envKeys: [],
+      defaultModels: [],
+      resolveApiKey: jest.fn(() => 'fixture'),
+    }))
+
+    beforeEach(() => {
+      process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'fixture-primary=https://settings-proxy.example.invalid'
+      readBaseurlAllowlistMock.mockImplementation(actualBaseurlAllowlist.readBaseurlAllowlist)
+      isBaseurlAllowlistedMock.mockImplementation(actualBaseurlAllowlist.isBaseurlAllowlisted)
+      jest.mocked(llmProviderRegistry.list).mockImplementation(() => providers)
+      jest.mocked(llmProviderRegistry.get).mockImplementation((id) =>
+        providers.find((provider) => provider.id === id) ?? null,
+      )
+      jest.mocked(llmProviderRegistry.resolveFirstConfigured).mockImplementation(({ order } = {}) =>
+        providers.find((provider) => provider.id === order?.[0]) ?? providers[0],
+      )
+      getExactMock.mockResolvedValue({ providerId: 'fixture-primary', modelId: 'fixture-model' })
+    })
+
+    afterEach(() => {
+      if (originalAllowlist === undefined) delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+      else process.env.AI_RUNTIME_BASEURL_ALLOWLIST = originalAllowlist
+    })
+
+    it('validates a partial update using the existing provider', async () => {
+      const response = await PUT(buildRequest('PUT', { baseURL }) as Parameters<typeof PUT>[0])
+
+      expect(response.status).toBe(200)
+      expect(upsertDefaultMock).toHaveBeenCalledWith({ agentId: null, baseURL }, expect.anything())
+      expect(providers[0].createModel).not.toHaveBeenCalled()
+    })
+
+    it('rejects a partial update when the saved provider differs', async () => {
+      getExactMock.mockResolvedValue({ providerId: 'fixture-secondary' })
+
+      const response = await PUT(buildRequest('PUT', { baseURL }) as Parameters<typeof PUT>[0])
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'baseurl_not_allowlisted' })
+      expect(upsertDefaultMock).not.toHaveBeenCalled()
+      expect(providers[1].createModel).not.toHaveBeenCalled()
+    })
+
+    it('checks the provider selected by the model when the provider override is cleared', async () => {
+      const response = await PUT(buildRequest('PUT', {
+        baseURL,
+        providerId: null,
+        modelId: 'fixture-secondary/fixture-model',
+      }) as Parameters<typeof PUT>[0])
+
+      expect(response.status).toBe(400)
+      expect(await response.json()).toMatchObject({ code: 'baseurl_not_allowlisted' })
+      expect(upsertDefaultMock).not.toHaveBeenCalled()
+    })
+  })
+
   it('allows superAdmin even without the manage feature', async () => {
     userHasAllFeaturesMock.mockResolvedValueOnce(true)
 
@@ -444,18 +512,37 @@ describe('GET /api/ai_assistant/settings', () => {
     ])
   })
 
-  describe('stored baseURL resolution (issue #7228)', () => {
+  describe('stored baseURL resolution', () => {
+    const actualFactory = jest.requireActual<typeof import('../../../lib/model-factory')>('../../../lib/model-factory')
+    const provider = {
+      id: 'fixture-primary',
+      name: 'Fixture provider',
+      envKeys: [],
+      defaultModel: 'fixture-model',
+      defaultModels: [],
+      isConfigured: () => true,
+      resolveApiKey: () => 'fixture',
+      createModel: jest.fn(),
+    }
     const updatedAt = new Date('2026-10-17T00:00:00Z')
 
     beforeEach(() => {
+      readBaseurlAllowlistMock.mockImplementation(actualBaseurlAllowlist.readBaseurlAllowlist)
+      resolveModelMock.mockImplementation(actualFactory.createModelFactory({} as AwilixContainer, {
+        registry: {
+          resolveFirstConfigured: () => provider,
+          get: (id) => id === provider.id ? provider : null,
+          list: () => [provider],
+        },
+      }).resolveModel)
       authMock.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
       createRequestContainerMock.mockResolvedValue({
         resolve: (name: string) => (name === 'em' ? {} : null),
       })
       getDefaultMock.mockResolvedValue({
-        providerId: 'openai',
-        modelId: 'gpt-5-mini',
-        baseUrl: 'http://api.openai.com/v1',
+        providerId: 'fixture-primary',
+        modelId: 'fixture-model',
+        baseUrl: 'http://settings-proxy.example.invalid/v1',
         agentId: null,
         inputModeration: null,
         updatedAt,
@@ -463,7 +550,7 @@ describe('GET /api/ai_assistant/settings', () => {
       getExactMock.mockResolvedValue({
         providerId: null,
         modelId: null,
-        baseUrl: 'https://api.openai.com:8443/v1',
+        baseUrl: 'https://settings-proxy.example.invalid:8443/v1',
         allowedOverrideProviders: null,
         allowedOverrideModelsByProvider: {},
         inputModeration: null,
@@ -473,30 +560,28 @@ describe('GET /api/ai_assistant/settings', () => {
     })
 
     it('resolves without a stored baseURL the allowlist no longer permits, but still shows the saved value', async () => {
-      process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com'
+      process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'settings-proxy.example.invalid'
 
       const response = await GET(new Request('http://localhost/api/ai_assistant/settings') as any)
       const json = await response.json()
 
       expect(response.status).toBe(200)
-      const tenantOverrides = resolveModelMock.mock.calls.map(
-        ([input]) => (input as { tenantOverride?: { baseURL?: string | null } }).tenantOverride,
-      )
-      expect(tenantOverrides).toHaveLength(2)
-      expect(tenantOverrides.map((override) => override?.baseURL)).toEqual([null, null])
-      expect(json.tenantOverride.baseURL).toBe('http://api.openai.com/v1')
-      expect(json.agents[0].override.baseURL).toBe('https://api.openai.com:8443/v1')
+      expect(json.resolvedDefault.baseURL).toBeNull()
+      expect(json.agents[0].baseURL).toBeNull()
+      expect(json.tenantOverride.baseURL).toBe('http://settings-proxy.example.invalid/v1')
+      expect(json.agents[0].override.baseURL).toBe('https://settings-proxy.example.invalid:8443/v1')
     })
 
     it('keeps a stored baseURL that still matches an explicit origin entry', async () => {
-      process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'http://api.openai.com,https://api.openai.com:8443'
+      process.env.AI_RUNTIME_BASEURL_ALLOWLIST =
+        'fixture-primary=http://settings-proxy.example.invalid,fixture-other=https://settings-proxy.example.invalid:8443'
 
-      await GET(new Request('http://localhost/api/ai_assistant/settings') as any)
+      const response = await GET(new Request('http://localhost/api/ai_assistant/settings') as Parameters<typeof GET>[0])
+      const json = await response.json()
 
-      const resolvedBaseUrls = resolveModelMock.mock.calls.map(
-        ([input]) => (input as { tenantOverride?: { baseURL?: string | null } }).tenantOverride?.baseURL,
-      )
-      expect(resolvedBaseUrls).toEqual(['http://api.openai.com/v1', 'https://api.openai.com:8443/v1'])
+      expect(response.status).toBe(200)
+      expect(json.resolvedDefault.baseURL).toBe('http://settings-proxy.example.invalid/v1')
+      expect(json.agents[0].baseURL).toBeNull()
     })
   })
 })

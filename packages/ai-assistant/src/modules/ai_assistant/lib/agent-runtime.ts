@@ -47,7 +47,6 @@ import {
   readSynthesizedResultMetadata,
   type ModelCallObserverHooks,
 } from './agent-call-observer'
-import { resolveAllowlistedBaseurl } from './baseurl-allowlist'
 import { reportAiAssistantError } from './report-ai-assistant-error'
 import { computeEndUserIdentifier } from '@open-mercato/shared/lib/ai/safety-identifier'
 import { llmProviderRegistry } from './llm-registry'
@@ -1646,18 +1645,10 @@ async function resolveRuntimeModelOverride(
       agentId,
     })
     if (!row) return null
-    const baseURL = resolveAllowlistedBaseurl(row.baseUrl)
-    if (!baseURL && row.baseUrl?.trim()) {
-      logger.warn('Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it', {
-        agentId,
-        tenantId,
-        organizationId,
-      })
-    }
     return {
       providerId: row.providerId ?? null,
       modelId: row.modelId ?? null,
-      baseURL,
+      baseURL: row.baseUrl ?? null,
     }
   } catch (error) {
     logger.warn('Runtime model override lookup failed; falling back to lower-priority sources', { agentId, err: error })

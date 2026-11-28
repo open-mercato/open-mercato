@@ -67,6 +67,12 @@ import type { EnvLookup, LlmProvider } from '@open-mercato/shared/lib/ai/llm-pro
 import { llmProviderRegistry } from './llm-registry'
 import { getModelFactoryOverride } from './model-factory-context'
 import {
+  assertRuntimeBaseurlAllowed,
+  readBaseurlAllowlist,
+  resolveAllowlistedBaseurl,
+  RuntimeBaseurlNotAllowlistedError,
+} from './baseurl-allowlist'
+import {
   intersectAllowlists,
   canonicalProviderId,
   isModelAllowedForProviderInEffective,
@@ -579,6 +585,233 @@ export function resolveAllowRuntimeOverride(input: {
   return true
 }
 
+function resolveModelSelection(input: AiModelFactoryInput, registry: AiModelFactoryRegistry, env: EnvLookup) {
+  const hasModule = typeof input.moduleId === 'string' && input.moduleId.length > 0
+  // When allowRuntimeOverride (or its deprecated alias allowRuntimeModelOverride)
+  // is explicitly false, skip steps 1 (requestOverride) and 3 (tenantOverride).
+  const runtimeOverridesAllowed = resolveAllowRuntimeOverride(input)
+
+  // --- Step 1: requestOverride (HTTP query params) — gated by flag ---
+  const requestModelRaw = runtimeOverridesAllowed
+    ? normalizeOverride(input.requestOverride?.modelId ?? undefined)
+    : null
+  const requestProviderRaw = runtimeOverridesAllowed
+    ? normalizeOverride(input.requestOverride?.providerId ?? undefined)
+    : null
+
+  // --- Step 2: callerOverride (programmatic) ---
+  const callerRaw = normalizeOverride(input.callerOverride)
+
+  // --- Step 3: tenantOverride (DB row) — gated by flag ---
+  const tenantModelRaw = runtimeOverridesAllowed
+    ? normalizeOverride(input.tenantOverride?.modelId ?? undefined)
+    : null
+  const tenantProviderRaw = runtimeOverridesAllowed
+    ? normalizeOverride(input.tenantOverride?.providerId ?? undefined)
+    : null
+
+  // --- Steps 4+: env / agent / global ---
+  const moduleModelRaw = hasModule
+    ? readModuleModelEnvOverride(env, input.moduleId!)
+    : null
+  const agentModelRaw = normalizeOverride(input.agentDefaultModel)
+  // OM_AI_MODEL is canonical; the legacy OPENCODE_MODEL is read as a
+  // backward-compatibility fallback through readGlobalModelFromEnv.
+  const globalModelRaw = readGlobalModelFromEnv(env)
+
+  const providerOverrideRaw = normalizeOverride(input.providerOverride)
+  const moduleProviderRaw = hasModule
+    ? readModuleProviderEnvOverride(env, input.moduleId!)
+    : null
+  const agentDefaultProviderRaw = normalizeOverride(input.agentDefaultProvider)
+  // OM_AI_PROVIDER is canonical; the legacy OPENCODE_PROVIDER is read as
+  // a backward-compatibility fallback through readGlobalProviderFromEnv.
+  const globalProviderRaw = readGlobalProviderFromEnv(env, registry)
+
+  const requestProviderHint = normalizeProviderHint(requestProviderRaw, registry)
+  const providerOverrideHint = normalizeProviderHint(providerOverrideRaw, registry)
+  const tenantProviderHint = normalizeProviderHint(tenantProviderRaw, registry)
+  const moduleProviderHint = normalizeProviderHint(moduleProviderRaw, registry)
+  const agentDefaultProviderHint = normalizeProviderHint(agentDefaultProviderRaw, registry)
+
+  // Parse each model-axis source with its same-tier provider hint so a
+  // configured vendor-prefix gateway (OpenRouter, Requesty, LiteLLM) keeps
+  // its `vendor/model` id intact instead of pinning the native `vendor`.
+  const requestModelParsed = requestModelRaw ? parseTierModel(requestModelRaw, requestProviderHint, registry, env) : null
+  const callerParsed = callerRaw ? parseTierModel(callerRaw, providerOverrideHint, registry, env) : null
+  const tenantModelParsed = tenantModelRaw ? parseTierModel(tenantModelRaw, tenantProviderHint, registry, env) : null
+  const moduleModelParsed = moduleModelRaw ? parseTierModel(moduleModelRaw, moduleProviderHint, registry, env) : null
+  const agentModelParsed = agentModelRaw ? parseTierModel(agentModelRaw, agentDefaultProviderHint, registry, env) : null
+  const globalModelParsed = globalModelRaw ? parseTierModel(globalModelRaw, globalProviderRaw, registry, env) : null
+
+  // Walk the provider-axis seed list: slash hint beats plain provider at
+  // the same step. We keep only the first (highest-priority) non-null hint.
+  const providerHintCandidates: Array<string | null> = [
+    requestModelParsed?.providerHint ?? null,
+    requestProviderHint,
+    callerParsed?.providerHint ?? null,
+    providerOverrideHint,
+    tenantModelParsed?.providerHint ?? null,
+    tenantProviderHint,
+    moduleModelParsed?.providerHint ?? null,
+    moduleProviderHint,
+    agentModelParsed?.providerHint ?? null,
+    agentDefaultProviderHint,
+    globalModelParsed?.providerHint ?? null,
+    globalProviderRaw,
+  ]
+  const orderHint = providerHintCandidates.find((hint) => hint !== null) ?? null
+  const order = orderHint ? [orderHint] : undefined
+
+  const pairPlainProviderIfWinning = (providerHint: string | null): string | null =>
+    providerHint && providerHint === orderHint ? providerHint : null
+
+  let modelId: string
+  let source: AiModelResolution['source']
+  let pairedProviderHint: string | null = null
+  if (requestModelParsed) {
+    modelId = requestModelParsed.modelId
+    source = 'request_override'
+    pairedProviderHint = requestModelParsed.providerHint ?? pairPlainProviderIfWinning(requestProviderHint)
+  } else if (callerParsed) {
+    modelId = callerParsed.modelId
+    source = 'caller_override'
+    pairedProviderHint = callerParsed.providerHint ?? pairPlainProviderIfWinning(providerOverrideHint)
+  } else if (tenantModelParsed) {
+    modelId = tenantModelParsed.modelId
+    source = 'tenant_override'
+    pairedProviderHint = tenantModelParsed.providerHint ?? pairPlainProviderIfWinning(tenantProviderHint)
+  } else if (moduleModelParsed) {
+    modelId = moduleModelParsed.modelId
+    source = 'module_env'
+    pairedProviderHint = moduleModelParsed.providerHint ?? pairPlainProviderIfWinning(moduleProviderHint)
+  } else if (agentModelParsed) {
+    modelId = agentModelParsed.modelId
+    source = 'agent_default'
+    pairedProviderHint = agentModelParsed.providerHint ?? pairPlainProviderIfWinning(agentDefaultProviderHint)
+  } else if (globalModelParsed) {
+    modelId = globalModelParsed.modelId
+    source = 'env_default'
+    pairedProviderHint = globalModelParsed.providerHint ?? pairPlainProviderIfWinning(globalProviderRaw)
+  } else {
+    modelId = ''
+    source = 'provider_default'
+  }
+
+  // --- Provider-axis: walk from highest to lowest priority for the seed.
+  // A slash-qualified hint from a model source wins over a plain provider
+  // source at the same priority step. We walk top-down and take the first
+  // non-null hint.
+  const provider = pairedProviderHint
+    ? resolveRequiredProvider(pairedProviderHint, registry, env)
+    : registry.resolveFirstConfigured({ env, order })
+  if (!provider) {
+    if (pairedProviderHint) {
+      throw new AiModelFactoryError(
+        'no_provider_configured',
+        requiredProviderMessage(pairedProviderHint, registry, env),
+      )
+    }
+    throw new AiModelFactoryError(
+      'no_provider_configured',
+      'No LLM provider is configured. Set OM_AI_PROVIDER (or the legacy OPENCODE_PROVIDER) plus a matching API key such as OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
+    )
+  }
+  // --- Model-axis: use the post-parse model id from the winning source.
+  if (source === 'provider_default') {
+    modelId = provider.defaultModel
+  }
+
+  // --- Allowlist enforcement (Phase 1780-5 + 1780-6) -------------------
+  // OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER> clip
+  // the resolution to an operator-approved set. The optional tenant
+  // allowlist snapshot narrows the env outer constraint further. If the
+  // resolved pair isn't allowed, fall back to a safe (provider, model)
+  // — never throw, so a stale tenant override or chat picker can't take
+  // the runtime down. The fallback is logged so the operator can see
+  // what happened.
+  const registryProviderIds = registry.list?.()?.map((p) => p.id) ?? []
+  const tenantProviderIds = input.tenantAllowlist
+    ? Object.keys(input.tenantAllowlist.allowedModelsByProvider ?? {})
+    : []
+  const knownProviderIds = Array.from(
+    new Set([provider.id, ...registryProviderIds, ...tenantProviderIds]),
+  )
+  const effectiveAllowlist = intersectAllowlists(
+    env,
+    knownProviderIds,
+    input.tenantAllowlist ?? null,
+  )
+  const allowlistResult = enforceAllowlist({
+    env,
+    registry,
+    resolved: { provider, modelId },
+    agentDefaultProvider: agentDefaultProviderRaw,
+    agentDefaultModel: agentModelParsed?.modelId ?? agentModelRaw,
+    effective: effectiveAllowlist,
+  })
+
+  return {
+    provider,
+    modelId,
+    source,
+    allowlistResult,
+    registeredProviderIds: [...new Set([allowlistResult.provider.id, ...registryProviderIds])],
+  }
+}
+
+/** Validates a proposed URL against the effective provider without constructing a model. */
+export function assertRuntimeBaseurlForModelInput(baseUrl: string, allowlist: string[], input: AiModelFactoryInput): void {
+  try {
+    const { allowlistResult, registeredProviderIds } = resolveModelSelection(input, llmProviderRegistry, process.env)
+    assertRuntimeBaseurlAllowed(baseUrl, allowlist, allowlistResult.provider.id, registeredProviderIds)
+  } catch (error) {
+    if (error instanceof AiModelFactoryError) throw new RuntimeBaseurlNotAllowlistedError()
+    throw error
+  }
+}
+
+function resolveModelBaseURL(
+  input: AiModelFactoryInput,
+  finalProvider: LlmProvider,
+  knownProviderIds: readonly string[],
+  env: EnvLookup,
+): string | undefined {
+  const runtimeOverridesAllowed = resolveAllowRuntimeOverride(input)
+  // --- BaseURL-axis resolution (highest to lowest priority) ---
+  // 1. requestOverride.baseURL (HTTP dispatcher) — gated by allowRuntimeOverride
+  // 2. baseUrlOverride (programmatic caller)
+  // 3. tenantOverride.baseURL (DB row) — gated by allowRuntimeOverride
+  // 4. <MODULE>_AI_BASE_URL env
+  // 5. agentDefaultBaseUrl
+  // Steps 6-7 (preset env + preset default) are handled inside the adapter's
+  // createModel when no explicit baseURL is passed.
+  const requestBaseUrl = runtimeOverridesAllowed
+    ? normalizeOverride(input.requestOverride?.baseURL ?? undefined)
+    : null
+  if (requestBaseUrl) {
+    assertRuntimeBaseurlAllowed(requestBaseUrl, readBaseurlAllowlist(env), finalProvider.id, knownProviderIds)
+    return requestBaseUrl
+  }
+  const callerBaseUrl = normalizeOverride(input.baseUrlOverride)
+  if (callerBaseUrl) return callerBaseUrl
+
+  const tenantBaseUrl = runtimeOverridesAllowed
+    ? normalizeOverride(input.tenantOverride?.baseURL ?? undefined)
+    : null
+  if (tenantBaseUrl) {
+    const storedBaseUrl = resolveAllowlistedBaseurl(tenantBaseUrl, readBaseurlAllowlist(env), finalProvider.id, knownProviderIds)
+    if (storedBaseUrl) return storedBaseUrl
+    logger.warn('Stored AI runtime baseURL is not allowed by AI_RUNTIME_BASEURL_ALLOWLIST; ignoring it', {
+      providerId: finalProvider.id,
+      moduleId: input.moduleId,
+    })
+  }
+  return (input.moduleId ? normalizeOverride(env[moduleBaseUrlEnvVarName(input.moduleId)]) : null)
+    ?? normalizeOverride(input.agentDefaultBaseUrl)
+    ?? undefined
+}
+
 /**
  * Creates an {@link AiModelFactory} bound to the DI container. The container
  * reference is accepted for API symmetry with other runtime helpers (and so
@@ -595,203 +828,25 @@ function createBaseModelFactory(
 
   return {
     resolveModel(input: AiModelFactoryInput): AiModelResolution {
-      const hasModule = typeof input.moduleId === 'string' && input.moduleId.length > 0
-      // When allowRuntimeOverride (or its deprecated alias allowRuntimeModelOverride)
-      // is explicitly false, skip steps 1 (requestOverride) and 3 (tenantOverride).
-      const runtimeOverridesAllowed = resolveAllowRuntimeOverride(input)
-
-      // --- Step 1: requestOverride (HTTP query params) — gated by flag ---
-      const requestModelRaw = runtimeOverridesAllowed
-        ? normalizeOverride(input.requestOverride?.modelId ?? undefined)
-        : null
-      const requestProviderRaw = runtimeOverridesAllowed
-        ? normalizeOverride(input.requestOverride?.providerId ?? undefined)
-        : null
-      const requestBaseUrlRaw = runtimeOverridesAllowed
-        ? normalizeOverride(input.requestOverride?.baseURL ?? undefined)
-        : null
-
-      // --- Step 2: callerOverride (programmatic) ---
-      const callerRaw = normalizeOverride(input.callerOverride)
-
-      // --- Step 3: tenantOverride (DB row) — gated by flag ---
-      const tenantModelRaw = runtimeOverridesAllowed
-        ? normalizeOverride(input.tenantOverride?.modelId ?? undefined)
-        : null
-      const tenantProviderRaw = runtimeOverridesAllowed
-        ? normalizeOverride(input.tenantOverride?.providerId ?? undefined)
-        : null
-      const tenantBaseUrlRaw = runtimeOverridesAllowed
-        ? normalizeOverride(input.tenantOverride?.baseURL ?? undefined)
-        : null
-
-      // --- Steps 4+: env / agent / global ---
-      const moduleModelRaw = hasModule
-        ? readModuleModelEnvOverride(env, input.moduleId!)
-        : null
-      const agentModelRaw = normalizeOverride(input.agentDefaultModel)
-      // OM_AI_MODEL is canonical; the legacy OPENCODE_MODEL is read as a
-      // backward-compatibility fallback through readGlobalModelFromEnv.
-      const globalModelRaw = readGlobalModelFromEnv(env)
-
-      const providerOverrideRaw = normalizeOverride(input.providerOverride)
-      const moduleProviderRaw = hasModule
-        ? readModuleProviderEnvOverride(env, input.moduleId!)
-        : null
-      const agentDefaultProviderRaw = normalizeOverride(input.agentDefaultProvider)
-      // OM_AI_PROVIDER is canonical; the legacy OPENCODE_PROVIDER is read as
-      // a backward-compatibility fallback through readGlobalProviderFromEnv.
-      const globalProviderRaw = readGlobalProviderFromEnv(env, registry)
-
-      const requestProviderHint = normalizeProviderHint(requestProviderRaw, registry)
-      const providerOverrideHint = normalizeProviderHint(providerOverrideRaw, registry)
-      const tenantProviderHint = normalizeProviderHint(tenantProviderRaw, registry)
-      const moduleProviderHint = normalizeProviderHint(moduleProviderRaw, registry)
-      const agentDefaultProviderHint = normalizeProviderHint(agentDefaultProviderRaw, registry)
-
-      // Parse each model-axis source with its same-tier provider hint so a
-      // configured vendor-prefix gateway (OpenRouter, Requesty, LiteLLM) keeps
-      // its `vendor/model` id intact instead of pinning the native `vendor`.
-      const requestModelParsed = requestModelRaw ? parseTierModel(requestModelRaw, requestProviderHint, registry, env) : null
-      const callerParsed = callerRaw ? parseTierModel(callerRaw, providerOverrideHint, registry, env) : null
-      const tenantModelParsed = tenantModelRaw ? parseTierModel(tenantModelRaw, tenantProviderHint, registry, env) : null
-      const moduleModelParsed = moduleModelRaw ? parseTierModel(moduleModelRaw, moduleProviderHint, registry, env) : null
-      const agentModelParsed = agentModelRaw ? parseTierModel(agentModelRaw, agentDefaultProviderHint, registry, env) : null
-      const globalModelParsed = globalModelRaw ? parseTierModel(globalModelRaw, globalProviderRaw, registry, env) : null
-
-      // Walk the provider-axis seed list: slash hint beats plain provider at
-      // the same step. We keep only the first (highest-priority) non-null hint.
-      const providerHintCandidates: Array<string | null> = [
-        requestModelParsed?.providerHint ?? null,
-        requestProviderHint,
-        callerParsed?.providerHint ?? null,
-        providerOverrideHint,
-        tenantModelParsed?.providerHint ?? null,
-        tenantProviderHint,
-        moduleModelParsed?.providerHint ?? null,
-        moduleProviderHint,
-        agentModelParsed?.providerHint ?? null,
-        agentDefaultProviderHint,
-        globalModelParsed?.providerHint ?? null,
-        globalProviderRaw,
-      ]
-      const orderHint = providerHintCandidates.find((hint) => hint !== null) ?? null
-      const order = orderHint ? [orderHint] : undefined
-
-      const pairPlainProviderIfWinning = (providerHint: string | null): string | null =>
-        providerHint && providerHint === orderHint ? providerHint : null
-
-      let modelId: string
-      let source: AiModelResolution['source']
-      let pairedProviderHint: string | null = null
-      if (requestModelParsed) {
-        modelId = requestModelParsed.modelId
-        source = 'request_override'
-        pairedProviderHint = requestModelParsed.providerHint ?? pairPlainProviderIfWinning(requestProviderHint)
-      } else if (callerParsed) {
-        modelId = callerParsed.modelId
-        source = 'caller_override'
-        pairedProviderHint = callerParsed.providerHint ?? pairPlainProviderIfWinning(providerOverrideHint)
-      } else if (tenantModelParsed) {
-        modelId = tenantModelParsed.modelId
-        source = 'tenant_override'
-        pairedProviderHint = tenantModelParsed.providerHint ?? pairPlainProviderIfWinning(tenantProviderHint)
-      } else if (moduleModelParsed) {
-        modelId = moduleModelParsed.modelId
-        source = 'module_env'
-        pairedProviderHint = moduleModelParsed.providerHint ?? pairPlainProviderIfWinning(moduleProviderHint)
-      } else if (agentModelParsed) {
-        modelId = agentModelParsed.modelId
-        source = 'agent_default'
-        pairedProviderHint = agentModelParsed.providerHint ?? pairPlainProviderIfWinning(agentDefaultProviderHint)
-      } else if (globalModelParsed) {
-        modelId = globalModelParsed.modelId
-        source = 'env_default'
-        pairedProviderHint = globalModelParsed.providerHint ?? pairPlainProviderIfWinning(globalProviderRaw)
-      } else {
-        modelId = ''
-        source = 'provider_default'
-      }
-
-      // --- Provider-axis: walk from highest to lowest priority for the seed.
-      // A slash-qualified hint from a model source wins over a plain provider
-      // source at the same priority step. We walk top-down and take the first
-      // non-null hint.
-      const provider = pairedProviderHint
-        ? resolveRequiredProvider(pairedProviderHint, registry, env)
-        : registry.resolveFirstConfigured({ env, order })
-      if (!provider) {
-        if (pairedProviderHint) {
-          throw new AiModelFactoryError(
-            'no_provider_configured',
-            requiredProviderMessage(pairedProviderHint, registry, env),
-          )
-        }
-        throw new AiModelFactoryError(
-          'no_provider_configured',
-          'No LLM provider is configured. Set OM_AI_PROVIDER (or the legacy OPENCODE_PROVIDER) plus a matching API key such as OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY, then restart the app. See https://docs.openmercato.com/framework/ai-assistant/overview.',
-        )
-      }
-      const apiKey = provider.resolveApiKey(env)
-      if (!apiKey) {
-        throw new AiModelFactoryError(
-          'api_key_missing',
-          `LLM provider "${provider.id}" is advertised as configured but resolveApiKey() returned empty.`,
-        )
-      }
-
-      // --- Model-axis: use the post-parse model id from the winning source.
-      if (source === 'provider_default') {
-        modelId = provider.defaultModel
-      }
-
-      // --- BaseURL-axis resolution (highest to lowest priority) ---
-      // 1. requestOverride.baseURL (HTTP dispatcher) — gated by allowRuntimeOverride
-      // 2. baseUrlOverride (programmatic caller)
-      // 3. tenantOverride.baseURL (DB row) — gated by allowRuntimeOverride
-      // 4. <MODULE>_AI_BASE_URL env
-      // 5. agentDefaultBaseUrl
-      // Steps 6-7 (preset env + preset default) are handled inside the adapter's
-      // createModel when no explicit baseURL is passed.
-      const resolvedBaseURL = requestBaseUrlRaw
-        ?? normalizeOverride(input.baseUrlOverride)
-        ?? tenantBaseUrlRaw
-        ?? (hasModule ? normalizeOverride(env[moduleBaseUrlEnvVarName(input.moduleId!)]) : null)
-        ?? normalizeOverride(input.agentDefaultBaseUrl)
-        ?? undefined
-
-      // --- Allowlist enforcement (Phase 1780-5 + 1780-6) -------------------
-      // OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER> clip
-      // the resolution to an operator-approved set. The optional tenant
-      // allowlist snapshot narrows the env outer constraint further. If the
-      // resolved pair isn't allowed, fall back to a safe (provider, model)
-      // — never throw, so a stale tenant override or chat picker can't take
-      // the runtime down. The fallback is logged so the operator can see
-      // what happened.
-      const registryProviderIds = registry.list?.()?.map((p) => p.id) ?? []
-      const tenantProviderIds = input.tenantAllowlist
-        ? Object.keys(input.tenantAllowlist.allowedModelsByProvider ?? {})
-        : []
-      const knownProviderIds = Array.from(
-        new Set([provider.id, ...registryProviderIds, ...tenantProviderIds]),
-      )
-      const effectiveAllowlist = intersectAllowlists(
-        env,
-        knownProviderIds,
-        input.tenantAllowlist ?? null,
-      )
-      const allowlistResult = enforceAllowlist({
-        env,
-        registry,
-        resolved: { provider, modelId },
-        agentDefaultProvider: agentDefaultProviderRaw,
-        agentDefaultModel: agentModelParsed?.modelId ?? agentModelRaw,
-        effective: effectiveAllowlist,
-      })
-
+      const {
+        provider: originalProvider,
+        modelId: originalModelId,
+        source,
+        allowlistResult,
+        registeredProviderIds,
+      } = resolveModelSelection(input, registry, env)
       const finalProvider = allowlistResult.provider
       const finalModelId = allowlistResult.modelId
       const finalSource = allowlistResult.fallback ? 'allowlist_fallback' : source
+      const resolvedBaseURL = resolveModelBaseURL(input, finalProvider, registeredProviderIds, env)
+      const apiKey = originalProvider.resolveApiKey(env)
+      if (!apiKey) {
+        throw new AiModelFactoryError(
+          'api_key_missing',
+          `LLM provider "${originalProvider.id}" is advertised as configured but resolveApiKey() returned empty.`,
+        )
+      }
+
       const finalApiKey = allowlistResult.fallback
         ? finalProvider.resolveApiKey(env)
         : apiKey
@@ -825,8 +880,8 @@ function createBaseModelFactory(
         ...(allowlistResult.fallback
           ? {
               allowlistFallback: {
-                originalProviderId: provider.id,
-                originalModelId: modelId,
+                originalProviderId: originalProvider.id,
+                originalModelId,
                 reason: allowlistResult.fallback,
               },
             }

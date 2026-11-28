@@ -362,7 +362,7 @@ describe('Phase 4a — runtime model override hydration in agent-runtime', () =>
         expect(await runWithStoredBaseUrl('http://api.openai.com/v1')).toBeUndefined()
         expect(warnSpy).toHaveBeenCalledWith(
           expect.stringContaining('Stored AI runtime baseURL is not allowed'),
-          { agentId: 'customers.assistant', tenantId: 'tenant-1', organizationId: 'org-1' },
+          { providerId: 'test-provider', moduleId: 'customers' },
         )
       })
 
@@ -372,7 +372,7 @@ describe('Phase 4a — runtime model override hydration in agent-runtime', () =>
         expect(await runWithStoredBaseUrl('https://api.openai.com/v1')).toBeUndefined()
         expect(warnSpy).toHaveBeenCalledWith(
           expect.stringContaining('Stored AI runtime baseURL is not allowed'),
-          expect.objectContaining({ agentId: 'customers.assistant' }),
+          expect.objectContaining({ providerId: 'test-provider' }),
         )
       })
 

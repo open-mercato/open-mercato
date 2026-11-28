@@ -39,11 +39,13 @@ jest.mock('../../../../lib/conversation-storage', () => ({
 
 const getMock = jest.fn()
 const listMock = jest.fn()
+const resolveFirstConfiguredMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/ai/llm-provider-registry', () => ({
   llmProviderRegistry: {
     get: (...args: unknown[]) => getMock(...args),
     list: (...args: unknown[]) => listMock(...args),
+    resolveFirstConfigured: (...args: unknown[]) => resolveFirstConfiguredMock(...args),
   },
 }))
 
@@ -51,12 +53,14 @@ const readBaseurlAllowlistMock = jest.fn()
 const isBaseurlAllowlistedMock = jest.fn()
 
 jest.mock('../../../../lib/baseurl-allowlist', () => ({
+  ...jest.requireActual('../../../../lib/baseurl-allowlist'),
   readBaseurlAllowlist: (...args: unknown[]) => readBaseurlAllowlistMock(...args),
   isBaseurlAllowlisted: (...args: unknown[]) => isBaseurlAllowlistedMock(...args),
 }))
 
 const tenantAllowlistGetSnapshotMock = jest.fn()
 const agentRuntimeOverrideGetExactMock = jest.fn()
+const agentRuntimeOverrideGetDefaultMock = jest.fn()
 
 jest.mock('../../../../data/repositories/AiTenantModelAllowlistRepository', () => ({
   AiTenantModelAllowlistRepository: jest.fn().mockImplementation(() => ({
@@ -67,6 +71,7 @@ jest.mock('../../../../data/repositories/AiTenantModelAllowlistRepository', () =
 jest.mock('../../../../data/repositories/AiAgentRuntimeOverrideRepository', () => ({
   AiAgentRuntimeOverrideRepository: jest.fn().mockImplementation(() => ({
     getExact: (...args: unknown[]) => agentRuntimeOverrideGetExactMock(...args),
+    getDefault: (...args: unknown[]) => agentRuntimeOverrideGetDefaultMock(...args),
   })),
 }))
 
@@ -138,6 +143,7 @@ describe('POST /api/ai/chat', () => {
     })
     tenantAllowlistGetSnapshotMock.mockResolvedValue(null)
     agentRuntimeOverrideGetExactMock.mockResolvedValue(null)
+    agentRuntimeOverrideGetDefaultMock.mockResolvedValue(null)
     createOrGetConversationMock.mockResolvedValue({})
     appendConversationMessageMock.mockResolvedValue({})
     runAiAgentTextMock.mockResolvedValue(
@@ -634,6 +640,62 @@ describe('POST /api/ai/chat', () => {
         expect(response.status).toBe(200)
         const callArg = runAiAgentTextMock.mock.calls[0][0] as { requestOverride?: { baseURL?: string | null } }
         expect(callArg.requestOverride?.baseURL).toBe(baseUrl)
+      })
+
+      describe('provider-scoped entries', () => {
+        const baseUrl = 'https://model-proxy.example.invalid/v1'
+        const providers = ['fixture-primary', 'fixture-secondary'].map((id) => ({
+          id,
+          defaultModel: 'fixture-model',
+          isConfigured: () => true,
+          createModel: jest.fn(),
+          resolveApiKey: jest.fn(),
+        }))
+
+        beforeEach(() => {
+          process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'fixture-primary=https://model-proxy.example.invalid'
+          listMock.mockReturnValue(providers)
+          getMock.mockImplementation((id: string) => providers.find((provider) => provider.id === id))
+          resolveFirstConfiguredMock.mockImplementation(({ order }: { order?: readonly string[] }) =>
+            providers.find((provider) => provider.id === order?.[0]) ?? providers[0],
+          )
+        })
+
+        it('allows a URL without an explicit provider when the saved default matches', async () => {
+          agentRuntimeOverrideGetDefaultMock.mockResolvedValue({ providerId: 'fixture-primary' })
+
+          const response = await POST(buildRequestWithOverrides({ baseUrl }) as Parameters<typeof POST>[0])
+
+          expect(response.status).toBe(200)
+          expect(runAiAgentTextMock).toHaveBeenCalledWith(expect.objectContaining({
+            requestOverride: expect.objectContaining({ baseURL: baseUrl }),
+          }))
+          expect(providers[0].createModel).not.toHaveBeenCalled()
+        })
+
+        it('rejects a URL for a different effective provider before persisting or dispatching', async () => {
+          const response = await POST(buildRequestWithOverrides({
+            baseUrl,
+            provider: 'fixture-primary',
+            model: 'fixture-secondary/fixture-model',
+          }) as Parameters<typeof POST>[0])
+
+          expect(response.status).toBe(400)
+          expect(await response.json()).toMatchObject({ code: 'baseurl_not_allowlisted' })
+          expect(appendConversationMessageMock).not.toHaveBeenCalled()
+          expect(runAiAgentTextMock).not.toHaveBeenCalled()
+          expect(providers[1].createModel).not.toHaveBeenCalled()
+        })
+
+        it('fails closed when the saved provider lookup is unavailable', async () => {
+          agentRuntimeOverrideGetDefaultMock.mockRejectedValue(new Error('fixture lookup failure'))
+
+          const response = await POST(buildRequestWithOverrides({ baseUrl }) as Parameters<typeof POST>[0])
+
+          expect(response.status).toBe(503)
+          expect(await response.json()).toMatchObject({ code: 'tenant_allowlist_unavailable' })
+          expect(runAiAgentTextMock).not.toHaveBeenCalled()
+        })
       })
     })
   })

@@ -199,3 +199,51 @@ describe('resolveAllowlistedBaseurl (issue #7228)', () => {
     }
   })
 })
+describe('provider-scoped runtime origins', () => {
+  const baseUrl = 'https://model-proxy.example.invalid/v1'
+  const knownProviders = ['fixture-primary', 'fixture-secondary']
+
+  it('matches the scoped provider with the existing provider alias rules', () => {
+    const allowlist = ['fixture_primary=https://model-proxy.example.invalid']
+
+    expect(isBaseurlAllowlisted(baseUrl, allowlist, 'fixture-primary', knownProviders)).toBe(true)
+    expect(isBaseurlAllowlisted(baseUrl, allowlist, 'fixture-secondary', knownProviders)).toBe(false)
+    expect(isBaseurlAllowlisted(baseUrl, allowlist)).toBe(false)
+  })
+
+  it('binds an exact registered id when provider aliases collide', () => {
+    const allowlist = ['fixture_primary=https://model-proxy.example.invalid']
+    const registered = ['fixture-primary', 'fixture_primary']
+    expect(isBaseurlAllowlisted(baseUrl, allowlist, 'fixture-primary', registered)).toBe(false)
+    expect(isBaseurlAllowlisted(baseUrl, allowlist, 'fixture_primary', registered)).toBe(true)
+  })
+
+  it('preserves a legacy origin grant for any provider in a mixed list', () => {
+    const allowlist = ['fixture-primary=https://model-proxy.example.invalid', 'model-proxy.example.invalid']
+    expect(isBaseurlAllowlisted(baseUrl, allowlist, 'fixture-secondary', knownProviders)).toBe(true)
+  })
+
+  it('retains scheme, effective port, and wildcard boundaries inside a scope', () => {
+    const allowlist = ['fixture-primary=https://*.example.invalid:8443']
+    const matches = (url: string) => isBaseurlAllowlisted(url, allowlist, 'fixture-primary', knownProviders)
+
+    expect(matches('https://model-proxy.example.invalid:8443/v1')).toBe(true)
+    expect(matches('https://example.invalid:8443/v1')).toBe(false)
+    expect(matches(baseUrl)).toBe(false)
+    expect(matches('http://model-proxy.example.invalid:8443/v1')).toBe(false)
+  })
+
+  it.each([
+    '=https://model-proxy.example.invalid',
+    'fixture-primary=',
+    'fixture-primary=model-proxy.example.invalid',
+    'fixture-primary=https://model-proxy.example.invalid:',
+    'fixture-primary=https://model-proxy.example.invalid/v1',
+    'fixture-primary=https://model-proxy.example.invalid?',
+    'fixture-primary=https://model-proxy.example.invalid#',
+    'fixture-primary=https://@model-proxy.example.invalid',
+    'fixture-primary=https://model-proxy.example.invalid=',
+  ])('ignores malformed scoped entry %s', (rule) => {
+    expect(isBaseurlAllowlisted(baseUrl, [rule], 'fixture-primary', knownProviders)).toBe(false)
+  })
+})

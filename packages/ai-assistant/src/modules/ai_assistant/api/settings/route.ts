@@ -19,9 +19,14 @@ import {
 import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError } from '../../data/repositories/AiAgentRuntimeOverrideRepository'
 import { resolveModerationPolicy } from '../../lib/moderation-policy'
 import { AiTenantModelAllowlistRepository } from '../../data/repositories/AiTenantModelAllowlistRepository'
-import { isBaseurlAllowlisted, readBaseurlAllowlist, resolveAllowlistedBaseurl } from '../../lib/baseurl-allowlist'
-import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
-import { createModelFactory, resolveAllowRuntimeOverride } from '../../lib/model-factory'
+import {
+  isBaseurlAllowlisted,
+  matchesScopedBaseurlOrigin,
+  readBaseurlAllowlist,
+  RuntimeBaseurlNotAllowlistedError,
+} from '../../lib/baseurl-allowlist'
+import { getAgent, loadAgentRegistry, listAgents } from '../../lib/agent-registry'
+import { assertRuntimeBaseurlForModelInput, createModelFactory, resolveAllowRuntimeOverride } from '../../lib/model-factory'
 import {
   agentOverrideModelAllowlistEnvVarName,
   agentOverrideProviderAllowlistEnvVarName,
@@ -83,7 +88,7 @@ export const openApi: OpenApiRouteDoc = {
         'Creates or updates the per-tenant AI runtime override (provider, model, baseURL). ' +
         'Optionally scoped to a specific agent via `agentId`. ' +
         'Gated by `ai_assistant.settings.manage`. ' +
-        'baseURL must match AI_RUNTIME_BASEURL_ALLOWLIST when set.',
+        'baseURL must match AI_RUNTIME_BASEURL_ALLOWLIST for the effective provider.',
       requestBody: {
         contentType: 'application/json',
         description: 'Override payload. All fields nullable/optional; null explicitly clears the axis.',
@@ -269,17 +274,10 @@ export async function GET(req: NextRequest) {
           organizationId,
         })
 
-        const effectiveTenantOverride = tenantOverride
-          ? {
-              providerId: tenantOverride.providerId,
-              modelId: tenantOverride.modelId,
-              baseURL: resolveAllowlistedBaseurl(tenantOverride.baseURL),
-            }
-          : undefined
         const factory = createModelFactory(container)
         const defaultResolution = factory.resolveModel({
           tenantAllowlist: tenantAllowlistSnapshot,
-          tenantOverride: effectiveTenantOverride,
+          tenantOverride: tenantOverride ?? undefined,
         })
         resolvedDefault = {
           providerId: defaultResolution.providerId,
@@ -300,9 +298,9 @@ export async function GET(req: NextRequest) {
             ? {
                 providerId: agentOverrideRow.providerId ?? null,
                 modelId: agentOverrideRow.modelId ?? null,
-                baseURL: resolveAllowlistedBaseurl(agentOverrideRow.baseUrl),
+                baseURL: agentOverrideRow.baseUrl ?? null,
               }
-            : effectiveTenantOverride
+            : tenantOverride ?? undefined
           const agentResolution = factory.resolveModel({
             moduleId: agent.moduleId,
             agentDefaultModel: agent.defaultModel,
@@ -516,7 +514,7 @@ export async function GET(req: NextRequest) {
  *
  * Upserts the per-tenant AI runtime override (Phase 4a). Requires
  * `ai_assistant.settings.manage`. The body is Zod-validated; a `baseURL`
- * must match `AI_RUNTIME_BASEURL_ALLOWLIST` when that env var is set.
+ * must match `AI_RUNTIME_BASEURL_ALLOWLIST` for the effective provider.
  */
 export async function PUT(req: NextRequest) {
   const auth = await getAuthFromRequest(req)
@@ -545,17 +543,11 @@ export async function PUT(req: NextRequest) {
     ? canonicalProviderId(requestedProviderId, knownProviderIdsForRequest) ?? requestedProviderId
     : requestedProviderId
 
-  if (baseURL && baseURL.trim().length > 0) {
-    const allowlist = readBaseurlAllowlist()
-    if (!isBaseurlAllowlisted(baseURL.trim(), allowlist)) {
-      return NextResponse.json(
-        {
-          error: `baseURL "${baseURL}" is not in AI_RUNTIME_BASEURL_ALLOWLIST.`,
-          code: 'baseurl_not_allowlisted',
-        },
-        { status: 400 },
-      )
-    }
+  const baseurlAllowlist = baseURL ? readBaseurlAllowlist() : []
+  const requiresScopedCheck = Boolean(baseURL && !isBaseurlAllowlisted(baseURL, baseurlAllowlist))
+  if (baseURL && requiresScopedCheck && !matchesScopedBaseurlOrigin(baseURL, baseurlAllowlist)) {
+    const { message, code } = new RuntimeBaseurlNotAllowlistedError()
+    return NextResponse.json({ error: message, code }, { status: 400 })
   }
 
   const allowedOverrideProviders = bodyResult.data.allowedOverrideProviders === undefined
@@ -726,6 +718,25 @@ export async function PUT(req: NextRequest) {
 
     const em = container.resolve<EntityManager>('em')
     const repo = new AiAgentRuntimeOverrideRepository(em)
+    const scope = { tenantId: auth.tenantId ?? '', organizationId: auth.orgId ?? null }
+    if (baseURL && requiresScopedCheck) {
+      const [current, tenantAllowlist] = await Promise.all([
+        repo.getExact({ ...scope, agentId }),
+        new AiTenantModelAllowlistRepository(em).getSnapshot(scope),
+      ])
+      if (agentId) await loadAgentRegistry()
+      const agent = agentId ? getAgent(agentId) : undefined
+      assertRuntimeBaseurlForModelInput(baseURL, baseurlAllowlist, {
+        moduleId: agent?.moduleId,
+        agentDefaultModel: agent?.defaultModel,
+        agentDefaultProvider: agent?.defaultProvider,
+        tenantOverride: {
+          providerId: providerId === undefined ? current?.providerId : providerId,
+          modelId: modelId === undefined ? current?.modelId : modelId,
+        },
+        tenantAllowlist,
+      })
+    }
     const upsertInput = {
       agentId: agentId ?? null,
       ...(Object.prototype.hasOwnProperty.call(bodyResult.data, 'providerId')
@@ -749,7 +760,7 @@ export async function PUT(req: NextRequest) {
     }
     const row = await repo.upsertDefault(
       upsertInput,
-      { tenantId: auth.tenantId ?? '', organizationId: auth.orgId ?? null, userId: auth.sub },
+      { ...scope, userId: auth.sub },
     )
     return NextResponse.json({
       id: row.id,
@@ -765,6 +776,9 @@ export async function PUT(req: NextRequest) {
       updatedAt: row.updatedAt,
     })
   } catch (error) {
+    if (error instanceof RuntimeBaseurlNotAllowlistedError) {
+      return NextResponse.json({ error: error.message, code: error.code }, { status: 400 })
+    }
     if (error instanceof AiAgentRuntimeOverrideValidationError) {
       return NextResponse.json({ error: error.message, code: 'provider_unknown' }, { status: 400 })
     }
