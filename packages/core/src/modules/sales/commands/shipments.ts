@@ -7,8 +7,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
+import {
+  normalizeCustomFieldResponse,
+  normalizeCustomFieldValues,
+} from '@open-mercato/shared/lib/custom-fields/normalize'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { SalesOrder, SalesOrderLine, SalesShipment, SalesShipmentItem, SalesShippingMethod } from '../data/entities'
 import {
@@ -112,6 +116,9 @@ export type ShipmentSnapshot = {
   customFields?: Record<string, unknown> | null
   items: ShipmentItemSnapshot[]
   itemsSnapshot?: ShipmentItemSnapshot[] | null
+  // Keyed by ShipmentItemSnapshot.id — items[] custom fields are not part of the
+  // stored itemsSnapshot JSON column, so they are carried here for audit/undo/redo.
+  itemCustomFields?: Record<string, Record<string, unknown>> | null
 }
 
 type ShipmentUndoPayload = {
@@ -144,6 +151,9 @@ const buildShipmentCreateRedoInput = (snapshot: ShipmentSnapshot): ShipmentCreat
     orderLineId: item.orderLineId,
     quantity: item.quantity,
     metadata: item.metadata ? cloneJson(item.metadata) : undefined,
+    customFields: snapshot.itemCustomFields?.[item.id]
+      ? cloneJson(snapshot.itemCustomFields[item.id])
+      : undefined,
   })),
 })
 
@@ -166,6 +176,27 @@ const parseTrackingNumbers = (input: unknown): string[] | null => {
 
 const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
+
+// Mirrors setRecordCustomFields' own tenant reconciliation (entities/lib/helpers.ts):
+// a purge of a record's custom field values must not reach across tenants, while still
+// reconciling instance-global (NULL tenant) rows the way every reader does.
+const tenantReconciliationFilter = (tenantId: string | null | undefined) => ({
+  $or: [{ tenantId }, { tenantId: null }],
+})
+
+async function purgeRecordCustomFieldValues(
+  em: EntityManager,
+  entityId: string,
+  recordIds: string[],
+  tenantId: string | null | undefined,
+): Promise<void> {
+  if (!recordIds.length) return
+  await em.nativeDelete(CustomFieldValue, {
+    entityId,
+    recordId: { $in: recordIds },
+    ...tenantReconciliationFilter(tenantId),
+  })
+}
 
 const resolveLogger = (ctx: any): { warn?: (meta: any, message?: string) => void } | null => {
   const container = ctx?.container as any
@@ -226,6 +257,23 @@ export async function loadShipmentSnapshot(em: EntityManager, id: string): Promi
     organizationIdByRecord: { [shipment.id]: shipment.organizationId ?? null },
   })
   const customFields = customFieldValues[shipment.id]
+  const itemIds = itemsSnapshot
+    .map((item) => item.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  const itemCustomFieldValues = itemIds.length
+    ? await loadCustomFieldValues({
+        em,
+        entityId: E.sales.sales_shipment_item,
+        recordIds: itemIds,
+        tenantIdByRecord: Object.fromEntries(itemIds.map((id) => [id, shipment.tenantId ?? null])),
+        organizationIdByRecord: Object.fromEntries(itemIds.map((id) => [id, shipment.organizationId ?? null])),
+      })
+    : {}
+  const itemCustomFields: Record<string, Record<string, unknown>> = {}
+  for (const id of itemIds) {
+    const normalized = normalizeCustomFieldResponse(itemCustomFieldValues[id])
+    if (normalized && Object.keys(normalized).length) itemCustomFields[id] = normalized
+  }
   return {
     id: shipment.id,
     orderId: typeof shipment.order === 'string' ? shipment.order : shipment.order.id,
@@ -257,6 +305,7 @@ export async function loadShipmentSnapshot(em: EntityManager, id: string): Promi
     customFields: customFields && Object.keys(customFields).length ? customFields : null,
     items: itemsSnapshot,
     itemsSnapshot,
+    itemCustomFields: Object.keys(itemCustomFields).length ? itemCustomFields : null,
   }
 }
 
@@ -295,6 +344,12 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
   await em.flush()
 
   const existingItems = await em.find(SalesShipmentItem, { shipment: entity })
+  await purgeRecordCustomFieldValues(
+    em,
+    E.sales.sales_shipment_item,
+    existingItems.map((item) => item.id),
+    snapshot.tenantId,
+  )
   existingItems.forEach((item) => em.remove(item))
   const items = Array.isArray(snapshot.items) ? snapshot.items : []
   const lineIds = items
@@ -305,9 +360,9 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
     : []
   const lineMap = new Map(lines.map((line) => [line.id, line]))
   const restoredItems: ShipmentItemSnapshot[] = []
-  items.forEach((item) => {
+  for (const item of items) {
     const line = lineMap.get(item.orderLineId)
-    if (!line) return
+    if (!line) continue
     restoredItems.push(item)
     const lineRef = em.getReference(SalesOrderLine, line.id)
     const shipmentItem = em.create(SalesShipmentItem, {
@@ -320,7 +375,17 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
       metadata: item.metadata ? cloneJson(item.metadata) : null,
     })
     em.persist(shipmentItem)
-  })
+    const itemCustomFields = snapshot.itemCustomFields?.[item.id]
+    if (itemCustomFields && Object.keys(itemCustomFields).length) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_shipment_item,
+        recordId: shipmentItem.id,
+        organizationId: snapshot.organizationId,
+        tenantId: snapshot.tenantId,
+        values: normalizeCustomFieldValues(itemCustomFields),
+      })
+    }
+  }
   const snapshotItems = (snapshot.itemsSnapshot ?? restoredItems).filter((entry) =>
     entry?.orderLineId ? lineMap.has(entry.orderLineId) : false
   )
@@ -343,6 +408,12 @@ export async function restoreShipmentSnapshot(em: EntityManager, snapshot: Shipm
 async function deleteShipmentWithItems(em: EntityManager, shipment: SalesShipment): Promise<void> {
   const scope = { tenantId: shipment.tenantId, organizationId: shipment.organizationId }
   const items = await findWithDecryption(em, SalesShipmentItem, { shipment }, {}, scope)
+  await purgeRecordCustomFieldValues(
+    em,
+    E.sales.sales_shipment_item,
+    items.map((item) => item.id),
+    shipment.tenantId,
+  )
   items.forEach((item) => em.remove(item))
   em.remove(shipment)
   await em.flush()
@@ -421,7 +492,12 @@ async function validateShipmentItems(params: {
   excludeShipmentId?: string | null
   lockOrderLines?: boolean
 }): Promise<{
-  items: Array<{ orderLineId: string; quantity: number; metadata: Record<string, unknown> | null }>
+  items: Array<{
+    orderLineId: string
+    quantity: number
+    metadata: Record<string, unknown> | null
+    customFields: Record<string, unknown> | undefined
+  }>
   lineMap: Map<string, SalesOrderLine>
 }> {
   const { em, order, items, excludeShipmentId, lockOrderLines } = params
@@ -466,6 +542,7 @@ async function validateShipmentItems(params: {
       orderLineId: item.orderLineId,
       quantity: toNumber(item.quantity),
       metadata: item.metadata ? cloneJson(item.metadata) : null,
+      customFields: item.customFields,
     })),
     lineMap,
   }
@@ -558,7 +635,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         updatedAt: new Date(),
       })
       const createdItems: SalesShipmentItem[] = []
-      normalizedItems.forEach((item) => {
+      for (const item of normalizedItems) {
         const lineRef = tx.getReference(SalesOrderLine, item.orderLineId)
         const shipmentItem = tx.create(SalesShipmentItem, {
           id: randomUUID(),
@@ -571,7 +648,16 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         })
         createdItems.push(shipmentItem)
         tx.persist(shipmentItem)
-      })
+        if (item.customFields !== undefined) {
+          await setRecordCustomFields(tx, {
+            entityId: E.sales.sales_shipment_item,
+            recordId: shipmentItem.id,
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+            values: normalizeCustomFieldValues(normalizeCustomFieldsInput(item.customFields)),
+          })
+        }
+      }
       tx.persist(entity)
       if (input.customFields !== undefined) {
         await setRecordCustomFields(tx, {
@@ -855,8 +941,14 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       const existingItems = shouldLoadItems ? await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }) : []
       const newItems: SalesShipmentItem[] = []
       if (normalizedItems) {
+        await purgeRecordCustomFieldValues(
+          tx,
+          E.sales.sales_shipment_item,
+          existingItems.map((item) => item.id),
+          shipmentEntity.tenantId,
+        )
         existingItems.forEach((item) => tx.remove(item))
-        normalizedItems.forEach((item) => {
+        for (const item of normalizedItems) {
           const lineRef = tx.getReference(SalesOrderLine, item.orderLineId)
           const shipmentItem = tx.create(SalesShipmentItem, {
             id: randomUUID(),
@@ -869,7 +961,16 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
           })
           newItems.push(shipmentItem)
           tx.persist(shipmentItem)
-        })
+          if (item.customFields !== undefined) {
+            await setRecordCustomFields(tx, {
+              entityId: E.sales.sales_shipment_item,
+              recordId: shipmentItem.id,
+              organizationId: shipmentEntity.organizationId,
+              tenantId: shipmentEntity.tenantId,
+              values: normalizeCustomFieldValues(normalizeCustomFieldsInput(item.customFields)),
+            })
+          }
+        }
       }
 
       if (input.customFields !== undefined) {
@@ -1090,6 +1191,12 @@ const deleteShipmentCommand: CommandHandler<
       await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       const scope = { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }
       const items = await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, scope)
+      await purgeRecordCustomFieldValues(
+        tx,
+        E.sales.sales_shipment_item,
+        items.map((item) => item.id),
+        shipmentEntity.tenantId,
+      )
       items.forEach((item) => tx.remove(item))
       tx.remove(shipmentEntity)
       await tx.flush()

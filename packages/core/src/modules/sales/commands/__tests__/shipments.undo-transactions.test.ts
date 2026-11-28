@@ -53,6 +53,7 @@ function buildMockTx() {
     create: jest.fn(),
     persist: jest.fn(),
     remove: jest.fn(),
+    nativeDelete: jest.fn().mockResolvedValue(0),
     flush: jest.fn().mockResolvedValue(undefined),
     getReference: jest.fn(),
   }
@@ -182,5 +183,48 @@ describe('restoreShipmentSnapshot custom fields (issue #6449)', () => {
       carrier_ref: 'R-1',
       tags: ['a', 'b'],
     })
+  })
+
+  it('purges stale item custom fields and restores each item under its original id (issue #10904 review)', async () => {
+    const { restoreShipmentSnapshot } = await import('../shipments')
+    const TEST_LINE_ID = 'dddddddd-dddd-4ddd-9ddd-dddddddddddd'
+    const STALE_ITEM_ID = 'ffffffff-ffff-4fff-afff-ffffffffffff'
+    const RESTORED_ITEM_ID = 'aaaaaaaa-aaaa-4aaa-9aaa-aaaaaaaaaaaa'
+
+    ;(findOneWithDecryption as jest.Mock).mockReset().mockResolvedValue({ id: TEST_ORDER_ID })
+    ;(setRecordCustomFields as jest.Mock).mockClear()
+    const tx = buildMockTx()
+    tx.create.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({ ...data }))
+    tx.find
+      .mockImplementationOnce(() => Promise.resolve([{ id: STALE_ITEM_ID }])) // existing shipment items
+      .mockImplementationOnce(() => Promise.resolve([{ id: TEST_LINE_ID }])) // order lines for restored items
+
+    await restoreShipmentSnapshot(tx as any, {
+      id: TEST_SHIPMENT_ID,
+      orderId: TEST_ORDER_ID,
+      organizationId: TEST_ORG_ID,
+      tenantId: TEST_TENANT_ID,
+      weightValue: null,
+      declaredValueNet: null,
+      declaredValueGross: null,
+      items: [{ id: RESTORED_ITEM_ID, orderLineId: TEST_LINE_ID, quantity: 1, metadata: null }],
+      itemCustomFields: { [RESTORED_ITEM_ID]: { priority: 'high' } },
+    } as any)
+
+    expect(tx.nativeDelete).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        recordId: { $in: [STALE_ITEM_ID] },
+        $or: [{ tenantId: TEST_TENANT_ID }, { tenantId: null }],
+      }),
+    )
+    const itemCreateCall = (tx.create as jest.Mock).mock.calls.find(
+      (args: unknown[]) => (args[1] as Record<string, unknown>)?.quantity !== undefined,
+    )
+    expect(itemCreateCall?.[1]).toMatchObject({ id: RESTORED_ITEM_ID })
+    const itemCustomFieldsCall = (setRecordCustomFields as jest.Mock).mock.calls.find(
+      (args: unknown[]) => (args[1] as Record<string, unknown>)?.recordId === RESTORED_ITEM_ID,
+    )
+    expect(itemCustomFieldsCall?.[1]).toMatchObject({ values: { priority: 'high' } })
   })
 })

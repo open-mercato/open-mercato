@@ -1,13 +1,18 @@
 // @ts-nocheck
 
+import { randomUUID } from 'crypto'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldValues } from '@open-mercato/shared/lib/crud/custom-fields'
-import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fields/normalize'
+import {
+  normalizeCustomFieldResponse,
+  normalizeCustomFieldValues,
+} from '@open-mercato/shared/lib/custom-fields/normalize'
 import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { E } from '#generated/entities.ids.generated'
 import {
   SalesInvoice,
@@ -67,6 +72,7 @@ export type PaymentAllocationSnapshot = {
   amountExact?: string
   currencyCode: string
   metadata: Record<string, unknown> | null
+  customFields?: Record<string, unknown> | null
 }
 
 export type PaymentSnapshot = {
@@ -125,6 +131,27 @@ const toNumber = (value: unknown): number => {
 const normalizeCustomFieldsInput = (input: unknown): Record<string, unknown> =>
   input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
 
+// Mirrors setRecordCustomFields' own tenant reconciliation (entities/lib/helpers.ts):
+// a purge of a record's custom field values must not reach across tenants, while still
+// reconciling instance-global (NULL tenant) rows the way every reader does.
+const tenantReconciliationFilter = (tenantId: string | null | undefined) => ({
+  $or: [{ tenantId }, { tenantId: null }],
+})
+
+async function purgeRecordCustomFieldValues(
+  em: EntityManager,
+  entityId: string,
+  recordIds: string[],
+  tenantId: string | null | undefined,
+): Promise<void> {
+  if (!recordIds.length) return
+  await em.nativeDelete(CustomFieldValue, {
+    entityId,
+    recordId: { $in: recordIds },
+    ...tenantReconciliationFilter(tenantId),
+  })
+}
+
 const paymentCrudEvents: CrudEventsConfig = {
   module: 'sales',
   entity: 'payment',
@@ -158,21 +185,39 @@ export async function loadPaymentSnapshot(em: EntityManager, id: string, scope?:
     scope,
   )
   if (!payment) return null
-  const allocations: PaymentAllocationSnapshot[] = Array.from(payment.allocations ?? []).map((allocation) => ({
-    id: allocation.id,
-    orderId:
-      typeof allocation.order === 'string'
-        ? allocation.order
-        : allocation.order?.id ?? (allocation as any).order_id ?? null,
-    invoiceId:
-      typeof allocation.invoice === 'string'
-        ? allocation.invoice
-        : allocation.invoice?.id ?? (allocation as any).invoice_id ?? null,
-    amount: toNumber(allocation.amount),
-    amountExact: toNumericString(allocation.amount) ?? '0',
-    currencyCode: allocation.currencyCode,
-    metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
-  }))
+  const allocationEntities = Array.from(payment.allocations ?? [])
+  const allocationIds = allocationEntities.map((allocation) => allocation.id)
+  const allocationCustomFieldValues = allocationIds.length
+    ? await loadCustomFieldValues({
+        em,
+        entityId: E.sales.sales_payment_allocation,
+        recordIds: allocationIds,
+        tenantIdByRecord: Object.fromEntries(allocationIds.map((id) => [id, payment.tenantId ?? null])),
+        organizationIdByRecord: Object.fromEntries(allocationIds.map((id) => [id, payment.organizationId ?? null])),
+      })
+    : {}
+  const allocations: PaymentAllocationSnapshot[] = allocationEntities.map((allocation) => {
+    const normalizedAllocationCustomFields = normalizeCustomFieldResponse(allocationCustomFieldValues[allocation.id])
+    return {
+      id: allocation.id,
+      orderId:
+        typeof allocation.order === 'string'
+          ? allocation.order
+          : allocation.order?.id ?? (allocation as any).order_id ?? null,
+      invoiceId:
+        typeof allocation.invoice === 'string'
+          ? allocation.invoice
+          : allocation.invoice?.id ?? (allocation as any).invoice_id ?? null,
+      amount: toNumber(allocation.amount),
+      amountExact: toNumericString(allocation.amount) ?? '0',
+      currencyCode: allocation.currencyCode,
+      metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
+      customFields:
+        normalizedAllocationCustomFields && Object.keys(normalizedAllocationCustomFields).length
+          ? normalizedAllocationCustomFields
+          : null,
+    }
+  })
   const customFieldValues = await loadCustomFieldValues({
     em,
     entityId: E.sales.sales_payment,
@@ -257,8 +302,14 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
   }
 
   const existingAllocations = await findWithDecryption(em, SalesPaymentAllocation, { payment: entity }, {}, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
+  await purgeRecordCustomFieldValues(
+    em,
+    E.sales.sales_payment_allocation,
+    existingAllocations.map((allocation) => allocation.id),
+    snapshot.tenantId,
+  )
   existingAllocations.forEach((allocation) => em.remove(allocation))
-  snapshot.allocations.forEach((allocation) => {
+  for (const allocation of snapshot.allocations) {
     const order =
       allocation.orderId && typeof allocation.orderId === 'string'
         ? em.getReference(SalesOrder, allocation.orderId)
@@ -268,6 +319,7 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
         ? em.getReference(SalesInvoice, allocation.invoiceId)
         : null
     const newAllocation = em.create(SalesPaymentAllocation, {
+      id: allocation.id ?? randomUUID(),
       payment: entity,
       order,
       invoice,
@@ -278,7 +330,17 @@ export async function restorePaymentSnapshot(em: EntityManager, snapshot: Paymen
       metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
     })
     em.persist(newAllocation)
-  })
+    const allocationCustomFields = allocation.customFields
+    if (allocationCustomFields && typeof allocationCustomFields === 'object' && Object.keys(allocationCustomFields).length) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_payment_allocation,
+        recordId: newAllocation.id,
+        organizationId: snapshot.organizationId,
+        tenantId: snapshot.tenantId,
+        values: normalizeCustomFieldValues(allocationCustomFields),
+      })
+    }
+  }
   em.persist(entity)
 }
 
@@ -621,6 +683,7 @@ const createPaymentCommand: CommandHandler<
               amountExact: input.amountExact,
               currencyCode: input.currencyCode,
               metadata: null,
+              customFields: undefined,
             },
           ]
       const orderCache = new Map<string, SalesOrder>([[order.id, order]])
@@ -663,6 +726,7 @@ const createPaymentCommand: CommandHandler<
           }
         }
         const entity = tx.create(SalesPaymentAllocation, {
+          id: randomUUID(),
           payment,
           order: allocationOrder,
           invoice: allocationInvoice,
@@ -673,6 +737,16 @@ const createPaymentCommand: CommandHandler<
           metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
         })
         tx.persist(entity)
+        const rawAllocationCustomFields = allocation.customFields
+        if (rawAllocationCustomFields !== undefined && rawAllocationCustomFields !== null) {
+          await setRecordCustomFields(tx, {
+            entityId: E.sales.sales_payment_allocation,
+            recordId: entity.id,
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+            values: normalizeCustomFieldValues(normalizeCustomFieldsInput(rawAllocationCustomFields)),
+          })
+        }
       }
       tx.persist(payment)
       if (input.customFields !== undefined) {
@@ -775,6 +849,12 @@ const createPaymentCommand: CommandHandler<
       if (!existing) return null
       const lockedOrders = await lockPaymentOrders(tx, existing, [resolveRefId(existing.order), snapshotOrderIds(after)], scope)
       const allocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment: existing }, {}, scope)
+      await purgeRecordCustomFieldValues(
+        tx,
+        E.sales.sales_payment_allocation,
+        allocations.map((allocation) => allocation.id),
+        existing.tenantId,
+      )
       allocations.forEach((allocation) => tx.remove(allocation))
       tx.remove(existing)
       await tx.flush()
@@ -1031,6 +1111,12 @@ const updatePaymentCommand: CommandHandler<
 
       if (input.allocations !== undefined) {
         const existingAllocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
+        await purgeRecordCustomFieldValues(
+          tx,
+          E.sales.sales_payment_allocation,
+          existingAllocations.map((allocation) => allocation.id),
+          payment.tenantId,
+        )
         existingAllocations.forEach((allocation) => tx.remove(allocation))
         const allocationInputs = resolveAllocationInputs(input.allocations, rawInput)
         const paymentOrderId =
@@ -1077,6 +1163,7 @@ const updatePaymentCommand: CommandHandler<
             }
           }
           const entity = tx.create(SalesPaymentAllocation, {
+            id: randomUUID(),
             payment,
             order,
             invoice,
@@ -1087,6 +1174,16 @@ const updatePaymentCommand: CommandHandler<
             metadata: allocation.metadata ? cloneJson(allocation.metadata) : null,
           })
           tx.persist(entity)
+          const rawAllocationCustomFields = allocation.customFields
+          if (rawAllocationCustomFields !== undefined && rawAllocationCustomFields !== null) {
+            await setRecordCustomFields(tx, {
+              entityId: E.sales.sales_payment_allocation,
+              recordId: entity.id,
+              organizationId: payment.organizationId,
+              tenantId: payment.tenantId,
+              values: normalizeCustomFieldValues(normalizeCustomFieldsInput(rawAllocationCustomFields)),
+            })
+          }
         }
       } else if (input.amount !== undefined || input.currencyCode !== undefined) {
         // The caller changed the payment amount/currency without managing
@@ -1221,6 +1318,12 @@ const deletePaymentCommand: CommandHandler<
     const { allocations, lockedOrders, orderTotals } = await em.transactional(async (tx) => {
       const lockedOrders = await lockPaymentOrders(tx, payment, [primaryOrderId], scope)
       const allocations = await findWithDecryption(tx, SalesPaymentAllocation, { payment }, {}, scope)
+      await purgeRecordCustomFieldValues(
+        tx,
+        E.sales.sales_payment_allocation,
+        allocations.map((allocation) => allocation.id),
+        payment.tenantId,
+      )
       allocations.forEach((allocation) => tx.remove(allocation))
       tx.remove(payment)
       const orderTotals = await recomputeLockedOrders(tx, lockedOrders)
