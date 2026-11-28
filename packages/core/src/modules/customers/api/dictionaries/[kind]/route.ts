@@ -5,7 +5,13 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { CommandExecuteResult } from '@open-mercato/shared/lib/commands/types'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { CustomerDictionaryEntry } from '../../../data/entities'
-import { mapDictionaryKind, resolveDictionaryActorId, resolveDictionaryRouteContext } from '../context'
+import {
+  assertCustomerDictionaryReadAccess,
+  mapDictionaryKind,
+  paramsSchema,
+  resolveDictionaryActorId,
+  resolveDictionaryRouteContext,
+} from '../context'
 import { createDictionaryCacheKey, createDictionaryCacheTags, invalidateDictionaryCache, DICTIONARY_CACHE_TTL_MS } from '../cache'
 import { loadCustomerSettings } from '../../../commands/settings'
 import {
@@ -50,7 +56,7 @@ const querySchema = z.object({
 })
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  GET: { requireAuth: true },
   POST: { requireAuth: true, requireFeatures: ['customers.settings.manage'] },
 }
 
@@ -61,10 +67,20 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       organizationId: url.searchParams.get('organizationId') ?? undefined,
       labels: url.searchParams.get('labels') ?? undefined,
     })
-    const { translate, em, organizationId, readableOrganizationIds, tenantId, cache, container } = await resolveDictionaryRouteContext(req, {
+    const { auth, translate, em, organizationId, readableOrganizationIds, tenantId, cache, container } = await resolveDictionaryRouteContext(req, {
       selectedId: query.organizationId ?? undefined,
     })
-    const { kind, mappedKind } = mapDictionaryKind(ctx.params?.kind)
+    const parsedKind = paramsSchema.safeParse({ kind: ctx.params?.kind })
+    const resolvedKind = parsedKind.success ? mapDictionaryKind(parsedKind.data.kind) : null
+    await assertCustomerDictionaryReadAccess({
+      container,
+      auth,
+      tenantId,
+      organizationId,
+      translate,
+      mappedKind: resolvedKind?.mappedKind,
+    })
+    const { kind, mappedKind } = resolvedKind ?? mapDictionaryKind(ctx.params?.kind)
     const localizeResponse = async (body: z.infer<typeof dictionaryCacheResponseSchema>) => {
       if (query.labels === 'base') return body
       const { resolveLocale } = getTranslationOverlayPlugin()
@@ -353,6 +369,7 @@ export const openApi: OpenApiRouteDoc = {
       responses: [
         { status: 200, description: 'Dictionary entries', schema: dictionaryListResponseSchema },
         { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },
+        { status: 403, description: 'Forbidden', schema: dictionaryErrorSchema },
         { status: 400, description: 'Failed to resolve dictionary context', schema: dictionaryErrorSchema },
       ],
     },

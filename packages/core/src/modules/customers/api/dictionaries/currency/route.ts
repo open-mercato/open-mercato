@@ -4,17 +4,25 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { assertCustomerDictionaryReadAccess } from '../context'
 
 const logger = createLogger('customers')
 
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
+  GET: { requireAuth: true },
 }
 
 export async function GET(req: Request) {
   try {
     const { resolveDictionariesRouteContext } = await import('@open-mercato/core/modules/dictionaries/api/context')
     const context = await resolveDictionariesRouteContext(req)
+    await assertCustomerDictionaryReadAccess({
+      container: context.container,
+      auth: context.auth,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      translate: context.translate,
+    })
     const { em, tenantId, organizationId, readableOrganizationIds, translate } = context
 
     const dictionaries = await em.find(
@@ -99,6 +107,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Currency dictionary entries', schema: currencyDictionaryResponseSchema },
         { status: 404, description: 'Currency dictionary missing', schema: currencyDictionaryErrorSchema },
         { status: 401, description: 'Unauthorized', schema: currencyDictionaryErrorSchema },
+        { status: 403, description: 'Forbidden', schema: currencyDictionaryErrorSchema },
         { status: 500, description: 'Unexpected error', schema: currencyDictionaryErrorSchema },
       ],
     },

@@ -14,27 +14,37 @@ const em = {
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const commandBusExecuteMock = jest.fn()
+const userHasAllFeaturesMock = jest.fn(async () => true)
 
 const commandBus = { execute: commandBusExecuteMock }
+const containerResolve = (token: string) => {
+  if (token === 'commandBus') return commandBus
+  if (token === 'rbacService') return { userHasAllFeatures: userHasAllFeaturesMock }
+  return {}
+}
 
-jest.mock('../../context', () => ({
-  resolveDictionaryRouteContext: jest.fn(async () => ({
-    auth: { tenantId, sub: userId },
-    container: { resolve: (token: string) => (token === 'commandBus' ? commandBus : {}) },
-    ctx: {
-      container: { resolve: (token: string) => (token === 'commandBus' ? commandBus : {}) },
+jest.mock('../../context', () => {
+  const actual = jest.requireActual('../../context')
+  return {
+    ...actual,
+    resolveDictionaryRouteContext: jest.fn(async () => ({
       auth: { tenantId, sub: userId },
+      container: { resolve: containerResolve },
+      ctx: {
+        container: { resolve: containerResolve },
+        auth: { tenantId, sub: userId },
+        organizationId,
+        tenantId,
+      },
+      translate: (_key: string, fallback?: string) => fallback ?? 'error',
+      em,
       organizationId,
       tenantId,
-    },
-    translate: (_key: string, fallback?: string) => fallback ?? 'error',
-    em,
-    organizationId,
-    tenantId,
-    readableOrganizationIds: [organizationId],
-    cache: undefined,
-  })),
-}))
+      readableOrganizationIds: [organizationId],
+      cache: undefined,
+    })),
+  }
+})
 
 jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   validateCrudMutationGuard: (...args: unknown[]) => validateCrudMutationGuardMock(...args),
@@ -48,11 +58,12 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { GET, PATCH, metadata } from '../route'
-import { resolveDictionaryRouteContext } from '../../context'
+import { CUSTOMER_DICTIONARY_READ_FEATURES, resolveDictionaryRouteContext } from '../../context'
 
 describe('customer dictionary kind settings route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    userHasAllFeaturesMock.mockResolvedValue(true)
     em.fork.mockReturnValue(em)
     em.findOne.mockResolvedValue(null)
     em.create.mockImplementation((_entity: unknown, payload: Record<string, unknown>) => ({
@@ -185,5 +196,42 @@ describe('customer dictionary kind settings route', () => {
     )
 
     expect(response.status).toBe(500)
+  })
+
+  it('requires only authentication in GET metadata while keeping settings.manage on PATCH', () => {
+    expect(metadata.GET).toEqual({ requireAuth: true })
+    expect(metadata.PATCH).toEqual({ requireAuth: true, requireFeatures: ['customers.settings.manage'] })
+  })
+
+  it.each([
+    'customers.deals.view',
+    'customers.companies.view',
+    'customers.people.view',
+    'customers.settings.manage',
+  ])('allows %s to read kind settings', async (grantedFeature) => {
+    userHasAllFeaturesMock.mockImplementation(async (_actor: string, required: string[]) => required[0] === grantedFeature)
+    em.find.mockResolvedValueOnce([])
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/kind-settings'),
+    )
+
+    expect(response.status).toBe(200)
+    expect(userHasAllFeaturesMock).toHaveBeenCalledWith(userId, [grantedFeature], { tenantId, organizationId })
+  })
+
+  it('denies callers without any dictionary read feature before querying the database', async () => {
+    userHasAllFeaturesMock.mockResolvedValue(false)
+
+    const response = await GET(
+      new Request('http://localhost/api/customers/dictionaries/kind-settings'),
+    )
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Forbidden',
+      requiredFeatures: [...CUSTOMER_DICTIONARY_READ_FEATURES],
+    })
+    expect(em.find).not.toHaveBeenCalled()
   })
 })

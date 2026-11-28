@@ -9,9 +9,78 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
+
+export const CUSTOMER_DICTIONARY_READ_FEATURES = [
+  'customers.people.view',
+  'customers.companies.view',
+  'customers.deals.view',
+  'customers.settings.manage',
+] as const
+
+const EXTRA_KIND_READ_FEATURES: Readonly<Record<string, readonly string[]>> = {
+  activity_type: ['customers.activities.view', 'customers.interactions.view'],
+  interaction_status: ['customers.interactions.view', 'customers.activities.view'],
+  pipeline_stage: ['customers.pipelines.view'],
+  person_company_role: ['customers.roles.view'],
+}
+
+export function resolveCustomerDictionaryReadFeatures(mappedKind?: string): string[] {
+  const extra = mappedKind && Object.prototype.hasOwnProperty.call(EXTRA_KIND_READ_FEATURES, mappedKind)
+    ? EXTRA_KIND_READ_FEATURES[mappedKind]
+    : []
+  return Array.from(new Set([...CUSTOMER_DICTIONARY_READ_FEATURES, ...extra]))
+}
+
+export async function assertCustomerDictionaryReadAccess(params: {
+  container: { resolve: (name: string) => unknown }
+  auth: { sub?: string | null } | null | undefined
+  tenantId: string
+  organizationId: string | null
+  translate: (key: string, fallback?: string) => string
+  mappedKind?: string
+}): Promise<void> {
+  const requiredFeatures = resolveCustomerDictionaryReadFeatures(params.mappedKind)
+  const actorId = typeof params.auth?.sub === 'string' && params.auth.sub.trim().length > 0
+    ? params.auth.sub.trim()
+    : null
+  let rbac: Pick<RbacService, 'userHasAllFeatures'> | undefined
+  try {
+    rbac = params.container.resolve('rbacService') as Pick<RbacService, 'userHasAllFeatures'> | undefined
+  } catch (err) {
+    logger.warn('Failed to resolve rbacService for dictionary read access', { component: 'dictionaries.context', err })
+    try {
+      getTelemetryRuntime()?.reportError(err, {
+        module: 'customers',
+        code: 'customers.dictionary_rbac_resolve_failed',
+      })
+    } catch {}
+    rbac = undefined
+  }
+  if (!rbac || typeof rbac.userHasAllFeatures !== 'function' || !actorId) {
+    throw new CrudHttpError(403, {
+      error: params.translate('api.errors.forbidden', 'Forbidden'),
+      requiredFeatures,
+    })
+  }
+  const permissionScope = {
+    tenantId: params.tenantId,
+    organizationId: params.organizationId,
+  }
+  for (const feature of requiredFeatures) {
+    if (await rbac.userHasAllFeatures(actorId, [feature], permissionScope)) {
+      return
+    }
+  }
+  throw new CrudHttpError(403, {
+    error: params.translate('api.errors.forbidden', 'Forbidden'),
+    requiredFeatures,
+  })
+}
 
 export const BUILTIN_DICTIONARY_ROUTE_KINDS = [
   'statuses',
