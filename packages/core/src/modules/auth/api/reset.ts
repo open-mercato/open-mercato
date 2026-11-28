@@ -3,7 +3,8 @@ import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
-import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { sendStaffCredentialEmail } from '@open-mercato/core/modules/auth/lib/sendStaffCredentialEmail'
 import ResetPasswordEmail from '@open-mercato/core/modules/auth/emails/ResetPasswordEmail'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
@@ -77,7 +78,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    await sendEmail({
+    const em = c.resolve<EntityManager>('em')
+    await sendStaffCredentialEmail(em, String(user.id), {
       to: user.email,
       subject,
       react: ResetPasswordEmail({ resetUrl, copy }),

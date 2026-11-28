@@ -17,7 +17,7 @@ Maintainer feedback on PR #2448 requested this to be modeled as external integra
 - Keep `sendEmail(options)` as the compatibility entrypoint.
 - Make `@open-mercato/shared/lib/email` provider-neutral: sender fallback, disabled delivery, transport registration, and no provider SDK dependencies.
 - Register a `communication_channels` system email transport from core DI.
-- Resolve system email delivery through:
+- Resolve tenant-scoped system email delivery through:
   - `SYSTEM_EMAIL_CHANNEL_ID` when set,
   - otherwise `SYSTEM_EMAIL_PROVIDER`,
   - otherwise default provider `resend`.
@@ -26,6 +26,7 @@ Maintainer feedback on PR #2448 requested this to be modeled as external integra
   - `@open-mercato/channel-ses` with provider key `ses`.
 - Provider packages own adapter registration, system-email env credential resolution, and env preconfiguration.
 - Pre-tenant system email, such as self-service onboarding verification, uses the same hub adapter registry with env credentials when no tenant channel exists yet.
+- Staff password resets and invitations for effectively privileged superadmins use the same instance transport path. Auth checks the recipient's effective grants before dispatch and omits the tenant and organization from the delivery options for those recipients. Reset links retain the recipient's tenant hint.
 
 ## Architecture
 
@@ -71,7 +72,7 @@ Environment variables:
 | Variable | Purpose |
 | --- | --- |
 | `SYSTEM_EMAIL_PROVIDER` | Optional default system email provider. Defaults to `resend`; supports registered provider keys such as `resend` and `ses`. |
-| `SYSTEM_EMAIL_CHANNEL_ID` | Optional explicit tenant-wide communication channel id. Resolved within the organization boundary: the pinned row must belong to the sending organization or carry `organization_id IS NULL`, and a pin never falls back to env credentials. |
+| `SYSTEM_EMAIL_CHANNEL_ID` | Optional explicit channel ID for tenant-scoped system email. The pinned row must belong to the sending organization or carry `organization_id IS NULL`. A failed pin on this path fails delivery. Instance delivery uses the deployment provider and credentials directly. |
 | `RESEND_API_KEY` | Resend API key used by `channel_resend` env preconfiguration and pre-tenant fallback. |
 | `AWS_SES_REGION` | SES region used by `channel_ses`; falls back to `AWS_REGION`. |
 | `AWS_REGION` | AWS SDK region fallback. |
@@ -84,6 +85,7 @@ Environment variables:
 
 - Existing `sendEmail()` imports continue to work.
 - Existing Resend deployments continue to work when `RESEND_API_KEY` and a sender address are set, because `SYSTEM_EMAIL_PROVIDER` defaults to `resend`.
+- Deployments that previously relied on a tenant channel for superadmin resets or invitations must configure the instance provider and sender. If that provider is unavailable, delivery fails without falling back to tenant credentials. A compatibility fallback would keep privileged credential email inside the tenant-managed delivery boundary, so this path requires the Emergency Security Exception and named maintainer acceptance. Other recipients retain the existing routing rules. API clients continue using the existing reset and invite requests, and previously issued links retain their original expiry.
 - `shared` no longer contains provider delivery code or provider dependencies.
 - SES is additive through `@open-mercato/channel-ses`.
 - Inbox Ops inbound/reply Resend webhook behavior is unchanged.
@@ -94,6 +96,7 @@ Environment variables:
 - Resend adapter tests mock the Resend SDK and verify HTML/text rendering, `replyTo`, attachments, and provider failure handling.
 - SES adapter tests mock Nodemailer/AWS SDK and verify region resolution, HTML/text rendering, `replyTo`, attachments, configuration set mapping, and provider failure handling.
 - Communication hub tests cover system email dispatch through the adapter registry and pre-tenant env fallback.
+- Auth reset tests cover the reset handler through the Communications Hub with an in-memory adapter, including instance credentials for superadmins, scoped credentials for other users, and the generic response when the grant check fails.
 - Browser integration coverage visits `/start` at desktop and mobile widths and verifies the onboarding CTA, disabled superadmin control, connected database state, responsive layout, and absence of browser errors.
 - Run focused package tests/typechecks, `yarn check:dep-versions`, generated registry refresh, and the full contrib gate before moving the draft PR toward review.
 
@@ -117,4 +120,5 @@ Environment variables:
 
 ## Changelog
 
+- 2026-11-27: Route superadmin password-reset and invitation emails through the instance provider.
 - 2026-06-03: Updated spec to use Communications Hub system email transport with Resend default and SES as an external provider package.
