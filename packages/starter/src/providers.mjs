@@ -11,7 +11,7 @@ import { secretFingerprint } from './secrets.mjs'
 export const LLM_PROVIDERS = [
   { provider: 'openai', label: 'OpenAI', keyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. gpt-5-mini' },
   { provider: 'anthropic', label: 'Anthropic (Claude)', keyEnv: 'ANTHROPIC_API_KEY', baseUrlEnv: null, keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. claude-haiku-4-5-20251001' },
-  { provider: 'google', label: 'Google Gemini', keyEnv: 'GOOGLE_GENERATIVE_AI_API_KEY', baseUrlEnv: null, keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. gemini-3-flash' },
+  { provider: 'google', label: 'Google Gemini', keyEnv: 'GOOGLE_GENERATIVE_AI_API_KEY', baseUrlEnv: null, keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. gemini-3-flash-preview' },
   { provider: 'azure', label: 'Azure OpenAI / AI Foundry', keyEnv: 'AZURE_OPENAI_API_KEY', baseUrlEnv: 'AZURE_OPENAI_BASE_URL', keyRequired: true, baseUrlRequired: true, baseUrl: '', modelRequired: true, modelHint: 'your Azure deployment name' },
   { provider: 'openrouter', label: 'OpenRouter (gateway)', keyEnv: 'OPENROUTER_API_KEY', baseUrlEnv: 'OPENROUTER_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. meta-llama/llama-3.3-70b-instruct' },
   { provider: 'deepinfra', label: 'DeepInfra', keyEnv: 'DEEPINFRA_API_KEY', baseUrlEnv: 'DEEPINFRA_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. zai-org/GLM-5.1' },

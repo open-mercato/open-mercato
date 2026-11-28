@@ -7,8 +7,17 @@ describe('GoogleAdapter', () => {
     expect(adapter.id).toBe('google')
     expect(adapter.name).toBe('Google')
     expect(adapter.envKeys).toEqual(['GOOGLE_GENERATIVE_AI_API_KEY', 'OPENCODE_GOOGLE_API_KEY'])
-    expect(adapter.defaultModel).toBe('gemini-3-flash')
+    expect(adapter.defaultModel).toBe('gemini-3-flash-preview')
     expect(adapter.defaultModels.length).toBeGreaterThan(0)
+  })
+
+  it('lists Gemini 3 models under their published preview API ids', () => {
+    const ids = adapter.defaultModels.map((model) => model.id)
+    expect(ids).toEqual(
+      expect.arrayContaining(['gemini-3-flash-preview', 'gemini-3.1-pro-preview']),
+    )
+    expect(ids).toContain(adapter.defaultModel)
+    expect(ids.filter((id) => /^gemini-3-(flash|pro)$/.test(id))).toEqual([])
   })
 
   it('detects configuration from env', () => {
@@ -63,7 +72,7 @@ describe('GoogleAdapter', () => {
   it('createModel returns a non-null AI SDK model instance', () => {
     const model = adapter.createModel({
       apiKey: 'AIza-test',
-      modelId: 'gemini-3-flash',
+      modelId: 'gemini-3-flash-preview',
     })
     expect(model).toBeDefined()
     expect(model).not.toBeNull()
@@ -72,7 +81,7 @@ describe('GoogleAdapter', () => {
   it('createModel forwards baseURL to createGoogleGenerativeAI without throwing', () => {
     const model = adapter.createModel({
       apiKey: 'AIza-test',
-      modelId: 'gemini-3-flash',
+      modelId: 'gemini-3-flash-preview',
       baseURL: 'https://generativelanguage-proxy.example.com/v1beta',
     })
     expect(model).toBeDefined()
@@ -82,7 +91,7 @@ describe('GoogleAdapter', () => {
   it('createModel without baseURL still works (Google API default)', () => {
     const model = adapter.createModel({
       apiKey: 'AIza-test',
-      modelId: 'gemini-3-flash',
+      modelId: 'gemini-3-flash-preview',
     })
     expect(model).toBeDefined()
   })
