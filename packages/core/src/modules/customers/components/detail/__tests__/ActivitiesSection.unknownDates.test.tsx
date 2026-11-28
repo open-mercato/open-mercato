@@ -69,6 +69,30 @@ it('translates the unknown date and does not render creation time as a date or y
   expect(screen.queryByText('2035')).not.toBeInTheDocument()
 })
 
+it.each([
+  [1, '1 aktywność'],
+  [2, '2 aktywności'],
+  [5, '5 aktywności'],
+])('renders the Polish history count for %i activities', async (count, label) => {
+  readApiMock.mockResolvedValue({ items: mixed.slice(0, count) })
+  renderWithProviders(
+    <ActivitiesSection entityId="company-1" useCanonicalInteractions serverHistoryControls addActionLabel="Add" emptyState={{ title: 'Empty' }} />,
+    { locale: 'pl', dict: pl },
+  )
+
+  expect(await screen.findByText(label, { exact: true })).toBeInTheDocument()
+})
+
+it('uses the app locale’s base translation when it does not provide a singular variant', async () => {
+  readApiMock.mockResolvedValue({ items: [mixed[0]] })
+  renderWithProviders(
+    <ActivitiesSection entityId="company-1" useCanonicalInteractions serverHistoryControls addActionLabel="Add" emptyState={{ title: 'Empty' }} />,
+    { locale: 'cs', dict: { ...en, 'customers.activities.seeAll': 'Počet aktivit: {count}' } },
+  )
+
+  expect(await screen.findByText('Počet aktivit: 1')).toBeInTheDocument()
+})
+
 it('keeps upcoming scheduled entries first and orders equal schedules deterministically', async () => {
   readApiMock.mockResolvedValue({ items: [mixed[0], interaction('planned-z', null, { status: 'planned', scheduledAt: '2099-01-01T12:00:00.000Z' }), mixed[1], interaction('planned-a', null, { status: 'planned', scheduledAt: '2099-01-01T12:00:00.000Z' })] })
   const onEdit = jest.fn()

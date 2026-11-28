@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { BulkAction } from '@open-mercato/ui/backend/DataTable'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -143,6 +143,15 @@ export function getMessageBulkActionIdsForFolder(folder: MessageFolder): Message
   return [...MESSAGE_BULK_ACTION_IDS_BY_FOLDER[folder]]
 }
 
+function getDeleteSuccessKey(locale: string, count: number): string {
+  const { successKey } = MESSAGE_BULK_REQUESTS.delete
+  try {
+    return `${successKey}.${new Intl.PluralRules(locale).select(count)}`
+  } catch {
+    return successKey
+  }
+}
+
 function normalizeSelectionScopeValue(value: unknown): unknown {
   if (value == null) return undefined
   if (typeof value === 'string') {
@@ -222,6 +231,7 @@ export function useMessagesInboxBulkActions<T extends MessageInboxBulkRow>({
   ConfirmDialogElement: React.ReactNode
 } {
   const t = useT()
+  const locale = useLocale()
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation, retryLastMutation } = useGuardedMutation<MessageInboxBulkMutationContext>({
@@ -326,10 +336,9 @@ export function useMessagesInboxBulkActions<T extends MessageInboxBulkRow>({
         return true
       }
 
-      flash(
-        t(requestConfig.successKey, requestConfig.successFallback, { count: summary.succeeded }),
-        'success',
-      )
+      const count = summary.succeeded
+      const pluralMessage = actionId === 'delete' ? t(getDeleteSuccessKey(locale, count), '', { count }) : ''
+      flash(pluralMessage || t(requestConfig.successKey, requestConfig.successFallback, { count }), 'success')
       return true
     } catch (error) {
       flash(
@@ -340,7 +349,7 @@ export function useMessagesInboxBulkActions<T extends MessageInboxBulkRow>({
       )
       return false
     }
-  }, [confirm, filterValues, folder, page, queryClient, retryLastMutation, runMutation, search, t])
+  }, [confirm, filterValues, folder, locale, page, queryClient, retryLastMutation, runMutation, search, t])
 
   const bulkActions = React.useMemo<BulkAction<T>[] | undefined>(
     () => {

@@ -3,7 +3,12 @@
  */
 
 import { renderHook } from '@testing-library/react'
+import type { Locale } from '@open-mercato/shared/lib/i18n/config'
+import { I18nProvider, type Dict } from '@open-mercato/shared/lib/i18n/context'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import english from '../../i18n/en.json'
+import polish from '../../i18n/pl.json'
 import {
   useMessagesInboxBulkActions,
   type MessageFolder,
@@ -15,13 +20,9 @@ jest.mock('@tanstack/react-query', () => ({
   }),
 }))
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (_key: string, fallback?: string) => fallback ?? '',
-}))
-
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   useConfirmDialog: () => ({
-    confirm: jest.fn(),
+    confirm: jest.fn(async () => true),
     ConfirmDialogElement: null,
   }),
 }))
@@ -46,15 +47,18 @@ const apiCallMock = apiCall as jest.MockedFunction<typeof apiCall>
 describe('useMessagesInboxBulkActions', () => {
   beforeEach(() => {
     apiCallMock.mockClear()
+    jest.mocked(flash).mockClear()
   })
 
-  function bulkActionsFor(folder: MessageFolder) {
-    const { result } = renderHook(() => useMessagesInboxBulkActions({
-      folder,
-      page: 1,
-      search: '',
-      filterValues: {},
-    }))
+  function bulkActionsFor(folder: MessageFolder, locale: Locale = 'en', dict: Dict = {}) {
+    const { result } = renderHook(
+      () => useMessagesInboxBulkActions({ folder, page: 1, search: '', filterValues: {} }),
+      {
+        wrapper: ({ children }) => (
+          <I18nProvider locale={locale} dict={dict}>{children}</I18nProvider>
+        ),
+      },
+    )
 
     return result.current.bulkActions ?? []
   }
@@ -81,5 +85,30 @@ describe('useMessagesInboxBulkActions', () => {
 
     expect(apiCallMock).toHaveBeenCalledWith('/api/messages/msg-1/archive', { method: 'DELETE' })
     expect(apiCallMock).toHaveBeenCalledWith('/api/messages/msg-2/archive', { method: 'DELETE' })
+  })
+
+  it.each([
+    [1, 'Usunięto 1 wiadomość.'],
+    [2, 'Usunięto 2 wiadomości.'],
+    [5, 'Usunięto 5 wiadomości.'],
+    [12, 'Usunięto 12 wiadomości.'],
+    [22, 'Usunięto 22 wiadomości.'],
+  ])('shows the Polish confirmation after deleting %i messages', async (count, message) => {
+    const deleteAction = bulkActionsFor('inbox', 'pl', polish).find((action) => action.id === 'messages-delete')
+    const rows = Array.from({ length: count }, (_, index) => ({ id: `msg-${index}` }))
+
+    expect(await deleteAction?.onExecute(rows)).toBe(true)
+    expect(apiCallMock).toHaveBeenCalledTimes(count)
+    expect(flash).toHaveBeenCalledWith(message, 'success')
+  })
+
+  it('uses the localized base key for an app locale without plural variants', async () => {
+    const deleteAction = bulkActionsFor('inbox', 'cs' as Locale, {
+      ...english,
+      'messages.bulk.flash.deleteSuccess': 'Odstraněné zprávy: {count}.',
+    }).find((action) => action.id === 'messages-delete')
+
+    expect(await deleteAction?.onExecute([{ id: 'msg-1' }])).toBe(true)
+    expect(flash).toHaveBeenCalledWith('Odstraněné zprávy: 1.', 'success')
   })
 })

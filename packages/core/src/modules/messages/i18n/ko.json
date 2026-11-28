@@ -30,6 +30,8 @@
   "messages.bulk.delete.title": "{count}개 메시지를 삭제하시겠습니까?",
   "messages.bulk.flash.archiveSuccess": "메시지 {count}개가 보관되었습니다.",
   "messages.bulk.flash.deleteSuccess": "메시지 {count}개가 삭제되었습니다.",
+  "messages.bulk.flash.deleteSuccess.few": "",
+  "messages.bulk.flash.deleteSuccess.one": "",
   "messages.bulk.flash.failed": "메시지 {count}개 처리에 실패했습니다.",
   "messages.bulk.flash.markReadSuccess": "메시지 {count}개가 읽음으로 표시되었습니다.",
   "messages.bulk.flash.markUnreadSuccess": "메시지 {count}개가 읽지 않음으로 표시되었습니다.",

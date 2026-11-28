@@ -30,6 +30,8 @@
   "messages.bulk.delete.title": "{count} Nachrichten löschen?",
   "messages.bulk.flash.archiveSuccess": "{count} Nachrichten archiviert.",
   "messages.bulk.flash.deleteSuccess": "{count} Nachrichten gelöscht.",
+  "messages.bulk.flash.deleteSuccess.few": "",
+  "messages.bulk.flash.deleteSuccess.one": "",
   "messages.bulk.flash.failed": "{count} Nachrichten konnten nicht verarbeitet werden.",
   "messages.bulk.flash.markReadSuccess": "{count} Nachrichten als gelesen markiert.",
   "messages.bulk.flash.markUnreadSuccess": "{count} Nachrichten als ungelesen markiert.",

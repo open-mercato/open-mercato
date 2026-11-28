@@ -468,6 +468,9 @@ export function ActivitiesSection({
 
   const totalCount = activities.length
   const visibleCount = visibleActivities.length
+  const totalCountParams = { count: totalCount }
+  const allActivitiesLabel = (totalCount === 1 ? t('customers.activities.seeAll.single', '', totalCountParams) : '')
+    || t('customers.activities.seeAll', 'See all {count} activities', totalCountParams)
 
   return (
     <div className="flex flex-col gap-3.5 rounded-[10px] border border-border bg-card pt-4 pb-[18px] px-[18px]">
@@ -565,7 +568,7 @@ export function ActivitiesSection({
                       visible: visibleCount,
                       total: totalCount,
                     })
-                  : t('customers.activities.seeAll', 'See all {count} activities', { count: totalCount })}
+                  : allActivitiesLabel}
               </span>
               {hasMore ? (
                 <Button type="button" variant="link" size="sm" onClick={() => setLoadedPages((value) => value + 1)}>

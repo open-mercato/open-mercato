@@ -30,6 +30,8 @@
   "messages.bulk.delete.title": "Usunąć {count} wiadomości?",
   "messages.bulk.flash.archiveSuccess": "Zarchiwizowano {count} wiadomości.",
   "messages.bulk.flash.deleteSuccess": "Usunięto {count} wiadomości.",
+  "messages.bulk.flash.deleteSuccess.few": "Usunięto {count} wiadomości.",
+  "messages.bulk.flash.deleteSuccess.one": "Usunięto {count} wiadomość.",
   "messages.bulk.flash.failed": "Nie udało się przetworzyć {count} wiadomości.",
   "messages.bulk.flash.markReadSuccess": "Oznaczono {count} wiadomości jako przeczytane.",
   "messages.bulk.flash.markUnreadSuccess": "Oznaczono {count} wiadomości jako nieprzeczytane.",
