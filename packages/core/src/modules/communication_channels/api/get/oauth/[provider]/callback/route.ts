@@ -176,7 +176,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   const oauthClientCredentials = await resolveOAuthClientCredentials(credentialsService, provider, {
     tenantId: statePayload.tenantId,
     organizationId: statePayload.organizationId ?? null,
-  })
+  }, { requireComplete: true })
   if (!oauthClientCredentials) {
     return redirectWithFlash(req, returnUrl, {
       type: 'error',

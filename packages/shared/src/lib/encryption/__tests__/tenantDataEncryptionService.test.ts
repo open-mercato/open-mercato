@@ -14,6 +14,77 @@ import { forgetEncryptionPolicyMemo } from '../policyMemo'
 
 const fixedKey = Buffer.alloc(32, 1).toString('base64')
 
+test('an isolated explicit provider never reuses or replaces another provider cached for the same tenant', async () => {
+  const tenant = 'isolated-provider-cache-regression'
+  const firstKey = Buffer.alloc(32, 31).toString('base64'), secondKey = Buffer.alloc(32, 32).toString('base64')
+  const firstKms = { isHealthy: () => true, getTenantDek: jest.fn(async (id: string) => ({ tenantId: id, key: firstKey, fetchedAt: Date.now() })), createTenantDek: jest.fn() }
+  const secondKms = { isHealthy: () => true, getTenantDek: jest.fn(async (id: string) => ({ tenantId: id, key: secondKey, fetchedAt: Date.now() })), createTenantDek: jest.fn() }
+  const entity = 'test:isolated-cache'
+  const { em } = makePolicyEm(() => [{ entity_id: entity, tenant_id: tenant, organization_id: null, fields_json: [{ field: 'secret' }] }])
+  const original = new TenantDataEncryptionService(em as never, { kms: firstKms })
+  expect((await original.getDek(tenant))?.key === firstKey).toBe(true)
+  expect((await original.getDek('unrelated-cache-tenant'))?.key === firstKey).toBe(true)
+  const isolated = new TenantDataEncryptionService(em as never, { kms: secondKms, isolatedKeyCache: true })
+  expect((await isolated.getDek(tenant))?.key === secondKey).toBe(true)
+  const enabled = jest.spyOn(isolated, 'isEnabled').mockReturnValue(true)
+  try {
+    const encrypted = await isolated.encryptEntityPayload(entity, { secret: 'synthetic value' }, tenant, null, { createMissingDek: false })
+    expect(decryptWithAesGcm(encrypted.secret as string, secondKey)).toBe('synthetic value')
+    expect(decryptWithAesGcm(encrypted.secret as string, firstKey)).toBeNull()
+    const thirdKey = Buffer.alloc(32, 33).toString('base64')
+    const otherFixture = new TenantDataEncryptionService(em as never, { kms: { ...secondKms, getTenantDek: async id => ({ tenantId: id, key: thirdKey, fetchedAt: Date.now() }) }, isolatedKeyCache: true })
+    expect((await otherFixture.getDek(tenant))?.key === thirdKey).toBe(true)
+    expect((await isolated.getDek(tenant))?.key === secondKey).toBe(true)
+  } finally { enabled.mockRestore() }
+  expect((await original.getDek(tenant))?.key === firstKey).toBe(true)
+  expect((await original.getDek('unrelated-cache-tenant'))?.key === firstKey).toBe(true)
+  expect(firstKms.getTenantDek).toHaveBeenCalledTimes(2)
+  expect(secondKms.getTenantDek).toHaveBeenCalledTimes(1)
+})
+
+test('an isolated provider resolves independently while another provider read is pending for the same tenant', async () => {
+  const tenant = 'isolated-pending-read-regression'
+  const oldKey = Buffer.alloc(32, 41).toString('base64'), newKey = Buffer.alloc(32, 42).toString('base64')
+  let release!: () => void
+  const pending = new Promise<void>(resolve => { release = resolve })
+  const original = new TenantDataEncryptionService({} as never, { kms: { isHealthy: () => true, getTenantDek: async () => { await pending; return { tenantId: tenant, key: oldKey, fetchedAt: Date.now() } }, createTenantDek: async () => null } })
+  const oldRead = original.getDek(tenant)
+  const isolated = new TenantDataEncryptionService({} as never, { kms: { isHealthy: () => true, getTenantDek: async () => ({ tenantId: tenant, key: newKey, fetchedAt: Date.now() }), createTenantDek: async () => null }, isolatedKeyCache: true })
+  try { expect((await isolated.getDek(tenant))?.key === newKey).toBe(true) }
+  finally { release() }
+  expect((await oldRead)?.key === oldKey).toBe(true)
+  expect((await isolated.getDek(tenant))?.key === newKey).toBe(true)
+})
+
+test('isolated key creation does not join another provider pending process-global creation', async () => {
+  const tenant = 'isolated-pending-create-regression', entity = 'test:isolated-create'
+  const oldKey = Buffer.alloc(32, 51).toString('base64'), newKey = Buffer.alloc(32, 52).toString('base64')
+  const { em } = makePolicyEm(() => [{ entity_id: entity, tenant_id: tenant, organization_id: null, fields_json: [{ field: 'secret' }] }])
+  let started!: () => void, release!: () => void
+  const oldStarted = new Promise<void>(resolve => { started = resolve })
+  const oldPending = new Promise<void>(resolve => { release = resolve })
+  const oldKms = { isHealthy: () => true, getTenantDek: async () => null, createTenantDek: async () => { started(); await oldPending; return { tenantId: tenant, key: oldKey, fetchedAt: Date.now() } } }
+  const nextKms = { isHealthy: () => true, getTenantDek: async () => null, createTenantDek: async () => ({ tenantId: tenant, key: newKey, fetchedAt: Date.now() }) }
+  const original = new TenantDataEncryptionService(em as never, { kms: oldKms })
+  const isolated = new TenantDataEncryptionService(em as never, { kms: nextKms, isolatedKeyCache: true })
+  const firstEnabled = jest.spyOn(original, 'isEnabled').mockReturnValue(true), nextEnabled = jest.spyOn(isolated, 'isEnabled').mockReturnValue(true)
+  const oldEncryption = original.encryptEntityPayload(entity, { secret: 'synthetic value' }, tenant)
+  await oldStarted
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const encrypted = await Promise.race([isolated.encryptEntityPayload(entity, { secret: 'synthetic value' }, tenant), new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Different provider creation incorrectly joined')), 2000) })])
+    expect(decryptWithAesGcm(encrypted.secret as string, newKey)).toBe('synthetic value')
+    expect(decryptWithAesGcm(encrypted.secret as string, oldKey)).toBeNull()
+  } finally {
+    if (timer) clearTimeout(timer)
+    release(); firstEnabled.mockRestore(); nextEnabled.mockRestore()
+  }
+  const originalCiphertext = await oldEncryption
+  expect(decryptWithAesGcm(originalCiphertext.secret as string, oldKey)).toBe('synthetic value')
+  expect((await original.getDek(tenant))?.key === oldKey).toBe(true)
+  expect((await isolated.getDek(tenant))?.key === newKey).toBe(true)
+})
+
 describe('parseDecryptedFieldValue', () => {
   it('keeps purely-numeric strings as strings (regression: issue #1734)', () => {
     expect(parseDecryptedFieldValue('123')).toBe('123')

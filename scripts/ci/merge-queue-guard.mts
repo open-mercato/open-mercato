@@ -1,5 +1,7 @@
-// Takes `merge-queue` off a pull request whose labels break the merge-ready rule
-// (.ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md § Merge-ready rule).
+// Takes `merge-queue` off a pull request that carries a hard-block label (`qa-failed`,
+// `changes-requested`, `blocked`, `do-not-merge`). `merge-queue` is optional routing: the
+// merge itself is decided by the ready-to-merge rule in .ai/docs/pr-workflow.md, and a missing
+// `qa-approved` is never a block because QA runs on the batch after merge.
 // Wired up by .github/workflows/merge-queue-guard.yml. `decide()` is the pure rule that
 // scripts/__tests__/merge-queue-guard.test.ts exercises; `run()` is the only part that
 // talks to the GitHub API. It never adds labels and never removes a blocking one. Every run
@@ -7,8 +9,6 @@
 // and records when someone other than the guard removes `merge-queue`.
 
 export const MERGE_QUEUE_LABEL = 'merge-queue'
-export const HUMAN_QA_LABEL = 'needs-human-qa'
-export const QA_APPROVED_LABEL = 'qa-approved'
 export const ALWAYS_BLOCKING_LABELS: readonly string[] = [
   'qa-failed',
   'changes-requested',
@@ -30,14 +30,10 @@ const code = (label: string) => `\`${label}\``
 
 export function blockingLabels(labels: readonly string[]): string[] {
   const present = new Set(labels)
-  const blockers = ALWAYS_BLOCKING_LABELS.filter((label) => present.has(label))
-  if (present.has(HUMAN_QA_LABEL) && !present.has(QA_APPROVED_LABEL)) blockers.push(HUMAN_QA_LABEL)
-  return blockers
+  return ALWAYS_BLOCKING_LABELS.filter((label) => present.has(label))
 }
 
-function blockerReason(label: string): string {
-  return label === HUMAN_QA_LABEL ? `${code(HUMAN_QA_LABEL)} without ${code(QA_APPROVED_LABEL)}` : code(label)
-}
+const blockerReason = code
 
 export function decide({ action, label, labels }: GuardEvent): GuardDecision {
   if (!labels.includes(MERGE_QUEUE_LABEL)) return { remove: false }
@@ -53,14 +49,11 @@ export function decide({ action, label, labels }: GuardEvent): GuardDecision {
   if (action === 'labeled' && blockers.includes(label)) {
     return { remove: true, reason: `${blockerReason(label)} was added` }
   }
-  if (action === 'unlabeled' && label === QA_APPROVED_LABEL && blockers.includes(HUMAN_QA_LABEL)) {
-    return { remove: true, reason: `${code(QA_APPROVED_LABEL)} was removed while ${code(HUMAN_QA_LABEL)} is present` }
-  }
   return { remove: false }
 }
 
 export function formatComment(reason: string): string {
-  return `Removed ${code(MERGE_QUEUE_LABEL)}: ${reason}, so this PR is not merge-ready (see the merge-ready rule in \`.ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md\`).`
+  return `Removed ${code(MERGE_QUEUE_LABEL)}: ${reason}, so this PR is not merge-ready (see the ready-to-merge rule in \`.ai/docs/pr-workflow.md\`).`
 }
 
 export type GuardOutcome = 'removed' | 'stays' | 'already-gone' | 'not-relevant' | 'removed-by-someone-else' | 'failed'

@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 1,
+  "run": "Actual Node24.22.2 on macOS, real PostgreSQL16 and Vault1.21.4 in isolated loopback Docker fixtures",
+  "results": {
+    "passed": 16,
+    "failed": 0,
+    "seconds": 59.932,
+    "breakdown": {
+      "existingCoreNativeCases": 3,
+      "fourRoutesSingleAndTwoTenantCases": 8,
+      "realVaultNegativeCases": 4,
+      "actualMacPersistentRootAndTrustedPathWrapperCase": 1
+    }
+  },
+  "scope": "Actual Core CLI handler, Enterprise DI, real ORM/engines/providers. Harness supplies app-container factory; timestamp-provider outputs observed without substitution. macOS PATH clients are trusted test-only wrappers forwarding real pg_dump/pg_restore/psql into Docker PostgreSQL, not host-native/Homebrew binaries. No whole-application bootstrap or resource/performance acceptance claim.",
+  "macCase": "All legacy rotation recovery-path/bin variables removed, OM_RECOVERY_ROOT was a fresh owner-only macOS Application Support directory; PATH discovery validated wrapper versions and created default artifact/trust/output paths. Explicit private libpq files retained. Only the owned fixture directory was cleaned.",
+  "caseAggregates": [
+    {
+      "route": "derived-derived",
+      "tenants": 1,
+      "allTenants": false,
+      "separatePrefixesAndTokens": false,
+      "sourceVaultVersions": null,
+      "targetVaultVersions": null,
+      "comparedRows": "2",
+      "comparedFields": "12",
+      "comparedBytes": "1251",
+      "productRequestsGetOnly": true,
+      "productVaultRequests": 0,
+      "status": "passed",
+      "sourceVaultVersionsRetained": null,
+      "exactTimestampReadback": true
+    },
+    {
+      "route": "derived-derived",
+      "tenants": 2,
+      "allTenants": true,
+      "separatePrefixesAndTokens": false,
+      "sourceVaultVersions": null,
+      "targetVaultVersions": null,
+      "comparedRows": "4",
+      "comparedFields": "24",
+      "comparedBytes": "2502",
+      "productRequestsGetOnly": true,
+      "productVaultRequests": 0,
+      "status": "passed",
+      "sourceVaultVersionsRetained": null,
+      "exactTimestampReadback": true
+    },
+    {
+      "route": "derived-vault",
+      "tenants": 1,
+      "allTenants": false,
+      "separatePrefixesAndTokens": false,
+      "sourceVaultVersions": null,
+      "targetVaultVersions": {
+        "11111111-1111-4111-8111-111111111111": 2
+      },
+      "comparedRows": "2",
+      "comparedFields": "12",
+      "comparedBytes": "1251",
+      "productRequestsGetOnly": true,
+      "productVaultRequests": 12,
+      "status": "passed",
+      "sourceVaultVersionsRetained": null,
+      "exactTimestampReadback": true
+    },
+    {
+      "route": "derived-vault",
+      "tenants": 2,
+      "allTenants": true,
+      "separatePrefixesAndTokens": false,
+      "sourceVaultVersions": null,
+      "targetVaultVersions": {
+        "11111111-1111-4111-8111-111111111111": 2,
+        "33333333-3333-4333-8333-333333333333": 3
+      },
+      "comparedRows": "4",
+      "comparedFields": "24",
+      "comparedBytes": "2502",
+      "productRequestsGetOnly": true,
+      "productVaultRequests": 24,
+      "status": "passed",
+      "sourceVaultVersionsRetained": null,
+      "exactTimestampReadback": true
+    },
+    {
+      "route": "vault-derived",
+      "tenants": 1,
+      "allTenants": false,
+      "separatePrefixesAndTokens": false,
+      "sourceVaultVersions": {
+        "11111111-1111-4111-8111-111111111111": 1
+      },
+      "targetVaultVersions": null,
+      "comparedRows": "2",
+      "comparedFields": "12",
+      "comparedBytes": "1251",
+      "productRequestsGetOnly": true,
+      "productVaultRequests": 6,
+      "status": "passed",
+      "sourceVaultVersionsRetained": true,
+      "exactTimestampReadback": true
+    },
+    {
+      "route": "vault-derived",
+      "tenants": 2,
+      "allTenants": true,
+      "separatePrefixesAndTokens": false,
+      "sourceVaultVersions": {
+        "11111111-1111-4111-8111-111111111111": 1,
+        "33333333-3333-4333-8333-333333333333": 2
+      },
+      "targetVaultVersions": null,
+      "comparedRows": "4",
+      "comparedFields": "24",
+      "comparedBytes": "2502",
+      "productRequestsGetOnly": true,
+      "productVaultRequests": 12,
+      "status": "passed",
+      "sourceVaultVersionsRetained": true,
+      "exactTimestampReadback": true
+    },
+    {
+      "route": "vault-vault",
+      "tenants": 1,
+      "allTenants": false,
+      "separatePrefixesAndTokens": true,
+      "sourceVaultVersions": {
+        "11111111-1111-4111-8111-111111111111": 1
+      },
+      "targetVaultVersions": {
+        "11111111-1111-4111-8111-111111111111": 2
+      },
+      "comparedRows": "2",
+      "comparedFields": "12",
+      "comparedBytes": "1251",
+      "productRequestsGetOnly": true,
+      "productVaultRequests": 18,
+      "status": "passed",
+      "sourceVaultVersionsRetained": true,
+      "exactTimestampReadback": true
+    },
+    {
+      "route": "vault-vault",
+      "tenants": 2,
+      "allTenants": true,
+      "separatePrefixesAndTokens": false,
+      "sourceVaultVersions": {
+        "11111111-1111-4111-8111-111111111111": 1,
+        "33333333-3333-4333-8333-333333333333": 2
+      },
+      "targetVaultVersions": {
+        "11111111-1111-4111-8111-111111111111": 2,
+        "33333333-3333-4333-8333-333333333333": 3
+      },
+      "comparedRows": "4",
+      "comparedFields": "24",
+      "comparedBytes": "2502",
+      "productRequestsGetOnly": true,
+      "productVaultRequests": 36,
+      "status": "passed",
+      "sourceVaultVersionsRetained": true,
+      "exactTimestampReadback": true
+    },
+    {
+      "negative": "latest-changed-after-write",
+      "tenants": 2,
+      "status": "failed-as-required",
+      "actualCode": "[internal] ROTATION_VAULT_TARGET_NOT_CURRENT",
+      "noVerifiedSuccess": true,
+      "noFallback": true,
+      "productRequestsGetOnly": true,
+      "preMutationDataUnchanged": false,
+      "recoveryRetainedAfterPostWriteFailure": true
+    },
+    {
+      "negative": "source-version-deleted",
+      "tenants": 1,
+      "status": "failed-as-required",
+      "actualCode": "[internal] ROTATION_VAULT_READ_FAILED",
+      "noVerifiedSuccess": true,
+      "noFallback": true,
+      "productRequestsGetOnly": true,
+      "preMutationDataUnchanged": true,
+      "recoveryRetainedAfterPostWriteFailure": false
+    },
+    {
+      "negative": "source-version-missing",
+      "tenants": 1,
+      "status": "failed-as-required",
+      "actualCode": "[internal] ROTATION_VAULT_READ_FAILED",
+      "noVerifiedSuccess": true,
+      "noFallback": true,
+      "productRequestsGetOnly": true,
+      "preMutationDataUnchanged": true,
+      "recoveryRetainedAfterPostWriteFailure": false
+    },
+    {
+      "negative": "source-auth-failed",
+      "tenants": 1,
+      "status": "failed-as-required",
+      "actualCode": "[internal] ROTATION_VAULT_READ_FAILED",
+      "noVerifiedSuccess": true,
+      "noFallback": true,
+      "productRequestsGetOnly": true,
+      "preMutationDataUnchanged": true,
+      "recoveryRetainedAfterPostWriteFailure": false
+    }
+  ],
+  "privacy": "No key/token/password bytes, backups/dumps/archives or raw logs included. Fixture databases/files cleaned; source-version retention was asserted during each relevant case before cleanup.",
+  "performanceAcceptance": false,
+  "sourceCommit": "fc34a42fe73dd4542d715be67a938cb9cc96157f",
+  "sourceSha256": {
+    "packages/enterprise/src/modules/backups/lib/rotation-verification/runtime.ts": "a37b6957d341dce9e5ab5c17cab0ccad704071894ceead1163b66ed6a303f831",
+    "packages/enterprise/src/modules/backups/lib/rotation-verification/providers.ts": "09788731f7d998ce91de8156b003fc9bfdae418ba029e8c3f5a798476658fbb6",
+    "packages/enterprise/src/modules/backups/lib/rotation-verification/vault-provider.ts": "3b2321347931ea355a91ca1fcad4729ae2f8c168cca3dddc0f46b07d6d6a26bc",
+    "packages/enterprise/src/modules/backups/lib/rotation-verification/coordinator.ts": "a1626d46d3c3ff7ea883b90fc89ea3238de54ac898e05cd89668973e7bed198a",
+    "packages/shared/src/lib/encryption/tenantDataEncryptionService.ts": "5b256f2907b19045d39ae98c0dcdff947dc071793d29a0a2af3e4266db519a5b",
+    "packages/core/src/modules/entities/cli.ts": "ec29ec35e9aec4ac58f9d857ce8c644fdc1b7535bc3db551ed421677024e4b71",
+    "packages/enterprise/src/lib/recovery-configuration.ts": "458ae24429631908f83b18c1a1944fc6cc1307490e98a26135debc8102c4899d"
+  },
+  "runtimeSourceHashesMatchBuildAmendment": "c095e9a19c",
+  "buildOnlyChangesDoNotAlterRotationSources": true,
+  "finalRuntimeSourceHashCheck": {
+    "allSevenSourceFilesUnchanged": true,
+    "checkedAtPresentationSource": "b04dc0e2a7b17ea99333d819f822ae3f784ac5b0",
+    "scope": "Provider/coordinator/Core/cache/recovery configuration only; new KMS warning presentation is separately tested."
+  }
+}

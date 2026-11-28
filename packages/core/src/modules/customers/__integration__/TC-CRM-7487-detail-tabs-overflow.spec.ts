@@ -8,6 +8,8 @@
  * - the last tab is reachable: through the More menu when the strip folds, otherwise
  *   with the keyboard (End), and it becomes the selected tab
  * - a tab chosen from the More menu is lifted inline, so the selection stays visible
+ * - the active tab and visible panel reference each other after keyboard, overflow,
+ *   mobile zone, and injected-tab selection
  *
  * Below 768px people-v2 renders MobilePersonDetail, which opens on its Details zone with
  * the rail unmounted, so that page is loaded on its Activity zone and has to fold there.
@@ -15,19 +17,19 @@
  * when the tabs do not fit, so both paths stay in play for them.
  *
  * Fixtures: one person, one company and one deal created through the API and removed in
- * `finally`. Needs the customers module only.
+ * `finally`. Workflows supplies the asynchronously loaded Pending work tab.
  */
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
-import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { login } from '@open-mercato/core/helpers/integration/auth'
+import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createCompanyFixture,
   createDealFixture,
   createPersonFixture,
   deleteEntityIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
+} from '@open-mercato/core/helpers/integration/crmFixtures'
 
-export const integrationMeta = { dependsOnModules: ['customers'] }
+export const integrationMeta = { dependsOnModules: ['customers', 'workflows'] }
 
 const VIEWPORTS = [
   { width: 1024, height: 900 },
@@ -57,6 +59,18 @@ async function waitForInjectedTabs(page: Page, rail: Locator, label: string): Pr
   await expect(page.getByTestId('detail-tabs-row').filter({ has: rail }), `${label}: injected tabs have loaded`).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 })
 }
 
+async function expectLinkedPanel(page: Page, tab: Locator, label: string): Promise<Locator> {
+  await expect(tab, label).toHaveAttribute('aria-selected', 'true')
+  await expect(tab, label).toHaveAttribute('id', /\S/)
+  await expect(tab, label).toHaveAttribute('aria-controls', /\S/)
+  const tabId = await tab.getAttribute('id') ?? ''
+  const panelId = await tab.getAttribute('aria-controls') ?? ''
+  const panel = page.getByRole('tabpanel').and(page.locator(`[id=${JSON.stringify(panelId)}]`))
+  await expect(panel, label).toBeVisible()
+  await expect(panel, label).toHaveAttribute('aria-labelledby', tabId)
+  return panel
+}
+
 async function reachLastTab(page: Page, rail: Locator, label: string): Promise<void> {
   await expect(async () => {
     const more = page.getByTestId('detail-tabs-more')
@@ -67,13 +81,13 @@ async function reachLastTab(page: Page, rail: Locator, label: string): Promise<v
       expect(lastLabel, `${label}: More menu lists the folded tabs`).not.toBe('')
       await items.last().click({ timeout: 2_000 })
       const lifted = rail.getByRole('tab', { name: new RegExp(`^${lastLabel.replace(/NEW$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`) })
-      await expect(lifted, `${label}: tab chosen from More is lifted inline`).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 })
+      await expectLinkedPanel(page, lifted, `${label}: tab chosen from More is lifted inline`)
       return
     }
     const tabs = rail.getByRole('tab')
     await tabs.first().focus({ timeout: 2_000 })
     await page.keyboard.press('End')
-    await expect(tabs.last(), `${label}: End reaches the last tab`).toHaveAttribute('aria-selected', 'true', { timeout: 5_000 })
+    await expectLinkedPanel(page, tabs.last(), `${label}: End reaches the last tab`)
   }, `${label}: last tab is reachable`).toPass({ timeout: 30_000 })
 }
 
@@ -111,10 +125,26 @@ test.describe('TC-CRM-7487: CRM detail tab strips do not scroll', () => {
           if (onMobileLayout) {
             await expect(page.getByTestId('detail-tabs-more'), `${label}: person tabs fold at this width`).toBeVisible({ timeout: 30_000 })
           }
+          if (hasMobileLayout && !onMobileLayout) {
+            const tabs = rail.getByRole('tab')
+            await tabs.first().focus()
+            await page.keyboard.press('ArrowRight')
+            await expectLinkedPanel(page, tabs.nth(1), `${label}: ArrowRight selects the next tab`)
+          }
           await reachLastTab(page, rail, label)
           await expectNoStripScroll(rail, `${label} after selecting the last tab`)
         }
       }
+      const personRoute = `/backend/customers/people-v2/${personId}`
+      await page.goto(`${personRoute}?tab=pending-work`, { waitUntil: 'domcontentloaded' })
+      const zones = page.getByRole('tablist', { name: 'Zone selector' })
+      const details = zones.getByRole('tab', { name: 'Details', exact: true })
+      const activity = zones.getByRole('tab', { name: 'Activity', exact: true })
+      await expectLinkedPanel(page, details, 'Person mobile Details zone')
+      await activity.click()
+      const activityPanel = await expectLinkedPanel(page, activity, 'Person mobile Activity zone')
+      const sections = activityPanel.getByRole('tablist', { name: 'Person detail sections' })
+      await expectLinkedPanel(page, sections.getByRole('tab', { name: 'Pending work' }), 'Person mobile injected deep link')
     } finally {
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)

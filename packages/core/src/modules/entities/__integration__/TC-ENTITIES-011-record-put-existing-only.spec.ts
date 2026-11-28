@@ -146,6 +146,14 @@ test.describe('TC-ENTITIES-011: record PUT updates existing, non-deleted records
       expect(active[0]?.title, 'live record updated').toBe('live edited');
 
       expect(await readRecords(request, token, entityId, true), 'withDeleted cannot expose soft-deleted records').toEqual(active);
+
+      const exported = await listRecords(request, token, entityId, '&withDeleted=true&format=json&exportScope=full');
+      expect(exported.status(), 'full export 200').toBe(200);
+      expect(exported.headers()['content-disposition']).toMatch(/^attachment;/);
+      expect(await readJsonSafe<Array<{ Id: string; Title: string }>>(exported)).toEqual([
+        expect.objectContaining({ Id: liveId, Title: 'live edited' }),
+      ]);
+
       expect(await readStorage(), 'deleted record content and version are untouched').toEqual(storageAfterDelete);
     } finally {
       await deleteRecordIfExists(request, token, entityId, liveId);

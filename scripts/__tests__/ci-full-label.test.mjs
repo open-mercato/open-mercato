@@ -5,6 +5,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import test from 'node:test'
 import { parse } from 'yaml'
+import { FULL_SHARDS, runCiScopeStep } from './fixtures/ci-scope-step.mjs'
 
 const workflow = parse(fs.readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
 const scope = workflow.jobs.prepare.steps.find((step) => step.id === 'integration-scope')
@@ -70,15 +71,25 @@ for (const [branch, headRepository, expected] of [
   })
 }
 
-for (const eventName of ['push', 'pull_request']) {
-  test(`full validation selects all 15 shards on ${eventName} without consulting the diff`, () => {
-    const { values } = executeScript(`git() { exit 99; }\n${scope.run}`, {
-      eventName,
-      fullSuite: forcesFullSuite({ eventName, branch: 'stabilize/main-2026-11-05' }),
-    })
-    assert.equal(values.skip, 'false')
-    assert.equal(values.modules, '')
-    assert.deepEqual(JSON.parse(values.shard_matrix), Array.from({ length: 15 }, (_, index) => `${index + 1}/15`))
+test('full validation selects all 15 shards on push without consulting the diff', () => {
+  const { status, stderr, values, calls } = runCiScopeStep({ eventName: 'push' })
+  assert.equal(status, 0, stderr)
+  assert.deepEqual(calls, [])
+  assert.equal(values.skip, 'false')
+  assert.equal(values.modules, '')
+  assert.deepEqual(JSON.parse(values.shard_matrix), FULL_SHARDS)
+})
+
+for (const [headRef, headRepo, expectedFull] of [
+  ['stabilize/main-2026-11-05', repository, true],
+  ['stabilize/main-2026-11-05', 'contributor/fork', false],
+  ['fix/stabilize-main', repository, false],
+]) {
+  test(`stabilization scope selects full=${expectedFull} for ${headRepo}:${headRef}`, () => {
+    const { status, stderr, values } = runCiScopeStep({ headRef, headRepo, changedFiles: ['README.md'] })
+    assert.equal(status, 0, stderr)
+    assert.equal(values.skip, String(!expectedFull))
+    assert.deepEqual(JSON.parse(values.shard_matrix), expectedFull ? FULL_SHARDS : ['none'])
   })
 }
 
@@ -87,7 +98,8 @@ for (const [changedPath, expectedSkip, expectedModules] of [
   ['packages/core/src/modules/customers/api/people.ts', 'false', 'customers'],
 ]) {
   test(`ordinary PR preserves integration scope for ${changedPath}`, () => {
-    const { values } = executeScript(`git() { echo "$CHANGED_PATH"; }\n${scope.run}`, { changedPath })
+    const { status, stderr, values } = runCiScopeStep({ changedFiles: [changedPath] })
+    assert.equal(status, 0, stderr)
     assert.equal(values.skip, expectedSkip)
     assert.equal(values.modules, expectedModules)
     assert.deepEqual(JSON.parse(values.shard_matrix), ['none'])
@@ -95,11 +107,10 @@ for (const [changedPath, expectedSkip, expectedModules] of [
 }
 
 test('ordinary shared-code changes still select all 15 integration shards', () => {
-  const { values } = executeScript(`git() { echo "$CHANGED_PATH"; }\n${scope.run}`, {
-    changedPath: 'packages/shared/src/lib/example.ts',
-  })
+  const { status, stderr, values } = runCiScopeStep({ changedFiles: ['packages/shared/src/lib/example.ts'] })
+  assert.equal(status, 0, stderr)
   assert.equal(values.skip, 'false')
-  assert.deepEqual(JSON.parse(values.shard_matrix), Array.from({ length: 15 }, (_, index) => `${index + 1}/15`))
+  assert.deepEqual(JSON.parse(values.shard_matrix), FULL_SHARDS)
 })
 
 for (const [stepName, command] of [['Checking types', 'typecheck'], ['Test', 'test']]) {
@@ -132,10 +143,11 @@ for (const [eventName, headRepository, labels, expected] of [
   })
 }
 
-test('ci-full selects all shards for an ordinary documentation PR', () => {
-  const { values } = executeScript(`git() { exit 99; }\n${scope.run}`, {
-    fullSuite: forcesFullSuite({ branch: 'fix/docs', labels: ['ci-full'] }),
+for (const [headRepo, expectedFull] of [[repository, true], ['contributor/fork', false]]) {
+  test(`ci-full read from the API selects full=${expectedFull} for a documentation PR from ${headRepo}`, () => {
+    const { status, stderr, values } = runCiScopeStep({ headRef: 'fix/docs', headRepo, labels: ['ci-full'], changedFiles: ['README.md'] })
+    assert.equal(status, 0, stderr)
+    assert.equal(values.skip, String(!expectedFull))
+    assert.deepEqual(JSON.parse(values.shard_matrix), expectedFull ? FULL_SHARDS : ['none'])
   })
-  assert.equal(values.skip, 'false')
-  assert.deepEqual(JSON.parse(values.shard_matrix), Array.from({ length: 15 }, (_, index) => `${index + 1}/15`))
-})
+}

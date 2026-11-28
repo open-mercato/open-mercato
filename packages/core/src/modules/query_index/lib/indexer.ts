@@ -15,6 +15,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { getTelemetryRuntime, reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
+import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord, resolveCiphertextGuard } from './search-tokens'
 import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
@@ -225,7 +226,9 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
     doc[key] = multiKeys.has(fieldKey) || arr.length > 1 ? arr : arr[0]
   }
 
-  if (tryGetModules()?.some((module) => module.id === 'translations') !== false) {
+  const translationsAvailable = tryGetModules()?.some((module) => module.id === 'translations')
+    ?? listEntityMetadata(em).some((metadata) => metadata.tableName === 'entity_translations')
+  if (translationsAvailable) {
     // Attach translations under flat keys 'l10n:{locale}:{field}'
     const translationsSavepoint = db.isTransaction ? `om_translations_${randomUUID()}` : null
     if (translationsSavepoint) await sql`SAVEPOINT ${sql.id(translationsSavepoint)}`.execute(db)

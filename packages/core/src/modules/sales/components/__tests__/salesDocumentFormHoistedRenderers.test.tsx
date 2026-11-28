@@ -19,6 +19,10 @@ jest.setTimeout(20000)
 
 const mockApiCall = jest.fn()
 
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: ['sales.documents.number.edit'] }, isReady: true }),
+}))
+
 // #5126: the sentinel the mocked CrudForm feeds into the `lines` custom field so the
 // duplicate-error regression is observable through the DOM.
 const LINES_FIELD_ERROR = 'LINES_FIELD_ERROR_SENTINEL'
