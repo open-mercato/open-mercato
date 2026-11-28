@@ -86,7 +86,7 @@ for (const { resource, numberField, label } of [
         ['Items', 'lineItemCount'],
         ['Total (net)', 'grandTotalNetAmount'],
         ['Total (gross)', 'grandTotalGrossAmount'],
-        ['Date', 'createdAt'],
+        ['Date', 'documentDate'],
       ]) {
         const pageTwo = page.waitForResponse((response) => {
           const url = new URL(response.url())

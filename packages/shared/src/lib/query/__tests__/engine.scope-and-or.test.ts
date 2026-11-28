@@ -1,5 +1,6 @@
 import { BasicQueryEngine, clearColumnExistsCache } from '../engine'
 import { normalizeFilters } from '../join-utils'
+import { SortDir } from '../types'
 
 // The column-existence answer is memoized on the module, not the instance (#5605), and
 // the fixtures below declare mutually contradictory `information_schema.columns` shapes
@@ -238,6 +239,31 @@ describe('normalizeFilters $or clause grouping', () => {
     expect(withoutGroup).toEqual(['is_enabled'])
     expect(withGroup.sort()).toEqual(['a', 'b'])
   })
+})
+
+test('BasicQueryEngine orders by the first non-null date before applying the page', async () => {
+  const table = 'sales_quotes'
+  const fakeDb = createFakeKysely({
+    [table]: [],
+    'information_schema.columns': ['id', 'tenant_id', 'placed_at', 'valid_until', 'created_at'].map((column_name) => ({
+      table_name: table,
+      column_name,
+    })),
+  })
+  const engine = new BasicQueryEngine({} as ConstructorParameters<typeof BasicQueryEngine>[0], () => fakeDb)
+
+  await engine.query('sales:sales_quote', {
+    tenantId: 't1',
+    fields: ['id'],
+    sort: [{ field: 'placed_at', fallbackFields: ['valid_until', 'created_at'], dir: SortDir.Desc }],
+    page: { page: 2, pageSize: 2 },
+  })
+
+  const dataQuery = fakeDb._calls.find((call: { _ops: { offsets: number } }) => call._ops.offsets === 2)
+  const [[expression, direction], tiebreak] = dataQuery._ops.orderBys
+  expect(JSON.stringify(expression.toOperationNode())).toMatch(/coalesce\(.*placed_at.*valid_until.*created_at/)
+  expect(direction).toBe('desc')
+  expect(tiebreak).toEqual(['sales_quotes.id', 'asc'])
 })
 
 describe('BasicQueryEngine — null equality', () => {

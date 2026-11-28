@@ -72,6 +72,7 @@ import {
   sortRowsInMemory,
 } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { resolveListCountCap } from '@open-mercato/shared/lib/query/count-cap'
+import { getSortFields, resolveBaseSortExpression } from '@open-mercato/shared/lib/query/sort-fields'
 import { resolveCfDefIndexOrgCandidates } from '@open-mercato/shared/lib/crud/custom-field-definition-index'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -993,15 +994,18 @@ export class HybridQueryEngine implements QueryEngine {
       for (const sort of opts.sort || []) {
         const field = String(sort.field)
         if (field.startsWith('cf:')) {
-          resolvedSorts.push({ ...sort, field })
+          resolvedSorts.push({ field, dir: sort.dir })
         } else {
           const baseField = resolveBaseColumn(field)
-          if (baseField) resolvedSorts.push({ ...sort, field: baseField })
+          if (!baseField) continue
+          resolvedSorts.push({
+            ...sort,
+            field: baseField,
+            fallbackFields: sort.fallbackFields?.map(resolveBaseColumn).filter((column) => column !== null),
+          })
         }
       }
-      const plainSortFields = resolvedSorts
-        .filter((sort) => !sort.field.startsWith('cf:'))
-        .map((sort) => sort.field)
+      const plainSortFields = getSortFields(resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')))
       const encryptedFieldNames = await resolveEncryptedFieldNames(
         encSvc,
         entity,
@@ -1463,13 +1467,11 @@ export class HybridQueryEngine implements QueryEngine {
               next = next.orderBy(sql`${sortExpr} ${direction} NULLS LAST`)
             }
           } else {
-            const baseField = resolveBaseColumn(fieldName)
-            if (!baseField) continue
-            next = next.orderBy(qualify(baseField), s.dir ?? SortDir.Asc)
+            next = next.orderBy(resolveBaseSortExpression(s, qualify), s.dir ?? SortDir.Asc)
           }
         }
-        const lastSortField = resolvedSorts.length ? String(resolvedSorts[resolvedSorts.length - 1].field) : null
-        if (resolvedSorts.length && lastSortField !== 'id') {
+        const lastSort = resolvedSorts.at(-1)
+        if (lastSort && (lastSort.field !== 'id' || lastSort.fallbackFields?.length)) {
           next = next.orderBy(qualify('id'), SortDir.Asc)
         }
         return next
@@ -1595,7 +1597,7 @@ export class HybridQueryEngine implements QueryEngine {
           hasTenantColumn ? 'tenant_id' : null,
           hasOrganizationColumn ? 'organization_id' : null,
         ].filter((field): field is string => field !== null)
-        const sortFieldNames = Array.from(new Set(['id', ...scopeFieldNames, ...resolvedSorts.map((s) => String(s.field))]))
+        const sortFieldNames = Array.from(new Set(['id', ...scopeFieldNames, ...getSortFields(resolvedSorts)]))
         phase1 = applySelection(phase1, sortFieldNames)
         if (cap !== null) {
           // Probe one row past the cap: truncation is detected from the candidate

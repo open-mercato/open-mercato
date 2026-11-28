@@ -44,6 +44,7 @@ import {
   sortRowsInMemory,
 } from './encrypted-sort'
 import { resolveListCountCap } from './count-cap'
+import { getSortFields, resolveBaseSortExpression } from './sort-fields'
 import { mapWithConcurrency } from './bounded-decrypt'
 import {
   DECLINED_ENCRYPTED_SORT_LOG_MESSAGE,
@@ -815,15 +816,21 @@ export class BasicQueryEngine implements QueryEngine {
     const resolvedSorts: Sort[] = []
     for (const s of opts.sort || []) {
       if (s.field.startsWith('cf:')) {
-        resolvedSorts.push(s)
+        resolvedSorts.push({ field: s.field, dir: s.dir })
       } else {
         const column = await this.resolveBaseColumn(table, s.field)
-        if (column) resolvedSorts.push({ ...s, field: column })
+        if (!column) continue
+        const fallbackFields = s.fallbackFields?.length
+          ? await Promise.all(s.fallbackFields.map((field) => this.resolveBaseColumn(table, field)))
+          : undefined
+        resolvedSorts.push({
+          ...s,
+          field: column,
+          fallbackFields: fallbackFields?.filter((field) => field !== null),
+        })
       }
     }
-    const plainSortFields = resolvedSorts
-      .filter((sort) => !sort.field.startsWith('cf:'))
-      .map((sort) => sort.field)
+    const plainSortFields = getSortFields(resolvedSorts.filter((sort) => !sort.field.startsWith('cf:')))
     const encryptedFieldNames = await resolveEncryptedFieldNames(
       encryptionService,
       entity,
@@ -989,8 +996,8 @@ export class BasicQueryEngine implements QueryEngine {
         if (await this.columnExists(table, 'organization_id')) {
           q = q.select(sql.ref(qualify('organization_id')).as('organization_id'))
         }
-        for (const s of resolvedSorts) {
-          if (!s.field.startsWith('cf:')) q = q.select(sql.ref(qualify(s.field)).as(s.field))
+        for (const field of plainSortFields) {
+          q = q.select(sql.ref(qualify(field)).as(field))
         }
       } else if (opts.fields && opts.fields.length) {
         const cols = new Set(opts.fields.filter((f) => !f.startsWith('cf:')))
@@ -1454,7 +1461,7 @@ export class BasicQueryEngine implements QueryEngine {
       // projection alias — ordering by `to_jsonb(...)` compares arrays after every
       // scalar string regardless of contents, and a numeric kind must cast to
       // numeric instead of ordering the text CASE expression lexicographically (#5674)).
-      let lastEmittedSortField: string | null = null
+      let needsIdTiebreak = false
       for (const s of isCountProjection ? [] : resolvedSorts) {
         if (s.field.startsWith('cf:')) {
           const key = s.field.slice(3)
@@ -1485,12 +1492,12 @@ export class BasicQueryEngine implements QueryEngine {
           if (!requiresPlaintextSort && cfSortAliases.includes(sortAlias)) {
             const direction = sql.raw((s.dir ?? 'asc') === 'desc' ? 'desc' : 'asc')
             q = q.orderBy(sql`${sql.ref(sortAlias)} ${direction} NULLS LAST`)
-            lastEmittedSortField = s.field
+            needsIdTiebreak = true
           }
         } else {
           if (!requiresPlaintextSort) {
-            q = q.orderBy(qualify(s.field), (s.dir ?? 'asc') as any)
-            lastEmittedSortField = s.field
+            q = q.orderBy(resolveBaseSortExpression(s, qualify), s.dir ?? 'asc')
+            needsIdTiebreak = s.field !== 'id' || Boolean(s.fallbackFields?.length)
           }
         }
       }
@@ -1498,7 +1505,7 @@ export class BasicQueryEngine implements QueryEngine {
       // (#5674). Only appended when a sort term actually made it into the ORDER
       // BY — an entirely unresolved cf sort must stay a no-op, not gain an
       // incidental `id` ordering the caller never asked for.
-      if (!isCountProjection && lastEmittedSortField !== null && lastEmittedSortField !== 'id') {
+      if (needsIdTiebreak) {
         q = q.orderBy(qualify('id'), 'asc' as any)
       }
 
