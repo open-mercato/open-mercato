@@ -1,7 +1,13 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { fetchJson } from './helpers/securityFixtures'
-import { createIsolatedMfaSudoFixture, verifyTotpSudoChallenge } from './helpers/sudoFixtures'
+import {
+  createIsolatedMfaSudoFixture,
+  createPasswordSudoConfig,
+  deleteSudoFixtures,
+  verifyTotpSudoChallenge,
+} from './helpers/sudoFixtures'
 
 test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
   let fixture: Awaited<ReturnType<typeof createIsolatedMfaSudoFixture>> | undefined
@@ -12,6 +18,34 @@ test.describe('TC-SEC-006: Sudo challenge and admin override', () => {
 
   test.afterAll(async ({ request }) => {
     await fixture?.cleanup(request)
+  })
+
+  test('scopes sudo configuration reads to the actor tenant', async ({ request }) => {
+    if (!fixture) throw new Error('[internal] Sudo fixture was not initialized')
+    const { token, target, resetConfigId } = fixture
+    const otherConfigId = await createPasswordSudoConfig({
+      targetIdentifier: 'security.admin.mfa.reset',
+      tenantId: randomUUID(),
+      organizationId: null,
+      configuredBy: target.id,
+    })
+
+    try {
+      const list = await fetchJson<{ items: Array<{ id: string }> }>(
+        request, 'GET', '/api/security/sudo/configs', { token },
+      )
+      expect(list.status).toBe(200)
+      const visibleIds = list.body.items.map((config) => config.id)
+      expect(visibleIds).toContain(resetConfigId)
+      expect(visibleIds).not.toContain(otherConfigId)
+
+      const detail = await fetchJson(
+        request, 'GET', `/api/security/sudo/configs/${otherConfigId}`, { token },
+      )
+      expect(detail.status).toBe(404)
+    } finally {
+      await deleteSudoFixtures({ configIds: [otherConfigId] })
+    }
   })
 
   test('verifies MFA before changing sudo protection and enforces it again after re-enabling', async ({ request }) => {

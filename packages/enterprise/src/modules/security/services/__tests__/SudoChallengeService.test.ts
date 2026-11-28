@@ -53,6 +53,15 @@ type SessionRecord = {
 
 const mockedFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
+function matchesConfigQuery(config: ConfigRecord, query: Record<string, unknown>): boolean {
+  return Object.entries(query).every(([field, value]) => {
+    if (field === '$or') {
+      return (value as Record<string, unknown>[]).some((part) => matchesConfigQuery(config, part))
+    }
+    return value === undefined || config[field as keyof ConfigRecord] === value
+  })
+}
+
 function getSudoTestSecret(): string {
   return process.env.OM_SECURITY_SUDO_SECRET
     ?? process.env.AUTH_JWT_SECRET
@@ -119,35 +128,13 @@ function createServiceContext(
     }),
     flush: jest.fn().mockResolvedValue(undefined),
     find: jest.fn(async (entity: unknown, query: Record<string, unknown>) => {
-      if (entity === SudoChallengeConfig) {
-        return configs.filter((config) => {
-          if ('targetIdentifier' in query && config.targetIdentifier !== query.targetIdentifier) return false
-          if (query.deletedAt !== undefined && config.deletedAt !== query.deletedAt) return false
-          if (query.tenantId !== undefined && config.tenantId !== query.tenantId) return false
-          const orPredicates = (query as Record<string, unknown>).$or as Array<Record<string, unknown>> | undefined
-          if (Array.isArray(orPredicates) && orPredicates.length > 0) {
-            const matches = orPredicates.some((predicate) => {
-              if ('tenantId' in predicate && config.tenantId !== (predicate.tenantId as string | null)) return false
-              return true
-            })
-            if (!matches) return false
-          }
-          return true
-        })
-      }
-      return []
+      return entity === SudoChallengeConfig
+        ? configs.filter((config) => matchesConfigQuery(config, query))
+        : []
     }),
     findOne: jest.fn(async (entity: unknown, query: Record<string, unknown>) => {
       if (entity === SudoChallengeConfig) {
-        return configs.find((config) => {
-          if (query.id !== undefined && config.id !== query.id) return false
-          if ('targetIdentifier' in query && config.targetIdentifier !== query.targetIdentifier) return false
-          if (query.tenantId !== undefined && config.tenantId !== query.tenantId) return false
-          if (query.organizationId !== undefined && config.organizationId !== query.organizationId) return false
-          if (query.isDeveloperDefault !== undefined && config.isDeveloperDefault !== query.isDeveloperDefault) return false
-          if (query.deletedAt !== undefined && config.deletedAt !== query.deletedAt) return false
-          return true
-        }) ?? null
+        return configs.find((config) => matchesConfigQuery(config, query)) ?? null
       }
       if ('sessionToken' in query || 'id' in query) {
         return sessions.find((session) => {
@@ -223,6 +210,7 @@ function createServiceContext(
     mfaService,
     mfaVerificationService,
     connectionExecute,
+    readOne: em.findOne,
   }
 }
 
@@ -634,127 +622,80 @@ describe('SudoChallengeService', () => {
     expect(mockEmitBypassWarning).not.toHaveBeenCalled()
   })
 
-  describe('tenant isolation for sudo configs', () => {
-    function seedConfig(
-      configs: ConfigRecord[],
-      overrides?: Partial<ConfigRecord>,
-    ): ConfigRecord {
-      const record: ConfigRecord = {
-        id: 'config-a',
-        tenantId: 'tenant-a',
-        organizationId: null,
-        label: null,
-        targetIdentifier: 'security.custom.target',
-        isEnabled: true,
-        isDeveloperDefault: false,
-        ttlSeconds: 300,
-        challengeMethod: ChallengeMethod.PASSWORD,
-        configuredBy: 'user-a',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        deletedAt: null,
-        ...overrides,
-      }
-      configs.push(record)
-      return record
+  describe('configuration access', () => {
+    const policy = {
+      targetIdentifier: 'finance.transfers.approve',
+      isEnabled: true,
+      ttlSeconds: 180,
+      challengeMethod: ChallengeMethod.MFA,
     }
+    const operator = { tenantId: 'tenant-1', organizationId: 'org-1' }
+    const unselected = { tenantId: null }
+    const platformAdmin = { tenantId: null, isSuperAdmin: true }
+    const notFound = { name: 'SudoChallengeServiceError', statusCode: 404 }
 
-    test('updateConfig rejects cross-tenant writes from a tenant admin', async () => {
-      const { service, configs } = createServiceContext()
-      seedConfig(configs)
+    test('limits configuration reads to the selected tenant and platform policies', async () => {
+      const { service, readOne } = createServiceContext()
+      const globalPolicy = await service.createConfig(policy, 'platform-admin', platformAdmin)
+      const ownPolicy = await service.createConfig({ ...policy, ...operator }, 'user-1', operator)
+      const outsidePolicy = await service.createConfig({ ...policy, tenantId: 'tenant-2' }, 'platform-admin', platformAdmin)
 
-      await expect(
-        service.updateConfig(
-          'config-a',
-          { isEnabled: false },
-          'user-b',
-          { tenantId: 'tenant-b', organizationId: null, isSuperAdmin: false },
-        ),
-      ).rejects.toMatchObject({
-        name: 'SudoChallengeServiceError',
-        statusCode: 404,
-      })
+      await expect(service.getConfigById(outsidePolicy.id, operator)).resolves.toBeNull()
+      const lookup = readOne.mock.calls.findIndex(([entity, where]) => (
+        entity === SudoChallengeConfig && where.id === outsidePolicy.id
+      ))
+      expect(lookup).toBeGreaterThanOrEqual(0)
+      await expect(readOne.mock.results[lookup].value).resolves.toBeNull()
+      await expect(service.getConfigById(globalPolicy.id, operator)).resolves.toBe(globalPolicy)
+      await expect(service.getConfigById(ownPolicy.id, operator)).resolves.toBe(ownPolicy)
 
-      expect(configs[0].isEnabled).toBe(true)
-      expect(configs[0].configuredBy).toBe('user-a')
+      const records = await service.listConfigs(operator)
+      expect(records.filter((row) => row.targetIdentifier === policy.targetIdentifier)).toEqual([globalPolicy, ownPolicy])
+      await expect(service.getConfigById(globalPolicy.id, unselected)).resolves.toBeNull()
+      await expect(service.listConfigs(unselected)).resolves.toEqual([])
     })
 
-    test('deleteConfig rejects cross-tenant deletes from a tenant admin', async () => {
-      const { service, configs } = createServiceContext()
-      seedConfig(configs)
+    test.each([
+      { tenantId: 'tenant-2', organizationId: null },
+      { tenantId: 'tenant-1', organizationId: 'org-2' },
+      { tenantId: null, organizationId: null },
+    ])('hides policies outside the mutation scope %j', async (location) => {
+      const { service } = createServiceContext()
+      const config = await service.createConfig({ ...policy, ...location }, 'platform-admin', platformAdmin)
 
-      await expect(
-        service.deleteConfig('config-a', {
-          tenantId: 'tenant-b',
-          organizationId: null,
-          isSuperAdmin: false,
-        }),
-      ).rejects.toMatchObject({
-        name: 'SudoChallengeServiceError',
-        statusCode: 404,
-      })
-
-      expect(configs[0].deletedAt).toBeNull()
+      await expect(service.updateConfig(config.id, { isEnabled: false }, 'user-1', operator)).rejects.toMatchObject(notFound)
+      await expect(service.deleteConfig(config.id, operator)).rejects.toMatchObject(notFound)
+      expect(config).toMatchObject({ isEnabled: true, configuredBy: 'platform-admin', deletedAt: null })
     })
 
-    test('getConfigById and listConfigs hide cross-tenant records from a tenant admin', async () => {
-      const { service, configs } = createServiceContext()
-      seedConfig(configs)
-      seedConfig(configs, {
-        id: 'config-b',
-        tenantId: 'tenant-b',
-        targetIdentifier: 'security.custom.target.b',
-        configuredBy: 'user-b',
-      })
+    test.each(['tenant-2', null])('does not let a tenant policy move to tenant %s', async (tenantId) => {
+      const { service } = createServiceContext()
+      const config = await service.createConfig({ ...policy, tenantId: operator.tenantId }, 'user-1', operator)
+      const originalVersion = config.updatedAt
 
-      const foreignScope = { tenantId: 'tenant-b', organizationId: null, isSuperAdmin: false }
-      const fetched = await service.getConfigById('config-a', foreignScope)
-      expect(fetched).toBeNull()
-
-      const visible = await service.listConfigs(foreignScope)
-      expect(visible.map((item) => item.id)).not.toContain('config-a')
-      expect(visible.map((item) => item.id)).toContain('config-b')
+      await expect(service.updateConfig(config.id, { tenantId, isEnabled: false }, 'user-1', operator)).rejects.toMatchObject(notFound)
+      expect(config).toMatchObject({ tenantId: operator.tenantId, isEnabled: true, updatedAt: originalVersion })
     })
 
-    test('createConfig rejects attempts to target a foreign tenant', async () => {
+    test.each(['tenant-2', null])('does not let a tenant operator create a policy for tenant %s', async (tenantId) => {
       const { service, configs } = createServiceContext()
 
-      await expect(
-        service.createConfig(
-          {
-            tenantId: 'tenant-b',
-            organizationId: null,
-            targetIdentifier: 'security.custom.new',
-            isEnabled: true,
-            ttlSeconds: 300,
-            challengeMethod: ChallengeMethod.PASSWORD,
-          },
-          'user-a',
-          { tenantId: 'tenant-a', organizationId: null, isSuperAdmin: false },
-        ),
-      ).rejects.toMatchObject({
-        name: 'SudoChallengeServiceError',
-        statusCode: 404,
-      })
-
-      expect(configs.find((item) => item.targetIdentifier === 'security.custom.new')).toBeUndefined()
+      await expect(service.createConfig({ ...policy, tenantId }, 'user-1', operator)).rejects.toMatchObject(notFound)
+      expect(configs.some((row) => row.targetIdentifier === policy.targetIdentifier)).toBe(false)
     })
 
-    test('superadmin bypasses tenant scope and can manage any config', async () => {
-      const { service, configs } = createServiceContext()
-      seedConfig(configs)
+    test('platform authority can edit and remove a tenant policy without selecting that tenant', async () => {
+      const { service } = createServiceContext()
+      const config = await service.createConfig({ ...policy, ...operator }, 'user-1', operator)
 
-      const superAdminScope = { tenantId: null, organizationId: null, isSuperAdmin: true }
-      await service.updateConfig(
-        'config-a',
-        { isEnabled: false },
-        'super-admin',
-        superAdminScope,
-      )
-      expect(configs[0].isEnabled).toBe(false)
-
-      await service.deleteConfig('config-a', superAdminScope)
-      expect(configs[0].deletedAt).toBeInstanceOf(Date)
+      await expect(service.updateConfig(config.id, { ttlSeconds: 240 }, 'user-1', unselected)).rejects.toMatchObject(notFound)
+      await expect(service.deleteConfig(config.id, unselected)).rejects.toMatchObject(notFound)
+      await expect(service.updateConfig(config.id, { ttlSeconds: 240 }, 'platform-admin', platformAdmin)).resolves.toMatchObject({
+        ttlSeconds: 240,
+        configuredBy: 'platform-admin',
+      })
+      await service.deleteConfig(config.id, platformAdmin)
+      expect(config.deletedAt).toBeInstanceOf(Date)
     })
   })
 

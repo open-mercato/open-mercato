@@ -24,7 +24,7 @@ jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
   getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
 
-import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { signAudienceJwt, signJwt, verifyAudienceJwt } from '@open-mercato/shared/lib/auth/jwt'
 import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 import { MFA_NO_METHODS_CONFIGURED_CODE } from '../../lib/mfa-error-codes'
 import { interceptors } from '../interceptors'
@@ -95,6 +95,7 @@ describe('security auth/login api interceptor', () => {
 
     const fullToken = signJwt({
       sub: 'user-1',
+      sid: 'session-1',
       tenantId: 'tenant-1',
       orgId: 'org-1',
       email: 'user@example.com',
@@ -116,9 +117,11 @@ describe('security auth/login api interceptor', () => {
     })
     expect(typeof result.replace?.token).toBe('string')
 
-    const pendingClaims = verifyJwt(String(result.replace?.token))
+    const pendingToken = String(result.replace?.token)
+    const pendingClaims = verifyAudienceJwt('staff', pendingToken)
     expect(pendingClaims).toMatchObject({
       sub: 'user-1',
+      sid: 'session-1',
       tenantId: 'tenant-1',
       orgId: 'org-1',
       email: 'user@example.com',
@@ -126,6 +129,24 @@ describe('security auth/login api interceptor', () => {
       mfa_pending: true,
       mfa_verified: false,
     })
+    expect(pendingClaims?.exp - pendingClaims?.iat).toBe(10 * 60)
+    expect(verifyAudienceJwt('customer', pendingToken)).toBeNull()
+  })
+
+  test('ignores a successful response token from the customer audience', async () => {
+    if (!interceptor?.after) throw new Error('Expected security auth/login interceptor')
+
+    const createChallenge = jest.fn() as CreateChallengeMock
+    const token = signAudienceJwt('customer', { sub: 'customer-1', sid: 'customer-session-1' })
+
+    const result = await interceptor.after(
+      { method: 'POST', url: 'http://localhost/api/auth/login', headers: {} },
+      { statusCode: 200, body: { ok: true, token }, headers: {} },
+      buildContext(createChallenge),
+    )
+
+    expect(result).toEqual({})
+    expect(createChallenge).not.toHaveBeenCalled()
   })
 
   test('fails closed when challenge creation fails for an account with MFA methods', async () => {

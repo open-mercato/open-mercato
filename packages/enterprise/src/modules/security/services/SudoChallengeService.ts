@@ -25,6 +25,9 @@ import type { MfaVerificationService } from './MfaVerificationService'
 import { sudoTargets as defaultSudoTargets } from '../security.sudo'
 import type { SecurityModuleConfig } from '../lib/security-config'
 import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig, requestMfaEmergencyBypassNotification } from '../lib/security-config'
+import { configAuthority, sudoConfigMutationCriteria, type SudoAuthScope } from '../lib/sudo-config-scope'
+
+export type { SudoAuthScope } from '../lib/sudo-config-scope'
 
 type SudoMethod = 'password' | 'mfa'
 
@@ -62,10 +65,11 @@ type BoundPendingSudoSession = SudoSession & {
   sudoConfigUpdatedAt: Date
 }
 
-export type SudoAuthScope = {
-  tenantId: string | null
-  organizationId?: string | null
-  isSuperAdmin?: boolean
+function readableConfigCriteria(scope?: SudoAuthScope) {
+  const authority = configAuthority(scope)
+  if (authority.kind === 'unselected') return null
+  if (authority.kind === 'platform') return {}
+  return { $or: [{ tenantId: authority.tenantId }, { tenantId: null }] }
 }
 
 type DeveloperDefaultPayload = {
@@ -90,6 +94,10 @@ export class SudoChallengeServiceError extends Error {
   }
 }
 
+function configNotFound(): SudoChallengeServiceError {
+  return new SudoChallengeServiceError('Sudo configuration not found', 404)
+}
+
 export class SudoChallengeService {
   constructor(
     private readonly em: EntityManager,
@@ -101,17 +109,11 @@ export class SudoChallengeService {
 
   async listConfigs(scope?: SudoAuthScope): Promise<SudoChallengeConfig[]> {
     await this.ensureDeveloperDefaultsRegistered()
-    const filter: FilterQuery<SudoChallengeConfig> = { deletedAt: null }
-    if (scope && !scope.isSuperAdmin) {
-      if (!scope.tenantId) return []
-      ;(filter as Record<string, unknown>).$or = [
-        { tenantId: scope.tenantId },
-        { tenantId: null },
-      ]
-    }
+    const visible = readableConfigCriteria(scope)
+    if (visible === null) return []
     return this.em.find(
       SudoChallengeConfig,
-      filter,
+      { ...visible, deletedAt: null },
       {
         orderBy: {
           targetIdentifier: 'asc',
@@ -125,10 +127,9 @@ export class SudoChallengeService {
 
   async getConfigById(id: string, scope?: SudoAuthScope): Promise<SudoChallengeConfig | null> {
     await this.ensureDeveloperDefaultsRegistered()
-    const config = await this.em.findOne(SudoChallengeConfig, { id, deletedAt: null })
-    if (!config) return null
-    if (scope && !this.isConfigVisibleToScope(config, scope)) return null
-    return config
+    const visible = readableConfigCriteria(scope)
+    if (visible === null) return null
+    return this.em.findOne(SudoChallengeConfig, { ...visible, id, deletedAt: null })
   }
 
   async isProtected(
@@ -420,15 +421,13 @@ export class SudoChallengeService {
     scope?: SudoAuthScope,
   ): Promise<SudoChallengeConfig> {
     await this.ensureDeveloperDefaultsRegistered()
-    const inputTenantId = input.tenantId ?? null
-    const inputOrganizationId = input.organizationId ?? null
-    this.validateScope(inputTenantId, inputOrganizationId)
-    if (scope) this.assertWriteScope(inputTenantId, inputOrganizationId, scope)
-    await this.ensureUniqueConfig(input.targetIdentifier, inputTenantId, inputOrganizationId)
+    const location = { tenantId: input.tenantId ?? null, organizationId: input.organizationId ?? null }
+    this.validateScope(location.tenantId, location.organizationId)
+    this.assertWritableLocation(scope, location.tenantId, location.organizationId)
+    await this.ensureUniqueConfig(input.targetIdentifier, location.tenantId, location.organizationId)
 
     const config = this.em.create(SudoChallengeConfig, {
-      tenantId: inputTenantId,
-      organizationId: inputOrganizationId,
+      ...location,
       label: input.label ?? null,
       targetIdentifier: input.targetIdentifier,
       isEnabled: input.isEnabled,
@@ -458,22 +457,13 @@ export class SudoChallengeService {
     scope?: SudoAuthScope,
   ): Promise<SudoChallengeConfig> {
     await this.ensureDeveloperDefaultsRegistered()
-    const config = await this.em.findOne(SudoChallengeConfig, { id, deletedAt: null })
-    if (!config) {
-      throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-    }
-    if (scope) {
-      this.assertWriteScope(config.tenantId ?? null, config.organizationId ?? null, scope)
-      if (config.isDeveloperDefault && !scope.isSuperAdmin) {
-        throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-      }
-    }
+    const config = await this.getConfigForMutation(id, scope)
 
-    const nextTenantId = input.tenantId !== undefined ? input.tenantId ?? null : config.tenantId ?? null
-    const nextOrganizationId = input.organizationId !== undefined ? input.organizationId ?? null : config.organizationId ?? null
+    const nextTenantId = input.tenantId === undefined ? config.tenantId ?? null : input.tenantId
+    const nextOrganizationId = input.organizationId === undefined ? config.organizationId ?? null : input.organizationId
     const nextTargetIdentifier = input.targetIdentifier ?? config.targetIdentifier
     this.validateScope(nextTenantId, nextOrganizationId)
-    if (scope) this.assertWriteScope(nextTenantId, nextOrganizationId, scope)
+    this.assertWritableLocation(scope, nextTenantId, nextOrganizationId)
     await this.ensureUniqueConfig(nextTargetIdentifier, nextTenantId, nextOrganizationId, config.id)
 
     if (input.tenantId !== undefined) config.tenantId = input.tenantId ?? null
@@ -497,16 +487,7 @@ export class SudoChallengeService {
   }
 
   async deleteConfig(id: string, scope?: SudoAuthScope): Promise<void> {
-    const config = await this.em.findOne(SudoChallengeConfig, { id, deletedAt: null })
-    if (!config) {
-      throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-    }
-    if (scope) {
-      this.assertWriteScope(config.tenantId ?? null, config.organizationId ?? null, scope)
-      if (config.isDeveloperDefault && !scope.isSuperAdmin) {
-        throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-      }
-    }
+    const config = await this.getConfigForMutation(id, scope)
     config.deletedAt = new Date()
     config.updatedAt = new Date()
     await this.em.flush()
@@ -613,33 +594,27 @@ export class SudoChallengeService {
     }
   }
 
-  private isConfigVisibleToScope(config: SudoChallengeConfig, scope: SudoAuthScope): boolean {
-    if (scope.isSuperAdmin) return true
-    if (!scope.tenantId) return false
-    const configTenantId = config.tenantId ?? null
-    if (configTenantId === null) return true
-    return configTenantId === scope.tenantId
+  private async getConfigForMutation(id: string, scope?: SudoAuthScope): Promise<SudoChallengeConfig> {
+    const criteria = sudoConfigMutationCriteria(id, scope)
+    if (criteria === null) throw configNotFound()
+    const config = await this.em.findOne(SudoChallengeConfig, criteria)
+    if (!config) throw configNotFound()
+    return config
   }
 
-  private assertWriteScope(
-    targetTenantId: string | null,
-    targetOrganizationId: string | null,
-    scope: SudoAuthScope,
+  private assertWritableLocation(
+    scope: SudoAuthScope | undefined,
+    tenantId: string | null,
+    organizationId: string | null,
   ): void {
-    if (scope.isSuperAdmin) return
-    if (!scope.tenantId) {
-      throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-    }
-    if ((targetTenantId ?? null) !== scope.tenantId) {
-      throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-    }
+    const authority = configAuthority(scope)
+    if (authority.kind === 'platform') return
     if (
-      scope.organizationId !== undefined
-      && scope.organizationId !== null
-      && targetOrganizationId !== null
-      && targetOrganizationId !== scope.organizationId
+      authority.kind !== 'tenant'
+      || authority.tenantId !== tenantId
+      || (authority.organizationId !== null && organizationId !== null && authority.organizationId !== organizationId)
     ) {
-      throw new SudoChallengeServiceError('Sudo configuration not found', 404)
+      throw configNotFound()
     }
   }
 

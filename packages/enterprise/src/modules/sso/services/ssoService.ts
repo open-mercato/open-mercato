@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
+import type { User } from '@open-mercato/core/modules/auth/data/entities'
 import type { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { SsoConfig } from '../data/entities'
@@ -13,8 +13,10 @@ import { emitSsoEvent } from '../events'
 import { isSsoRolesRevokedError } from '../lib/errors'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { issueStaffSessionToken } from '../../../lib/staffSessionToken'
 
 const logger = createLogger('sso').child({ component: 'service' })
+const millisecondsPerDay = 24 * 60 * 60 * 1000
 
 export class SsoService {
   constructor(
@@ -124,7 +126,7 @@ export class SsoService {
       clientSecret,
     })
 
-    let user: Awaited<ReturnType<AccountLinkingService['resolveUser']>>['user']
+    let user: User
     try {
       ;({ user } = await this.accountLinkingService.resolveUser(config, idpPayload, config.tenantId ?? '', configUpdatedAt))
     } catch (err) {
@@ -132,30 +134,8 @@ export class SsoService {
       throw err
     }
 
-    await this.rbacService.invalidateUserCache(String(user.id))
-    const tenantId = user.tenantId ?? null
-
-    const roles = await this.authService.getUserRoles(user, tenantId || null)
-
-    await this.authService.updateLastLoginAt(user)
-
-    const days = Number(process.env.REMEMBER_ME_DAYS || '30')
-    const sessionExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
-    const { session, token: sessionRefreshToken } = await this.authService.createSession(user, sessionExpiresAt, {
-      tenantId,
-      organizationId: config.organizationId,
-      ssoConfigId: config.id,
-      configUpdatedAt,
-    })
-
-    const token = signJwt({
-      sub: String(user.id),
-      sid: String(session.id),
-      tenantId: tenantId || null,
-      orgId: user.organizationId ? String(user.organizationId) : null,
-      email: user.email,
-      roles,
-    })
+    const { token, sessionToken, sessionExpiresAt, tenantId } =
+      await this.issueLinkedAccountSession(user, config, configUpdatedAt)
 
     void emitSsoEvent('sso.login.completed', {
       id: String(user.id),
@@ -165,12 +145,39 @@ export class SsoService {
 
     return {
       token,
-      sessionToken: sessionRefreshToken,
+      sessionToken,
       sessionExpiresAt,
       redirectUrl: flowState.returnUrl || '/backend',
       tenantId,
       organizationId: config.organizationId,
     }
+  }
+
+  private async issueLinkedAccountSession(account: User, config: SsoConfig, configUpdatedAt: number) {
+    const subject = String(account.id)
+    await this.rbacService.invalidateUserCache(subject)
+    const tenantId = account.tenantId ?? null
+    const roles = await this.authService.getUserRoles(account, tenantId || null)
+    await this.authService.updateLastLoginAt(account)
+
+    const sessionLifetime = Number(process.env.REMEMBER_ME_DAYS || '30') * millisecondsPerDay
+    const sessionExpiresAt = new Date(Date.now() + sessionLifetime)
+    // Persist the session through the locked auth service before signing its access token.
+    const { session, token: sessionToken } = await this.authService.createSession(account, sessionExpiresAt, {
+      tenantId,
+      organizationId: config.organizationId,
+      ssoConfigId: config.id,
+      configUpdatedAt,
+    })
+    const token = issueStaffSessionToken({
+      subject,
+      sessionId: String(session.id),
+      tenantId: tenantId || null,
+      organizationId: account.organizationId ? String(account.organizationId) : null,
+      email: account.email,
+      roles,
+    })
+    return { token, sessionToken, sessionExpiresAt, tenantId }
   }
 
   private async decryptClientSecret(config: SsoConfig): Promise<string | undefined> {

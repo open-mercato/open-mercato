@@ -1,22 +1,14 @@
 import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-interceptor'
-import { signJwt, verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
+import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { emitMfaEmergencyBypassActiveWarning, readSecurityModuleConfig, requestMfaEmergencyBypassNotification } from '../lib/security-config'
 import { resolveMfaEnrollmentRedirect } from '../lib/enforcement-redirect'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { MFA_NO_METHODS_CONFIGURED_CODE } from '../lib/mfa-error-codes'
+import { issueStaffSessionToken, type StaffSessionIdentity } from '../../../lib/staffSessionToken'
 
 const logger = createLogger('security').child({ component: 'auth-login-mfa-interceptor' })
-
-type JwtClaims = {
-  sub: string
-  sid?: string | null
-  tenantId?: string | null
-  orgId?: string | null
-  email?: string | null
-  roles?: string[]
-}
 
 type MfaVerificationServiceLike = {
   createChallenge: (userId: string) => Promise<{
@@ -25,17 +17,17 @@ type MfaVerificationServiceLike = {
   }>
 }
 
-function readClaims(token: string): JwtClaims | null {
+function readStaffLoginIdentity(token: string): StaffSessionIdentity | null {
   const payload = verifyJwt(token)
-  if (!payload || typeof payload !== 'object') return null
-  const sub = typeof payload.sub === 'string' ? payload.sub : null
-  if (!sub) return null
+  if (typeof payload?.sub !== 'string' || !payload.sub) return null
+
+  const stringClaim = (claim: unknown) => typeof claim === 'string' ? claim : null
   return {
-    sub,
-    sid: typeof payload.sid === 'string' ? payload.sid : null,
-    tenantId: typeof payload.tenantId === 'string' ? payload.tenantId : null,
-    orgId: typeof payload.orgId === 'string' ? payload.orgId : null,
-    email: typeof payload.email === 'string' ? payload.email : null,
+    subject: payload.sub,
+    sessionId: stringClaim(payload.sid),
+    tenantId: stringClaim(payload.tenantId),
+    organizationId: stringClaim(payload.orgId),
+    email: stringClaim(payload.email),
     roles: Array.isArray(payload.roles) ? payload.roles.filter((value: unknown): value is string => typeof value === 'string') : [],
   }
 }
@@ -94,14 +86,14 @@ export const interceptors: ApiInterceptor[] = [
       if (response.body.ok !== true || response.body.mfa_required === true) return {}
       if (typeof response.body.token !== 'string' || response.body.token.length === 0) return {}
 
-      const claims = readClaims(response.body.token)
-      if (!claims) return {}
+      const identity = readStaffLoginIdentity(response.body.token)
+      if (!identity) return {}
 
       // The emergency bypass is an explicit operator override and must keep working even
       // when the MFA service is degraded, so it is evaluated before service resolution.
       if (readSecurityModuleConfig().mfa.emergencyBypass) {
-        emitMfaEmergencyBypassActiveWarning('login MFA challenge bypassed', { userId: claims.sub })
-        await requestMfaEmergencyBypassNotification({ tenantId: claims.tenantId, organizationId: claims.orgId })
+        emitMfaEmergencyBypassActiveWarning('login MFA challenge bypassed', { userId: identity.subject })
+        await requestMfaEmergencyBypassNotification({ tenantId: identity.tenantId, organizationId: identity.organizationId })
         return {}
       }
 
@@ -119,21 +111,8 @@ export const interceptors: ApiInterceptor[] = [
       }
 
       try {
-        const challenge = await mfaVerificationService.createChallenge(claims.sub)
-        const pendingToken = signJwt(
-          {
-            sub: claims.sub,
-            sid: claims.sid ?? undefined,
-            tenantId: claims.tenantId ?? null,
-            orgId: claims.orgId ?? null,
-            email: claims.email ?? null,
-            roles: claims.roles ?? [],
-            mfa_pending: true,
-            mfa_verified: false,
-          },
-          undefined,
-          60 * 10,
-        )
+        const challenge = await mfaVerificationService.createChallenge(identity.subject)
+        const pendingToken = issueStaffSessionToken(identity, { stage: 'pending' })
         return {
           replace: {
             ok: true,
