@@ -25,6 +25,7 @@ import { z } from 'zod'
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { JobContext, QueuedJob } from '@open-mercato/queue'
+import '../../events'
 import { WorkflowInstance } from '../../data/entities'
 import { createActivityWorkerHandler } from '../activity-worker-handler'
 import { registerActivityType } from '../activity-registry'
@@ -164,14 +165,14 @@ describe('Activity Worker Handler (registry dispatch)', () => {
       makeJob(
         makePayload({
           activityType: 'EMIT_EVENT',
-          activityConfig: { eventName: 'example.thing.created', payload: { id: '1' } },
+          activityConfig: { eventName: 'approval.requested', payload: { id: '1' } },
         })
       ),
       jobCtx
     )
 
     expect(emitEvent).toHaveBeenCalledWith(
-      'example.thing.created',
+      'approval.requested',
       expect.objectContaining({ id: '1' }),
       expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' })
     )

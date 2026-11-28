@@ -472,6 +472,37 @@ describe('CRUD Factory', () => {
         cacheEnabled.mockRestore()
       }
     })
+
+    it('keeps cached deleted rows out of a later response when an interceptor disables visibility', async () => {
+      const cacheEnabled = jest.spyOn(crudCacheHelpers, 'isCrudCacheEnabled').mockReturnValue(true)
+      let interceptedFlag = 'true'
+      registerApiInterceptors([{
+        moduleId: 'example',
+        interceptors: [{
+          id: 'example.rewrite-deletion-flag',
+          targetRoute: 'example/todos',
+          methods: ['GET'],
+          async before() {
+            return { ok: true, query: { withDeleted: interceptedFlag } }
+          },
+        }],
+      }])
+      const optedInRoute = makeDeletedRoute(true)
+      const request = new Request('http://x/api/example/todos?withDeleted=true')
+      try {
+        queueDeletedRows()
+        const allowed = await optedInRoute.GET(request)
+        expect((await allowed.json()).items).toEqual([liveRow, deletedRow])
+
+        interceptedFlag = 'false'
+        queueDeletedRows()
+        const hidden = await optedInRoute.GET(request)
+        expect((await hidden.json()).items).toEqual([liveRow])
+        expect(queryEngine.query).toHaveBeenCalledTimes(2)
+      } finally {
+        cacheEnabled.mockRestore()
+      }
+    })
   })
 
   it('GET returns an empty page before hooks, cache, query engine, EM, RBAC, or data engine for explicit empty scope', async () => {
@@ -601,6 +632,74 @@ describe('CRUD Factory', () => {
     const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
     expect(queryArgs?.filters).toEqual({
       id: { $in: [idA, idB] },
+    })
+  })
+
+  describe('v2 advanced filter trees on routes without their own merge', () => {
+    const v2Params = () => new URLSearchParams({
+      'filter[v]': '2',
+      'filter[root][combinator]': 'and',
+      'filter[root][children][0][type]': 'rule',
+      'filter[root][children][0][field]': 'title',
+      'filter[root][children][0][op]': 'is',
+      'filter[root][children][0][value]': 'A',
+    })
+
+    it('GET query engine path AND-combines the v2 tree with buildFilters', async () => {
+      const treeRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema.passthrough(),
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'member_id'],
+          buildFilters: () => ({ member_id: 'member-1' }),
+        },
+      })
+
+      const response = await treeRoute.GET(new Request(`http://x/api/example/todos?${v2Params()}`))
+
+      expect(response.status).toBe(200)
+      expect(queryEngine.query.mock.calls.at(-1)?.[1]?.filters).toEqual({
+        $and: [{ member_id: 'member-1' }, { title: { $eq: 'A' } }],
+      })
+    })
+
+    it('GET ORM fallback AND-combines the v2 tree with buildFilters', async () => {
+      const repository = em.getRepository(Todo)
+      const find = jest.fn(repository.find)
+      em.getMetadata.mockReturnValueOnce({
+        find: () => ({
+          properties: {
+            title: { fieldNames: ['title'] },
+            member: { fieldNames: ['member_id'] },
+          },
+        }),
+      })
+      const getRepository = jest.spyOn(em, 'getRepository').mockReturnValueOnce({ ...repository, find })
+      try {
+        const treeRoute = makeCrudRoute({
+          metadata: { GET: { requireAuth: true } },
+          orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+          list: {
+            schema: querySchema.passthrough(),
+            fields: ['id', 'title'],
+            buildFilters: () => ({ member_id: 'member-1' }),
+          },
+        })
+
+        const response = await treeRoute.GET(new Request(`http://x/api/example/todos?${v2Params()}`))
+
+        expect(response.status).toBe(200)
+        expect(find).toHaveBeenCalledWith(expect.objectContaining({
+          tenantId: defaultTenantId,
+          organizationId: defaultOrganizationId,
+          $and: [{ member: 'member-1' }, { title: { $eq: 'A' } }],
+        }))
+      } finally {
+        getRepository.mockRestore()
+      }
     })
   })
 
@@ -2581,6 +2680,21 @@ describe('CRUD Factory', () => {
     expect(res.status).toBe(200)
     expect(guardValidate).not.toHaveBeenCalled()
     expect(commandBus.execute).toHaveBeenCalledWith('example.todo.delete', expect.anything())
+  })
+
+  it('keeps request admission at the dispatcher and runs only route hooks inside a real CRUD handler', async () => {
+    const requestAdmission = jest.fn(async () => ({ ok: false, statusCode: 403 }))
+    const routeAdmission = jest.fn(async () => ({ ok: true }))
+    registerApiInterceptors([{ moduleId: 'example', interceptors: [
+      { id: 'example.request', targetRoute: '*', scope: 'request', methods: ['GET'], before: requestAdmission },
+      { id: 'example.route', targetRoute: '*', methods: ['GET'], before: routeAdmission },
+    ] }])
+
+    const response = await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=id&sortDir=asc'))
+    expect(response.status).toBe(200)
+    expect(routeAdmission).toHaveBeenCalledTimes(1)
+    expect(requestAdmission).not.toHaveBeenCalled()
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
   })
 
   it('POST is blocked by interceptor before hook', async () => {

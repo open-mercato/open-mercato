@@ -89,7 +89,7 @@ test.describe('TC-CHANNEL-API-008: personal-mailbox thread reassignment is owner
       })
 
       const otherEmail = `tc-channel-api-008-${stamp}@example.com`
-      const otherPassword = 'Valid1!Pass'
+      const otherPassword = 'QaValid1!Pass'
       otherUserId = await createUserFixture(request, ownerToken, {
         email: otherEmail,
         password: otherPassword,

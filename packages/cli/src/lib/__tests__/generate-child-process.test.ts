@@ -183,3 +183,33 @@ it('preserves real generated metadata, callbacks and plugins across dependency e
     ]))
   }
 }, 120_000)
+
+
+it('passes incremental plans through stdin to a disposable generator and consumes the private marker', async () => {
+  const binary = write('generate.mjs', `
+    import fs from 'node:fs'
+    const { readGenerateWatchRequest } = await import(process.env.CHILD_HELPER_SOURCE)
+    fs.writeFileSync('result.json', JSON.stringify({
+      request: readGenerateWatchRequest(),
+      marker: process.env.OM_INTERNAL_GENERATE_WATCH_REQUEST ?? null,
+      secondRead: readGenerateWatchRequest() ?? null,
+    }))
+  `)
+  const watchRequest = {
+    plan: {
+      mode: 'incremental' as const,
+      groups: ['di' as const], registryOutputs: [], reasons: [],
+      changes: [{ kind: 'change' as const, category: 'di' as const, key: 'probe/di', path: '/probe/di.ts' }],
+    },
+    logCascade: true,
+  }
+  await runGenerateChildProcess({
+    mercatoBin: binary, cwd: directory, watchRequest,
+    env: {
+      ...process.env,
+      NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ''} --import=${pathToFileURL(require.resolve('tsx')).href}`,
+      CHILD_HELPER_SOURCE: pathToFileURL(path.resolve(__dirname, '../generate-child-process.ts')).href,
+    },
+  })
+  expect(readResult()).toEqual({ request: watchRequest, marker: null, secondRead: null })
+})

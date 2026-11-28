@@ -22,7 +22,7 @@ import { getTokenContext } from '@open-mercato/core/helpers/integration/generalF
 const PRICE_KINDS_PATH = '/api/catalog/price-kinds'
 const NON_EXISTENT_ID = '00000000-0000-0000-0000-000000000000'
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
-const USER_PASSWORD = 'Valid1!Pass'
+const USER_PASSWORD = 'QaValid1!Pass'
 
 test.describe('TC-CAT-033: Price-kinds RBAC enforcement', () => {
   test('forbids every method for a user without catalog.settings.manage', async ({ request, baseURL }) => {

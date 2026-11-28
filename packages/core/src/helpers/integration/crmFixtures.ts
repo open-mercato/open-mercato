@@ -1,10 +1,18 @@
 import { expect, type APIRequestContext } from '@playwright/test';
 import { apiRequest } from './api';
+import { importFromAppRuntime } from './appRuntime';
 import { readJsonSafe } from './generalFixtures';
 
 type JsonRecord = Record<string, unknown>;
 
 export { readJsonSafe } from './generalFixtures';
+
+export async function loadCustomerMessageObjectTypes() {
+  const { messageObjectTypes } = await importFromAppRuntime<
+    typeof import('../../modules/customers/message-objects')
+  >('@open-mercato/core/modules/customers/message-objects');
+  return messageObjectTypes;
+}
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === 'object' && value !== null;
@@ -55,7 +63,14 @@ export async function createCompanyFixture(
 export async function createPersonFixture(
   request: APIRequestContext,
   token: string,
-  input: { firstName: string; lastName: string; displayName: string; companyEntityId?: string; primaryEmail?: string },
+  input: {
+    firstName: string;
+    lastName: string;
+    displayName: string;
+    companyEntityId?: string;
+    primaryEmail?: string;
+    nextInteractionName?: string;
+  },
 ): Promise<string> {
   const data: Record<string, unknown> = {
     firstName: input.firstName,
@@ -67,6 +82,9 @@ export async function createPersonFixture(
   }
   if (input.primaryEmail) {
     data.primaryEmail = input.primaryEmail;
+  }
+  if (input.nextInteractionName !== undefined) {
+    data.nextInteraction = { name: input.nextInteractionName, at: new Date().toISOString() };
   }
   return createEntity(request, token, '/api/customers/people', data, ['id', 'entityId', 'personId']);
 }

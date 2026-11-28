@@ -161,3 +161,40 @@ describe('enforceCheckoutRateLimit', () => {
     expect(consume).toHaveBeenCalledWith('checkout-submit:global', checkoutSubmitRateLimitConfig)
   })
 })
+
+describe('checkout password limits', () => {
+  const config = { points: 5, duration: 60, keyPrefix: 'checkout-password' }
+  const allow = { allowed: true, remainingPoints: 4, msBeforeNext: 0, consumedPoints: 1 }
+
+  function checkPassword(slug: string, consume: jest.Mock, trustProxyDepth = 0) {
+    return enforceCheckoutRateLimit({
+      req: new Request('https://merchant.example', { headers: { 'x-forwarded-for': '192.0.2.14' } }),
+      container: { resolve: () => ({ consume, trustProxyDepth }) },
+      config,
+      namespace: 'checkout-password',
+      posture: 'fail-closed',
+      errorMessage: 'Too many attempts',
+      checkoutSlug: slug,
+    })
+  }
+
+  it('uses independent checkout buckets without trusting forwarding headers in direct mode', async () => {
+    const consume = jest.fn().mockResolvedValue(allow)
+    await checkPassword('morning', consume)
+    await checkPassword('afternoon', consume)
+    await checkPassword('morning', consume)
+
+    const [first, second, repeated] = consume.mock.calls.map(([key]) => key)
+    expect(first).toMatch(/^checkout-password:link:[a-f0-9]{64}$/)
+    expect(second).not.toEqual(first)
+    expect(repeated).toEqual(first)
+  })
+
+  it('applies a separate source budget before checking the link', async () => {
+    const consume = jest.fn().mockResolvedValue(allow)
+    await checkPassword('morning', consume, 1)
+
+    expect(consume).toHaveBeenNthCalledWith(1, 'checkout-password:ip:192.0.2.14', config)
+    expect(consume).toHaveBeenNthCalledWith(2, expect.stringMatching(/^checkout-password:link:/), config)
+  })
+})

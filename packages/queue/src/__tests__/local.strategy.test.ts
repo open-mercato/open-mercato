@@ -1054,6 +1054,27 @@ describe('Queue - local strategy', () => {
       await queue.close()
     })
 
+    test('stable publication retries do not park a coalesced follow-up but a new identity does', async () => {
+      const queue = createQueue<Payload>(queueName, 'local', {
+        coalesceBy: () => 'order-totals:42',
+      })
+      await queue.enqueue({ value: 1 }, { jobId: 'receipt-first', timeoutMs: 2000 })
+
+      const runs = await whileFirstJobIsRunning(queue, async () => {
+        expect(await queue.enqueue({ value: 2 }, { jobId: 'receipt-first', timeoutMs: 2000 })).toBe('receipt-first')
+        expect(readJson(queuePath)[0].coalesceNext).toBeUndefined()
+        expect(await queue.enqueue({ value: 3 }, { jobId: 'receipt-next', timeoutMs: 2000 })).toBe('receipt-first')
+      })
+
+      expect(runs).toEqual([1])
+      expect(readJson(queuePath)).toEqual([
+        expect.objectContaining({ id: 'receipt-next', payload: { value: 3 }, coalesceKey: 'order-totals:42' }),
+      ])
+      await queue.process((job) => { runs.push(job.payload.value) }, { limit: 1 })
+      expect(runs).toEqual([1, 3])
+      await queue.close()
+    })
+
     test('separate keys and uncoalesced jobs are untouched', async () => {
       const queue = createQueue<Payload>(queueName, 'local')
       const runs: number[] = []

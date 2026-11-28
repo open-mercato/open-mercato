@@ -1,18 +1,28 @@
 /** @jest-environment jsdom */
 import * as React from 'react'
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
+import { dispatchBackendMutationError } from '@open-mercato/ui/backend/injection/mutationEvents'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import RecordLockingWidget from '../widgets/injection/record-locking/widget.client'
+import recordLockWidget from '../widgets/injection/record-locking/widget'
 import {
   clearRecordLockFormState,
   getRecordLockFormState,
   setRecordLockFormState,
+  type RecordLockUiConflict,
   type RecordLockUiView,
 } from '../lib/clientLockStore'
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
   apiCallOrThrow: jest.fn(),
+  withScopedApiRequestHeaders: (_headers: Record<string, string>, operation: () => Promise<unknown>) => operation(),
+}))
+
+const mockTriggerEvent = jest.fn()
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => ({
+  useInjectionSpotEvents: () => ({ triggerEvent: mockTriggerEvent }),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
@@ -196,4 +206,94 @@ describe('record-lock presence session freshness', () => {
       expect(getRecordLockFormState(context.formId)).toBeNull()
     },
   )
+})
+
+describe('record-lock conflict retries', () => {
+  const sourceId = 'header-stage-change'
+  const conflict: RecordLockUiConflict = {
+    id: '445cec8a-ce95-48a6-9dda-6736ef05e09e',
+    resourceKind: context.resourceKind,
+    resourceId: context.resourceId,
+    baseActionLogId: 'log-1',
+    incomingActionLogId: 'log-2',
+    allowIncomingOverride: true,
+    canOverrideIncoming: true,
+    resolutionOptions: ['accept_mine'],
+    changes: [],
+  }
+
+  afterEach(() => {
+    cleanup()
+    clearRecordLockFormState(context.formId)
+    clearRecordLockFormState(sourceId)
+    mockTriggerEvent.mockReset()
+    mockedApiCall.mockReset()
+  })
+
+  test.each([true, false])('retries the blocked write with a details form mounted = %s', async (formMounted) => {
+    const submitDetails = jest.fn((event: React.FormEvent) => event.preventDefault())
+    const saveStage = jest.fn(async () => 'saved')
+    const onSuccess = jest.fn()
+    const validate = jest.fn()
+      .mockReturnValueOnce(buildApiResult({ ok: false, conflict, lock: { ...lock, token: null } }, 409))
+      .mockReturnValueOnce(buildApiResult({ ok: true, latestActionLogId: 'log-2', lock: { ...lock, token: null } }))
+    mockedApiCall.mockImplementation(async (url, options) => {
+      if (url === '/api/record_locks/validate') return validate(JSON.parse(String(options?.body)))
+      return buildApiResult({ ok: true, acquired: true, lock, latestActionLogId: 'log-1' })
+    })
+    mockTriggerEvent.mockImplementation(async (event, payload, eventContext) => {
+      if (event === 'onBeforeSave') return recordLockWidget.eventHandlers?.onBeforeSave?.(payload, eventContext)
+      await recordLockWidget.eventHandlers?.onAfterSave?.(payload, eventContext)
+      return { ok: true }
+    })
+    render(
+      <>
+        {formMounted ? <form id={context.formId} onSubmit={submitDetails} /> : null}
+        <RecordLockingWidget context={context} data={{}} />
+      </>,
+    )
+    await waitFor(() => expect(getRecordLockFormState(context.formId)?.lock?.token).toBe(lock.token))
+    const mutationFormId = formMounted ? context.formId : sourceId
+    const { result } = renderHook(() => useGuardedMutation({ contextId: mutationFormId }))
+    const mutationPayload = { id: context.resourceId, pipelineStageId: 'stage-2' }
+
+    await act(async () => {
+      await expect(result.current.runMutation({
+        operation: saveStage,
+        context: { ...context, formId: mutationFormId },
+        mutationPayload,
+        onSuccess,
+      })).rejects.toThrow('Record conflict detected')
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep my changes' }))
+    await waitFor(() => expect(saveStage).toHaveBeenCalledTimes(1))
+    expect(submitDetails).not.toHaveBeenCalled()
+    expect(validate).toHaveBeenLastCalledWith(expect.objectContaining({
+      token: lock.token,
+      conflictId: conflict.id,
+      resolution: 'accept_mine',
+      mutationPayload,
+    }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(onSuccess).toHaveBeenCalledTimes(1)
+    expect(getRecordLockFormState(mutationFormId)?.conflict ?? null).toBeNull()
+  })
+
+  test('retries the form when the form itself reports the conflict', async () => {
+    await mountOwnedRecord()
+    const submitDetails = jest.fn((event: React.FormEvent) => event.preventDefault())
+    render(<form id={context.formId} onSubmit={submitDetails} />)
+    await act(async () => {
+      dispatchBackendMutationError({
+        formId: context.formId,
+        error: { code: 'record_lock_conflict', conflict },
+      })
+    })
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep my changes' }))
+
+    await waitFor(() => expect(submitDetails).toHaveBeenCalledTimes(1))
+    expect(getRecordLockFormState(context.formId)?.pendingResolution).toBe('accept_mine')
+  })
 })
