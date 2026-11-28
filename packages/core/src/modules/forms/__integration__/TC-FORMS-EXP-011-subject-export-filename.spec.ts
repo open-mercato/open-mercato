@@ -7,6 +7,7 @@ test('TC-FORMS-EXP-011: subject exports preserve the display type and use a safe
   const token = await getAuthToken(request, 'admin')
   const subjectId = randomUUID()
   const subjectType = 'Employee Application'
+  const expectedFilename = `forms-export-Employee_Application-${subjectId}.json`
 
   const response = await apiRequest(
     request,
@@ -18,7 +19,7 @@ test('TC-FORMS-EXP-011: subject exports preserve the display type and use a safe
   expect(response.status()).toBe(200)
   expect(response.headers()['content-type']).toContain('application/json')
   expect(response.headers()['content-disposition']).toBe(
-    `attachment; filename="forms-export-Employee_Application-${subjectId}.json"`,
+    `attachment; filename="${expectedFilename}"; filename*=UTF-8''${expectedFilename}`,
   )
   expect(await readJsonSafe(response)).toMatchObject({ subjectType, subjectId, submissions: [] })
 })
