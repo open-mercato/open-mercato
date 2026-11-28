@@ -74,6 +74,20 @@ describe('customers deals list filters', () => {
     expect(filters.pipeline_stage_id).toEqual({ $eq: stageId })
   })
 
+  it.each(['Marketing Qualified Lead', 'marketing_qualified_lead', 'MARKETING_QUALIFIED_LEAD'])(
+    'matches both stored spellings when filtering by %s',
+    async (pipelineStage) => {
+      const filters = await buildDealListFilters(dealListQuerySchema.parse({ pipelineStage }))
+
+      expect(filters.$and).toEqual([{
+        $or: [
+          { pipeline_stage: { $ilike: 'marketing\\_qualified\\_lead' } },
+          { pipeline_stage: { $ilike: 'Marketing Qualified Lead' } },
+        ],
+      }])
+    },
+  )
+
   it('applies $in when multiple statuses are provided', async () => {
     const parsed = dealListQuerySchema.parse({ status: ['open', 'won'] })
     const filters = await buildDealListFilters(parsed)
@@ -172,6 +186,21 @@ describe('customers deals list filters', () => {
     expect(inVals).toContain('open')
     expect(inVals).toContain('win')
     expect(inVals).toContain('won')
+    spy.mockRestore()
+  })
+
+  it('expands built-in stage aliases in the Deals list advanced filter', async () => {
+    const { makeRuleTree } = await import('@open-mercato/shared/lib/query/advanced-filter-tree')
+    const { serializeTree } = await import('@open-mercato/shared/lib/query/advanced-filter')
+    const tree = makeRuleTree({ field: 'pipeline_stage', operator: 'is_any_of', value: ['Marketing Qualified Lead', 'Custom stage'] })
+    const query = dealListQuerySchema.parse(serializeTree(tree))
+    const { ctx } = createDealFilterContext([])
+    const utils = await import('../../utils')
+    const spy = jest.spyOn(utils, 'findMatchingEntityIdsWithQueryEngine').mockResolvedValue([])
+    await buildDealListFilters(query, ctx)
+
+    const treeWhere = extractTreeWhere(spy.mock.calls[0][0].filters)
+    expect(treeWhere.pipeline_stage).toEqual({ $in: ['Marketing Qualified Lead', 'marketing_qualified_lead', 'Custom stage'] })
     spy.mockRestore()
   })
 

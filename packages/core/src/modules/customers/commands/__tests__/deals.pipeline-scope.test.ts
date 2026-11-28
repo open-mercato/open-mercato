@@ -81,7 +81,7 @@ function stage(overrides: Row = {}): Row {
   }
 }
 
-function createHarness(input: { pipelines?: Row[]; stages?: Row[] } = {}) {
+function createHarness(input: { pipelines?: Row[]; stages?: Row[]; dictionary?: Row[] } = {}) {
   const deal: Row = {
     id: ids.deal,
     tenantId: ids.tenant,
@@ -99,6 +99,7 @@ function createHarness(input: { pipelines?: Row[]; stages?: Row[] } = {}) {
     [CustomerDeal, [deal]],
     [CustomerPipeline, input.pipelines ?? [pipeline()]],
     [CustomerPipelineStage, input.stages ?? [stage()]],
+    [CustomerDictionaryEntry, input.dictionary ?? []],
   ])
   const em = {
     fork: () => em,
@@ -285,6 +286,75 @@ describe.each(['create', 'update'] as const)('customers.deals.%s pipeline refere
     }
     expect(harness.em.upsert).not.toHaveBeenCalled()
     expect(harness.em.create.mock.calls.some(([entity]) => entity === CustomerDealStageTransition)).toBe(false)
+  })
+
+  it.each([
+    ['Negotiations', 'negotiations'],
+    ['Marketing Qualified Lead', 'marketing_qualified_lead'],
+    ['Sales Qualified Lead', 'sales_qualified_lead'],
+  ])('stores the seeded value for %s and records its display label', async (label, value) => {
+    const scope = { tenantId: ids.tenant, organizationId: ids.organization, kind: 'pipeline_stage' }
+    const harness = createHarness({
+      stages: [stage({ label })],
+      dictionary: [
+        { ...scope, label, value, normalizedValue: value },
+        { ...scope, label, value: label, normalizedValue: label.toLowerCase(), organizationId: ids.foreignOrganization },
+      ],
+    })
+    const input = action === 'create'
+      ? { tenantId: ids.tenant, organizationId: ids.organization, title: 'Deal', pipelineStageId: ids.stage }
+      : { id: ids.deal, pipelineStageId: ids.stage }
+
+    await command(`customers.deals.${action}`).execute(input, harness.ctx)
+
+    if (action === 'create') {
+      expect(harness.em.create).toHaveBeenCalledWith(CustomerDeal, expect.objectContaining({ pipelineStage: value }))
+    } else {
+      expect(harness.deal.pipelineStage).toBe(value)
+    }
+    expect(harness.em.upsert).not.toHaveBeenCalled()
+    expect(harness.em.create).toHaveBeenCalledWith(CustomerDealStageTransition, expect.objectContaining({ stageLabel: label }))
+  })
+
+  it.each([
+    ['Sales Qualified Lead', 'sales_qualified_lead'],
+    ['sales_qualified_lead', 'sales_qualified_lead'],
+    ['Custom legacy stage', 'Custom legacy stage'],
+  ])('stores %s as %s for string-only callers', async (inputStage, expectedStage) => {
+    const harness = createHarness()
+    const input = action === 'create'
+      ? { tenantId: ids.tenant, organizationId: ids.organization, title: 'Deal', pipelineStage: inputStage }
+      : { id: ids.deal, pipelineStage: inputStage }
+
+    await command(`customers.deals.${action}`).execute(input, harness.ctx)
+
+    const expected = { pipelineStage: expectedStage, pipelineStageId: null }
+    if (action === 'create') {
+      expect(harness.em.create).toHaveBeenCalledWith(CustomerDeal, expect.objectContaining(expected))
+    } else {
+      expect(harness.deal).toMatchObject(expected)
+    }
+    expect(harness.em.upsert).not.toHaveBeenCalled()
+  })
+
+  it('uses the scoped dictionary spelling for a legacy label', async () => {
+    const value = 'SALES_QUALIFIED_LEAD'
+    const label = 'Sales Qualified Lead'
+    const harness = createHarness({ dictionary: [
+      { tenantId: ids.tenant, organizationId: ids.organization, kind: 'pipeline_stage', label, value, normalizedValue: value.toLowerCase() },
+    ] })
+    const input = action === 'create'
+      ? { tenantId: ids.tenant, organizationId: ids.organization, title: 'Deal', pipelineStage: label }
+      : { id: ids.deal, pipelineStage: label }
+
+    await command(`customers.deals.${action}`).execute(input, harness.ctx)
+
+    if (action === 'create') {
+      expect(harness.em.create).toHaveBeenCalledWith(CustomerDeal, expect.objectContaining({ pipelineStage: value }))
+    } else {
+      expect(harness.deal.pipelineStage).toBe(value)
+    }
+    expect(harness.em.upsert).not.toHaveBeenCalled()
   })
 })
 

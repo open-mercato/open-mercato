@@ -24,6 +24,13 @@ export const PIPELINE_STAGE_DEFAULTS: DictionaryDefault[] = [
   { value: 'stalled', label: 'Stalled', color: '#6b7280', icon: 'lucide:alert-circle' },
 ]
 
+export function findDefaultPipelineStage(stage: string): DictionaryDefault | undefined {
+  const normalized = stage.trim().toLowerCase()
+  return PIPELINE_STAGE_DEFAULTS.find(({ value, label }) =>
+    value === normalized || label.toLowerCase() === normalized,
+  )
+}
+
 export const ENTITY_STATUS_DEFAULTS: DictionaryDefault[] = [
   { value: 'active', label: 'Active', color: '#22c55e', icon: 'lucide:user-check' },
   { value: 'inactive', label: 'Inactive', color: '#94a3b8', icon: 'lucide:pause-circle' },

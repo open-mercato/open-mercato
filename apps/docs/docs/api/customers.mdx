@@ -140,6 +140,8 @@ Accepts id in the query string or JSON body. Performs a soft delete.
 **Feature:** `customers.deals.view`  
 **Query parameters:** `page`, `pageSize`, `search` (title substring), `status`, `pipelineStage`, `sortField` (`createdAt`, `updatedAt`, `title`, `value`), `sortDir`, `personEntityId`, `companyEntityId`, and legacy aliases `personId`, `companyId`.
 
+For built-in stages, `pipelineStage` accepts either the dictionary value (such as `marketing_qualified_lead`) or the original label (`Marketing Qualified Lead`). Deal writes store the dictionary value for these stages.
+
 ### Retrieve deal — `GET /customers/deals/{id}`
 
 **Feature:** `customers.deals.view`  

@@ -345,7 +345,11 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
     warnSpy.mockRestore()
   })
 
-  it('infers pipeline ids and stage progress for legacy deals that only store pipelineStage labels', async () => {
+  it.each([
+    ['Negotiation', 'Negotiation'],
+    ['Marketing Qualified Lead', 'Marketing Qualified Lead'],
+    ['marketing_qualified_lead', 'Marketing Qualified Lead'],
+  ])('infers pipeline ids and stage progress for a legacy deal with %s', async (pipelineStage, stageLabel) => {
     const createdAt = new Date('2026-04-10T08:00:00.000Z')
     const updatedAt = new Date('2026-04-14T16:30:00.000Z')
 
@@ -358,7 +362,7 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
           title: 'Legacy deal',
           description: null,
           status: 'qualified',
-          pipelineStage: 'Negotiation',
+          pipelineStage,
           pipelineId: null,
           pipelineStageId: null,
           valueAmount: '12000',
@@ -402,7 +406,7 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
           {
             id: 'stage-3',
             pipelineId: 'pipeline-legacy',
-            label: 'Negotiation',
+            label: stageLabel,
             order: 3,
           },
         ]
@@ -424,7 +428,7 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
           {
             id: 'stage-3',
             pipelineId: 'pipeline-legacy',
-            label: 'Negotiation',
+            label: stageLabel,
             order: 3,
           },
         ]
