@@ -34,6 +34,7 @@ function composeConfig(files, env = {}, collaborationEnabled = true) {
       HOME: os.tmpdir(),
       USERPROFILE: os.tmpdir(),
       JWT_SECRET: 'compose-regression-jwt-secret-not-for-deployment',
+      OPENCODE_PASSWORD: 'compose-regression-opencode-password-not-for-deployment',
       DOMAIN_CHECK_SECRET: 'compose-regression-domain-secret-not-for-deployment',
       ...env,
     },

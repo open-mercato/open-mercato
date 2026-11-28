@@ -13,6 +13,12 @@ their existing behavior. No request or response fields change; no data migration
 is required. Integrations that expected a different bulk scope should use explicit
 per-notification actions for their intended set.
 
+## Fullapp development agent authentication (#9116)
+
+Before starting `starters/docker/compose.fullapp.dev.yml`, its root compatibility copy, or the standalone `docker-compose.fullapp.dev.yml`, generate a strong `OPENCODE_PASSWORD` (for example, `openssl rand -hex 32`) and export it or save it in the compose `.env`. Missing or empty passwords now stop startup. The same value configures native OpenCode server authentication and the existing app client. Direct OpenCode clients must send HTTP Basic credentials with username `opencode`; healthchecks authenticate automatically. Recreate the app and OpenCode services together after changing the password.
+
+All published ports in these dev stacks now bind to `127.0.0.1` by default. Operators who deliberately need remote access must set `INFRA_BIND_HOST` explicitly and control access to every published development service. This change does not alter production or hybrid startup.
+
 ## MCP HTTP tool calls require a per-user session token, no fallback (#5173)
 
 The production MCP HTTP server (`mcp:serve-http` — the transport web chat and Code Mode go through) now requires a valid `_sessionToken` on every tool call. A call that omits it receives `UNAUTHORIZED`; one that supplies an invalid or expired token receives `SESSION_EXPIRED`. There is no fallback to the transport `x-api-key`'s ACL and no opt-in to restore one: `McpServerConfig.allowApiKeyFallback` and `mcp:serve-http --allow-api-key-fallback` do not exist (neither shipped in a prior release — both were introduced and removed again within this same change, after review).

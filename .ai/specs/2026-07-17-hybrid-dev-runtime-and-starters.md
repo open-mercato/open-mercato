@@ -73,8 +73,24 @@ Breaking (documented in `UPGRADE_NOTES.md`, intentionally no old-path shims):
 
 Follow-ups (out of scope here): mirror `starters/` into `packages/create-app/template/` (tracked via the Template Sync Checklist), optional `--host` hardening flag for `mcp:serve-http`, keycloak `profiles: [sso]` in compose.infra.yml, an env-sync helper for the `OM_AI_*` duplication between root `.env` (container) and `apps/mercato/.env` (host AI runtime).
 
+### Fullapp development security (#9116)
+
+The canonical fullapp dev compose, its root compatibility copy and the standalone template publish ports on `${INFRA_BIND_HOST:-127.0.0.1}`. They require an operator-generated `OPENCODE_PASSWORD` before startup and pass it as native server `OPENCODE_SERVER_PASSWORD` and existing app-client `OPENCODE_PASSWORD`; the healthcheck uses Basic authentication as `opencode`. Explicit password configuration uses the existing client/server protocol and avoids a new secret-distribution service. Operators must recreate both consumers after rotation. Production and hybrid stacks are unchanged.
+
+### Release compatibility and rollout for #9116
+
+`OPENCODE_PASSWORD` changes from optional to required for the fullapp development stacks. Existing anonymous direct OpenCode clients must configure HTTP Basic authentication as `opencode`; existing remote development access requires an explicit `INFRA_BIND_HOST`. Operators generate the password before startup, recreate the app and OpenCode together after rotation, and restrict every deliberately exposed service. Production and hybrid stacks are unchanged. Rollback restores unauthenticated development access and must not be used on an exposed host.
+
+Keeping anonymous OpenCode access as a compatibility bridge preserves the development agent exposure. The emergency exception to deprecation steps 1–3 therefore requires a named human maintainer's explicit acceptance before this release backport can merge. The merged origin used an automation-only policy; its automatic review is not that acceptance or protected personal QA. See `UPGRADE_NOTES.md` and `BACKWARD_COMPATIBILITY.md`.
+
 ## Integration coverage
+
+- `scripts/__tests__/fullapp-dev-agent-security.test.mjs` — native auth wiring, authenticated healthcheck, compose startup refusal without credentials and matching resolved credentials/loopback bindings across canonical, compatibility and standalone files. `OM_TEST_OPENCODE_AUTH=1` additionally runs the pinned image with no network and verifies HTTP 401 without/corrupt credentials and HTTP 200 with the configured Basic credentials. `compose-loopback-ports.test.mjs` also covers all fullapp dev publications.
 
 - `scripts/__tests__/dev-mcp.test.mjs` — flag/env parsing, port/key-path resolution, backoff policy, output classifiers (node:test, `yarn test:scripts`).
 - Existing compose-path guards updated: `gitattributes-lf-enforcement`, `prod-compose-node-options`, `fullapp-compose-app-allowed-origins`.
 - Manual QA paths: hybrid install loop on a fresh clone (`install.sh` / `install.bat`); `yarn infra:up` + `yarn dev` → MCP `/health`, OpenCode `/mcp` shows `open-mercato: connected`, Cmd+K chat round-trips; fullapp regression `yarn docker:dev:up`; Windows enterprise launcher end-to-end incl. standalone self-download from the new raw URL; `.ai/qa/scenarios/TC-DOCKER-001..008` updated to the new commands.
+
+## Changelog
+
+- 2026-11-22: Backport fullapp development agent authentication and loopback publications to v0.9; retain the release coverage and upgrade history.
