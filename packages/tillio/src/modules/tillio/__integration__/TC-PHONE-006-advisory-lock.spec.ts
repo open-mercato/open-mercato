@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { config as loadEnv } from 'dotenv'
 import { Client } from 'pg'
 import { expect, test } from '@playwright/test'
-import { MikroORM } from '@mikro-orm/postgresql'
+import { MikroORM, type EntityManager } from '@mikro-orm/postgresql'
 import { createTillioLock, tillioOperatorLockKey, tillioPullLockKey } from '../lib/locking'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
@@ -45,6 +45,14 @@ function createLatch(): Latch {
   return { promise, release }
 }
 
+function observeFirstCommit(em: EntityManager): () => boolean {
+  let committed = false
+  em.getEventManager().registerSubscriber({
+    afterTransactionCommit() { committed = true },
+  })
+  return () => committed
+}
+
 function scopedKey(): string {
   return tillioPullLockKey({ tenantId: randomUUID(), organizationId: randomUUID() })
 }
@@ -72,7 +80,7 @@ async function expectLockRows(client: PgClient, key: string, expected: LockRows,
  * transaction ends.
  *
  * The tests use a private pool and random keys. A separate connection observes which
- * transactions hold the key or are waiting for it in PostgreSQL.
+ * transactions hold the key and verifies that contenders do not queue in PostgreSQL.
  */
 test.describe('TC-PHONE-006: Tillio advisory lock', () => {
   let orm: Awaited<ReturnType<typeof createOrm>>
@@ -96,7 +104,8 @@ test.describe('TC-PHONE-006: Tillio advisory lock', () => {
 
   test('a new contender waits for the legacy advisory lock on the same scope', async () => {
     const key = scopedKey()
-    const em = orm.em.fork()
+    const em = orm.em.fork({ freshEventManager: true })
+    const attempted = observeFirstCommit(em)
     let entered = false
     let contender: Promise<string> | undefined
 
@@ -107,8 +116,9 @@ test.describe('TC-PHONE-006: Tillio advisory lock', () => {
         entered = true
         return 'new'
       })
-      await expectLockRows(observer, key, { granted: 1, waiting: 1 }, 'the contender queues on the legacy key')
+      await expect.poll(attempted, { timeout: OBSERVATION_TIMEOUT_MS }).toBe(true)
       expect(entered).toBe(false)
+      expect(await readLockRows(observer, key)).toEqual({ granted: 1, waiting: 0 })
 
       await observer.query('commit')
       await expect(contender).resolves.toBe('new')
@@ -141,11 +151,14 @@ test.describe('TC-PHONE-006: Tillio advisory lock', () => {
       await aEntered.promise
       expect(await readLockRows(observer, key), 'A holds the key before it fails').toEqual({ granted: 1, waiting: 0 })
 
-      runB = createTillioLock(em.fork(), key)(async () => {
+      const contenderEm = em.fork({ freshEventManager: true })
+      const attempted = observeFirstCommit(contenderEm)
+      runB = createTillioLock(contenderEm, key)(async () => {
         order.push('B:start')
         return 'B'
       })
-      await expectLockRows(observer, key, { granted: 1, waiting: 1 }, 'B queues on the key A holds')
+      await expect.poll(attempted, { timeout: OBSERVATION_TIMEOUT_MS }).toBe(true)
+      expect(order).toEqual(['A:start'])
 
       aRelease.release()
       expect(await settledA, 'the critical-section failure propagates').toBe(failure)
@@ -162,14 +175,16 @@ test.describe('TC-PHONE-006: Tillio advisory lock', () => {
     }
   })
 
-  test('a different tenant and organization proceeds while another scope is held', async () => {
+  test('an unrelated scope proceeds while a holder and contender share another key', async () => {
     const em = orm.em
     const heldKey = scopedKey()
     const otherKey = scopedKey()
     const aEntered = createLatch()
     const aRelease = createLatch()
     let aFinished = false
+    let contenderEntered = false
     let runA: Promise<string> | null = null
+    let contender: Promise<string> | undefined
 
     try {
       runA = createTillioLock(em.fork(), heldKey)(async () => {
@@ -181,17 +196,28 @@ test.describe('TC-PHONE-006: Tillio advisory lock', () => {
       await aEntered.promise
       expect(await readLockRows(observer, heldKey), 'A holds its own scope').toEqual({ granted: 1, waiting: 0 })
 
+      const contenderEm = em.fork({ freshEventManager: true })
+      const attempted = observeFirstCommit(contenderEm)
+      contender = createTillioLock(contenderEm, heldKey)(async () => {
+        contenderEntered = true
+        return 'contender'
+      })
+      await expect.poll(attempted, { timeout: OBSERVATION_TIMEOUT_MS }).toBe(true)
+      expect(await readLockRows(observer, heldKey), 'the same-key waiter consumes no connection').toEqual({ granted: 1, waiting: 0 })
+
       const other = await createTillioLock(em.fork(), otherKey)(async () => readLockRows(observer, otherKey))
       expect(other, 'the unrelated scope takes its own key').toEqual({ granted: 1, waiting: 0 })
       expect(aFinished, 'the unrelated scope finished while A still held its key').toBe(false)
+      expect(contenderEntered, 'the same-key contender is still waiting').toBe(false)
       expect(await readLockRows(observer, heldKey), 'A still holds its scope untouched').toEqual({ granted: 1, waiting: 0 })
 
       aRelease.release()
       await expect(runA).resolves.toBe('A')
+      await expect(contender).resolves.toBe('contender')
     } finally {
       aEntered.release()
       aRelease.release()
-      await Promise.allSettled([runA].filter((run): run is Promise<string> => run !== null))
+      await Promise.allSettled([runA, contender])
     }
   })
 })

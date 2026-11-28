@@ -32,7 +32,7 @@ function createEm() {
     getConnection: () => connection,
     config: { get: () => ({ max: 2 }) },
     transactional: async <T>(run: (tx: unknown) => Promise<T>): Promise<T> =>
-      run({ execute: async () => undefined }),
+      run({ execute: async () => [{ locked: true }] }),
   }
 }
 
