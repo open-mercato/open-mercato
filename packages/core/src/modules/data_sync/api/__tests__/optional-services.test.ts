@@ -3,6 +3,7 @@
 import { asValue, createContainer } from 'awilix'
 import type { createSyncScheduleService } from '../../lib/sync-schedule-service'
 import { registerDataSyncAdapter } from '../../lib/adapter-registry'
+import { SyncRunOverlapError } from '../../lib/sync-run-service'
 import { register } from '../../di'
 import { POST as start } from '../run'
 import { GET as detail } from '../runs/[id]/route'
@@ -92,4 +93,22 @@ it('retries without a progress job', async () => {
   const response = await retry(new Request('http://localhost/', { method: 'POST', body: '{}' }), params)
   expect(response.status).toBe(201)
   expect(await response.json()).toEqual({ id: runId, progressJobId: null })
+})
+
+it.each([
+  ['start', () => start(new Request('http://localhost/api/data_sync/run', {
+    method: 'POST', body: JSON.stringify({ integrationId, entityType, direction: 'import' }),
+  }))],
+  ['retry', () => retry(new Request('http://localhost/', { method: 'POST', body: '{}' }), params)],
+] as const)('keeps the overlap response when %s is refused during admission', async (_name, sendRequest) => {
+  mockEnqueue.mockClear()
+  runService.createRun.mockRejectedValueOnce(new SyncRunOverlapError())
+
+  const response = await sendRequest()
+
+  expect(response.status).toBe(409)
+  expect(await response.json()).toEqual({
+    error: 'A sync run is already in progress for this integration and entity direction',
+  })
+  expect(mockEnqueue).not.toHaveBeenCalled()
 })

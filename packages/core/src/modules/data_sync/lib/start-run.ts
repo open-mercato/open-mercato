@@ -89,13 +89,16 @@ export async function startDataSyncRun(params: {
   progressService: ProgressService | null
   scope: DataSyncStartScope
   input: StartDataSyncRunInput
+  onAdmitted?: () => Promise<void>
 }) {
-  const { syncRunService, progressService, scope, input } = params
+  const { syncRunService, progressService, scope, input, onAdmitted } = params
   const createProgressJob = progressService !== null && input.createProgressJob !== false
-
-  const described = createProgressJob ? resolveAdapterProgressJobDescription(input) : {}
-  const progressJob = createProgressJob
-    ? await progressService.createJob(
+  const progress: { job: Awaited<ReturnType<ProgressService['createJob']>> | null } = { job: null }
+  const prepareProgressJob = async () => {
+    await onAdmitted?.()
+    if (!createProgressJob) return null
+    const described = resolveAdapterProgressJobDescription(input)
+    progress.job = await progressService.createJob(
       {
         jobType: input.progressJob?.jobType ?? `data_sync:${input.direction}`,
         name: input.progressJob?.name ?? described.name ?? `Data sync ${input.integrationId} — ${input.entityType}`,
@@ -115,7 +118,8 @@ export async function startDataSyncRun(params: {
         userId: scope.userId,
       },
     )
-    : null
+    return progress.job.id
+  }
 
   const run = await syncRunService.createRun(
     {
@@ -125,12 +129,13 @@ export async function startDataSyncRun(params: {
       cursor: input.cursor ?? null,
       triggeredBy: input.triggeredBy ?? scope.userId ?? null,
       parameters: input.parameters ?? null,
-      progressJobId: progressJob?.id ?? null,
+      progressJobId: null,
     },
     {
       organizationId: scope.organizationId,
       tenantId: scope.tenantId,
     },
+    prepareProgressJob,
   )
 
   const queueName = input.direction === 'import' ? DATA_SYNC_IMPORT_QUEUE : DATA_SYNC_EXPORT_QUEUE
@@ -147,6 +152,6 @@ export async function startDataSyncRun(params: {
 
   return {
     run,
-    progressJob,
+    progressJob: progress.job,
   }
 }

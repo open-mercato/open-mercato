@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { asValue, createContainer } from 'awilix'
+import { SyncRunOverlapError } from '../../lib/sync-run-service'
 
 const mockFindOneWithDecryption = jest.fn()
 const mockGetSyncQueue = jest.fn()
@@ -82,9 +83,9 @@ describe('data-sync scheduled worker', () => {
     mockIntegrationStateService.isEnabled.mockResolvedValue(true)
     mockSyncRunService.findRunningOverlap.mockResolvedValue(null)
     mockSyncRunService.resolveCursor.mockResolvedValue('cursor-1')
-    mockSyncRunService.createRun.mockImplementation(async (input: { progressJobId?: string | null }) => ({
+    mockSyncRunService.createRun.mockImplementation(async (_input, _scope, prepareProgressJob) => ({
       id: 'run-1',
-      progressJobId: input.progressJobId ?? null,
+      progressJobId: await prepareProgressJob(),
     }))
     mockProgressService.createJob.mockResolvedValue({ id: 'progress-1' })
     mockEm.flush.mockResolvedValue(undefined)
@@ -106,7 +107,7 @@ describe('data-sync scheduled worker', () => {
     expect(mockProgressService.createJob).toHaveBeenCalledTimes(1)
     expect(mockSyncRunService.createRun).toHaveBeenCalledTimes(1)
     const createRunInput = mockSyncRunService.createRun.mock.calls[0][0]
-    expect(createRunInput.progressJobId).toBe('progress-1')
+    await expect(mockSyncRunService.createRun.mock.results[0].value).resolves.toMatchObject({ progressJobId: 'progress-1' })
     expect(createRunInput.triggeredBy).toBe('scheduler')
     expect(createRunInput.cursor).toBe('cursor-1')
   })
@@ -123,7 +124,7 @@ describe('data-sync scheduled worker', () => {
       direction: 'import', isEnabled: true, fullSync: false,
     })
     await handle(buildJob(), { resolve: container.resolve.bind(container) } as ReturnType<typeof buildContext>)
-    expect(mockSyncRunService.createRun).toHaveBeenCalledWith(expect.objectContaining({ progressJobId: null }), expect.anything())
+    await expect(mockSyncRunService.createRun.mock.results[0].value).resolves.toMatchObject({ progressJobId: null })
     expect(mockEnqueue).toHaveBeenCalledTimes(1)
   })
 
@@ -163,6 +164,21 @@ describe('data-sync scheduled worker', () => {
 
     expect(schedule.lastRunAt).toBeInstanceOf(Date)
     expect(mockEm.flush).toHaveBeenCalled()
+  })
+
+  it('leaves lastRunAt unchanged when the admission check refuses the schedule', async () => {
+    const schedule = {
+      id: 'schedule-1', integrationId: 'sync_excel', entityType: 'customers.person',
+      direction: 'import', isEnabled: true, fullSync: false, lastRunAt: null,
+    }
+    mockFindOneWithDecryption.mockResolvedValue(schedule)
+    mockSyncRunService.createRun.mockRejectedValueOnce(new SyncRunOverlapError())
+
+    await expect(handle(buildJob(), buildContext())).resolves.toBeUndefined()
+    expect(schedule.lastRunAt).toBeNull()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(mockProgressService.createJob).not.toHaveBeenCalled()
+    expect(mockEnqueue).not.toHaveBeenCalled()
   })
 
   // A schedule has no parameter form, but the adapter's declared defaults still
