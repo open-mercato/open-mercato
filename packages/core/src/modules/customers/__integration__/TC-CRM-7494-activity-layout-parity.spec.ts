@@ -39,7 +39,7 @@ import {
 type InteractionInput = {
   entityId: string
   dealId?: string
-  interactionType: 'call' | 'meeting' | 'note'
+  interactionType: 'call' | 'email' | 'meeting' | 'note'
   title: string
   body: string
   status: string
@@ -177,6 +177,44 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
       for (const id of interactionIds) await deleteInteraction(request, token, id)
       await deleteEntityIfExists(request, token, '/api/customers/deals', dealId)
       await deleteEntityIfExists(request, token, '/api/customers/people', personId)
+      await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
+    }
+  })
+
+  test('pressing Enter on Mark done completes a deal email without opening the editor (#6763)', async ({ page, request }) => {
+    test.slow()
+    const stamp = Date.now()
+    const title = `QA 6763 overdue email ${stamp}`
+    const token = await getAuthToken(request, 'admin')
+    let companyId: string | null = null
+    let dealId: string | null = null
+    let interactionId: string | null = null
+
+    try {
+      companyId = await createCompanyFixture(request, token, `QA TC-CRM-6763 Company ${stamp}`)
+      dealId = await createDealFixture(request, token, { title: `QA TC-CRM-6763 Deal ${stamp}`, companyIds: [companyId] })
+      interactionId = await createInteraction(request, token, {
+        entityId: companyId, dealId, interactionType: 'email', title, body: 'Follow-up email', status: 'planned',
+        scheduledAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      })
+
+      await login(page, 'admin')
+      await page.goto(`/backend/customers/deals/${dealId}?tab=activities`, { waitUntil: 'domcontentloaded' })
+      const row = plannedRow(page, title)
+      await expect(row).toBeVisible({ timeout: 30_000 })
+      const [completed] = await Promise.all([
+        page.waitForResponse((response) =>
+          new URL(response.url()).pathname === '/api/customers/interactions/complete' && response.request().method() === 'POST'),
+        row.getByRole('button', { name: /^Mark done$/ }).press('Enter'),
+      ])
+
+      expect(completed.ok()).toBeTruthy()
+      await expect(page.getByRole('dialog', { name: /^Edit activity$/ })).toHaveCount(0)
+      await expect(row).toHaveCount(0, { timeout: 15_000 })
+      await expect(historyText(page, title)).toBeVisible()
+    } finally {
+      await deleteInteraction(request, token, interactionId)
+      await deleteEntityIfExists(request, token, '/api/customers/deals', dealId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
     }
   })

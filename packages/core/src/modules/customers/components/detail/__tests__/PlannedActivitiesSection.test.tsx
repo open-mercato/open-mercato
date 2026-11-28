@@ -117,6 +117,35 @@ describe('PlannedActivitiesSection', () => {
     expect(onEdit).not.toHaveBeenCalled()
   })
 
+  it.each(['call', 'meeting', 'email'])('completes an overdue %s without editing when Enter activates Mark done', (interactionType) => {
+    const onComplete = jest.fn()
+    const onEdit = jest.fn()
+    const activity = makeActivity({ id: 'activity-1', interactionType, scheduledAt: localInstantAtOffset(-2, 10, 0) })
+
+    renderWithProviders(<PlannedActivitiesSection activities={[activity]} onComplete={onComplete} onEdit={onEdit} />)
+
+    const markDone = screen.getByRole('button', { name: 'Mark done' })
+    fireEvent.keyDown(markDone, { key: 'Enter' })
+    fireEvent.click(markDone)
+
+    expect(onComplete).toHaveBeenCalledWith(activity.id)
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  it('edits an upcoming activity only when Enter targets its row directly', () => {
+    const onEdit = jest.fn()
+    const activity = makeActivity({ id: 'activity-1', scheduledAt: localInstantAtOffset(2, 10, 0) })
+
+    renderWithProviders(<PlannedActivitiesSection activities={[activity]} onEdit={onEdit} />)
+
+    const row = screen.getByRole('button', { name: /^Follow-up call/ })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'More' }), { key: 'Enter' })
+    expect(onEdit).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: activity.id }))
+  })
+
   it('groups Mark done with the row menu so both move to the next line together on a narrow screen (#9619)', () => {
     renderWithProviders(
       <PlannedActivitiesSection

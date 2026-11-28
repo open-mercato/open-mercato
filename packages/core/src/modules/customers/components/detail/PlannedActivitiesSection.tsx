@@ -145,7 +145,9 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                 onClick={onEdit ? () => onEdit(activity) : undefined}
                 role={onEdit ? 'button' : undefined}
                 tabIndex={onEdit ? 0 : undefined}
-                onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
+                onKeyDown={onEdit ? (event) => {
+                  if (event.target === event.currentTarget && event.key === 'Enter') onEdit(activity)
+                } : undefined}
               >
                 <div className="flex items-center justify-center size-8 rounded-full bg-destructive/10 shrink-0">
                   {TypeIcon ? <TypeIcon className="size-4 text-destructive" /> : <AlertCircle className="size-4 text-destructive" />}
@@ -199,7 +201,9 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
                 onClick={onEdit ? () => onEdit(activity) : undefined}
                 role={onEdit ? 'button' : undefined}
                 tabIndex={onEdit ? 0 : undefined}
-                onKeyDown={onEdit ? (e) => { if (e.key === 'Enter') onEdit(activity) } : undefined}
+                onKeyDown={onEdit ? (event) => {
+                  if (event.target === event.currentTarget && event.key === 'Enter') onEdit(activity)
+                } : undefined}
               >
                 <div className="flex items-center justify-center size-8 rounded-full bg-muted shrink-0">
                   {TypeIcon ? <TypeIcon className="size-4 text-muted-foreground" /> : <Clock className="size-4 text-muted-foreground" />}
