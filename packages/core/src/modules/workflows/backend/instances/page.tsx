@@ -19,6 +19,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useLiveRunUpdates } from '../../components/run/useLiveRunUpdates'
+import { getWorkflowListPageBounds } from '../../data/pagination'
 
 type WorkflowInstance = {
   id: string
@@ -72,7 +73,7 @@ export default function WorkflowInstancesListPage() {
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
-  const [totalPages, setTotalPages] = React.useState(1)
+  const { lastAccessiblePage, reachableTotal, totalPages } = getWorkflowListPageBounds(total, pageSize)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const router = useRouter()
@@ -124,8 +125,6 @@ export default function WorkflowInstancesListPage() {
       const response = result.result
       if (response?.pagination) {
         setTotal(response.pagination.total || 0)
-        const calculatedPages = Math.ceil((response.pagination.total || 0) / pageSize)
-        setTotalPages(calculatedPages || 1)
         setTotalIsCapped(response.pagination?.totalIsCapped === true)
       }
 
@@ -204,7 +203,7 @@ export default function WorkflowInstancesListPage() {
 
   const handleCancel = async (id: string, workflowId: string) => {
     const confirmed = await confirmDialog({
-      title: t('workflows.instances.confirm.cancel', { id: workflowId }),
+      title: t('workflows.instances.confirm.cancel', { workflowId }),
       variant: 'destructive',
     })
     if (!confirmed) {
@@ -225,7 +224,7 @@ export default function WorkflowInstancesListPage() {
 
   const handleRetry = async (id: string, workflowId: string) => {
     const ok = await confirmDialog({
-      title: t('workflows.instances.confirm.retry', { id: workflowId }),
+      title: t('workflows.instances.confirm.retry', { workflowId }),
       variant: 'default',
     })
     if (!ok) {
@@ -512,7 +511,14 @@ export default function WorkflowInstancesListPage() {
           perspective={{
             tableId: extensionPoints.hosts.instancesTable.tableId,
           }}
-          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
+          pagination={{
+            page,
+            pageSize,
+            total: reachableTotal,
+            totalPages,
+            totalIsCapped: totalIsCapped && page < lastAccessiblePage,
+            onPageChange: (nextPage) => setPage(Math.min(nextPage, lastAccessiblePage)),
+          }}
           isLoading={isLoading}
           {...(grouped ? {
             getSubRows: (row: InstanceRow) => row.children,

@@ -9,7 +9,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { flashMutationError } from '../../lib/flashMutationError'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { raiseCrudError, readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Button } from '@open-mercato/ui/primitives/button'
 import {
   Dialog,
@@ -461,6 +461,15 @@ export function AdjustInventoryDialog({
               },
             )
             if (!call.ok) {
+              const errorBody = await readJsonSafe<{ error?: string }>(call.response.clone(), null)
+              if (errorBody?.error === 'insufficient_stock') {
+                throw new Error(
+                  t(
+                    'wms.backend.inventory.adjust.errors.insufficientStock',
+                    'The adjustment is larger than the available quantity in this location.',
+                  ),
+                )
+              }
               await raiseCrudError(
                 call.response,
                 t('wms.backend.inventory.adjust.errors.submit', 'Failed to adjust inventory.'),
@@ -782,7 +791,7 @@ export function AdjustInventoryDialog({
                 </p>
                 <div className="mt-2 flex items-center justify-between gap-3">
                   {previewError ? (
-                    <p className="text-sm text-status-warning-fg">{previewError}</p>
+                    <p className="text-sm text-status-warning-text">{previewError}</p>
                   ) : loadingPreview && onHand == null ? (
                     <p className="text-sm text-muted-foreground">
                       {t('wms.backend.inventory.adjust.preview.loading', 'Refreshing balance…')}

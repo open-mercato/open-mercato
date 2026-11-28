@@ -3,6 +3,7 @@ import { randomInt } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
   buildFailingStepDefinitionPayload,
   cancelWorkflowInstanceIfExists,
@@ -204,6 +205,9 @@ test.describe('TC-WF-061: failure-queue triage and bulk replay', () => {
       // §8.4 routes bulk work through the progress module rather than the request.
       const progressJobId = replayBody?.progressJobId
       expect(progressJobId, 'the caller is handed a progress job to track').toBeTruthy()
+
+      // The standalone lane has no managed worker, so run the replay job here.
+      await drainIntegrationQueue('workflow-instance-bulk-replay')
 
       // The replay is only real if the instances actually moved.
       for (const instanceId of instanceIds) {

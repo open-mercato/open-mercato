@@ -40,7 +40,7 @@ function baseFacts(overrides: Partial<ModuleFactsJsonEntry> = {}): ModuleFactsJs
     ownedContracts: {
       worker: [{ kind: 'worker', id: 'demo.worker', source: { sourcePath: `${SOURCE_ROOT}/workers/demo.ts`, line: 3 } }],
       'page-middleware': [{ kind: 'page-middleware', id: 'demo.guard', source: { sourcePath: `${SOURCE_ROOT}/backend/middleware.ts`, line: 2 }, metadata: { surface: 'backend' } }],
-      setup: [{ kind: 'setup', id: 'demo:setup', source: { sourcePath: `${SOURCE_ROOT}/setup.ts`, line: 1 }, metadata: { hooks: ['seedDefaults', 'seedExamples', 'onTenantCreated', 'installStuff'], roles: ['admin'] } }],
+      setup: [{ kind: 'setup', id: 'demo:setup', source: { sourcePath: `${SOURCE_ROOT}/setup.ts`, line: 1 }, metadata: { hooks: ['seedDefaults', 'seedExamples', 'onTenantCreated', 'onOrganizationCreated', 'installStuff'], roles: ['admin'] } }],
       'di-registration': [{ kind: 'di-registration', id: 'demoService', source: { sourcePath: `${SOURCE_ROOT}/di.ts`, line: 5 }, metadata: { registrationKind: 'class', lifetime: 'scoped' } }],
       encryption: [{ kind: 'encryption', id: 'demo:secret', source: { sourcePath: `${SOURCE_ROOT}/encryption.ts`, line: 2 }, metadata: { fields: ['token'] } }],
       'ai-extension': [
@@ -86,9 +86,8 @@ describe('module override targets — adapter registry coverage', () => {
     for (const adapter of MODULE_OVERRIDE_TARGET_ADAPTERS) {
       expect(ALL_OVERRIDE_DOMAINS).toContain(adapter.domain)
     }
-    // exactly the 16 runtime domains, one adapter each
-    expect(ALL_OVERRIDE_DOMAINS).toHaveLength(16)
-    expect(MODULE_OVERRIDE_TARGET_ADAPTERS).toHaveLength(16)
+    expect(ALL_OVERRIDE_DOMAINS).toHaveLength(17)
+    expect(MODULE_OVERRIDE_TARGET_ADAPTERS).toHaveLength(ALL_OVERRIDE_DOMAINS.length)
   })
 
   it('classifies nav as framework-only (never a module target)', () => {
@@ -142,7 +141,13 @@ describe('module override targets — golden target per domain family', () => {
 
   it('emits the supported setup hook/profile paths only (not unsupported hooks)', () => {
     const setupPaths = overrideTargets.filter((t) => t.domain === 'setup').map((t) => t.path[1]).sort()
-    expect(setupPaths).toEqual(['defaultRoleFeatures', 'onTenantCreated', 'seedDefaults', 'seedExamples'])
+    expect(setupPaths).toEqual([
+      'defaultRoleFeatures',
+      'onOrganizationCreated',
+      'onTenantCreated',
+      'seedDefaults',
+      'seedExamples',
+    ])
     expect(setupPaths).not.toContain('installStuff')
   })
 })

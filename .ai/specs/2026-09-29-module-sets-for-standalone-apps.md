@@ -340,6 +340,10 @@ Semantics match tenant creation, so a backfilled tenant ends up like a new one:
 
 ## Changelog
 
+### 2026-11-05 (cross-reference)
+- [`2026-11-05-issue-8784-module-dependency-integrity.md`](./2026-11-05-issue-8784-module-dependency-integrity.md) (#8784) reuses this spec's module index and resolver for `mercato module doctor` and `module list`. Its static preset check replaces the same regex closure test as Phase 3 step 5 here. Whichever lands first creates `module-index.ts` and replaces the test; the other extends it.
+- That spec proposes a platform kernel whose mutual references are deliberately not declared in `requires`, so this spec's cycle rejection keeps holding.
+
 ### 2026-09-30 (rev 3 — specification self-review applied)
 - **Set ownership:** exactly one package may declare a set's `title`/`description`, and a second declaration fails. Ownership no longer depends on package enumeration order.
 - **Batch rollback:** after restoring `modules.ts`, the generators re-run so `.mercato/generated` matches it. If that fails, the stale-artifacts notice is printed.

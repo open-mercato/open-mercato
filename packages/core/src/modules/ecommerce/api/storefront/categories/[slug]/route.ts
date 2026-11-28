@@ -81,7 +81,7 @@ const storefrontCategoryGetDoc: OpenApiMethodDoc = {
     { status: 404, description: 'No store serves this host or path, or the category is not visible to this buyer', schema: storefrontErrorSchema },
     { status: 410, description: 'Store archived', schema: storefrontErrorSchema },
     { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
-    { status: 503, description: 'Store misconfigured (no default channel binding)', schema: storefrontErrorSchema },
+    { status: 503, description: 'Store misconfigured (no usable default channel binding)', schema: storefrontErrorSchema },
   ],
 }
 

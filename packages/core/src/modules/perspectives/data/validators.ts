@@ -29,6 +29,7 @@ export const perspectiveSaveSchema = z.object({
   roleExpectedUpdatedAtByRoleId: z.record(z.string().uuid(), z.string().min(1).nullable()).optional(),
   roleExpectedUpdatedAtByPerspectiveId: z.record(z.string().uuid(), z.string().min(1).nullable()).optional(),
   setRoleDefault: z.boolean().optional(),
+  createOnly: z.boolean().optional(),
 })
 
 export const perspectiveDeleteSchema = z.object({

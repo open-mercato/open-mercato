@@ -1,3 +1,4 @@
+import { resolveProgressService } from './resolve-progress-service'
 import type { AbandonedJobInfo } from '@open-mercato/queue'
 
 /**
@@ -45,12 +46,6 @@ export async function failAbandonedRun(payload: unknown, info: AbandonedJobInfo)
   const run = await runService.markStatus(runId, 'failed', runScope, errorMessage)
   if (!run?.progressJobId) return
 
-  const progressService = container.resolve('progressService') as {
-    failJob(
-      jobId: string,
-      input: { errorMessage: string },
-      ctx: { organizationId: string; tenantId: string },
-    ): Promise<unknown>
-  }
-  await progressService.failJob(run.progressJobId, { errorMessage }, runScope)
+  const progressService = resolveProgressService(container)
+  await progressService?.failJob(run.progressJobId, { errorMessage }, runScope)
 }

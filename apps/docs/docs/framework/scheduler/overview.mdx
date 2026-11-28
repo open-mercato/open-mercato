@@ -168,8 +168,11 @@ interface SchedulerService {
   // Remove a schedule
   unregister(scheduleId: string): Promise<void>
   
-  // Check if schedule exists
+  // Check if schedule exists (counts disabled and soft-deleted rows too)
   exists(scheduleId: string): Promise<boolean>
+
+  // Check if schedule exists, is enabled and is not soft-deleted — i.e. will run
+  isActive(scheduleId: string): Promise<boolean>
   
   // Update schedule fields
   update(scheduleId: string, changes: Partial<ScheduleRegistration>): Promise<void>
@@ -943,7 +946,7 @@ export async function deactivate(container: any) {
 1. ✅ Set `QUEUE_STRATEGY=async`
 2. ✅ Set `REDIS_URL=redis://localhost:6379`
 3. ✅ Run `yarn mercato scheduler start` once to sync
-4. ✅ Start workers: `yarn mercato worker:start`
+4. ✅ Start workers: `yarn mercato queue worker --all`
 5. ✅ Monitor workers and Redis health
 6. ✅ Set up alerts for `scheduler.job.failed` events
 

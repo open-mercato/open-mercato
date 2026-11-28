@@ -27,7 +27,7 @@ test.describe('TC-CRM-032: DataTable Column Chooser', () => {
     await expect(viewsToolbarButton).toBeVisible();
     await viewsToolbarButton.click();
 
-    const sidebarBackButton = page.getByRole('button', { name: 'Close', exact: true });
+    const sidebarBackButton = page.getByRole('button', { name: 'Close', exact: true }).filter({ hasText: /^Views$/ });
     await expect(sidebarBackButton).toBeVisible();
 
     // Email is in the "Shown" section. Each row contains a label span with the
@@ -67,7 +67,7 @@ test.describe('TC-CRM-032: DataTable Column Chooser', () => {
     await expect(emailAvailableSwitch).toHaveAttribute('aria-checked', 'false');
     await emailAvailableSwitch.click();
 
-    await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await sidebarBackButton.click();
 
     await expect(page.locator('thead button', { hasText: 'Email' }).first()).toBeVisible();
   });

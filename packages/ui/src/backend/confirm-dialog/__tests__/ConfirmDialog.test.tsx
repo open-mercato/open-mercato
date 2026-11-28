@@ -125,6 +125,90 @@ describe('ConfirmDialog', () => {
     expect(classNames).not.toContain('bg-status-error-solid')
   })
 
+  it('keeps the warning confirmation on the primary variant', () => {
+    renderWithProviders(
+      <ConfirmDialog
+        open
+        variant="warning"
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Send anyway?"
+        confirmText="Send"
+        cancelText="Cancel"
+      />,
+    )
+
+    const classNames = screen.getByRole('button', { name: 'Send' }).className.split(/\s+/)
+    expect(classNames).toContain('bg-primary')
+    expect(classNames).not.toContain('bg-status-error-solid')
+  })
+
+  it.each([
+    [undefined, 'default'],
+    ['default', 'default'],
+    ['warning', 'warning'],
+    ['destructive', 'error'],
+  ] as const)('maps variant %s to the %s header tone', (variant, tone) => {
+    renderWithProviders(
+      <ConfirmDialog
+        open
+        variant={variant}
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Continue?"
+        confirmText="Continue"
+        cancelText="Cancel"
+      />,
+    )
+
+    const leading = screen.getByRole('alertdialog').querySelector('[data-slot="dialog-header-leading"]')
+    expect(leading).toHaveAttribute('data-tone', tone)
+  })
+
+  it('stacks the footer on phones and splits it evenly from the sm breakpoint', () => {
+    renderWithProviders(
+      <ConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Continue?"
+        confirmText="Continue"
+        cancelText="Cancel"
+      />,
+    )
+
+    const footer = screen.getByRole('alertdialog').querySelector('[data-slot="dialog-footer"]')
+    expect(footer).toHaveAttribute('data-layout', 'equal')
+    const classNames = (footer as HTMLElement).className.split(/\s+/)
+    expect(classNames).toContain('flex-col-reverse')
+    expect(classNames).toContain('sm:flex-row')
+    expect(classNames).not.toContain('flex-row')
+  })
+
+  it.each([
+    ['Weiter bearbeiten', 'Änderungen verwerfen'],
+    ['Abbrechen', 'Typ ändern und Werte löschen'],
+  ])('lets the long translated actions "%s" and "%s" wrap inside the card', (cancelText, confirmText) => {
+    renderWithProviders(
+      <ConfirmDialog
+        open
+        onOpenChange={() => undefined}
+        onConfirm={() => undefined}
+        title="Änderungen verwerfen?"
+        variant="destructive"
+        confirmText={confirmText}
+        cancelText={cancelText}
+      />,
+    )
+
+    for (const name of [cancelText, confirmText]) {
+      const classNames = screen.getByRole('button', { name }).className.split(/\s+/)
+      expect(classNames).toEqual(expect.arrayContaining(['whitespace-normal', 'h-auto', 'min-h-9', 'text-center']))
+      expect(classNames).not.toContain('whitespace-nowrap')
+      expect(classNames).not.toContain('h-9')
+    }
+  })
+
   it('closes only the confirmation that owns an Escape event', () => {
     const firstOpenChange = jest.fn()
     const secondOpenChange = jest.fn()
@@ -155,5 +239,37 @@ describe('ConfirmDialog', () => {
 
     expect(firstOpenChange).not.toHaveBeenCalled()
     expect(secondOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('prevents the native cancel default so the dialog can reopen after Escape', () => {
+    const onOpenChange = jest.fn()
+    const renderDialog = (open: boolean) => (
+      <ConfirmDialog
+        open={open}
+        onOpenChange={onOpenChange}
+        onConfirm={() => undefined}
+        title="Discard unsaved changes?"
+        confirmText="Discard"
+        cancelText="Cancel"
+      />
+    )
+
+    const { rerender } = renderWithProviders(renderDialog(true))
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toHaveAttribute('open')
+
+    // Simulate the browser's own Escape-to-cancel default action, which
+    // jsdom does not emit automatically.
+    const cancelEvent = new Event('cancel', { cancelable: true })
+    dialog.dispatchEvent(cancelEvent)
+
+    expect(cancelEvent.defaultPrevented).toBe(true)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+
+    rerender(renderDialog(false))
+    expect(dialog).not.toHaveAttribute('open')
+
+    rerender(renderDialog(true))
+    expect(dialog).toHaveAttribute('open')
   })
 })

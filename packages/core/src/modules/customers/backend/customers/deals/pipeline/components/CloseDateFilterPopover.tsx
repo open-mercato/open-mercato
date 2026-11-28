@@ -170,7 +170,7 @@ export function CloseDateFilterPopover({ value, onApply }: CloseDateFilterPopove
         onKeyDown={handleKeyDown}
       >
         <FilterPopoverShell
-          title={translateWithFallback(t, 'customers.deals.kanban.filter.close.title', 'Filter · Expected close')}
+          title={translateWithFallback(t, 'customers.deals.kanban.filter.close.title', 'Filter: Expected close')}
           onClose={() => setOpen(false)}
           onCancel={() => setOpen(false)}
           onApply={handleApply}

@@ -20,7 +20,9 @@ With [Node.js](https://nodejs.org/en/download) installed, one command does every
 npx @open-mercato/starter
 ```
 
-It clones the repo if needed, audits your machine (`doctor`, which expects Node 24), handles corporate proxies and TLS interception, generates `.env` and secrets, starts the infra containers, initializes the database and boots the supervised dev runtime. Re-running it resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` on Windows, `start.sh` on macOS and Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md); the first run needs about 20 GB of free disk.
+Already inside a clone? Run `node packages/starter/bin/om-start.mjs` the first time: Yarn refuses to run a workspace script such as `yarn setup` before the first `yarn install`, and `npx @open-mercato/starter` inside a clone resolves the not-yet-installed local package. Once dependencies are installed, `yarn setup` (the same starter as `yarn om up`) does the same. Without a service flag it reuses configured services that answer and verify, starts Compose on the configured ports when nothing answers, and starts an isolated stack on free ports when those ports belong to something else; without Docker and usable services it stops with the [Without Docker](README.md#without-docker) guide. Interactive terminals show that pick as the default and offer `--ephemeral` (disposable Testcontainers services), `--random-ports` (an isolated persistent Compose stack with free ports), or `--infra` (Compose on configured ports). The isolated options update the corresponding service URLs and ports together. Ephemeral services and temporary settings are cleaned up when the foreground session ends. `--no-infra` remains an explicit reuse alias. If setup fails, it prints manual setup commands.
+
+The starter clones the repo if needed, audits your machine (`doctor`, which expects Node 24), handles corporate proxies and TLS interception, generates `.env` and secrets, starts the infra containers, initializes the database and boots the supervised dev runtime. Re-running it resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` on Windows, `start.sh` on macOS and Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md); the first run needs about 20 GB of free disk.
 
 ### Manual steps (macOS and Linux)
 
@@ -36,7 +38,7 @@ cp apps/mercato/.env.example apps/mercato/.env # the defaults work with yarn inf
 yarn dev:greenfield                           # builds, generates, initializes and starts the app
 ```
 
-`yarn dev:greenfield` reinstalls the database: it drops all tables in the configured database before seeding it again. Open `http://localhost:3000/backend`; the credentials are printed in the terminal. Windows users: see [Developing on Windows](#developing-on-windows).
+In the monorepo, `yarn dev:greenfield` keeps its established reset behavior: it drops all tables in the configured database and seeds it again before starting development. Standalone `yarn setup` preserves initialized data; `yarn setup --reinstall` explicitly resets it. Open `http://localhost:3000/backend`; the credentials are printed in the terminal. Windows users: see [Developing on Windows](#developing-on-windows).
 
 ### Seed data
 
@@ -48,7 +50,7 @@ Working with an AI coding agent in this repository? Run `yarn install-skills` af
 
 ### Running multiple persistent local instances
 
-To keep two long-lived local instances on the same PostgreSQL server, pass an optional database-name override to `yarn dev`, `yarn dev:greenfield` or `yarn setup`:
+To keep two long-lived local instances on the same PostgreSQL server, pass an optional database-name override to `yarn dev` or `yarn dev:greenfield` (in a generated app also `yarn setup`):
 
 ```bash
 yarn dev:greenfield --database-name=my_db     # explicit name; a .env update is offered (default yes)
@@ -96,6 +98,55 @@ This ensures design decisions are documented and the codebase remains well-under
 - Ensure the branch merges cleanly and CI is green before requesting review.
 - Reference related issues or discussions; add screenshots or recordings for UI tweaks.
 - Tag maintainers early if you need design or architectural guidance.
+
+### Stabilization CI
+
+**Draft PRs get no CI; mark ready for review to run checks.** On a draft PR only the cheap guards run: `audit-scope` (it detects the draft), the enterprise contribution guard and the mutation-testing `scope` check. Every other `ci.yml` job skips, except the required `test` check, which **fails by design** with "Draft pull request" so a draft never shows all required checks green. That red `test` is expected: mark the PR ready for review to start the full run, which replaces it with the real result. The draft state is read live, so re-running an old draft run after the PR is ready also does the real work. Pushes to `main` and release lines are unaffected.
+
+A failed or cancelled dependency audit (`audit`, not itself a required check) makes the required `test` and `documents-multi-instance` checks fail with "Audit failed" instead of skipping, because a skipped required check reads as passing.
+
+Use a same-repository branch under `stabilize/` (for example `stabilize/main-2026-11-05`) for a stabilization PR. CI automatically runs full typechecking, the full unit suite, and all 15 integration shards when that PR opens, reopens, or receives a new commit. Ordinary PRs retain affected scope; shared-code and workflow edits can still require broader validation. Existing pushes to `main` and release lines retain full validation.
+
+Label changes do not start or cancel CI. The `ci-full` label selects full typechecking, the full unit suite, and all 15 integration shards for same-repository PRs on their next opened, synchronize, or reopened event. Use the stabilization branch convention for new stabilization work so the initial run has full scope. Fork PRs retain normal scope, including when they have the label or branch prefix.
+
+#### Daily batch: stabilizer runbook
+
+Once a day `main` is cut into one batch, `stabilize/main-<date>`, opened as a PR back to `main`. The day's stabilizer owns it: cuts it, fixes blockers forward, tags it green and merges it back. QA judges quality; the stabilizer owns the branch. Why and how this fits the wider release process: [batch merge and green-tag spec](.ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md) (sections "The daily batch", "QA on the batch", "What happens to a green batch", "Merge-back conflicts"). This runbook is its Phase 0 trial.
+
+1. **Cut (once a day, only if no batch is open).** Branch from the current `main` tip and open the PR at once: a branch without a PR runs no CI.
+
+   ```bash
+   git fetch origin main
+   git switch -c stabilize/main-<YYYY-MM-DD> origin/main
+   # GitHub refuses a PR with no commits: start the branch with its run notes
+   mkdir -p .ai/runs
+   printf '# Daily batch <YYYY-MM-DD>\n\nStabilizer: @<login>\n\nOpen qa-blocker issues:\n\n- none\n' > .ai/runs/<YYYY-MM-DD>-stabilize-main.md
+   git add .ai/runs/<YYYY-MM-DD>-stabilize-main.md && git commit -m "docs(runs): open batch <YYYY-MM-DD>"
+   git push -u origin stabilize/main-<YYYY-MM-DD>
+   gh pr create --base main --head stabilize/main-<YYYY-MM-DD> --title "chore(ci): daily batch <YYYY-MM-DD>"
+   ```
+
+   Open the batch PR ready for review, never as a draft: draft PRs get no CI (the required `test` check fails on a draft; see above). The `stabilize/` head forces the full suite (typecheck, unit, all 15 integration shards) on every push to the batch PR. List any open `qa-blocker` issues in the PR description. Open it from an account in `ALLOWED_LOGINS` (`scripts/ci/enterprise-contribution-guard.ts`), because the enterprise guard runs on this PR too.
+2. **QA deploy.** QA deploys the batch to a free slot (`qa1`–`qa4`):
+
+   ```bash
+   gh workflow run qa-deploy.yml -f slot=qa1 -f branch=stabilize/main-<YYYY-MM-DD> -f pr_number=<batch-PR>
+   ```
+
+3. **QA pass.** The tester adds `qa-in-progress` to the batch PR and runs the smoke (`.ai/qa/batch-smoke.md`, added by PR #10712) plus the day's checklist (PRs labelled `qa-batch-check`, PRs that reached `main` with `needs-human-qa` but no `qa-approved`, visibly changed PRs with no QA evidence). While `qa-in-progress` is on, do not refresh the batch with newer `main` commits. Findings become issues: `bug` + `daily-qa` + `qa-blocker` for a blocker (a user cannot finish a main task, a migration fails, data is lost or leaks across tenants) plus a comment on the batch PR mentioning the stabilizer; `bug` + `daily-qa` for anything else. Cosmetics, translations and small UX issues never block.
+4. **Verdict.** QA sets `qa-approved` (stable) or `qa-failed` (at least one open blocker) on the batch PR, with a comment carrying `QA verdict: STABLE|UNSTABLE`, `QA head: <sha>` and the commit range. A new head needs a new verdict; retests cover only the fixed area. Bots never give the verdict.
+5. **Fix forward.** Fix red CI and blockers with small PRs whose **base** is `stabilize/main-<YYYY-MM-DD>` (head on `fix/…`, not `stabilize/…`). They get the normal scoped CI; each merge into the batch re-runs the full suite on the batch PR. GitHub closes issues only on merges into `main`, so the `Fixes #N` lines you add to the batch PR description are for traceability only. After a passing retest of the fix, QA (or the stabilizer) closes the `qa-blocker` issue by hand; once no blocker is open, QA gives a new verdict on the new head. Revert a PR out of the batch only as a last resort and as the team's call.
+6. **Green tag and merge back.** When the full suite is green on the batch PR head and that head has `qa-approved`, tag it, then squash-merge the batch PR:
+
+   ```bash
+   git fetch origin stabilize/main-<YYYY-MM-DD> &&
+   git tag green/<YYYY-MM-DD> <batch-head-sha> &&
+   git push origin green/<YYYY-MM-DD> &&
+   gh pr merge <batch-PR> --squash --match-head-commit <batch-head-sha>
+   ```
+
+   `--match-head-commit` refuses the merge if anything was pushed after the verdict; a push after the verdict needs a new verdict (the one exception is the merge-back conflict below). The tag never moves. If the merge back conflicts with newer `main`, tag first, then "Update branch" (merge `main` into the batch) and resolve; the full suite re-runs, QA repeats only if the resolution touches an area QA checked; then pass the resolved head to `--match-head-commit` once its full suite is green. If resolving would take long, cherry-pick only the stabilization commits into a PR to `main` and close the batch PR.
+7. **No tester today.** Do not cut a new batch while one is open. The open batch may be refreshed with `main` until a tester claims it with `qa-in-progress`; open `qa-blocker` issues stay listed. This delays the green tag, not merges into `main`.
 
 ### Enterprise Module Contributions
 
@@ -167,14 +218,14 @@ release/v0.10.x                                     └─ 0.10.0 ─ 0.10.1 …
 
 Two channels ship packages to npm:
 
-- **Snapshots** — every push to `main` runs `Develop Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
+- **Snapshots** — every push to `main` runs `Main Snapshot Release`, publishing under the `develop` dist-tag (the name survives from the retired `develop` branch). Install them with `yarn add @open-mercato/core@develop` or `npx create-mercato-app@develop my-app`; all `@open-mercato/*` packages must use the same tag. Exact snapshot versions stay installable for debugging or rollback.
 - **Stable releases** — the maintainer-run workflows below. Only maintainers run them; agents never do.
 
 ### The workflows
 
 | Workflow | Started by | What it does |
 |---|---|---|
-| **Release cut** (`release-cut.yml`) | a maintainer, from `main` | With `main` at `X.Y.Z`: creates `release/vX.Y.x` at `main`'s tip, ensures the `backport release/vX.Y.x` and `backport main` labels, hands `main`'s leading `# Unreleased` changelog section to the line, and opens `chore(release): open X.(Y+1).0 on main`. Publishes nothing. |
+| **Release cut** (`release-cut.yml`) | a maintainer, from `main` | With `main` at `X.Y.Z`: creates `release/vX.Y.x` at `main`'s tip — or, with the optional `green_tag` input, at that `green/YYYY-MM-DD` tag — ensures the `backport release/vX.Y.x` and `backport main` labels, hands `main`'s leading `# Unreleased` changelog section to the line (at a green tag, only the entries for PRs the tag contains), and opens `chore(release): open X.(Y+1).0 on main`. Publishes nothing. |
 | **Release** (`release.yml`) | a maintainer, from a `release/vX.Y.x` branch | Picks the next version, stamps every public package, `apps/*`, the root manifest and `CHANGELOG.md`, commits that bump to the line and tags it `vX.Y.Z`. Publishes nothing — the tag starts Release publish. With `dry_run` it only rehearses the build and previews the release notes. |
 | **Release publish** (`release-publish.yml`) | the `vX.Y.Z` tag (automatically) | Runs **at the tagged commit**, so npm provenance attests exactly the code it ships. Waits for the `production` approval, checks the tag, resolves the dist-tag, builds, publishes to npm, opens `docs(changelog): add the X.Y.Z entry` on `main`, then creates the GitHub Release. |
 | **Backport** (`backport.yml`) | merging or labelling a PR | Cherry-picks a merged PR labelled `backport <branch>` into a PR on that branch. A conflict opens a draft with the conflict committed and instructions on the original PR. |
@@ -201,6 +252,8 @@ All four act as the **Open Mercato Assistant** GitHub App, so the PRs, commits a
    Release refuses to tag a minor without the window and both skill files. Anything added after the cut reaches the line through a backport.
 2. **Rehearse the cut.** Actions → **Release cut** → from `main` → tick `dry_run`. The summary names the new line (`release/v0.10.x`) and the version `main` moves to (`0.11.0`).
 3. **Cut.** Run **Release cut** without `dry_run`. It creates `release/v0.10.x` and opens `chore(release): open 0.11.0 on main`.
+
+   **Optionally at a green tag.** Fill `green_tag` (for example `green/2026-11-20`) to start the line at the commit a daily batch passed the full suite and QA on, instead of the untested tip of `main` (both the rehearsal and the cut take it). Release cut refuses a tag that is not named `green/YYYY-MM-DD`, does not exist, carries another version than `main`, or is not in the history of a `stabilize/` batch PR merged into `main` — normally its head, or an earlier commit when `main` was merged into the batch after tagging; an open or closed-unmerged batch does not count. The batch is squash-merged, so the tagged commit is never on `main`; the merged PR is what ties them. `# Unreleased` is split by the PRs the tag contains: those entries go to the line (as a `docs(changelog)` commit on top of the tag), entries for PRs merged after the tag stay on `main` for the next minor, and an entry that names no PR stays on `main` and is listed in the log for you to move by hand. Leave `green_tag` empty to cut at `main`'s tip as before; it does not default to the newest tag yet.
 4. **Merge the bump PR** `chore(release): open 0.11.0 on main`. Features keep landing on `main`; the line takes only backports from here.
 5. **Stabilise** the line with backports, as in the patch steps 1–2.
 6. **Release** from `release/v0.10.x` (dry run first), approve **Release publish**, merge the changelog PR — patch steps 3–7. `0.10.0` ships and moves `latest`.
@@ -210,7 +263,7 @@ All four act as the **Open Mercato Assistant** GitHub App, so the PRs, commits a
 - **Release publish failed** (build, npm, the changelog PR or the GitHub Release): open that run and **Re-run jobs**. It rebuilds the same tagged commit, skips packages already on npm, points the dist-tag at them, and reuses existing PRs. Nothing is done twice.
 - **Release reports "already tagged but has no GitHub Release"**: an earlier publish never finished. Re-run that Release publish run, or Actions → Release publish → *Use workflow from* the tag `vX.Y.Z` → *Run workflow*. Backports merged since ship in the next patch.
 - **Never delete a release tag to start over.** A tagged version may already be partly on npm, and npm versions are immutable. Release refuses to re-ship an untagged version that already has packages on npm; restore the tag at its original commit and resume.
-- **Release cut refuses to re-run** because `main` moved after the line was cut: merge the existing `chore/open-vX.Y.0` PR, or delete the new line to cut again from the current `main`.
+- **Release cut refuses to re-run** because `main` moved after the line was cut: merge the existing `chore/open-vX.Y.0` PR, or delete the new line to cut again from the current `main`. A cut at a green tag re-runs safely from the same tag even after `main` moved: the line must still sit at the tag or at its single changelog commit, which changes only `CHANGELOG.md` and has the expected contents. A line with code changes or different notes is refused, including when no new notes need carrying.
 - **A backport conflicts, or the fix belongs elsewhere on the line**: the backport PR is an ordinary branch. Reset it to the line and write the fix where the code lives there (force-push, same PR), or close the draft and open a hand-written PR against the line. If the bug does not exist on the line, do not label the PR at all.
 - **A hotfix cannot wait for `main`**: PR it directly against `release/vX.Y.x`, label it `backport main`, merge and release. Backport forward-ports it so later minors keep it.
 

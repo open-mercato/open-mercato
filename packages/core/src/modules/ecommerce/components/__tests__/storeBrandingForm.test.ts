@@ -22,6 +22,20 @@ const labels = {
 }
 
 describe('store branding form helpers', () => {
+  it('nonces both preview style elements and its own policy for inherited application CSP', () => {
+    const nonce = 'trustedDocumentNonce'
+    const document = buildBrandingPreviewDocument({ primaryColor: '#123456' }, labels, nonce)
+    expect(document.match(/<style nonce="trustedDocumentNonce">/g)).toHaveLength(2)
+    expect(document).toContain(`style-src 'nonce-${nonce}'`)
+    expect(document).not.toContain("style-src 'unsafe-inline'")
+  })
+
+  it('rejects nonce markup injection while keeping legacy two-argument previews usable', () => {
+    const legacy = buildBrandingPreviewDocument({}, labels)
+    expect(legacy).toContain("style-src 'unsafe-inline'")
+    expect(buildBrandingPreviewDocument({}, labels, 'invalid" nonce="injected')).toBe(legacy)
+  })
+
   it('prefills the documented defaults for unset fields and keeps stored values', () => {
     const values = buildStoreBrandingInitialValues({ settings: { branding: { primaryColor: '#112233', fontFamilyHeading: 'lato' } } })
     expect(values.primaryColor).toBe('#112233')

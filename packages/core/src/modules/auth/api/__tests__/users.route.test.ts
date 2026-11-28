@@ -6,6 +6,7 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 
 const mockGetAuthFromRequest = jest.fn()
 const mockLoadAcl = jest.fn()
+const mockFindAndCountWithDecryption = jest.fn()
 const mockFindWithDecryption = jest.fn()
 const mockFindOneWithDecryption = jest.fn()
 const mockLoadCustomFieldValues = jest.fn()
@@ -95,6 +96,7 @@ jest.mock('@open-mercato/shared/lib/crud/factory', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findAndCountWithDecryption: (...args: unknown[]) => mockFindAndCountWithDecryption(...args),
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
   findOneWithDecryption: jest.fn((...args: unknown[]) => mockFindOneWithDecryption(...args)),
 }))
@@ -162,6 +164,8 @@ describe('GET /api/auth/users', () => {
     mockEm.findOne.mockReset()
     mockEm.findAndCount.mockReset()
     mockEm.getKysely.mockClear()
+    mockFindAndCountWithDecryption.mockReset()
+    mockFindAndCountWithDecryption.mockImplementation((_em: unknown, entity: unknown, where: unknown, options: unknown) => mockEm.findAndCount(entity, where, options))
     mockFindWithDecryption.mockReset()
     mockFindOneWithDecryption.mockReset()
     mockLoadCustomFieldValues.mockReset()
@@ -196,6 +200,37 @@ describe('GET /api/auth/users', () => {
       allowedIds: null,
       tenantId,
     })
+  })
+
+  test('returns decrypted user fields after a cached row is rehydrated with ciphertext', async () => {
+    const storedUser = {
+      id: '423e4567-e89b-12d3-a456-426614174900',
+      email: 'encrypted-email:v1',
+      name: 'encrypted-name:v1',
+      tenantId,
+      organizationId: descendantOrganizationId,
+    }
+    mockEm.findAndCount.mockResolvedValue([[storedUser], 73])
+    mockFindAndCountWithDecryption.mockImplementationOnce(async () => [
+      [{ ...storedUser, email: 'decrypted@example.com', name: 'Decrypted User' }],
+      73,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?page=2&pageSize=20'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items[0]).toMatchObject({ email: 'decrypted@example.com', name: 'Decrypted User' })
+    expect(body.total).toBe(73)
+    expect(body.totalPages).toBe(4)
+    expect(mockFindAndCountWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      User,
+      expect.any(Object),
+      { limit: 20, offset: 20 },
+      { tenantId, organizationId },
+    )
+    expect(storedUser.email).toBe('encrypted-email:v1')
   })
 
   test('returns an empty collection when unauthenticated', async () => {
@@ -1141,6 +1176,94 @@ describe('GET /api/auth/users', () => {
     expect(body.isSuperAdmin).toBe(false)
   })
 
+  test('non-superadmin selected organization scopes the users list by organization descendants (#6803)', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: secondaryOrganizationId,
+      filterIds: [secondaryOrganizationId, descendantOrganizationId],
+      allowedIds: null,
+      tenantId,
+    })
+    mockEm.findAndCount.mockResolvedValueOnce([
+      [{ id: '423e4567-e89b-12d3-a456-426614174010', email: 'org2@example.com', tenantId, organizationId: secondaryOrganizationId }],
+      1,
+    ])
+
+    const response = await GET(makeRequest('/api/auth/users?page=1&pageSize=50', {
+      cookie: `om_selected_org=${encodeURIComponent(secondaryOrganizationId)}`,
+    }))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockResolveOrganizationScopeForRequest).toHaveBeenCalledWith(expect.objectContaining({ tenantId }))
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { organizationId: { $in: [secondaryOrganizationId, descendantOrganizationId] } },
+    ]))
+    expect(mockLogCrudAccess).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId,
+      organizationId: secondaryOrganizationId,
+    }))
+    expect(body.isSuperAdmin).toBe(false)
+  })
+
+  test('non-superadmin role filter carries the selected organization scope into the role-link lookup', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: organizationId,
+      filterIds: [organizationId],
+      allowedIds: null,
+      tenantId,
+    })
+
+    await GET(makeRequest(`/api/auth/users?roleId=${roleId}&page=1&pageSize=50`))
+
+    const roleLinkFilter = findRoleLinkFilter(roleId)
+    expect(readUserScopeClauses(roleLinkFilter)).toEqual(expect.arrayContaining([
+      { tenantId },
+      { organizationId: { $in: [organizationId] } },
+    ]))
+  })
+
+  test('non-superadmin id lookups stay tenant-wide regardless of the selected organization', async () => {
+    const lookedUpUserId = '423e4567-e89b-12d3-a456-426614174011'
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: secondaryOrganizationId,
+      filterIds: [secondaryOrganizationId],
+      allowedIds: null,
+      tenantId,
+    })
+
+    await GET(makeRequest(`/api/auth/users?ids=${lookedUpUserId}`, {
+      cookie: `om_selected_org=${encodeURIComponent(secondaryOrganizationId)}`,
+    }))
+
+    expect(mockResolveOrganizationScopeForRequest).not.toHaveBeenCalled()
+    const where = mockEm.findAndCount.mock.calls[0][1] as { $and: Array<Record<string, unknown>> }
+    expect(where.$and).toEqual(expect.arrayContaining([
+      { tenantId },
+      { id: { $in: [lookedUpUserId] } },
+    ]))
+    expect(where.$and).not.toEqual(expect.arrayContaining([
+      { organizationId: expect.anything() },
+    ]))
+  })
+
+  test('non-superadmin with no visible organizations gets an empty users list', async () => {
+    mockResolveOrganizationScopeForRequest.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: [],
+      allowedIds: [],
+      tenantId,
+    })
+
+    const response = await GET(makeRequest('/api/auth/users?page=1&pageSize=50'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body).toEqual({ items: [], total: 0, totalPages: 1, isSuperAdmin: false })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
   test('omits the active-organization filter when scopeToActiveOrganization is not requested', async () => {
     mockEm.findAndCount.mockResolvedValueOnce([[], 0])
 
@@ -1481,6 +1604,10 @@ describe('GET /api/auth/users', () => {
       features: ['auth.users.edit'],
       organizations: null,
     })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === User) return { id: superAdminUserId, tenantId }
+      return null
+    })
     mockEm.findOne.mockImplementation(async (entity: unknown) => {
       if (entity === UserAcl) return { isSuperAdmin: true }
       return null
@@ -1506,6 +1633,10 @@ describe('GET /api/auth/users', () => {
       isSuperAdmin: false,
       features: ['auth.users.delete'],
       organizations: null,
+    })
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => {
+      if (entity === User) return { id: superAdminUserId, tenantId }
+      return null
     })
     mockEm.findOne.mockImplementation(async (entity: unknown) => {
       if (entity === UserAcl) return { isSuperAdmin: true }

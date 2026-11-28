@@ -1,5 +1,7 @@
 # SPEC-072: CRM Detail Pages UX Enhancements
 
+> ⚠️ Superseded by `.ai/specs/2026-11-22-crm-activity-date-time.md` (2026-11-22) — Enhancement 2, inline composer creation fields. Current state: see the new spec.
+
 **Created:** 2026-04-06
 **Module:** `customers`, `sales`
 **Status:** Draft
@@ -361,9 +363,11 @@ New CrudForm component group "roles" in Zone 1 (column 1, below "details" group)
 │  Service Owner:  [— assign —    ▾]  │
 │  Account Mgr:    [Anna Nowak    ✕]  │
 │                                     │
-│  [+ Add role]                       │
+│  [+ Assign role]                    │
 └─────────────────────────────────────┘
 ```
+
+**Assignment and reassignment (Rev 7, #7490).** Both go through the shared `AssignRoleDialog`. An empty role card's **Choose person** opens it with that role preselected (Select person → Confirm); the generic **Assign role** shortcut starts at Role type and is rendered only while an unassigned role type remains. **Change user** on an assigned card opens the same dialog in reassign mode: the role stays fixed, the incumbent is preselected and marked *Current*, the title reads *Change assignee*, and confirming calls `PUT …/roles?roleId=<assignmentId>` (the assignment keeps its id). Confirming the unchanged incumbent or cancelling writes nothing; a failed save keeps the dialog and selection for a retry. **Manage role types** stays the dictionary-management action. `RoleAssignmentRow` keeps its inline lookup only as a fallback when a host does not pass `onChangeUser`.
 
 #### Data Model
 
@@ -650,6 +654,46 @@ PATCH /api/customers/interactions/{id}
 | `detail:sales.order:stage-bar` | Stage progress bar area | Inject badges, alerts, or widgets alongside the stage bar |
 | `detail:sales.order:closure` | Closure dialog | Inject custom closure fields (e.g., competitor name on loss) |
 
+### Sales document host binding (2026-10-22, #7782)
+
+The four previously advertised slots are implemented as additive render-widget regions on the existing Sales document detail page:
+
+| Exact ID | Placement |
+| --- | --- |
+| `detail:sales.order:stage-bar` | Order header/status region |
+| `detail:sales.quote:stage-bar` | Quote header/status region |
+| `detail:sales.order:closure` | Order detail/closure extension region |
+| `detail:sales.quote:closure` | Quote detail/closure extension region |
+
+Canonical declarations belong to `sales/extension-points.ts`; the live page must consume those declarations. An empty entry in `widgets/injection-table.ts` alone does not provide a host.
+
+All four hosts receive the document detail injection context, current document as `data`, and the standard `onDataChange` callback. Context preserves document kind, record, `formId`, `resourceKind`, `resourceId`, and `retryLastMutation`, and adds `documentId`, `organizationId`, and `tenantId` from the scoped record (nullable before loading). Contributors own their additional data and must use scoped, guarded mutations with the correct record version.
+
+These are extension regions, not a new native stage bar, closure dialog, or workflow. They do not automatically submit contributed fields, persist local `onDataChange` updates, change document status, or add a replacement status transition path. No registered widgets means no placeholder UI. Existing tabs, details, shipping, status editing, and guarded mutations retain their behavior. This delivery does not mark the remaining draft UX implemented.
+
+#### Integration coverage
+
+- Exercise both order and quote hosts with real registered widgets and the shared injection loader; verify exact kind-specific IDs and context/data.
+- Verify empty registration leaves native document UI unchanged and denied features do not render contributions.
+- Verify contributed data is additive, existing tabs/details/shipping remain reachable, and document status writes still follow the existing guarded path.
+- Verify generator facts correlate the declared hosts with their live page binding; test standalone discovery against the installed package contract.
+
+#### Frontend architecture and risk review — Sales hosts
+
+The existing document page remains a Client Component. `SalesDocumentExtensionSpot.tsx` is a narrow client adapter around the existing `InjectionSpot`; it adds no global provider, dependency, polling, timer, custom loader, or server/client serialization boundary. The page mounts exactly two adapter instances for its loaded document kind. Empty registrations add no placeholder DOM; contributed widgets retain the shared loader's loading and feature-gating behavior. Existing page loading/error boundaries remain unchanged.
+
+The performance budget is structural: no new package dependency, at most two existing injection hosts, and no app-owned background requests without a contribution. Verification exercises empty/denied hosts and widget state preservation after data updates; a production document-page smoke checks that the existing shell/status UI still loads. Do not claim a measured bundle or Web Vitals improvement without recording a measurement.
+
+| Risk | Severity | Mitigation | Residual risk |
+| --- | --- | --- | --- |
+| Previously dormant widgets begin rendering | Medium | Preserve IDs; document activation and context; apply shared feature gates | Extension authors must check their own widget assumptions |
+| A widget assumes automatic status/closure persistence | High | Render-only contract; retain guarded native mutations; contributor-owned persistence | A custom widget still owns its API authorization and version handling |
+| Registry declarations exist without a live mount | Medium | Register real widgets in component/page tests; verify generated facts | Full third-party widget combinations require app-level testing |
+
+#### Migration & Backward Compatibility — Sales hosts
+
+All four advertised IDs are preserved byte-for-byte and become mountable. No existing ID, context member, route, event, feature, or schema is removed. Previously registered widgets targeting these IDs may now appear; authors should check their feature gates and handle missing optional record fields. New host context is additive and uses existing document-detail semantics. No data migration is required.
+
 #### UMES extension boundary
 
 Injected widgets in these spots may extend presentation and collect auxiliary data, but must not silently override core save semantics unless explicitly supported by the host contract.
@@ -781,7 +825,7 @@ Each `ActivityCard` exposes a row of contextual AI action chips (e.g., "Draft re
 | `packages/core/src/modules/customers/components/detail/AiActionChips.tsx` | New — chip row |
 | `packages/core/src/modules/customers/components/detail/ActivityAiActions.tsx` | New — execution wrapper |
 | `packages/core/src/modules/customers/components/detail/ActivityCard.tsx` | New — canonical activity card composition |
-| `packages/core/src/modules/customers/components/detail/ActivityLogTab.tsx` | New — Activities tab shell |
+| `packages/core/src/modules/customers/components/detail/ActivityLogTab.tsx` | New — Activities tab shell. Since #7494 it composes the deal reference layout (`InlineActivityComposer` → `PlannedActivitiesSection` → `ActivitiesSection`) for both person and company pages; `ActivitiesCard` / `ActivityHistorySection` stay exported but are no longer mounted by the detail pages |
 | `packages/core/src/modules/customers/components/detail/ActivityHistorySection.tsx` | New — grouped history list |
 
 ---
@@ -1182,7 +1226,7 @@ Verify CrudForm is NOT dirty after activity save
 Navigate: /backend/customers/companies-v2/{id}
 
 Verify Roles section visible in Zone 1
-Click [+ Add role]:
+Click [+ Assign role]:
   - Select role type: "Sales Owner"
   - Search and select user: "Jan Kowalski"
   - Verify role appears in section
@@ -1196,6 +1240,12 @@ Click ✕ on "Sales Owner":
 
 Reload page:
   - Verify "Service Owner: Anna Nowak" persisted
+
+Click [Change user] on "Service Owner":
+  - Same dialog opens as "Change assignee", role fixed, "Anna Nowak" preselected
+  - Pick "Jan Kowalski" → [Save change] → card shows Jan Kowalski (PUT, same assignment id)
+  - Reopen, press Escape → nothing written
+When every role type is assigned, [+ Assign role] is not rendered
 ```
 
 ### TC-UX-004: Stage Progress Bar
@@ -1305,6 +1355,29 @@ Pin an activity:
 
 This section satisfies the root `BACKWARD_COMPATIBILITY.md` deprecation-protocol requirement for every PR that touches contract surfaces. The feat/crm-details-screens branch introduces:
 
+### Related-data permissions on customer detail (2026-11-21, #9149)
+
+Person and company details use the record’s organization when evaluating view permissions for related data. `customers.activities.view` covers addresses, comments (including `notes`), and activities. `customers.interactions.view` covers interactions, tasks (including `todos`), and planned interaction summaries. `customers.deals.view` covers deal rows and metrics. `customers.people.view` covers linked people in company detail.
+
+Existing relation arrays remain present and return empty arrays when the caller lacks their view permission. Restricted counts return zero, next-interaction fields return null, and the planned preview and restricted KPI entries are omitted. Clients can continue to use the existing detail endpoints, with view access granted through their role or API key. The authorization behavior applies to cached and uncached responses. Regression coverage includes `TC-CRM-9149-detail-view-permissions.spec.ts` and both route cache suites.
+
+The company detail page uses the presence of the server-authorized Active deals count to render the Active deals and Customer value cards and the completed-deals caption. The component's `canViewDeals` prop is optional and defaults to `true` for existing consumers; the company page always passes the server-authorized value explicitly. `TC-CRM-9335-company-kpi-permissions.spec.ts` covers card visibility for users with and without deal access, including a company with zero deals.
+
+### Deprecated deal header inputs (2026-11-10, #8552)
+
+The decluttered deal header (Enhancement 4 revisited) moved stage changes to clickable `PipelineStepper` segments and the Won / Lost buttons to a "Close deal" menu in `DealDetailHeader.secondaryActions`. The component inputs that drove the previous presentation remain accepted and `@deprecated`, with a functional bridge where the input carried behavior:
+
+| Surface | Bridge | Removal |
+| ------- | ------ | ------- |
+| `DealDetailHeader.stageOptions` / `currentStageId` / `onStageChange` / `isStageSaving` | Rendered as a `StageSelectMenu` in the action cluster when `stageOptions` and `onStageChange` are both passed for an open deal; disabled while dirty, saving or a stage change is in flight | Not before one minor release after 0.10.0 |
+| `PipelineStepper.footer` | Rendered under the strip, separated by a rule, with and without stages | Same |
+| `DealClosureActionBar.embedded` | Accepted, no effect (popover trigger, no card) | Same |
+| `CollapsibleGroupProps.fieldCount` (`packages/ui`) | Accepted, no effect | Same |
+
+`DealCreateSidebar` itself was removed on `main` by the create-deal rebuild (#8650), so its `customCount` input needs no bridge here.
+
+`StageSelectMenu` is also what `PipelineStepper` renders below `sm`, so narrow screens keep a quick stage change with the same callback and dirty/saving guards as the desktop strip. Consumer-side regressions: `components/detail/__tests__/{DealDetailHeader,PipelineStepper,DealClosureActionBar,StageSelectMenu}.test.tsx`; browser coverage in `TC-CRM-8552-deal-header-write-paths.spec.ts` (desktop strip and phone-width menu). Release note: `UPGRADE_NOTES.md`.
+
 ### New contract surfaces (purely additive — no deprecation bridge required)
 
 | Surface | Addition | Notes |
@@ -1382,6 +1455,18 @@ Third-party modules need no migration to keep working. Consumers that want to:
 
 | Date | Change |
 | ---- | ------ |
+| 2026-11-21 | #9149 applies related-data view permissions to person and company detail rows, counts, previews, KPIs, and cached responses. |
+| 2026-11-21 | #9335 uses the scoped company detail response to control the visibility of deal KPIs. |
+| 2026-11-16 | Rev 11 (#7494, QA follow-up #9619): the activity tab fits phone widths down to 320 px. In history rows narrower than 448 px (container query) the date moves to a line above the title, and "Mark done" with the row menu wraps under the title instead of covering it; wider rows keep the date column. The AI chips row wraps. In `PlannedActivitiesSection` the header and the overdue row wrap: "Schedule" drops under the title and overdue count, and "Mark done" with the row menu drops under the row text as one group. No API, data or i18n change. |
+| 2026-11-14 | Rev 10 (#7494, QA follow-up #9483 #9484 #9489 #9491): `GET /api/customers/interactions` gains the additive `sortField=activityDate` (`coalesce(occurred_at, scheduled_at)`), which the history's newest-first order now requests so open activities are on the first page instead of the last. Mark done in the history sends the row's `updatedAt` and shows the record-conflict bar. `ActivityLogTab` checks `customers.interactions.manage` and renders the lists without the composer or write actions for a view-only user; `ActivitiesSection` gains the optional `readOnly` prop. The Log activity box wraps at phone width. |
+| 2026-11-10 | Rev 9 (#8552): deal header declutter review follow-up. `DealDetailHeader` stage inputs, `PipelineStepper.footer`, `DealClosureActionBar.embedded` restored as deprecated inputs with a functional bridge (`StageSelectMenu`); the same menu gives `PipelineStepper` a stage change below `sm`. Removal target and consumer regressions recorded under Migration & Backward Compatibility. |
+| 2026-11-05 | Rev 9 (#7494): a failed planned-list read no longer empties the list. `usePlannedActivities` keeps the last good rows, exposes `plannedLoadFailed` and reports the error; `PlannedActivitiesSection` shows a localized error with Retry on deal, person and company pages. Rows and the failure reset when the record changes, and a response older than the latest load is ignored. |
+| 2026-11-04 | Rev 8 (#7494): The planned list selects open activities with the new additive `excludeStatus` query parameter on `GET /api/customers/interactions`, so custom non-terminal statuses stay visible on person, company and deal records. Complete and cancel send the displayed activity's `updatedAt` as the optimistic-lock version. |
+| 2026-11-03 | Rev 7 (#7494): `ActivitiesSection` gains the optional `serverHistoryControls` prop, set by `ActivityLogTab` for person and company. It sends `search` and `sortField`/`sortDir` to `GET /api/customers/interactions`, shows the sort control, and turns failed interaction loads into `ErrorMessage` with retry. Other callers keep the local filter. Loaded rows are still matched locally because the API search does not cover author, deal or type. |
+| 2026-11-03 | `GET /api/customers/interactions` with `search` no longer returns nothing when `title` or `body` are encrypted: it drops the ILIKE, decrypts a candidate set ordered by the requested sort, and matches title and body case-insensitively. The scan is capped by `OM_ENCRYPTED_SEARCH_MAX_ROWS` (default 5000); a capped scan logs a warning and can miss older matches. Tenants without encrypted `title`/`body` keep the SQL search. |
+| 2026-11-01 | Rev 7 (#7490): one modal flow for role assignment and reassignment. `AssignRoleDialog` gains optional `editingAssignment` + `onReassign` (role fixed, incumbent preselected, `PUT …/roles?roleId=`), `RoleAssignmentRow` gains optional `onChangeUser`, the generic shortcut is labelled *Assign role* and hidden once every role type is assigned. Existing routes, commands, schema and ACLs unchanged; the inline lookup remains as a fallback for hosts that do not pass `onChangeUser` |
+| 2026-10-29 | Rev 6 (#7494): Person and company activity tabs now reuse the deal Activities composition. `ActivityLogTab` renders `InlineActivityComposer` → `PlannedActivitiesSection` → `ActivitiesSection` scoped to the owning record (planned list fetched by `entityId`, never a deal filter) and accepts `entityType`, `entityName`, `addActionLabel`, `emptyState`, `onActionChange`; its `onAddActivity` / `entityCompanyName` props are deprecated no-ops. Planned/complete/cancel state moved into the shared `usePlannedActivities` hook (`useDealActivities` delegates to it). No route, API, schema or ACL changes |
+| 2026-10-22 | Implement the four advertised Sales order/quote stage-bar and closure render-widget hosts (#7782), with live canonical declarations, unchanged native lifecycle, context/compatibility documentation, and rendering coverage. |
 | 2026-04-19 | Rev 5: Retroactively documented UX iterations that shipped alongside Phases 1–5 after the initial 2026-04-06 draft. Added "Additional UX Iterations" section covering Enhancements 6–16 (Company Dashboard tab + widgets, AI Action Chips, per-user Customer Labels, Dictionary Kind Settings, Dictionary Entry Reorder/Set-Default, Company Billing extension, Person-Company Roles junction, Deal Stage Transitions audit, Decision Makers Footer, Mini Week Calendar, Coming Soon Placeholder). Extended Implementation Phases table with Phases 5–8. Updated Scope list in TLDR. No contract or migration changes beyond what Rev 3/Rev 4 already documented in the Migration & Backward Compatibility section — the new tables, columns, events, routes and ACL features referenced here are the same ones already enumerated there. This revision closes the gap where the spec described the original 5 enhancements but the branch delivered 16 |
 | 2026-04-18 | Rev 4: Post-review fixes. Documented `audit_logs` schema + service + CLI + export route additions that back the Changelog tab. Added `aria-*` semantics (`role="progressbar"`, `aria-valuenow`, `aria-valuetext`, `aria-current="step"`) to `PipelineStepper`. Added `Cmd/Ctrl+Enter` handler to `CreatePersonDialog`. Restored `data-component-handle` on the UMES example `PageBody` that was removed by an unrelated commit on this branch |
 | 2026-04-17 | Rev 3: Added "Migration & Backward Compatibility" section covering every new contract surface introduced by the feat/crm-details-screens branch (new events, new commands, new routes, new tables, ACL features). Documented query engine `eq` semantic routing, `withAtomicFlush` transaction fix, label feature-gate kind-scoping, entity-role undelete undo, per-org feature check, and deals→notifications event-bus refactor |

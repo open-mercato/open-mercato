@@ -1,5 +1,6 @@
+import { crudFormSectionsPrivateHeaders, crudFormSectionsResolvePath } from '@open-mercato/shared/lib/crud/form-sections/protocol'
 import { NextResponse, type NextRequest } from 'next/server'
-import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
+import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiRouteFacades } from '@/.mercato/generated/api-route-shards.generated'
@@ -7,9 +8,10 @@ import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/se
 import { bootstrap } from '@/bootstrap-api'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { resolveFeatureCheckContext } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { enforceTenantSelection, normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
+import { enforceTenantSelection, normalizeTenantId, resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
@@ -17,11 +19,18 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_FALLBACK_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
+import { resolveApiInterceptorRoutePath } from '@open-mercato/shared/lib/modules/api-route-identity'
+import { getApiInterceptorsForRoute } from '@open-mercato/shared/lib/crud/interceptor-registry'
+import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
+import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
 registerApiRouteManifests(apiRouteFacades)
+
+const logger = createLogger('api')
 
 const warnedDeprecatedRequireRoles = new Set<string>()
 
@@ -45,6 +54,25 @@ type MethodMetadata = {
    * reads/clears that telemetry, so tracking it would perturb the data it just reported). Set
    * `skipModuleResourceUsageTracking: true` in the route's `metadata` export for the method. */
   skipModuleResourceUsageTracking?: boolean
+  /** Route-declared acknowledgement that its handler reads a body-supplied `tenantId` by some path
+   * OTHER than the shared `withScopedPayload`/`parseScopedCommandInput` helpers (issue #7877) — the
+   * convention (`packages/core/AGENTS.md`: "Always derive `tenantId` from the authenticated context,
+   * never from request input") makes this rare; it is true only for a few superadmin/cross-tenant
+   * management endpoints (e.g. `auth/roles`, `auth/roles/acl`, `auth/users/acl`). When the
+   * dispatcher's body-peek cannot determine whether an oversized body carries a `tenantId` at all,
+   * it fails closed (403 for a non-superadmin) ONLY for a route that sets this — every other route
+   * (the overwhelming majority, including every CRUD-factory route and every upload/bulk endpoint)
+   * keeps the pre-existing behavior of treating an unreadable body as "no candidate" for this
+   * oversized-body case specifically; within-budget bodies are always fully checked regardless of
+   * this flag.
+   *
+   * This is a narrow, best-effort backstop, not the only line of defense: a handler that reads a
+   * body `tenantId` through `withScopedPayload`/`parseScopedCommandInput`
+   * (`packages/shared/src/lib/api/scoped.ts`) is independently protected regardless of body size or
+   * this flag — those helpers reject a non-superadmin's foreign `tenantId` unconditionally. This flag
+   * only matters for a handler that reads a body `tenantId` by some other path and does not already
+   * call `enforceTenantSelection` itself. */
+  honorsBodyTenantId?: boolean
 }
 
 type HandlerContext = {
@@ -131,6 +159,9 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
   if (typeof source.skipModuleResourceUsageTracking === 'boolean') {
     normalized.skipModuleResourceUsageTracking = source.skipModuleResourceUsageTracking
   }
+  if (typeof source.honorsBodyTenantId === 'boolean') {
+    normalized.honorsBodyTenantId = source.honorsBodyTenantId
+  }
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
@@ -151,7 +182,8 @@ function normalizeLoadedMetadata(
 export async function checkAuthorization(
   methodMetadata: MethodMetadata | null,
   auth: AuthContext,
-  req: NextRequest
+  req: NextRequest,
+  provideContainer?: () => ReturnType<typeof createRequestContainer>,
 ): Promise<NextResponse | null> {
   const { t } = await resolveTranslations()
   const requiresAuthentication = methodMetadata?.requireAuth !== false
@@ -169,42 +201,18 @@ export async function checkAuthorization(
     warnDeprecatedRequireRoles(req.nextUrl.pathname, req.method.toUpperCase() as HttpMethod)
   }
 
-  let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
-  const ensureContainer = async () => {
-    if (!container) container = await createRequestContainer()
-    return container
-  }
+  let containerPromise: ReturnType<typeof createRequestContainer> | null = null
+  const ensureContainer = provideContainer ?? (() => {
+    containerPromise ??= createRequestContainer()
+    return containerPromise
+  })
 
-  if (auth && requiresAuthentication) {
-    // HTTP parameter pollution hardening (issue #2665): a request can carry `tenantId`
-    // more than once — repeated `?tenantId=` query params, or in both the query string
-    // and the body. The dispatcher and downstream handlers may disagree on which
-    // occurrence wins (here historically `getAll().last`, handlers use `get()` first),
-    // so the authorization gate must validate EVERY distinct candidate. If any one
-    // targets a tenant the actor may not select, the request is rejected — making this
-    // decision binding regardless of how a handler later parses the same request.
-    const rawTenantCandidates = await extractTenantCandidates(req)
-    const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
-    const enforcedCandidates = new Set<string | null>()
-    for (const rawTenantCandidate of rawTenantCandidates) {
-      const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)
-      if (tenantCandidate === undefined) continue
-      const normalizedCandidate = normalizeTenantId(tenantCandidate) ?? null
-      if (normalizedCandidate === actorTenant) continue
-      if (enforcedCandidates.has(normalizedCandidate)) continue
-      enforcedCandidates.add(normalizedCandidate)
-      try {
-        const guardContainer = await ensureContainer()
-        await enforceTenantSelection({ auth, container: guardContainer }, tenantCandidate)
-      } catch (error) {
-        if (isCrudHttpError(error)) {
-          return NextResponse.json(error.body ?? { error: t('api.errors.forbidden', 'Forbidden') }, { status: error.status })
-        }
-        throw error
-      }
-    }
-  }
-
+  // Feature authorization runs before the tenant-candidate check below
+  // (issue #7811): the tenant check extracts its candidates from the full
+  // request body, which — even with the bound in `extractBodyTenantCandidate`
+  // — is still unnecessary work for a caller who doesn't hold the route's
+  // required feature at all. Checking features first means a request that
+  // will be rejected on authorization never reaches body inspection.
   if (requiredFeatures.length) {
     if (!auth) {
       return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
@@ -218,7 +226,13 @@ export async function checkAuthorization(
       requiredFeatures,
     })
     const { organizationId } = featureContext
-    const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
+    // An organization scope that resolved to no organization at all is deny-all. The
+    // ACL list alone cannot tell: ids that no longer resolve (a soft-deleted
+    // organization) leave it non-empty while the resolved scope is empty, and the
+    // feature check below would then run with `organizationId: null` and pass.
+    const hasEmptyOrganizationScope = Array.isArray(featureContext.allowedOrganizationIds)
+      && featureContext.allowedOrganizationIds.length === 0
+    const ok = !hasEmptyOrganizationScope && await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
       tenantId: featureContext.scope.tenantId ?? auth.tenantId ?? null,
       organizationId,
     })
@@ -256,6 +270,53 @@ export async function checkAuthorization(
     }
   }
 
+  if (auth && requiresAuthentication) {
+    // HTTP parameter pollution hardening (issue #2665): a request can carry `tenantId`
+    // more than once — repeated `?tenantId=` query params, or in both the query string
+    // and the body. The dispatcher and downstream handlers may disagree on which
+    // occurrence wins (here historically `getAll().last`, handlers use `get()` first),
+    // so the authorization gate must validate EVERY distinct candidate. If any one
+    // targets a tenant the actor may not select, the request is rejected — making this
+    // decision binding regardless of how a handler later parses the same request.
+    const rawTenantCandidates = await extractTenantCandidates(req)
+    const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
+    const enforcedCandidates = new Set<string | null>()
+    for (const rawTenantCandidate of rawTenantCandidates) {
+      // The body exceeded the dispatcher's tenant-extraction budget, so we never learned
+      // whether it carries a `tenantId` at all. Only a route that declared
+      // `honorsBodyTenantId` can actually act on a body-supplied `tenantId` (issue #7877) —
+      // for every other route (the default; see the `MethodMetadata` doc comment) this is
+      // "no candidate", same as before, so a legitimately large authenticated body (an
+      // upload, a bulk write, a telemetry batch — none of which read `tenantId` from body)
+      // keeps working. A superadmin may select any tenant regardless, so the fail-closed
+      // check only ever applies below that.
+      if (rawTenantCandidate === TENANT_CANDIDATE_UNREADABLE) {
+        if (!methodMetadata?.honorsBodyTenantId) continue
+        const guardContainer = await ensureContainer()
+        const isSuperAdmin = await resolveIsSuperAdmin({ auth, container: guardContainer })
+        if (!isSuperAdmin) {
+          return NextResponse.json({ error: t('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+        }
+        continue
+      }
+      const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)
+      if (tenantCandidate === undefined) continue
+      const normalizedCandidate = normalizeTenantId(tenantCandidate) ?? null
+      if (normalizedCandidate === actorTenant) continue
+      if (enforcedCandidates.has(normalizedCandidate)) continue
+      enforcedCandidates.add(normalizedCandidate)
+      try {
+        const guardContainer = await ensureContainer()
+        await enforceTenantSelection({ auth, container: guardContainer }, tenantCandidate)
+      } catch (error) {
+        if (isCrudHttpError(error)) {
+          return NextResponse.json(error.body ?? { error: t('api.errors.forbidden', 'Forbidden') }, { status: error.status })
+        }
+        throw error
+      }
+    }
+  }
+
   return null
 }
 
@@ -274,26 +335,89 @@ function bodyCarriesTenantId(req: NextRequest): boolean {
   return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
 }
 
+const DISPATCHER_BODY_PEEK_MAX_BYTES_ENV_KEY = 'OM_API_TENANT_EXTRACT_MAX_BYTES'
+const DEFAULT_DISPATCHER_BODY_PEEK_MAX_BYTES = 64 * 1024
+
+// This dispatcher only needs to peek at a `tenantId` field before route-level
+// authorization has run (issue #7811: an authenticated caller lacking the
+// route's required feature could otherwise force a full JSON/multipart body
+// to be buffered just to extract that one field). The budget below is
+// deliberately small relative to route-specific upload limits (e.g.
+// attachments' own, much larger `resolveAttachmentMaxBytes`), which still
+// apply unchanged once the real handler parses the body itself.
+function resolveDispatcherBodyPeekMaxBytes(): number {
+  const raw = process.env[DISPATCHER_BODY_PEEK_MAX_BYTES_ENV_KEY]
+  const parsed = raw ? Number(raw) : NaN
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : DEFAULT_DISPATCHER_BODY_PEEK_MAX_BYTES
+}
+
+class BodyPeekLimitExceededError extends Error {}
+
+// Distinguishes "the body was read and carries no tenantId" (`undefined`, safe to
+// skip) from "the body exceeds the peek budget, so we never learned whether it
+// carries one" — returning `undefined` for the latter made an oversized body skip
+// `enforceTenantSelection` entirely, letting a foreign `tenantId` past tenant scoping
+// unexamined (issue #7877). Callers must fail closed on this sentinel for anyone who
+// isn't a superadmin instead of treating it as "no candidate".
+export const TENANT_CANDIDATE_UNREADABLE = Symbol('om.api.dispatcher.tenantCandidateUnreadable')
+
+function boundBodyStream(body: ReadableStream<Uint8Array>, maxBytes: number): ReadableStream<Uint8Array> {
+  let consumedBytes = 0
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      consumedBytes += chunk.byteLength
+      if (consumedBytes > maxBytes) {
+        controller.error(new BodyPeekLimitExceededError())
+        return
+      }
+      controller.enqueue(chunk)
+    },
+  }))
+}
+
 async function extractBodyTenantCandidate(req: NextRequest): Promise<unknown> {
   const rawContentType = req.headers.get('content-type')
   if (!rawContentType) return undefined
   const contentType = rawContentType.split(';')[0].trim().toLowerCase()
+  if (
+    contentType !== 'application/json'
+    && contentType !== 'application/x-www-form-urlencoded'
+    && contentType !== 'multipart/form-data'
+  ) {
+    return undefined
+  }
+
+  const maxBytes = resolveDispatcherBodyPeekMaxBytes()
+  const contentLengthHeader = req.headers.get('content-length')
+  if (contentLengthHeader) {
+    const contentLength = Number(contentLengthHeader)
+    // A declared size already over budget is rejected without cloning or
+    // touching the body at all — the cheapest possible bound. The caller must
+    // still fail closed on this, not treat it as "no tenantId".
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) return TENANT_CANDIDATE_UNREADABLE
+  }
+
+  const cloned = req.clone()
+  const boundedBody = cloned.body ? boundBodyStream(cloned.body, maxBytes) : null
+  const headers = new Headers({ 'content-type': rawContentType })
+  const bounded = new Response(boundedBody, { headers })
 
   try {
     if (contentType === 'application/json') {
-      const payload = await req.clone().json()
+      const payload = await bounded.json()
       if (payload && typeof payload === 'object' && !Array.isArray(payload) && 'tenantId' in payload) {
         return (payload as Record<string, unknown>).tenantId
       }
-    } else if (contentType === 'application/x-www-form-urlencoded' || contentType === 'multipart/form-data') {
-      const form = await req.clone().formData()
+    } else {
+      const form = await bounded.formData()
       if (form.has('tenantId')) {
         const value = form.get('tenantId')
         if (value instanceof File) return undefined
         return value
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof BodyPeekLimitExceededError) return TENANT_CANDIDATE_UNREADABLE
     // Ignore parsing failures; downstream handlers can deal with malformed payloads.
   }
 
@@ -329,7 +453,39 @@ export async function extractTenantCandidates(req: NextRequest): Promise<unknown
   return candidates
 }
 
+function observeHeadCleanupFailure(report: () => void): void {
+  try {
+    report()
+  } catch {
+    return
+  }
+}
+
+async function cancelHeadResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel()
+  } catch (error) {
+    observeHeadCleanupFailure(() => logger.error('Failed to cancel suppressed HEAD response body', { err: error }))
+    observeHeadCleanupFailure(() => getTelemetryRuntime()?.reportError(error, { module: 'api', code: 'api.head_body_cancel_failed' }))
+  }
+}
+
 async function handleRequest(
+  method: HttpMethod,
+  req: NextRequest,
+  paramsPromise: Promise<{ slug: string[] }>
+): Promise<Response> {
+  const response = await runInOwnedRequestScope(() => dispatchRequest(method, req, paramsPromise))
+  if (req.method.toUpperCase() !== 'HEAD') return response
+  void cancelHeadResponseBody(response)
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  })
+}
+
+async function dispatchRequest(
   method: HttpMethod,
   req: NextRequest,
   paramsPromise: Promise<{ slug: string[] }>
@@ -371,6 +527,18 @@ async function handleRequest(
   }
   const handler = rawHandler as (req: NextRequest, ctx?: HandlerContext) => Promise<Response> | Response
   const routeMetadata = normalizeLoadedMetadata(loadedRouteModule.metadata, method, match.route.kind)
+  if (typeof loadedRouteModule.beforeAuth === 'function') {
+    const beforeAuth = loadedRouteModule.beforeAuth as ApiRouteBeforeAuth
+    const response = await beforeAuth(req, { method, params: match.params })
+    if (response) {
+      await emitLifecycleEvent(
+        response.status === 429 ? applicationLifecycleEvents.requestRateLimited : applicationLifecycleEvents.requestCompleted,
+        { ...receivedPayload, status: response.status, userId: null, tenantId: null, durationMs: Date.now() - startedAt },
+      )
+      getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, response.status, startedAt)
+      return response
+    }
+  }
   const authResolution = await resolveAuthFromRequestDetailed(req)
   const auth = authResolution.auth
   await emitLifecycleEvent(applicationLifecycleEvents.requestAuthResolved, {
@@ -381,7 +549,12 @@ async function handleRequest(
   })
 
   const methodMetadata = extractMethodMetadata(routeMetadata, method)
-  const authError = await checkAuthorization(methodMetadata, auth, req)
+  let containerPromise: ReturnType<typeof createRequestContainer> | null = null
+  const ensureContainer = () => {
+    containerPromise ??= createRequestContainer()
+    return containerPromise
+  }
+  const authError = await checkAuthorization(methodMetadata, auth, req, ensureContainer)
   if (authError) {
     // Auth could not be verified because of a transient/unexpected failure (DB
     // unavailable, pool exhausted, timeout). Do NOT clear the session cookies or
@@ -440,6 +613,47 @@ async function handleRequest(
   }
 
   try {
+    const routePath = auth ? resolveApiInterceptorRoutePath(req) ?? '' : ''
+    const requestInterceptors = auth
+      ? getApiInterceptorsForRoute(routePath, method, 'request').filter((entry) => entry.interceptor.before)
+      : []
+    if (auth && requestInterceptors.length > 0) {
+      const container = await ensureContainer()
+      const acl = requestInterceptors.some((entry) => entry.interceptor.features?.length)
+        ? await container.resolve<RbacService>('rbacService').loadAcl(auth.sub, {
+            tenantId: auth.tenantId ?? null,
+            organizationId: auth.orgId ?? null,
+          })
+        : null
+      const userFeatures = acl?.isSuperAdmin ? ['*'] : acl?.features ?? []
+      const admission = await runApiInterceptorsBefore({
+        routePath,
+        method,
+        scope: 'request',
+        request: { method, url: req.url, headers: Object.fromEntries(req.headers.entries()) },
+        context: {
+          auth,
+          routePattern: match.route.path,
+          userId: auth.sub,
+          tenantId: auth.tenantId ?? '',
+          organizationId: auth.orgId ?? '',
+          em: container.resolve<InterceptorContext['em']>('em'),
+          container,
+          userFeatures,
+        },
+      })
+      if (!admission.ok) {
+        await emitLifecycleEvent(applicationLifecycleEvents.requestAuthorizationDenied, {
+          ...receivedPayload,
+          status: admission.statusCode,
+          userId: auth.sub,
+          tenantId: auth.tenantId ?? null,
+          durationMs: Date.now() - startedAt,
+        })
+        getTelemetryRuntime()?.recordHttpDuration(method, match.route.path, admission.statusCode, startedAt)
+        return NextResponse.json(admission.body, { status: admission.statusCode })
+      }
+    }
     const handlerContext: HandlerContext = { params: match.params, auth }
     const runHandler = () => runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
     const response = methodMetadata?.skipModuleResourceUsageTracking !== true
@@ -507,7 +721,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ slug
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {
-  return handleRequest('POST', req, params)
+  const response = await handleRequest('POST', req, params)
+  if (req.nextUrl.pathname === `/api${crudFormSectionsResolvePath}`) {
+    for (const [name, value] of Object.entries(crudFormSectionsPrivateHeaders)) response.headers.set(name, value)
+  }
+  return response
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ slug: string[] }> }) {

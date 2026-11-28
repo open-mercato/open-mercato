@@ -42,21 +42,21 @@ function runPipeline(
     const eventIds = new Set<string>()
     const apiRoutes = new Set<string>()
     const commandIds = new Set<string>()
-    for (const module of modules) {
-      const sourceRoot = `node_modules/pkg/src/modules/${module.id}`
-      surfacesByModule[module.id] = extractModuleExtensionFacts({
-        moduleId: module.id,
-        moduleRoot: roots[module.id],
+    for (const moduleSpec of modules) {
+      const sourceRoot = `node_modules/pkg/src/modules/${moduleSpec.id}`
+      surfacesByModule[moduleSpec.id] = extractModuleExtensionFacts({
+        moduleId: moduleSpec.id,
+        moduleRoot: roots[moduleSpec.id],
         sourceRoot,
-        entities: module.entities ?? [],
-        events: module.events ?? [],
-        apiRoutes: module.apiRoutes ?? [],
-        searchEntities: module.searchEntities ?? [],
-        notifications: module.notifications,
+        entities: moduleSpec.entities ?? [],
+        events: moduleSpec.events ?? [],
+        apiRoutes: moduleSpec.apiRoutes ?? [],
+        searchEntities: moduleSpec.searchEntities ?? [],
+        notifications: moduleSpec.notifications,
       })
-      for (const entity of module.entities ?? []) entityIds.add(entity.id)
-      for (const event of module.events ?? []) eventIds.add(event.id)
-      for (const route of module.apiRoutes ?? []) apiRoutes.add(route.path)
+      for (const entity of moduleSpec.entities ?? []) entityIds.add(entity.id)
+      for (const event of moduleSpec.events ?? []) eventIds.add(event.id)
+      for (const route of moduleSpec.apiRoutes ?? []) apiRoutes.add(route.path)
     }
     const apiRouteOwners = new Map<string, {
       moduleId: string
@@ -64,18 +64,18 @@ function runPipeline(
       bridges: ApiRouteInterceptorBridge[]
     }>()
     const commandOwners = new Map<string, { moduleId: string; source: { sourcePath: string } }>()
-    for (const module of modules) {
-      const sourceRoot = `node_modules/pkg/src/modules/${module.id}`
-      const owners = extractActivationTargetOwners({ moduleId: module.id, moduleRoot: roots[module.id], sourceRoot })
+    for (const moduleSpec of modules) {
+      const sourceRoot = `node_modules/pkg/src/modules/${moduleSpec.id}`
+      const owners = extractActivationTargetOwners({ moduleId: moduleSpec.id, moduleRoot: roots[moduleSpec.id], sourceRoot })
       for (const route of owners.apiRoutes) {
         apiRoutes.add(`/${route.id}`)
         if (!apiRouteOwners.has(route.id)) {
-          apiRouteOwners.set(route.id, { moduleId: module.id, source: route.source, bridges: route.bridges })
+          apiRouteOwners.set(route.id, { moduleId: moduleSpec.id, source: route.source, bridges: route.bridges })
         }
       }
       for (const command of owners.commands) {
         commandIds.add(command.id)
-        if (!commandOwners.has(command.id)) commandOwners.set(command.id, { moduleId: module.id, source: command.source })
+        if (!commandOwners.has(command.id)) commandOwners.set(command.id, { moduleId: moduleSpec.id, source: command.source })
       }
     }
     const correlated = correlateModuleExtensionFacts({ surfacesByModule, entityIds, eventIds, apiRoutes, commandIds })
@@ -142,6 +142,30 @@ describe('module extension activations and incoming index', () => {
     expect(resolutions[0].resolution).toBe('bound')
     expect(resolutions[0].activationIds).toEqual(['entity:host:record:crud-response-enricher'])
     expect(resolutions[0].target).toEqual({ kind: 'entity', id: 'host:record', moduleId: 'host' })
+  })
+
+  it.each([
+    ['sales:sales_quote', 'quotes'],
+    ['sales:sales_order', 'orders'],
+  ])('extracts the shipped %s response-enricher activation from its HTTP route', (entityId, route) => {
+    const sourceRoot = 'packages/core/src/modules/sales'
+    const facts = extractModuleExtensionFacts({
+      moduleId: 'sales',
+      moduleRoot: path.resolve(__dirname, '../../../../../core/src/modules/sales'),
+      sourceRoot,
+      entities: [{ id: 'sales:sales_quote' }, { id: 'sales:sales_order' }],
+      events: [],
+      apiRoutes: [],
+      searchEntities: [],
+    })
+    const activations = (facts.activations ?? []).filter((activation) => (
+      activation.kind === 'crud-response-enricher' && activation.host.id === entityId
+    ))
+
+    expect(activations).toHaveLength(1)
+    expect(activations[0].host).toEqual({ kind: 'entity', id: entityId, moduleId: 'sales' })
+    expect(activations[0].source.sourcePath).toBe(`${sourceRoot}/api/${route}/route.ts`)
+    expect(activations[0].source.line).toBeGreaterThan(0)
   })
 
   it('binds the query-enricher stage from a query call site that passes extensions', () => {

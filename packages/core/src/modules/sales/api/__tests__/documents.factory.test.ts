@@ -25,8 +25,36 @@ import { MAX_IDS_PER_REQUEST } from '@open-mercato/shared/lib/crud/ids'
 import { buildDocumentCrudOptions } from '../documents/factory'
 import { SalesOrder, SalesQuote } from '../../data/entities'
 import { E } from '#generated/entities.ids.generated'
+import { getEnrichersForEntity, registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
+import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 
 describe('buildDocumentCrudOptions', () => {
+  describe('document number update input', () => {
+    it.each(['order', 'quote'] as const)('passes an unchanged %s number to the scoped command', async (kind) => {
+      const options = buildDocumentCrudOptions({
+        kind,
+        entity: kind === 'order' ? SalesOrder : SalesQuote,
+        entityId: kind === 'order' ? E.sales.sales_order : E.sales.sales_quote,
+        numberField: kind === 'order' ? 'orderNumber' : 'quoteNumber',
+        createCommandId: 'sales.' + kind + 's.create',
+        updateCommandId: 'sales.' + kind + 's.update',
+        deleteCommandId: 'sales.' + kind + 's.delete',
+        manageFeature: 'sales.' + kind + 's.manage',
+        viewFeature: 'sales.' + kind + 's.view',
+      })
+      const numberField = kind === 'order' ? 'orderNumber' : 'quoteNumber'
+      const raw = { id: '11111111-1111-4111-8111-111111111111', [numberField]: 'DOC-1' }
+      const ctx = {
+        auth: { sub: 'user-1', tenantId: '22222222-2222-4222-8222-222222222222', orgId: '33333333-3333-4333-8333-333333333333' },
+        selectedOrganizationId: '33333333-3333-4333-8333-333333333333',
+        container: { resolve: () => undefined },
+      }
+      const input = await options.actions.update.mapInput({ raw, ctx } as never)
+      expect(input).toEqual(expect.objectContaining(raw))
+      expect(options.actions.update.commandId).toBe('sales.' + kind + 's.update')
+    })
+  })
+
   describe('buildFilters', () => {
     const orderBinding = {
       kind: 'order' as const,
@@ -297,9 +325,38 @@ describe('buildDocumentCrudOptions', () => {
       expect(options.enrichers).toEqual({ entityId: 'sales:sales_order' })
     })
 
-    it('does not opt quotes into WMS order enrichers', () => {
-      const options = buildDocumentCrudOptions(quoteBinding)
-      expect(options.enrichers).toBeUndefined()
+    it('selects exact quote and order targets independently while retaining wildcard contributors', () => {
+      const contribute = (id: string, targetEntity: string): ResponseEnricher<Record<string, unknown>> => ({
+        id,
+        targetEntity,
+        enrichOne: async (record) => record,
+        enrichMany: async (records) => records,
+      })
+      registerResponseEnrichers([{
+        moduleId: 'sales_test',
+        enrichers: [
+          contribute('sales_test.quote', 'sales:sales_quote'),
+          contribute('sales_test.order', 'sales:sales_order'),
+          contribute('wms.order-stock', 'sales:sales_order'),
+          contribute('sales_test.shared', '*'),
+        ],
+      }])
+      try {
+        const quoteOptions = buildDocumentCrudOptions(quoteBinding)
+        const orderOptions = buildDocumentCrudOptions(orderBinding)
+        expect(quoteOptions.enrichers).toEqual({ entityId: 'sales:sales_quote' })
+        expect(getEnrichersForEntity(quoteOptions.enrichers.entityId).map(({ enricher }) => enricher.id)).toEqual([
+          'sales_test.quote',
+          'sales_test.shared',
+        ])
+        expect(getEnrichersForEntity(orderOptions.enrichers.entityId).map(({ enricher }) => enricher.id)).toEqual([
+          'sales_test.order',
+          'wms.order-stock',
+          'sales_test.shared',
+        ])
+      } finally {
+        registerResponseEnrichers([])
+      }
     })
   })
 
@@ -432,7 +489,7 @@ describe('buildDocumentCrudOptions', () => {
 
       expect(payload.items[0].tags).toEqual([{ id: 'tag-1', label: 'Priority', color: '#fff' }])
       expect(payload.items[0].channelName).toBe('Web shop')
-      expect(entitiesSeen).toHaveLength(2)
+      expect(entitiesSeen).toEqual(['SalesDocumentTagAssignment', 'SalesChannel', 'SalesOrder'])
     })
 
     it('keeps persisted totals when the response contains exactly one order (#5438)', async () => {

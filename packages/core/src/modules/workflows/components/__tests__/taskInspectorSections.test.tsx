@@ -84,7 +84,7 @@ describe('task inspector — the five §6.1 sections', () => {
     fireEvent.change(screen.getByLabelText('workflows.tasks.inspector.what.taskTitle'), {
       target: { value: 'Approve refund for {{context.customerName}}' },
     })
-    fireEvent.change(screen.getByLabelText('workflows.tasks.inspector.what.instructions'), {
+    fireEvent.change(screen.getByRole('textbox', { name: 'workflows.tasks.inspector.what.instructions' }), {
       target: { value: 'Refund {{context.order.total}}.' },
     })
     save()

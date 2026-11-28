@@ -441,7 +441,10 @@ export function startLazyWorkerSupervisor(
     }
 
     const exitWaiters: Promise<void>[] = []
+    const closingChildren = new Set<ChildProcess>()
     for (const [queueName, child] of activeChildren) {
+      if (closingChildren.has(child)) continue
+      closingChildren.add(child)
       exitWaiters.push(
         new Promise<void>((resolve) => {
           if (child.exitCode !== null || child.signalCode !== null) return resolve()

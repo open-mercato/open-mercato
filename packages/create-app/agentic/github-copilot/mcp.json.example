@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to .vscode/mcp.json and set MCP_API_KEY (printed by yarn initialize). VS Code Copilot uses the top-level \"servers\" key.",
+  "_comment": "Copy to .vscode/mcp.json and set MCP_API_KEY (printed by yarn initialize). om-modules is the public read-only module catalog and needs no key. VS Code Copilot uses the top-level \"servers\" key.",
   "servers": {
     "open-mercato": {
       "command": "yarn",
@@ -8,6 +8,10 @@
         "APP_URL": "http://localhost:3000",
         "MCP_API_KEY": "${MCP_API_KEY}"
       }
+    },
+    "om-modules": {
+      "type": "http",
+      "url": "https://om-modules.openmercato.workers.dev/mcp"
     }
   }
 }

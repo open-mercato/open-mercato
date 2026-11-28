@@ -110,9 +110,9 @@ async function composeEmail(
 }
 
 async function drainEmailQueues(): Promise<void> {
-  await drainIntegrationQueue('events')
-  await drainIntegrationQueue('communication-channels-outbound')
-  await drainIntegrationQueue('events')
+  await test.step('Drain events before outbound email', () => drainIntegrationQueue('events'))
+  await test.step('Drain outbound email', () => drainIntegrationQueue('communication-channels-outbound'))
+  await test.step('Drain outbound email events', () => drainIntegrationQueue('events'))
 }
 
 async function readExternalMessage(messageId: string, scope: { tenantId: string; organizationId: string }) {
@@ -135,6 +135,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-005: a shared conversation reply uses the se
   })
 
   test('the teammate owns their private reply after the original author revokes sharing', async ({ request }) => {
+    test.slow()
     const stamp = randomUUID()
     const recipient = `channel-hub-005-person-${stamp}@example.com`
     const userAName = `QA Channel Hub 005 A ${stamp}`

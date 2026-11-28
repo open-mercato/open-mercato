@@ -7,9 +7,10 @@ import {
   resolveRunId,
   resolveSpentAdapterBudgets,
 } from './guardrails'
-import { hostnameOf, isHostAllowed, resolveWebSearchSettings } from './policy'
+import { applyAnswerDomainPolicy, hostnameOf, isHostAllowed, resolveWebSearchSettings } from './policy'
 import { buildWebSearchEngine } from './registry'
 import { createStepEmitter } from './steps'
+import { resolveActiveAgentId } from '../runtime/activeAgent'
 
 export const WEB_SEARCH_TOOL_ID = 'agent_orchestrator.web_search'
 export const WEB_FETCH_TOOL_ID = 'agent_orchestrator.web_fetch'
@@ -102,15 +103,7 @@ async function disposeQuietly(engine: { dispose(): Promise<void> }): Promise<voi
 }
 
 async function resolveAgentId(ctx: McpToolContext): Promise<string | null> {
-  if (!ctx.sessionId) return null
-  try {
-    const store = ctx.container.resolve('agentRunSessionStore') as {
-      resolveActiveAgentId(token: string): Promise<string | null>
-    }
-    return await store.resolveActiveAgentId(ctx.sessionId)
-  } catch {
-    return null
-  }
+  return resolveActiveAgentId(ctx.container, ctx.sessionId)
 }
 
 /**
@@ -168,12 +161,14 @@ export const webSearchTool: AiToolDefinition = {
         const host = hostnameOf(hit.url)
         return host ? isHostAllowed(host, settings.guardrails) : false
       })
+      const { answer, ...answerDiagnostics } = applyAnswerDomainPolicy(result.answer, settings.guardrails)
 
       return {
         ok: true as const,
         results: allowed,
-        answer: result.answer,
+        answer,
         diagnostics: {
+          ...answerDiagnostics,
           adapters: result.diagnostics.adapters,
           degraded: result.diagnostics.degraded || allowed.length !== result.results.length,
           cached: result.diagnostics.cached,
@@ -226,7 +221,8 @@ export const webFetchTool: AiToolDefinition = {
       })
 
       if (outcome.status !== 'ok') {
-        return { ok: false as const, code: outcome.status, error: outcome.reason ?? outcome.status }
+        const code = outcome.status === 'blocked' ? outcome.code ?? outcome.status : outcome.status
+        return { ok: false as const, code, error: outcome.reason ?? outcome.status }
       }
       // The engine follows redirects, so the host that actually answered may not
       // be the one the guardrail cleared above.

@@ -8,9 +8,21 @@ import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { resolveGraceDays } from './projectTeamAssignment'
+import {
+  DEFAULT_ASSIGNEE_PAGE_SIZE,
+  chunkIds,
+  classifyDefaultAssigneeCandidates,
+  collectProjectMemberships,
+  readProjectMembershipPage,
+  resolveSelectedDefaultAssignee,
+  type ProjectMemberRow,
+} from './projectDefaultAssignee'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 
@@ -122,12 +134,7 @@ export function ProjectBudgetSection({
   )
 }
 
-type ProjectMemberRow = {
-  id?: unknown
-  staffMemberId?: unknown
-  staff_member_id?: unknown
-  status?: unknown
-}
+export { isUsableDefaultAssigneeMembership } from './projectDefaultAssignee'
 
 type TeamMemberRow = {
   id?: unknown
@@ -321,3 +328,175 @@ export function ProjectRoundingNotice() {
 
 /** Exported for unit tests only. */
 export const __testing = { memberLabel }
+
+const NO_DEFAULT_ASSIGNEE = '__none__'
+
+export type ProjectDefaultAssigneeFieldProps = {
+  projectId: string | null
+  value: string | null
+  onChange: (value: string | null) => void
+  disabled?: boolean
+}
+
+type DefaultAssigneeOption = { id: string; label: string; active: boolean }
+
+/**
+ * The project's default assignee for customer portal tickets. Only active project
+ * members are offered; a stored default whose membership has since gone inactive or
+ * been removed stays visible with a warning, because new tickets then fall to the
+ * project's assigners instead of failing.
+ */
+export function ProjectDefaultAssigneeField({ projectId, value, onChange, disabled }: ProjectDefaultAssigneeFieldProps) {
+  const t = useT()
+  const [options, setOptions] = React.useState<DefaultAssigneeOption[]>([])
+  const [loadState, setLoadState] = React.useState<'loading' | 'loaded' | 'failed'>('loading')
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const [truncated, setTruncated] = React.useState(false)
+  const [extraLabels, setExtraLabels] = React.useState<Map<string, string>>(new Map())
+  const valueRef = React.useRef(value)
+  valueRef.current = value
+
+  React.useEffect(() => {
+    if (!projectId) {
+      setOptions([])
+      setTruncated(false)
+      setExtraLabels(new Map())
+      setLoadState('loaded')
+      return
+    }
+    let cancelled = false
+    setLoadState('loading')
+    async function load() {
+      try {
+        const [collection, settingsRes] = await Promise.all([
+          collectProjectMemberships(async (page) => {
+            const membersRes = await apiCall<{ items?: unknown; totalPages?: unknown }>(
+              `/api/staff/timesheets/time-projects/${projectId}/employees?page=${page}&pageSize=${DEFAULT_ASSIGNEE_PAGE_SIZE}`,
+            )
+            return readProjectMembershipPage(membersRes)
+          }),
+          apiCall<{ access?: { assignmentGraceDays?: unknown } | null }>('/api/staff/timesheets/settings'),
+        ])
+        const graceDays = resolveGraceDays(settingsRes.ok ? settingsRes.result?.access?.assignmentGraceDays : null)
+        const candidates = classifyDefaultAssigneeCandidates(collection.rows, graceDays)
+        if (!cancelled) setTruncated(collection.truncated)
+        const selectedId = valueRef.current
+        const labelIds = Array.from(new Set([
+          ...candidates.map((candidate) => candidate.staffMemberId),
+          ...(selectedId ? [selectedId] : []),
+        ]))
+        if (labelIds.length === 0) {
+          if (!cancelled) {
+            setOptions([])
+            setExtraLabels(new Map())
+            setLoadState('loaded')
+          }
+          return
+        }
+        const staffResults = await Promise.all(
+          chunkIds(labelIds).map((ids) =>
+            apiCall<{ items?: TeamMemberRow[] }>(
+              `/api/staff/team-members?ids=${ids.join(',')}&pageSize=${DEFAULT_ASSIGNEE_PAGE_SIZE}`,
+            ),
+          ),
+        )
+        const staffRows = staffResults.flatMap((staffRes) => (Array.isArray(staffRes.result?.items) ? staffRes.result.items : []))
+        const labels = new Map(
+          staffRows
+            .map((row) => [readString(row.id), memberLabel(row)] as const)
+            .filter((entry): entry is readonly [string, string] => entry[0] !== null),
+        )
+        if (!cancelled) {
+          setOptions(candidates.map((candidate) => ({
+            id: candidate.staffMemberId,
+            label: labels.get(candidate.staffMemberId) || candidate.staffMemberId,
+            active: candidate.active,
+          })))
+          setExtraLabels(labels)
+          setLoadState('loaded')
+        }
+      } catch {
+        if (!cancelled) setLoadState('failed')
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [projectId, reloadToken])
+
+  const retryLoad = React.useCallback(() => setReloadToken((token) => token + 1), [])
+
+  const selection = resolveSelectedDefaultAssignee(
+    options.map((option) => ({ staffMemberId: option.id, active: option.active })),
+    value,
+    truncated,
+  )
+  const selected = value ? options.find((option) => option.id === value) ?? null : null
+  const selectedLabel = selected?.label ?? (value ? extraLabels.get(value) || value : null)
+  const loadFailed = loadState === 'failed'
+  const activeOptions = loadFailed ? [] : options.filter((option) => option.active)
+  const showWarning = loadState === 'loaded' && selection.unusable
+
+  return (
+    <div className="flex flex-col gap-2" data-testid="project-default-assignee">
+      <Label htmlFor="project-default-assignee-select">
+        {t('staff.time_tracking.assigners.defaultAssignee', 'Default assignee for portal tickets')}
+      </Label>
+      <Select
+        value={value ?? NO_DEFAULT_ASSIGNEE}
+        disabled={disabled || !projectId}
+        onValueChange={(next) => onChange(next === NO_DEFAULT_ASSIGNEE ? null : next)}
+      >
+        <SelectTrigger id="project-default-assignee-select" data-testid="project-default-assignee-select">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value={NO_DEFAULT_ASSIGNEE}>
+            {t('staff.time_tracking.assigners.defaultAssigneeNone', 'No default assignee')}
+          </SelectItem>
+          {activeOptions.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {option.label}
+            </SelectItem>
+          ))}
+          {value && (loadFailed || !selected || !selected.active) ? (
+            <SelectItem value={value}>{selectedLabel ?? value}</SelectItem>
+          ) : null}
+        </SelectContent>
+      </Select>
+      <p className="text-xs text-muted-foreground">
+        {t(
+          'staff.time_tracking.assigners.defaultAssigneeHelp',
+          'New customer portal tickets routed to this project are assigned to this member. Tasks created on the board stay assigned to their creator.',
+        )}
+      </p>
+      {loadFailed ? (
+        <ErrorMessage
+          label={t(
+            'staff.time_tracking.assigners.defaultAssigneeLoadFailed',
+            'Could not load the project members, so the default assignee cannot be checked right now.',
+          )}
+          action={(
+            <Button type="button" variant="outline" size="sm" onClick={retryLoad} data-testid="project-default-assignee-retry">
+              {t('staff.time_tracking.assigners.defaultAssigneeRetry', 'Retry')}
+            </Button>
+          )}
+        />
+      ) : null}
+      {showWarning ? (
+        <Alert status="warning">
+          <AlertDescription>
+            {t(
+              'staff.time_tracking.assigners.defaultAssigneeInactive',
+              'This member is no longer an active project member. New tickets will be left unassigned and the assigners notified.',
+            )}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {!projectId ? (
+        <p className="text-xs text-muted-foreground">
+          {t('staff.time_tracking.assigners.defaultAssigneeAfterCreate', 'Save the project and add members to choose a default assignee.')}
+        </p>
+      ) : null}
+    </div>
+  )
+}

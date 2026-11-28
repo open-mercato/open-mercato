@@ -54,9 +54,12 @@ import {
   ensureOrganizationScope,
   ensureSameScope,
   ensureTenantScope,
+  exactAmountString,
   extractUndoPayload,
   toNumericString,
 } from './shared'
+import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { SHIPPING_METHOD_EXACT_AMOUNT_FIELDS } from '../lib/exactAmountFields'
 
 type ChannelSnapshot = {
   id: string
@@ -584,10 +587,40 @@ async function deactivateOtherDefaultTaxRates(em: EntityManager, record: SalesTa
       organizationId: record.organizationId,
       tenantId: record.tenantId,
       deletedAt: null,
+      isDefault: true,
       id: { $ne: record.id } as any,
     },
-    { isDefault: false },
+    { isDefault: false, updatedAt: new Date() },
   )
+}
+
+async function restoreTaxRateFromSnapshot(
+  em: EntityManager,
+  before: TaxRateSnapshot,
+  options: { keepCurrentIsDefault: boolean },
+) {
+  await em.transactional(async (tx) => {
+    let record = await findOneWithDecryption(
+      tx,
+      SalesTaxRate,
+      { id: before.id, tenantId: before.tenantId, organizationId: before.organizationId },
+      {},
+      { tenantId: before.tenantId, organizationId: before.organizationId },
+    )
+    if (!record) {
+      record = tx.create(SalesTaxRate, taxRateSeedFromSnapshot(before))
+      tx.persist(record)
+    }
+    const currentIsDefault = record.isDefault
+    applyTaxRateSnapshot(record, before)
+    if (options.keepCurrentIsDefault) {
+      record.isDefault = currentIsDefault
+    }
+    await tx.flush()
+    if (record.isDefault) {
+      await deactivateOtherDefaultTaxRates(tx, record)
+    }
+  })
 }
 
 const createChannelCommand: CommandHandler<ChannelCreateInput, { channelId: string }> = {
@@ -1259,7 +1292,8 @@ const createShippingMethodCommand: CommandHandler<
 > = {
   id: 'sales.shipping-methods.create',
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(shippingMethodCreateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(shippingMethodCreateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, SHIPPING_METHOD_EXACT_AMOUNT_FIELDS)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1273,8 +1307,8 @@ const createShippingMethodCommand: CommandHandler<
       providerKey: parsed.providerKey ?? null,
       serviceLevel: parsed.serviceLevel ?? null,
       estimatedTransitDays: parsed.estimatedTransitDays ?? null,
-      baseRateNet: toNumericString(parsed.baseRateNet) ?? '0',
-      baseRateGross: toNumericString(parsed.baseRateGross) ?? '0',
+      baseRateNet: exactAmountString(parsed.baseRateNetExact, parsed.baseRateNet) ?? '0',
+      baseRateGross: exactAmountString(parsed.baseRateGrossExact, parsed.baseRateGross) ?? '0',
       currencyCode: parsed.currencyCode ?? null,
       metadata: mergeProviderSettings(parsed.metadata, parsed.providerSettings),
       isActive: parsed.isActive ?? true,
@@ -1374,7 +1408,8 @@ const updateShippingMethodCommand: CommandHandler<
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(shippingMethodUpdateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(shippingMethodUpdateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, SHIPPING_METHOD_EXACT_AMOUNT_FIELDS)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await em.findOne(SalesShippingMethod, { id: parsed.id, deletedAt: null })
     if (!record) throw notFound('Shipping method not found')
@@ -1391,10 +1426,10 @@ const updateShippingMethodCommand: CommandHandler<
       record.estimatedTransitDays = parsed.estimatedTransitDays ?? null
     }
     if (Object.prototype.hasOwnProperty.call(parsed, 'baseRateNet')) {
-      record.baseRateNet = toNumericString(parsed.baseRateNet) ?? '0'
+      record.baseRateNet = exactAmountString(parsed.baseRateNetExact, parsed.baseRateNet) ?? '0'
     }
     if (Object.prototype.hasOwnProperty.call(parsed, 'baseRateGross')) {
-      record.baseRateGross = toNumericString(parsed.baseRateGross) ?? '0'
+      record.baseRateGross = exactAmountString(parsed.baseRateGrossExact, parsed.baseRateGross) ?? '0'
     }
     if (parsed.currencyCode !== undefined) record.currencyCode = parsed.currencyCode ?? null
     if (parsed.metadata !== undefined || parsed.providerSettings !== undefined) {
@@ -2059,16 +2094,12 @@ const updateTaxRateCommand: CommandHandler<TaxRateUpdateInput, { taxRateId: stri
     const payload = extractUndoPayload<UndoPayload<TaxRateSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(SalesTaxRate, { id: before.id })
-    if (!record) {
-      record = em.create(SalesTaxRate, taxRateSeedFromSnapshot(before))
-      em.persist(record)
-    }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyTaxRateSnapshot(record, before)
-    await em.flush()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restoreTaxRateFromSnapshot(em, before, {
+      keepCurrentIsDefault: Boolean(payload?.after && payload.after.isDefault === before.isDefault),
+    })
     const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
     if (Object.keys(resetValues).length) {
       await setCustomFieldsIfAny({
@@ -2145,16 +2176,10 @@ const deleteTaxRateCommand: CommandHandler<
     const payload = extractUndoPayload<UndoPayload<TaxRateSnapshot>>(logEntry)
     const before = payload?.before
     if (!before) return
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(SalesTaxRate, { id: before.id })
-    if (!record) {
-      record = em.create(SalesTaxRate, taxRateSeedFromSnapshot(before))
-      em.persist(record)
-    }
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
-    applyTaxRateSnapshot(record, before)
-    await em.flush()
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restoreTaxRateFromSnapshot(em, before, { keepCurrentIsDefault: false })
     if (before.custom && Object.keys(before.custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),

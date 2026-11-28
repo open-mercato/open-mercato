@@ -1,7 +1,11 @@
 import fs from 'node:fs'
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { once } from 'node:events'
+import { createRequire } from 'node:module'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
@@ -9,6 +13,7 @@ import { chromium } from '@playwright/test'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
+import { runStandalonePresetInitialization } from './lib/standalone-preset-initialization'
 import {
   EXAMPLE_ACTIVATION_ENTRY,
   assertExampleActivation,
@@ -20,6 +25,8 @@ import {
 const __filename = fileURLToPath(import.meta.url)
 const ROOT = path.resolve(path.dirname(__filename), '..')
 const CREATE_APP_BIN = createAppBin(ROOT)
+// tar is a dependency of create-app, not of the root workspace, so it is resolved from that package.
+const tar = createRequire(path.join(ROOT, 'packages', 'create-app', 'package.json'))('tar') as typeof import('tar')
 const ROOT_VERSION = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version as string
 
 const green = (value: string) => `\x1b[32m${value}\x1b[0m`
@@ -32,7 +39,8 @@ const STANDALONE_BUILD_NODE_OPTIONS = '--max-old-space-size=8192'
 type EphemeralEnvState = {
   status?: string
   baseUrl?: string
-  port?: number
+  databaseUrl?: string
+  queueBaseDir?: string
 }
 
 function assertExists(filePath: string, label: string): void {
@@ -145,32 +153,22 @@ async function waitForStandaloneEphemeralApp(params: {
   process: ChildProcessWithoutNullStreams
   baseUrl: string
   databaseUrl: string
+  queueBaseDir: string
 }> {
   const statePath = path.join(params.appDir, '.ai', 'qa', 'ephemeral-env.json')
   try {
     fs.rmSync(statePath, { force: true })
   } catch {}
 
-  let databaseUrl: string | null = null
   let exited: { code: number | null; signal: NodeJS.Signals | null } | null = null
-  let outputBuffer = ''
-  const child = spawn('yarn', ['mercato', 'test:ephemeral', '--no-reuse-env', '--no-screenshots'], {
+  const child = spawn(process.execPath, [path.join(params.appDir, 'scripts/mercato-cli.mjs'), 'test:ephemeral', '--no-reuse-env', '--no-screenshots'], {
     cwd: params.appDir,
     env: { ...process.env, ...params.env },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
 
-  const handleOutput = (chunk: Buffer): void => {
-    const text = chunk.toString()
-    process.stdout.write(text)
-    outputBuffer = `${outputBuffer}${text}`.slice(-2_000)
-    const match = outputBuffer.match(/Ephemeral database ready at ([^\s:]+):(\d+)/)
-    if (match) {
-      databaseUrl = `postgres://mercato:secret@${match[1]}:${match[2]}/mercato_test`
-    }
-  }
-  child.stdout.on('data', handleOutput)
-  child.stderr.on('data', handleOutput)
+  child.stdout.on('data', (chunk) => process.stdout.write(chunk))
+  child.stderr.on('data', (chunk) => process.stderr.write(chunk))
   child.on('exit', (code, signal) => {
     exited = { code, signal }
   })
@@ -184,11 +182,12 @@ async function waitForStandaloneEphemeralApp(params: {
     if (fs.existsSync(statePath)) {
       try {
         const state = readJson<EphemeralEnvState>(statePath)
-        if (state.status === 'running' && state.baseUrl && databaseUrl) {
+        if (state.status === 'running' && state.baseUrl && state.databaseUrl && state.queueBaseDir) {
           return {
             process: child,
             baseUrl: state.baseUrl,
-            databaseUrl,
+            databaseUrl: state.databaseUrl,
+            queueBaseDir: state.queueBaseDir,
           }
         }
       } catch {}
@@ -196,24 +195,216 @@ async function waitForStandaloneEphemeralApp(params: {
     await delay(500)
   }
 
-  throw new Error('Timed out waiting for standalone ephemeral app readiness and database URL')
+  await stopStandaloneProcess(child)
+  throw new Error('Timed out waiting for standalone ephemeral app readiness and runtime state')
 }
 
-async function stopStandaloneEphemeralApp(child: ChildProcessWithoutNullStreams | null): Promise<void> {
-  if (!child || child.killed || child.exitCode !== null) return
-
-  const closed = new Promise<void>((resolve) => {
-    child.once('close', () => resolve())
-  })
+async function stopStandaloneProcess(child: ChildProcess | null): Promise<void> {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return
+  const exited = once(child, 'exit')
   child.kill('SIGTERM')
-  await Promise.race([
-    closed,
-    delay(30_000).then(() => {
-      if (!child.killed && child.exitCode === null) {
-        child.kill('SIGKILL')
-      }
-    }),
-  ])
+  const timeout = setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+  }, 30_000)
+  try {
+    await exited
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+// --template case (spec .ai/specs/2026-11-04-create-app-template-flag.md, "Integration test"). The scaffolded app
+// is packed as a GitHub-style tarball and served with a templates.json index and the three GitHub API routes from
+// 127.0.0.1, so the CLI runs its real index, download, archive and finalizing code against a fixture template.
+const TEMPLATE_FIXTURE_REPO = 'om-integration/app-template'
+const TEMPLATE_FIXTURE_SHA = '0123456789abcdef0123456789abcdef01234567'
+const TEMPLATE_FIXTURE_SLUG = 'integration-template'
+const TEMPLATE_HOLD_SLUG = 'integration-hold'
+const TEMPLATE_HOLD_REASON = 'Held by the create-app integration fixture.'
+const TEMPLATE_ENV_KEY = 'OM_INTEGRATION_TEMPLATE_KEY'
+
+type TemplateFixtureServer = {
+  baseUrl: string
+  requests: string[]
+  close: () => Promise<void>
+}
+
+async function packTemplateFixture(scaffoldDir: string, tempRoot: string): Promise<Buffer> {
+  const fixtureRoot = path.join(tempRoot, 'template-fixture')
+  const topDir = `om-integration-app-template-${TEMPLATE_FIXTURE_SHA.slice(0, 7)}`
+  const treeDir = path.join(fixtureRoot, topDir)
+  fs.cpSync(scaffoldDir, treeDir, {
+    recursive: true,
+    filter: (source) => {
+      const name = path.basename(source)
+      return name !== 'node_modules' && name !== '.env'
+    },
+  })
+  writeJson(path.join(treeDir, 'mercato-template.json'), {
+    schema: 1,
+    name: TEMPLATE_FIXTURE_SLUG,
+    description: 'Fixture template for the create-app integration test.',
+    openMercato: ROOT_VERSION,
+    env: [{ name: TEMPLATE_ENV_KEY, description: 'Declared by the integration fixture.' }],
+  })
+  const archivePath = path.join(tempRoot, 'template-fixture.tar.gz')
+  await tar.c({ cwd: fixtureRoot, gzip: true, file: archivePath, portable: true }, [topDir])
+  return fs.readFileSync(archivePath)
+}
+
+function templateIndexEntry(slug: string, github: string, sha: string, status: string, reason: string | null) {
+  return {
+    slug,
+    github,
+    status,
+    reason,
+    useCase: 'starter',
+    summary: 'Fixture template for the create-app integration test.',
+    ref: 'main',
+    source: { sha, syncedAt: new Date().toISOString(), facts: null },
+    verified: null,
+  }
+}
+
+async function startTemplateFixtureServer(archive: Buffer): Promise<TemplateFixtureServer> {
+  const index = {
+    schema: 1,
+    generatedAt: new Date().toISOString(),
+    templates: [
+      templateIndexEntry(TEMPLATE_FIXTURE_SLUG, TEMPLATE_FIXTURE_REPO, TEMPLATE_FIXTURE_SHA, 'active', null),
+      templateIndexEntry(TEMPLATE_HOLD_SLUG, 'om-integration/held-template', 'f'.repeat(40), 'hold', TEMPLATE_HOLD_REASON),
+    ],
+  }
+  const requests: string[] = []
+  const sendJson = (response: http.ServerResponse, status: number, body: unknown) => {
+    response.writeHead(status, { 'content-type': 'application/json' })
+    response.end(JSON.stringify(body))
+  }
+  const server = http.createServer((request, response) => {
+    const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
+    requests.push(pathname)
+    const repoApi = `/api/repos/${TEMPLATE_FIXTURE_REPO}`
+    if (pathname === '/templates.json') return sendJson(response, 200, index)
+    if (pathname === repoApi) return sendJson(response, 200, { default_branch: 'main' })
+    if (pathname === `${repoApi}/commits/main`) return sendJson(response, 200, { sha: TEMPLATE_FIXTURE_SHA })
+    if (pathname === `${repoApi}/tarball/${TEMPLATE_FIXTURE_SHA}`) {
+      response.writeHead(200, { 'content-type': 'application/x-gzip', 'content-length': String(archive.byteLength) })
+      response.end(archive)
+      return
+    }
+    sendJson(response, 404, { message: 'Not Found' })
+  })
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  const { port } = server.address() as AddressInfo
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    requests,
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  }
+}
+
+/** Runs create-mercato-app without blocking the event loop, so the fixture server in this process can answer. */
+function runCreateAppAsync(args: string[], env: NodeJS.ProcessEnv): Promise<{ status: number | null; output: string }> {
+  console.log(`\n$ node ${[CREATE_APP_BIN, ...args].join(' ')}`)
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [CREATE_APP_BIN, ...args], {
+      cwd: ROOT,
+      env: { ...process.env, ...env },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let output = ''
+    const collect = (chunk: Buffer) => {
+      const text = chunk.toString()
+      process.stdout.write(text)
+      output += text
+    }
+    child.stdout.on('data', collect)
+    child.stderr.on('data', collect)
+    child.once('error', reject)
+    child.once('close', (status) => resolve({ status, output: output.replace(/\u001b\[[0-9;]*m/g, '') }))
+  })
+}
+
+function assertOutputIncludes(output: string, expected: string, label: string): void {
+  if (!output.includes(expected)) {
+    throw new Error(`${label}: expected the output to include "${expected}"`)
+  }
+  console.log(green(`✔ ${label}`))
+}
+
+async function runTemplateImportCase(params: {
+  scaffoldDir: string
+  tempRoot: string
+  installEnv: NodeJS.ProcessEnv
+}): Promise<void> {
+  console.log(cyan('Creating an app from a locally served app template (--template)'))
+  const archive = await packTemplateFixture(params.scaffoldDir, params.tempRoot)
+  const server = await startTemplateFixtureServer(archive)
+  const templateAppDir = path.join(params.tempRoot, 'template-app')
+  try {
+    const env: NodeJS.ProcessEnv = {
+      OM_TEMPLATES_URL: `${server.baseUrl}/templates.json`,
+      OM_CREATE_APP_GITHUB_API_BASE_URL: `${server.baseUrl}/api`,
+      GITHUB_TOKEN: '',
+    }
+    const created = await runCreateAppAsync(
+      [templateAppDir, '--template', TEMPLATE_FIXTURE_SLUG, '--skip-agentic-setup', '--registry', VERDACCIO_URL, '--no-init-git'],
+      env,
+    )
+    if (created.status !== 0) {
+      throw new Error(`create-mercato-app --template ${TEMPLATE_FIXTURE_SLUG} failed with status ${created.status ?? 'unknown'}`)
+    }
+    assertOutputIncludes(created.output, `${TEMPLATE_FIXTURE_REPO}@${TEMPLATE_FIXTURE_SHA}`, 'Template output names owner/repo@sha')
+    assertOutputIncludes(created.output, '--registry and --verdaccio do not apply to app templates', 'Template output warns about --registry')
+    assertOutputIncludes(created.output, TEMPLATE_ENV_KEY, 'Template next steps list the declared env key')
+
+    const packageJson = readJson<{ name?: string; openMercatoTemplate?: unknown }>(path.join(templateAppDir, 'package.json'))
+    if (packageJson.name !== 'template-app') {
+      throw new Error(`Template app package.json name was not rewritten: ${String(packageJson.name)}`)
+    }
+    const provenance = JSON.stringify(packageJson.openMercatoTemplate)
+    const expectedProvenance = JSON.stringify({ repo: TEMPLATE_FIXTURE_REPO, ref: 'main', sha: TEMPLATE_FIXTURE_SHA })
+    if (provenance !== expectedProvenance) {
+      throw new Error(`Template app provenance is ${provenance}, expected ${expectedProvenance}`)
+    }
+    console.log(green('✔ Template app package.json has the new name and its provenance'))
+    if (fs.existsSync(path.join(templateAppDir, 'mercato-template.json'))) {
+      throw new Error('Template app still contains mercato-template.json')
+    }
+    console.log(green('✔ Template app has no mercato-template.json'))
+    const yarnConfig = fs.readFileSync(path.join(templateAppDir, '.yarnrc.yml'), 'utf8')
+    if (!yarnConfig.includes(`npmRegistryServer: "${VERDACCIO_URL}"`)) {
+      throw new Error('Template app .yarnrc.yml no longer matches the template snapshot')
+    }
+    console.log(green('✔ Template app keeps the .yarnrc.yml of its snapshot'))
+
+    const heldDir = path.join(params.tempRoot, 'held-app')
+    const requestsBefore = server.requests.length
+    const held = await runCreateAppAsync([heldDir, '--template', TEMPLATE_HOLD_SLUG, '--no-init-git'], env)
+    if (held.status === 0) {
+      throw new Error(`create-mercato-app --template ${TEMPLATE_HOLD_SLUG} succeeded on a hold entry`)
+    }
+    assertOutputIncludes(held.output, TEMPLATE_HOLD_REASON, 'Hold entry refused with its reason')
+    if (fs.existsSync(heldDir)) {
+      throw new Error('A refused hold entry left a target directory behind')
+    }
+    if (server.requests.slice(requestsBefore).some((pathname) => pathname.startsWith('/api/'))) {
+      throw new Error('A refused hold entry made a GitHub API request')
+    }
+    console.log(green('✔ Hold entry left no directory and made no GitHub request'))
+  } finally {
+    await server.close()
+  }
+
+  // As the printed next steps say: cp .env.example .env, then install and generate (no second build, to keep the lane short).
+  const envExample = path.join(templateAppDir, '.env.example')
+  if (fs.existsSync(envExample)) fs.copyFileSync(envExample, path.join(templateAppDir, '.env'))
+  runCommand('yarn', ['install'], { cwd: templateAppDir, env: params.installEnv })
+  runCommand('yarn', ['generate'], { cwd: templateAppDir, env: params.installEnv })
+  console.log(green('✔ App created from the template installs and generates'))
 }
 
 function ensurePlaywrightBrowsersInstalled(): void {
@@ -231,6 +422,12 @@ function ensurePlaywrightBrowsersInstalled(): void {
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === '--presets-init-only') {
+    await ensureVerdaccioPublished(ROOT)
+    await runStandalonePresetInitialization(ROOT)
+    return
+  }
+
   ensurePlaywrightBrowsersInstalled()
 
   const cleanup = process.argv.includes('--cleanup')
@@ -245,6 +442,7 @@ async function main(): Promise<void> {
     NEXT_PUBLIC_APP_URL: 'http://localhost:3000',
     PLATFORM_PORTAL_BASE_URL: 'http://localhost:3000',
     OM_TEST_EMAIL_CAPTURE_PATH: standaloneEmailCapturePath(),
+    OM_INIT_SUPERADMIN_PASSWORD: 'StandaloneSmokeTest-Only-1!',
     JWT_SECRET: 'ci-standalone-test-jwt-secret-32-chars-min',
     OM_SECURITY_MFA_SETUP_SECRET: 'ci-standalone-test-mfa-setup-secret',
     TENANT_DATA_ENCRYPTION_FALLBACK_KEY: 'ci-standalone-test-fallback-key',
@@ -291,6 +489,12 @@ async function main(): Promise<void> {
     }
     console.log(green(`✔ Scaffolded standalone app uses Verdaccio at ${VERDACCIO_URL}`))
 
+    await runTemplateImportCase({
+      scaffoldDir: appDir,
+      tempRoot,
+      installEnv: standaloneInstallEnv,
+    })
+
     writeStandaloneEnv(appDir)
     ensureEnterpriseDependency(appDir)
     runCommand('yarn', ['install'], {
@@ -304,10 +508,24 @@ async function main(): Promise<void> {
       env: { ...integrationEnv, NODE_ENV: 'production' },
     })
     assertProductionBuildArtifacts(appDir, { onSuccess: (label) => console.log(green(`✔ ${label}`)) })
-    await assertModulesUnregistered(appDir, ['example', 'example_customers_sync', 'design_system'])
+    const useSectionFixtures = process.env.OM_TEST_CRUD_FORM_POLICY_FIXTURES === '1'
+    await assertModulesUnregistered(appDir, [
+      'example', 'example_customers_sync', 'design_system', ...(useSectionFixtures ? ['form_policy_fixture'] : []),
+    ])
     console.log(green('✔ Runtime-disabled scaffold baseline contains no reference-module output'))
 
-    enableModuleEntry(modulesConfigPath(appDir), EXAMPLE_ACTIVATION_ENTRY)
+    if (useSectionFixtures) {
+      const fixtureModule = 'form_policy_fixture'
+      const fixtureRoot = path.join(ROOT, '.ai', 'qa', 'fixtures', 'crudform-section-policy', 'src', 'modules', fixtureModule)
+      const target = path.join(appDir, 'src', 'modules', fixtureModule)
+      if (fs.existsSync(target)) throw new Error('Section policy fixture already exists in scaffold')
+      fs.cpSync(fixtureRoot, target, { recursive: true, errorOnExist: true, force: false })
+      enableModuleEntry(modulesConfigPath(appDir), { id: fixtureModule, from: '@app' })
+    }
+    enableModuleEntry(modulesConfigPath(appDir), useSectionFixtures ? {
+      ...EXAMPLE_ACTIVATION_ENTRY,
+      additionalPropertiesSource: "overrides: { forms: { sections: { 'example.todo/showcase/update/observer': null } } },",
+    } : EXAMPLE_ACTIVATION_ENTRY)
     console.log(cyan('Building the explicitly activated example fixture in production mode'))
     runCommand('yarn', ['build'], {
       cwd: appDir,
@@ -327,17 +545,27 @@ async function main(): Promise<void> {
     if (testArgs.length > 0) {
       console.log(cyan(`Playwright args: ${testArgs.join(' ')}`))
     }
-    runCommand('yarn', ['test:integration', ...testArgs], {
-      cwd: ROOT,
-      env: {
-        ...integrationEnv,
-        BASE_URL: standalone.baseUrl,
-        APP_URL: standalone.baseUrl,
-        NEXT_PUBLIC_APP_URL: standalone.baseUrl,
-        DATABASE_URL: standalone.databaseUrl,
-        OM_TEST_APP_ROOT: appDir,
-      },
+    const testEnvironment = {
+      ...integrationEnv,
+      BASE_URL: standalone.baseUrl,
+      APP_URL: standalone.baseUrl,
+      NEXT_PUBLIC_APP_URL: standalone.baseUrl,
+      DATABASE_URL: standalone.databaseUrl,
+      QUEUE_BASE_DIR: standalone.queueBaseDir,
+      OM_INTEGRATION_TEST: 'true',
+      OM_TEST_APP_ROOT: appDir,
+    }
+    const outboxWorker = spawn(process.execPath, [path.join(appDir, 'scripts/mercato-cli.mjs'), 'queue', 'worker', 'crud-form-section-outbox'], {
+      cwd: appDir,
+      env: { ...process.env, ...testEnvironment },
+      stdio: 'inherit',
     })
+    try {
+      await once(outboxWorker, 'spawn')
+      runCommand('yarn', ['test:integration', ...testArgs], { cwd: ROOT, env: testEnvironment })
+    } finally {
+      await stopStandaloneProcess(outboxWorker)
+    }
 
     assertExists(
       path.join(ROOT, '.ai', 'qa', 'test-results', 'results.json'),
@@ -349,7 +577,7 @@ async function main(): Promise<void> {
     console.log(yellow(`Standalone app dependencies were installed from Verdaccio at ${VERDACCIO_URL}.`))
 
     if (cleanup) {
-      await stopStandaloneEphemeralApp(standaloneProcess)
+      await stopStandaloneProcess(standaloneProcess)
       standaloneProcess = null
       fs.rmSync(tempRoot, { recursive: true, force: true })
       console.log(yellow(`Cleaned up ${tempRoot}`))
@@ -362,7 +590,7 @@ async function main(): Promise<void> {
     console.error(yellow(`Temporary app preserved at: ${appDir}`))
     process.exitCode = 1
   } finally {
-    await stopStandaloneEphemeralApp(standaloneProcess)
+    await stopStandaloneProcess(standaloneProcess)
   }
 }
 

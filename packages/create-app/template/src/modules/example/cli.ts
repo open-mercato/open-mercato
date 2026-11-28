@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -86,18 +87,7 @@ type TodoSeedArgs = {
 }
 
 function parseArgs(rest: string[]) {
-  const args: Record<string, string | boolean> = {}
-  for (let i = 0; i < rest.length; i++) {
-    const a = rest[i]
-    if (!a) continue
-    if (a.startsWith('--')) {
-      const [k, v] = a.replace(/^--/, '').split('=')
-      if (v !== undefined) args[k] = v
-      else if (rest[i + 1] && !rest[i + 1]!.startsWith('--')) { args[k] = rest[i + 1]!; i++ }
-      else args[k] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest)
 }
 
 export async function seedExampleTodos(

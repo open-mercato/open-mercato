@@ -1,7 +1,12 @@
+import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, type Transaction, sql } from 'kysely'
-import { resolveEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { resolveEntityTableName as resolveFallbackEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+
+function resolveEntityTableName(em: EntityManager, entity: string): string {
+  return resolveQueryIndexSourceTableMetadata(em, entity)?.table ?? resolveFallbackEntityTableName(em, entity)
+}
 
 const logger = createLogger('query_index').child({ component: 'coverage' })
 
@@ -186,7 +191,8 @@ async function updateCoverageRows(
 // overlapping adjustments compose, and drops the `SELECT` (and the window between it and the
 // write) that made the coverage row a contention point in the first place.
 //
-// In steady state that is one statement. The extra statements are recovery paths that do not
+// For non-null tenants, steady state is one statement. NULL-tenant writers first take
+// the scope advisory lock because the unique constraint cannot coordinate their rows. The extra statements are recovery paths that do not
 // fire once a scope has settled: the legacy NULL-organization fold below runs only for
 // global-organization scopes, the insert only until the scope's row exists, and the duplicate
 // prune only when the scope somehow holds more than one row.
@@ -204,6 +210,7 @@ async function incrementCoverageRow(
   scope: CoverageScope,
   deltas: { deltaBase: number; deltaIndex: number; deltaVector: number }
 ): Promise<void> {
+  if (scope.tenantId == null) await lockCoverageInitialization(db, scope)
   const storedOrgId = normalizeOrganizationForStore(scope.organizationId ?? null)
   let deltaBase = deltas.deltaBase
   let deltaIndex = deltas.deltaIndex
@@ -232,15 +239,7 @@ async function incrementCoverageRow(
     }
   }
 
-  let updated = await updateCoverageRows(db, scope, { deltaBase, deltaIndex, deltaVector })
-
-  if (updated.length === 0 && scope.tenantId == null) {
-    // The unique constraint cannot serialize a first insert whose tenant is NULL. Take a
-    // transaction-scoped lock only on this rowless branch, then repeat the UPDATE: a creator
-    // that won while we waited has committed its row, so this adjustment composes into it.
-    await lockCoverageInitialization(db, scope)
-    updated = await updateCoverageRows(db, scope, { deltaBase, deltaIndex, deltaVector })
-  }
+  const updated = await updateCoverageRows(db, scope, { deltaBase, deltaIndex, deltaVector })
 
   if (updated.length > 0) {
     // In steady state the scope holds exactly the row just incremented, so the adjustment is
@@ -252,7 +251,7 @@ async function incrementCoverageRow(
   }
 
   // No row for this scope yet. `ON CONFLICT` closes the insert race for scopes the unique
-  // constraint can see. NULL-tenant initialization reaches here only while holding the scoped
+  // constraint can see. NULL-tenant writes reach here only while holding the scoped
   // transaction advisory lock above, so it has the same single-creator guarantee.
   const rows = await db
     .insertInto('entity_index_coverage' as any)
@@ -297,6 +296,27 @@ async function upsertCoverageRow(
       ? purge.where('tenant_id' as any, 'is', null as any)
       : purge.where('tenant_id' as any, '=', scope.tenantId)
     await purge.execute()
+  }
+
+  if (scope.tenantId == null) {
+    const updated = await db
+      .updateTable('entity_index_coverage')
+      .set({
+        base_count: counts.baseCount,
+        indexed_count: counts.indexedCount,
+        vector_indexed_count: counts.vectorIndexedCount,
+        refreshed_at: sql`now()`,
+      })
+      .where('entity_type', '=', scope.entityType)
+      .where('tenant_id', 'is', null)
+      .where('organization_id', '=', storedOrgId)
+      .where('with_deleted', '=', scope.withDeleted === true)
+      .returning('id')
+      .execute() as Array<{ id: string }>
+    if (updated.length > 0) {
+      if (updated.length > 1) await pruneDuplicateCoverageRows(db, scope, updated[0]!.id)
+      return
+    }
   }
 
   const rows = await db
@@ -446,6 +466,25 @@ export async function deleteCoverageForEntity(db: Kysely<any>, entityType: strin
     .execute()
 }
 
+type CatalogueCoverageDatabase = {
+  entity_index_coverage: { entity_type: string; tenant_id: string | null; organization_id: string | null }
+}
+
+/**
+ * Drop every coverage row of `entityType` outside the global scope (no tenant, and the
+ * organization placeholder or no organization). A declared platform-wide catalogue keeps its
+ * coverage there only; rows an earlier sweep wrote under the caller's scope are never
+ * refreshed again and would keep reporting stale counts.
+ */
+export async function deleteScopedCoverageForEntity(db: Kysely<CatalogueCoverageDatabase>, entityType: string): Promise<void> {
+  if (!entityType) return
+  await db
+    .deleteFrom('entity_index_coverage')
+    .where('entity_type', '=', entityType)
+    .where(sql<boolean>`(tenant_id is not null or (organization_id is not null and organization_id <> ${GLOBAL_ORGANIZATION_PLACEHOLDER}))`)
+    .execute()
+}
+
 async function deleteCoverageScope(db: Kysely<any>, scope: CoverageScope): Promise<void> {
   const { entityType, tenantId, organizationId, withDeleted } = scope
   if (!entityType) return
@@ -468,8 +507,8 @@ async function tableHasColumn(db: Kysely<any>, table: string, column: string): P
     const exists = await db
       .selectFrom('information_schema.columns' as any)
       .select(sql<number>`1`.as('present'))
-      .where(sql<boolean>`table_schema = current_schema()`)
-      .where('table_name' as any, '=', table)
+      .where(table.includes('.') ? sql<boolean>`table_schema = ${table.split('.')[0]}` : sql<boolean>`table_schema = current_schema()`)
+      .where('table_name' as any, '=', table.split('.').pop())
       .where('column_name' as any, '=', column)
       .executeTakeFirst()
     const present = !!exists
@@ -493,6 +532,8 @@ export type ColumnCheck = { table: string; column: string }
 // subscribers hit an already-primed (or in-flight) cache instead of each doing their own
 // per-table introspection round trip.
 export async function primeColumnCache(db: Kysely<any>, checks: ColumnCheck[]): Promise<void> {
+  for (const check of checks.filter((entry) => typeof entry?.table === 'string' && entry.table.includes('.'))) await tableHasColumn(db, check.table, check.column)
+  checks = checks.filter((entry) => !(typeof entry?.table === 'string' && entry.table.includes('.')))
   const missing: Array<{ table: string; column: string; key: string }> = []
   const seen = new Set<string>()
   for (const check of checks) {
@@ -648,26 +689,34 @@ export async function writeCoverageCounts(
   const tenantId = scope.tenantId ?? null
   const organizationId = scope.organizationId ?? null
   const withDeleted = scope.withDeleted === true
-  const existing = await fetchCoverageRow(db, {
-    entityType,
-    tenantId,
-    organizationId,
-    withDeleted,
-  })
-  const baseCount = counts.baseCount !== undefined
-    ? Math.max(0, Math.trunc(toCount(counts.baseCount)))
-    : Math.max(0, Math.trunc(toCount(existing?.base_count)))
-  const indexCount = counts.indexedCount !== undefined
-    ? Math.max(0, Math.trunc(toCount(counts.indexedCount)))
-    : Math.max(0, Math.trunc(toCount(existing?.indexed_count)))
-  const vectorCount = counts.vectorCount !== undefined
-    ? Math.max(0, Math.trunc(toCount(counts.vectorCount)))
-    : Math.max(0, Math.trunc(toCount(existing?.vector_indexed_count)))
-  await upsertCoverageRow(db, { entityType, tenantId, organizationId, withDeleted }, {
-    baseCount,
-    indexedCount: indexCount,
-    vectorIndexedCount: vectorCount,
-  })
+  const write = async (executor: CoverageExecutor): Promise<void> => {
+    if (tenantId == null) await lockCoverageInitialization(executor, scope)
+    const existing = await fetchCoverageRow(executor, {
+      entityType,
+      tenantId,
+      organizationId,
+      withDeleted,
+    })
+    const baseCount = counts.baseCount !== undefined
+      ? Math.max(0, Math.trunc(toCount(counts.baseCount)))
+      : Math.max(0, Math.trunc(toCount(existing?.base_count)))
+    const indexCount = counts.indexedCount !== undefined
+      ? Math.max(0, Math.trunc(toCount(counts.indexedCount)))
+      : Math.max(0, Math.trunc(toCount(existing?.indexed_count)))
+    const vectorCount = counts.vectorCount !== undefined
+      ? Math.max(0, Math.trunc(toCount(counts.vectorCount)))
+      : Math.max(0, Math.trunc(toCount(existing?.vector_indexed_count)))
+    await upsertCoverageRow(executor, { entityType, tenantId, organizationId, withDeleted }, {
+      baseCount,
+      indexedCount: indexCount,
+      vectorIndexedCount: vectorCount,
+    })
+  }
+  if (tenantId == null && !db.isTransaction) {
+    await db.transaction().execute(write)
+  } else {
+    await write(db)
+  }
 }
 
 type AggregatedAdjustment = {

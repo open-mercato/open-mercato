@@ -159,7 +159,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
   const [recurrenceEnabled, setRecurrenceEnabled] = React.useState(false)
   const [recurrenceDays, setRecurrenceDays] = React.useState<boolean[]>([true, false, true, false, false, false, false])
   const [recurrenceEndType, setRecurrenceEndType] = React.useState<'never' | 'count' | 'date'>('never')
-  const [recurrenceCount, setRecurrenceCount] = React.useState(8)
+  const [recurrenceCount, setRecurrenceCount] = React.useState('8')
   const [recurrenceEndDate, setRecurrenceEndDate] = React.useState('')
   const [conflict, setConflict] = React.useState<string | null>(null)
   const [saving, setSaving] = React.useState(false)
@@ -236,7 +236,7 @@ export function useScheduleFormState({ open, editData }: UseScheduleFormStatePar
           const untilMatch = rule.match(/UNTIL=(\d{8})/)
           if (countMatch) {
             setRecurrenceEndType('count')
-            setRecurrenceCount(Number(countMatch[1]))
+            setRecurrenceCount(countMatch[1])
           } else if (untilMatch) {
             setRecurrenceEndType('date')
             const raw = untilMatch[1]

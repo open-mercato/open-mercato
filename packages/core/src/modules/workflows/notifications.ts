@@ -1,4 +1,5 @@
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import { buildTaskQuickCompleteAction, TASK_COMPLETE_REQUIRED_FEATURE } from './lib/task-quick-action'
 
 const taskDeepLink = '/backend/tasks/{sourceEntityId}'
 
@@ -21,6 +22,9 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     icon: 'clipboard-list',
     severity: 'info',
     actions: [viewTaskAction],
+    optionalActions: [
+      { ...buildTaskQuickCompleteAction(), requiredFeatures: [TASK_COMPLETE_REQUIRED_FEATURE] },
+    ],
     linkHref: taskDeepLink,
     expiresAfterHours: 168, // 7 days
   },

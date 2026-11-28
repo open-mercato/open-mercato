@@ -33,6 +33,8 @@ export type FormActionButtonsProps = {
     pendingLabel?: string
     /** Optional icon for idle submit state */
     icon?: React.ComponentType<{ className?: string }>
+    /** Keeps the submit disabled while the form is not ready (e.g. async field definitions still loading) */
+    disabled?: boolean
   }
   /** When true, hides all buttons */
   hidden?: boolean
@@ -86,7 +88,7 @@ export function FormActionButtons({
         <Button
           type="submit"
           form={submit.formId}
-          disabled={submit.pending}
+          disabled={submit.pending || submit.disabled}
         >
           {submit.pending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <SubmitIcon className="size-4 mr-2" />}
           {submit.pending ? resolvedPendingLabel : resolvedSubmitLabel}

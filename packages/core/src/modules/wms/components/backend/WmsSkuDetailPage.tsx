@@ -24,6 +24,7 @@ import { ErrorMessage, LoadingMessage, RecordNotFoundState } from '@open-mercato
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { downloadInventoryCsv } from '../../lib/inventoryCsvExport'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import {
@@ -38,7 +39,7 @@ import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
 import {
-  inventoryMovementReasonLabel,
+  formatInventoryMovementActivitySubtitle,
   type InventoryDisplayTranslator,
 } from '../../lib/inventoryDisplayUi'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
@@ -116,22 +117,6 @@ type InventoryMutationPreset = {
   lotId?: string
 }
 
-function escapeCsvCell(value: string | number): string {
-  const str = String(value ?? '')
-  if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`
-  return str
-}
-
-function downloadCsvFile(filename: string, rows: string[][]) {
-  const csv = rows.map((row) => row.map(escapeCsvCell).join(',')).join('\n')
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  URL.revokeObjectURL(url)
-}
 type WarehouseOption = {
   id: string
   name?: string | null
@@ -338,17 +323,16 @@ function formatMovementSubtitle(
   row: InventoryMovementRow,
   t: InventoryDisplayTranslator,
 ): string | null {
-  const reasonLabel = inventoryMovementReasonLabel(
+  return formatInventoryMovementActivitySubtitle(
     {
       reasonCode: row.reason_code,
       reason: row.reason,
       movementType: row.type,
+      referenceType: row.reference_type,
+      referenceId: row.reference_id,
     },
     t,
   )
-  if (reasonLabel) return reasonLabel
-  if (row.reference_type && row.reference_id) return `${row.reference_type} · ${row.reference_id}`
-  return null
 }
 
 function formatMovementLocation(row: InventoryMovementRow): string {
@@ -713,13 +697,13 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
         formatWarehouseLabel(row),
         formatLocationLabel(row.location_code, row.location_id),
         formatLotLabel(lot, locale),
-        String(toNumber(row.quantity_on_hand)),
-        String(toNumber(row.quantity_reserved)),
+        toNumber(row.quantity_on_hand),
+        toNumber(row.quantity_reserved),
         t(status.labelKey, status.labelFallback),
       ]
     })
     const safeSku = pageTitle.replace(/[^\w.-]+/g, '-').replace(/^-+|-+$/g, '') || 'sku'
-    downloadCsvFile(`${safeSku}-distribution.csv`, [headers, ...rows])
+    downloadInventoryCsv(`${safeSku}-distribution.csv`, [headers, ...rows])
   }, [filteredBalances, locale, lotById, nowMs, pageTitle, reorderPoint, t])
 
   const inventoryHref = '/backend/wms/inventory'

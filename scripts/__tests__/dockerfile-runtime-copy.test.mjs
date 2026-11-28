@@ -110,3 +110,59 @@ test('production Docker stage includes the telemetry workspace before focusing d
   assert.ok(telemetryManifestIndex >= 0, 'expected telemetry workspace manifest in the production stage')
   assert.ok(productionFocusIndex > telemetryManifestIndex, 'expected telemetry manifest before production focus')
 })
+
+test('Docker stages install and seed the stock npm cache providers', async () => {
+  const [dockerfile, manifestSource, entrypoint, ...composeFiles] = await Promise.all([
+    readFile(path.join(repoRoot, 'Dockerfile'), 'utf8'),
+    readFile(path.join(repoRoot, 'packages/cache/package.json'), 'utf8'),
+    readFile(path.join(repoRoot, 'docker/scripts/dev-entrypoint.sh'), 'utf8'),
+    readFile(path.join(repoRoot, 'docker-compose.fullapp.dev.yml'), 'utf8'),
+    readFile(path.join(repoRoot, 'starters/docker/compose.fullapp.dev.yml'), 'utf8'),
+  ])
+  const stockPackages = Object.keys(JSON.parse(manifestSource).dependencies)
+    .filter((dependency) => dependency.startsWith('@open-mercato/cache-provider-'))
+    .map((dependency) => dependency.slice('@open-mercato/'.length))
+  const productionFocus = dockerfile.indexOf('RUN yarn workspaces focus @open-mercato/app --production')
+  const seedPackages = entrypoint.match(/for pkg in ([\s\S]+?); do/)?.[1].split(/\s+/) ?? []
+
+  for (const packageName of stockPackages) {
+    const workspace = `packages/${packageName}`
+    const manifestCopy = `COPY ${workspace}/package.json ./${workspace}/`
+    const productionCopy = dockerfile.indexOf(`COPY --from=builder /app/${workspace}/package.json ./${workspace}/`)
+    const volumeName = `pkg_${packageName.replaceAll('-', '_')}_dist`
+    assert.equal(dockerfile.split(manifestCopy).length - 1, 2, `${packageName} must be registered in builder and dev-build`)
+    assert.ok(productionCopy >= 0 && productionCopy < productionFocus, `${packageName} must be registered before production focus`)
+    assert.ok(dockerfile.includes(`COPY --from=dev-build /app/${workspace}/dist /opt/prebuilt/dist/${packageName}`))
+    assert.ok(seedPackages.includes(packageName), `${packageName} must seed its dev dist volume`)
+    for (const compose of composeFiles) {
+      assert.equal(compose.split(`${volumeName}:/app/${workspace}/dist`).length - 1, 2, `${packageName} must share one dist volume between app and MCP`)
+      assert.ok(compose.includes(`\n  ${volumeName}:\n`), `${packageName} must declare its dist volume`)
+    }
+  }
+})
+
+test('preview build stages provide the upstream guides required by package builds', async () => {
+  const dockerfile = await readFile(new URL('../../docker/preview/Dockerfile', import.meta.url), 'utf8')
+  const requiredGuides = new Set()
+  for (const packageName of ['cli', 'create-app']) {
+    const buildScript = await readFile(new URL(`../../packages/${packageName}/build.mjs`, import.meta.url), 'utf8')
+    const guideLoop = buildScript.match(/for \(const file of (\[[^\]]+\])\)/)
+    assert.ok(guideLoop, `${packageName} must declare its upstream guide inputs`)
+    for (const guide of guideLoop[1].matchAll(/'([^']+)'/g)) requiredGuides.add(guide[1])
+  }
+
+  const stages = dockerfile.split(/^FROM /m).slice(1)
+  assert.equal(stages.length, 2)
+  for (const stage of stages) {
+    const buildIndex = stage.search(/^RUN yarn build(?:\s|:)/m)
+    assert.ok(buildIndex >= 0, 'expected a package build in each preview stage')
+    const availableFiles = new Set()
+    for (const copy of stage.slice(0, buildIndex).matchAll(/^COPY (.+) \.\/$/gm)) {
+      for (const source of copy[1].split(/\s+/)) availableFiles.add(source)
+    }
+    for (const guide of requiredGuides) {
+      assert.ok(availableFiles.has(guide), `${stage.split('\n')[0]} must copy ${guide} before building packages`)
+      assert.ok((await readFile(path.join(repoRoot, guide))).length > 0)
+    }
+  }
+})

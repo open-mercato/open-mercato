@@ -81,11 +81,22 @@ describe('GET /api/notifications organization scope', () => {
       ],
     }
     expect(find).toHaveBeenCalledWith(expect.anything(), expectedFilter, {
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: 'desc', id: 'desc' },
       limit: 25,
       offset: 0,
     })
     expect(count).toHaveBeenCalledWith(expect.anything(), expectedFilter)
+  })
+
+  it('breaks createdAt ties by id so offset pages stay stable', async () => {
+    const response = await GET(new Request('https://example.test/api/notifications?page=2&pageSize=5'))
+
+    expect(response.status).toBe(200)
+    expect(find).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      orderBy: { createdAt: 'desc', id: 'desc' },
+      limit: 5,
+      offset: 5,
+    })
   })
 
   it('lists all tenant notifications for unrestricted all-organizations scope', async () => {

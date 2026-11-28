@@ -7,6 +7,7 @@ import { scimUserPayloadSchema } from '../../../../data/validators'
 import { buildScimError, scimJson as scimJsonResponse } from '../../../../lib/scim-response'
 
 export const metadata = { requireAuth: false }
+export { checkScimRateLimit as beforeAuth } from '../../rate-limit'
 
 export async function POST(req: Request) {
   try {
@@ -78,6 +79,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'SSO config inactive' },
         { status: 409, description: 'Conflict — user already linked' },
+        { status: 429, description: 'SCIM request limit exceeded; retry after Retry-After seconds' },
+        { status: 503, description: 'Rate limiter unavailable' },
       ],
     },
     GET: {
@@ -88,6 +91,8 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 401, description: 'Unauthorized' },
         { status: 403, description: 'SSO config inactive' },
+        { status: 429, description: 'SCIM request limit exceeded; retry after Retry-After seconds' },
+        { status: 503, description: 'Rate limiter unavailable' },
       ],
     },
   },

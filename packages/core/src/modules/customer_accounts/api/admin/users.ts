@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -7,11 +8,13 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerUser, CustomerUserRole, CustomerRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { adminCreateUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { findAndCountWithDecryption, findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOwnedCompanyEntity } from '@open-mercato/core/modules/customer_accounts/lib/customerEntityOwnership'
+import { resolveAdminTargetOrganization } from '@open-mercato/core/modules/customer_accounts/lib/adminOrganizationScope'
 import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { E } from '#generated/entities.ids.generated'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
@@ -46,10 +49,22 @@ export async function GET(req: Request) {
   const roleId = url.searchParams.get('roleId')
   const search = url.searchParams.get('search')
 
+  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
     deletedAt: null,
+  }
+  if (Array.isArray(organizationScope.filterIds)) {
+    if (organizationScope.filterIds.length === 0) {
+      return NextResponse.json({
+        ok: true,
+        items: [],
+        total: 0,
+        totalPages: 1,
+        page,
+      })
+    }
+    where.organizationId = { $in: organizationScope.filterIds }
   }
 
   if (status === 'active') {
@@ -246,6 +261,23 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Validation failed', details: parsed.error.flatten().fieldErrors }, { status: 400 })
   }
 
+  const target = await resolveAdminTargetOrganization({
+    container,
+    auth,
+    request: req,
+    requestedOrganizationId: parsed.data.organizationId,
+  })
+  if (!target.ok) return target.response
+  const organizationId = target.organizationId
+
+  if (organizationId !== auth.orgId) {
+    const hasTargetAccess = await rbacService.userHasAllFeatures(auth.sub, ['customer_accounts.manage'], { tenantId: auth.tenantId, organizationId })
+    if (!hasTargetAccess) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({ ok: false, error: translate('customer_accounts.admin.errors.insufficientPermissions', 'Insufficient permissions') }, { status: 403 })
+    }
+  }
+
   const em = container.resolve('em') as EntityManager
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
 
@@ -268,11 +300,11 @@ export async function POST(req: Request) {
       {
         id: { $in: requestedRoleIds } as any,
         tenantId: auth.tenantId,
-        organizationId: auth.orgId,
+        organizationId,
         deletedAt: null,
       } as any,
       undefined,
-      { tenantId: auth.tenantId, organizationId: auth.orgId },
+      { tenantId: auth.tenantId, organizationId },
     )
     if (validRoles.length !== requestedRoleIds.length) {
       const foundIds = new Set(validRoles.map((role) => role.id))
@@ -288,7 +320,7 @@ export async function POST(req: Request) {
   if (parsed.data.customerEntityId) {
     const owned = await isOwnedCompanyEntity(em, parsed.data.customerEntityId, {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
     })
     if (!owned) {
       return NextResponse.json({ ok: false, error: 'Company not found' }, { status: 400 })
@@ -299,7 +331,7 @@ export async function POST(req: Request) {
     parsed.data.email,
     parsed.data.password,
     parsed.data.displayName,
-    { tenantId: auth.tenantId!, organizationId: auth.orgId! },
+    { tenantId: auth.tenantId!, organizationId },
   )
   user.emailVerifiedAt = new Date()
 
@@ -328,7 +360,7 @@ export async function POST(req: Request) {
     id: user.id,
     email: user.email,
     tenantId: auth.tenantId,
-    organizationId: auth.orgId,
+    organizationId,
     createdBy: auth.sub,
   }).catch(() => undefined)
 
@@ -421,12 +453,12 @@ const getMethodDoc: OpenApiMethodDoc = {
 
 const postMethodDoc: OpenApiMethodDoc = {
   summary: 'Create customer user (admin)',
-  description: 'Creates a new customer user directly. Staff-initiated, bypasses signup flow.',
+  description: 'Creates a new customer user directly. Staff-initiated, bypasses signup flow. Pass organizationId to create the user in a specific organization within the caller\'s organization scope; it defaults to the caller\'s active organization. Roles and the company link are validated against the target organization.',
   tags: ['Customer Accounts Admin'],
   requestBody: { schema: adminCreateUserSchema },
   responses: [{ status: 201, description: 'User created', schema: successSchema }],
   errors: [
-    { status: 400, description: 'Validation failed', schema: errorSchema },
+    { status: 400, description: 'Validation failed, organization not found or outside the caller scope, or no organization could be resolved', schema: errorSchema },
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions', schema: errorSchema },
     { status: 409, description: 'Email already exists', schema: errorSchema },

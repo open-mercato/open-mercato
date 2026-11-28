@@ -254,7 +254,7 @@ Do not infer the answer from `persistsSharedCursor`. Where a cursor is stored an
 
 ## Describing the progress job a run creates
 
-By default, every run creates a progress job (a caller can opt out with `createProgressJob: false`), and the top bar shows every active one to every user with `progress.view` — with a Cancel button for anyone holding `progress.cancel`. That is right for a run that finishes, and wrong for one that is meant to keep going: a continuously running feed never reaches 100%, so the bar reads *"1 operations running (0%)"* forever and its Cancel stops the feed.
+By default, every run creates a progress job (a caller can opt out with `createProgressJob: false`), and the top bar shows every active one to every user with `progress.view` — and its Cancel works for the user who started the run (`progress.cancel`) or anyone holding `progress.manage`. That is right for a run that finishes, and wrong for one that is meant to keep going: a continuously running feed never reaches 100%, so the bar reads *"1 operations running (0%)"* forever and its Cancel stops the feed.
 
 Declare how the job should read, per entity type:
 
@@ -450,6 +450,8 @@ Adapters get this for free and should not create their own batch span; any spans
 
 Credentials are stored by integration id. If the integration belongs to a bundle and per-integration credentials are empty, the system resolves bundle credentials as fallback. This allows one credential form to drive multiple bundle integrations.
 
+Password resets and invitations for superadmins use the instance's outbound email provider and its deployment credentials. Configure the selected provider's deployment credentials and an instance sender address such as `EMAIL_FROM`. `SYSTEM_EMAIL_PROVIDER` selects the provider and defaults to `resend`. Instance delivery also applies when `SYSTEM_EMAIL_CHANNEL_ID` is set. If the instance provider cannot deliver, the application records the delivery failure. Staff emails for other recipients continue to use the existing scoped delivery rules.
+
 ## Progress behavior (current state)
 
 - Sync runs are linked to progress jobs and visible in the progress top bar.
@@ -469,4 +471,4 @@ For phase A/B coverage, keep:
 
 ## Publishing integration modules
 
-Once your integration module is tested and production-ready, you can publish it to the [Official Modules repository](./official-modules). This gives your integration discoverability, core-team review, and one-command installation for other Open Mercato users. See [Official Modules — Publishing your module](./official-modules#publishing-your-module) for details.
+Once your integration module is tested and production-ready, publish it as an npm package with [`create-mercato-module`](./publishing-custom-modules) and list it in the [Integrations & Data Sync](https://modules.openmercato.com/c/integrations-sync) category of Open Mercato Modules. This gives your integration discoverability, a nightly install check, and one-command installation for other Open Mercato users. See [Modules catalog: Publish and list your module](./official-modules#publishing-your-module) for details.

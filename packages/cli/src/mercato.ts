@@ -9,7 +9,9 @@ export { getCliModules, hasCliModules, registerCliModules }
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { getRedisUrl, getRedisUrlOrThrow, parseRedisUrl } from '@open-mercato/shared/lib/redis/connection'
-import { resolveInitDerivedSecrets } from './lib/init-secrets'
+import { formatInitSummary } from './lib/init-summary'
+import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from './lib/init-secrets'
+import { decideExistingDatabase, formatSkipIfInitializedMessage } from './lib/init-existing-database'
 import {
   resolveAutoSpawnWorkersMode,
   resolveLazySpawnMode,
@@ -34,14 +36,22 @@ import {
   startInProcessGenerateWatcher,
   type GenerateWatcherHandle,
 } from './lib/in-process-generate-watcher'
+import type { GenerateWatchPlan, GenerateWatchSnapshot } from './lib/generate-watch-plan'
+import type { GenerateWatchModuleTarget } from './lib/generate-watch-events'
+import { readGenerateWatchRequest, runGenerateChildProcess } from './lib/generate-child-process'
 import {
   resolveGenerateWatcherMode,
   type GenerateWatcherMode,
 } from './lib/in-process-generate-watcher-mode'
 import { parseModuleInstallArgs } from './lib/module-install-args'
+import type { ModuleCommandResult } from './lib/module-install'
 import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
-import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
+import {
+  assertSingleInstanceStrategies,
+  readInfraStrategySnapshot,
+  resolveEffectiveCacheProviderSnapshot,
+} from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
 import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
@@ -231,6 +241,39 @@ function formatCliFailureMessage(modName: string, cmdName: string, error: unknow
   return fallbackMessage
 }
 
+// Options that carry key material or credentials in every command that accepts them, so the
+// echoed command line must never reproduce their values: argv is world-readable through
+// `ps`/`/proc`, and this line additionally lands in terminal scrollback and CI logs.
+const SENSITIVE_MODULE_CLI_OPTIONS = new Set([
+  '--old-key',
+  '--oldKey',
+  '--password',
+  '--api-key',
+  '--apiKey',
+])
+
+// `--key` is ambiguous: it is a base64 encryption key in `seeds encrypt|decrypt|load` but a
+// custom-field key in `entities add-field`, so it is redacted only where it means a secret.
+const SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND = new Map<string, string[]>([
+  ['seeds:encrypt', ['--key']],
+  ['seeds:decrypt', ['--key']],
+  ['seeds:load', ['--key']],
+])
+
+function redactSensitiveModuleCliArgs(args: string[], commandKey: string): string[] {
+  const sensitive = new Set(SENSITIVE_MODULE_CLI_OPTIONS)
+  for (const option of SENSITIVE_MODULE_CLI_OPTIONS_BY_COMMAND.get(commandKey) ?? []) sensitive.add(option)
+  return args.map((argument, index) => {
+    const separatorIndex = argument.indexOf('=')
+    if (separatorIndex > 0) {
+      const option = argument.slice(0, separatorIndex)
+      if (sensitive.has(option)) return `${option}=****`
+    }
+    if (index > 0 && sensitive.has(args[index - 1]!)) return '****'
+    return argument
+  })
+}
+
 function formatInitFailureMessage(error: unknown): string {
   const fallbackMessage = getFallbackErrorMessage(error)
   const databaseIssue = detectDatabaseConnectionIssue(error)
@@ -326,10 +369,12 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     ) {
       const examplePath = path.join(appDir, '.env.example')
       if (fs.existsSync(examplePath)) {
-        fs.copyFileSync(examplePath, envPath)
+        const { createEnvFileFromExample } = await import('./lib/env-example.js')
+        createEnvFileFromExample(examplePath, envPath)
         console.log('')
         console.log('⚠️  No .env was found, so one was created from .env.example.')
         console.log(`   ${envPath}`)
+        console.log('   A unique tenant encryption key was generated; keep it — data encrypted with it is unreadable without it.')
         console.log('   It carries the example placeholders — review DATABASE_URL and secrets before continuing.')
         console.log('')
       }
@@ -343,10 +388,19 @@ async function ensureEnvLoaded(options: { createIfMissing?: boolean; quiet?: boo
     // Resolver might fail during early init, fall back to default behavior
   }
 
-  // Fall back to default dotenv behavior (loads from cwd)
+  // Preserve dotenv/config's environment/argv options in the cwd fallback.
+  const previousDotenvQuiet = process.env.DOTENV_CONFIG_QUIET
   try {
+    if (quietDotenv) process.env.DOTENV_CONFIG_QUIET = 'true'
     await import('dotenv/config')
-  } catch {}
+  } catch {
+    // Environment loading remains best effort.
+  } finally {
+    if (quietDotenv) {
+      if (previousDotenvQuiet === undefined) delete process.env.DOTENV_CONFIG_QUIET
+      else process.env.DOTENV_CONFIG_QUIET = previousDotenvQuiet
+    }
+  }
 }
 
 function resolveInstalledBinary(baseDirs: string[], relativeBinPath: string): string {
@@ -538,6 +592,8 @@ function isExpectedManagedExitSignal(signal: NodeJS.Signals | null): boolean {
   return signal === 'SIGINT' || signal === 'SIGTERM'
 }
 
+const SHUTDOWN_SIGNAL_EXIT_CODES = new Set([130, 143])
+
 function isExpectedManagedExit(
   result: ManagedProcessExitResult,
   options: { stopping?: boolean } = {},
@@ -547,7 +603,8 @@ function isExpectedManagedExit(
   // Queue workers handle SIGINT/SIGTERM themselves so they can close queue
   // resources before exiting. That graceful path calls process.exit(0), which
   // reports as { code: 0, signal: null } to the supervising server process.
-  return options.stopping === true && result.code === 0
+  if (options.stopping !== true) return false
+  return result.code === 0 || (result.code !== null && SHUTDOWN_SIGNAL_EXIT_CODES.has(result.code))
 }
 
 function formatManagedProcessExitStatus(result: ManagedProcessExitResult): string {
@@ -678,6 +735,22 @@ function ensureNextBuildIdInConfiguredDistDir(appDir: string): void {
   )
 }
 
+function printModuleCommandResult(result: ModuleCommandResult, alreadyEnabledNote?: string): void {
+  if (!result.registrationChanged) {
+    console.log(`\nℹ️  Module "${result.moduleId}" from "${result.from}" is already enabled in modules.ts. Nothing to change.`)
+    if (alreadyEnabledNote) {
+      console.log(alreadyEnabledNote)
+    }
+    console.log('')
+    return
+  }
+
+  console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
+  console.log('Next steps:')
+  console.log('  1. Review generated files if needed: .mercato/generated/')
+  console.log('  2. Start dev:                         yarn dev')
+}
+
 async function handleDirectEjectCommand(args: string[]): Promise<number> {
   const { createResolver } = await import('./lib/resolver')
   const { listEjectableModules, ejectModule } = await import('./lib/eject')
@@ -779,38 +852,15 @@ async function runPostGenerateStructuralInvalidation(quiet: boolean): Promise<vo
   }
 }
 
-/**
- * Generator suite invoked by both `mercato generate all` and the in-process
- * generate watcher embedded in `mercato server dev`. Hoisted to module scope
- * so the watcher embedded in the server lifecycle can reuse the same closure
- * without re-importing the closure-scoped version inside `buildBaseModules`.
- */
-async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
-  const { createResolver } = await import('./lib/resolver')
-  const {
-    generateEntityIds,
-    generateModuleRegistries,
-    generateModuleEntities,
-    generateModuleDi,
-    generateModulePackageSources,
-    generateOpenApi,
-    generateWebResearchAdapters,
-  } = await import('./lib/generators')
-  const resolver = createResolver()
-  const results = [
-    await generateEntityIds({ resolver, quiet }),
-    ...(await generateModuleRegistries({ resolver, quiet })),
-    await generateModuleEntities({ resolver, quiet }),
-    await generateModuleDi({ resolver, quiet }),
-    await generateModulePackageSources({ resolver, quiet }),
-    await generateWebResearchAdapters({ resolver, quiet }),
-    await generateOpenApi({ resolver, quiet }),
-  ]
-  return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
-}
 
-async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Promise<void> {
-  const generatedFilesChanged = await runGeneratorSuite(quiet)
+async function runGeneratorSuiteWithStructuralInvalidation(
+  quiet: boolean,
+  plan?: GenerateWatchPlan,
+  onOpenApiCascade?: (reason: string) => void,
+): Promise<void> {
+  // Keep the generator/compiler graph out of ordinary CLI and server bootstrap.
+  const { runGenerateWatchSuite } = await import('./lib/generate-watch-runner')
+  const generatedFilesChanged = await runGenerateWatchSuite(quiet, plan, undefined, onOpenApiCascade)
   if (!generatedFilesChanged) {
     if (!quiet) {
       console.log('[generate] Generated outputs unchanged; skipping structural invalidation.')
@@ -820,61 +870,115 @@ async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Prom
   await runPostGenerateStructuralInvalidation(quiet)
 }
 
-/**
- * Builds the event-gated structural fingerprint runtime used by generate
- * watchers. Filesystem events mark the tree dirty; the existing full content
- * checksum remains the final authority and the fallback when watching fails.
- */
+async function runWatchGeneratorSuite(plan: GenerateWatchPlan | undefined, logCascade: boolean): Promise<void> {
+  // Keep resolver setup behind command dispatch; other CLI modes do not need it.
+  const { resolveEnvironment } = await import('./lib/resolver')
+  const { rootDir, appDir } = resolveEnvironment()
+  await runGenerateChildProcess({
+    mercatoBin: resolveInstalledBinary([rootDir, appDir], '@open-mercato/cli/bin/mercato'),
+    cwd: process.cwd(),
+    quiet: true,
+    watchRequest: { plan, logCascade },
+  })
+}
+
+/** Shared snapshot and event runtime for standalone and embedded watchers. */
 async function createGenerateWatchRuntime(quiet = false) {
+  // Compiler-backed discovery is only needed by the generation watcher.
   const [
     { createResolver },
-    { calculateGenerateWatchStructureChecksum },
+    {
+      collectGenerateWatchStructureSnapshot,
+      createGenerateWatchStructureCache,
+      diffGenerateWatchStructureSnapshots,
+    },
+    { planGenerateWatchChanges },
     { createGenerateWatchChangeSignal, resolveGenerateWatchTargets },
     { resolveStandaloneSourceMirrorBase },
+    { getOpenApiWatchInputs },
+    { getWebResearchAdapterWatchInputs },
+    { getCacheProviderManifestPaths },
   ] = await Promise.all([
     import('./lib/resolver'),
     import('./lib/generate-watch-structure'),
+    import('./lib/generate-watch-plan'),
     import('./lib/generate-watch-events'),
     import('./lib/generators/scanner'),
+    import('./lib/generators/openapi'),
+    import('./lib/generators/web-research-adapters'),
+    import('./lib/generators/cache-providers'),
   ])
+
+  let latestSnapshot: GenerateWatchSnapshot | undefined
+  const structureCache = createGenerateWatchStructureCache()
 
   const collectWatchState = () => {
     const resolver = createResolver()
-    const moduleRoots: Array<{
-      appBase: string
-      pkgBase: string
-      watchPackageBase: boolean
-    }> = []
+    const moduleRoots: Array<GenerateWatchModuleTarget & { moduleId: string; from?: string }> = []
+    const additionalInputs = new Set<string>()
+    const outputDirectories = new Set<string>([resolver.getOutputDir()])
+    for (const directory of [resolver.getRootDir(), resolver.getAppDir()]) {
+      for (const fileName of ['package.json', 'tsconfig.json', 'tsconfig.base.json', 'yarn.lock', 'package-lock.json', 'pnpm-lock.yaml']) {
+        additionalInputs.add(path.join(directory, fileName))
+      }
+    }
+    const adapterInputs = getWebResearchAdapterWatchInputs(resolver)
+    const openapiInputs = getOpenApiWatchInputs(resolver)
     const watchAppPackageFallbacks = resolver.isMonorepo()
     for (const entry of resolver.loadEnabledModules()) {
+      if (watchAppPackageFallbacks) {
+        outputDirectories.add(resolver.getPackageOutputDir(entry.from ?? '@open-mercato/core'))
+      }
       const roots = resolver.getModulePaths(entry)
+      const watchPackageBase = entry.from !== '@app' || watchAppPackageFallbacks
+      // Monorepo modules generate from source; their compiled dist trees are build output.
+      const compiledBase = watchAppPackageFallbacks && !roots.pkgBase.includes(`${path.sep}dist${path.sep}`) ? [] : ['dist']
+      const additionalModuleBases = watchPackageBase
+        ? ['src', ...compiledBase].map((folder) => path.join(resolver.getPackageRoot(entry.from), folder, 'modules', entry.id))
+        : []
       moduleRoots.push({
         ...roots,
-        watchPackageBase: entry.from !== '@app' || watchAppPackageFallbacks,
+        moduleId: entry.id,
+        from: entry.from,
+        watchPackageBase,
+        additionalModuleBases,
       })
     }
     return {
       modulesFile: resolver.getModulesConfigPath(),
       moduleRoots,
+      additionalInputs: [...additionalInputs],
+      openapiInputs,
+      webResearchAdapterInputs: adapterInputs.manifestPaths,
+      webResearchAdapterFullReasons: adapterInputs.fullReasons,
+      cacheProviderInputs: getCacheProviderManifestPaths(resolver.getAppDir()),
+      shallowDirectories: adapterInputs.directoryPaths,
+      appSourceDir: path.join(resolver.getAppDir(), 'src'),
+      outputDir: resolver.getOutputDir(),
+      outputDirectories: [...outputDirectories].sort((left, right) => left.localeCompare(right)),
     }
   }
 
   return {
-    computeStructureChecksum: async () => {
-      return calculateGenerateWatchStructureChecksum(collectWatchState())
+    computeStructureChecksum: () =>
+      collectGenerateWatchStructureSnapshot(collectWatchState(), structureCache).checksum,
+    incremental: {
+      capture: () => {
+        latestSnapshot = collectGenerateWatchStructureSnapshot(collectWatchState(), structureCache)
+        return latestSnapshot
+      },
+      plan: (previous: GenerateWatchSnapshot, next: GenerateWatchSnapshot) =>
+        planGenerateWatchChanges(diffGenerateWatchStructureSnapshots(previous, next), next.fullReasons),
     },
     changeSignal: createGenerateWatchChangeSignal({
       onSkippedDirectory: quiet
         ? undefined
         : (directory) => console.log(`[generate:watch] Skipping missing watch directory: ${directory}`),
-      getWatchTargets: () => {
-        const state = collectWatchState()
-        return resolveGenerateWatchTargets({
-          modulesFile: state.modulesFile,
-          moduleRoots: state.moduleRoots,
-          resolveSourceMirrorBase: resolveStandaloneSourceMirrorBase,
-        })
-      },
+      getWatchTargets: () => resolveGenerateWatchTargets({
+        ...collectWatchState(),
+        snapshot: latestSnapshot,
+        resolveSourceMirrorBase: resolveStandaloneSourceMirrorBase,
+      }),
     }),
   }
 }
@@ -906,7 +1010,7 @@ export function isHelpRequest(args: string[]): boolean {
 // generic help branch. Without an entry here, `mercato init --help` runs a full install.
 const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
   init: [
-    'Usage: mercato init [--reinstall|-r] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
+    'Usage: mercato init [--reinstall|-r] [--skip-if-initialized] [--no-examples] [--no-demo-users] [--stresstest [--lite] [--count=<n>]]',
     'Initializes this app: installs dependencies, runs generators, applies migrations and seeds data.',
   ],
   'agentic:init': [
@@ -933,19 +1037,26 @@ const TOP_LEVEL_COMMAND_HELP: Record<string, string[]> = {
 
 // A help invocation must never materialize .env from .env.example — asking what the flags are
 // should not mutate the working tree, least of all with the example's placeholder DATABASE_URL.
+// `module search` and `module info` only read the catalog, so they never create .env either, and
+// their output stays clean: dotenv prints its `injected env` line on stdout, which breaks
+// `--json | jq` and agents that parse the tools@1 contract. Any `--json` run stays quiet.
 export function resolveEnvBootstrapOptions(parts: string[]): { createIfMissing: boolean; quiet: boolean } {
   const first = parts[0]
   const opaqueEnvCommand = first === 'deploy' || first === 'telemetry'
+  const readOnlyModuleCommand = first === 'module' && (parts[1] === 'search' || parts[1] === 'info')
+  const jsonOutput = parts.includes('--json')
+  const quietGeneration = first === 'generate' && (parts.includes('--quiet') || parts.includes('-q'))
   const helpRequested = isHelpRequest(parts)
   return {
-    createIfMissing: !helpRequested && !opaqueEnvCommand,
-    quiet: helpRequested || opaqueEnvCommand,
+    createIfMissing: !helpRequested && !opaqueEnvCommand && !readOnlyModuleCommand,
+    quiet: helpRequested || opaqueEnvCommand || readOnlyModuleCommand || jsonOutput || quietGeneration,
   }
 }
 
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
+  const quietGeneration = first === 'generate' && (parts.includes('--quiet') || parts.includes('-q'))
   // Help must never have side effects: it must not create .env, and must not fall through
   // to the command it is asking about.
   const helpRequested = isHelpRequest(parts)
@@ -974,6 +1085,8 @@ export async function run(argv = process.argv) {
       } else if (process.env.OM_INIT_REINSTALL) {
         delete process.env.OM_INIT_REINSTALL
       }
+      const skipIfInitialized = initArgs.includes('--skip-if-initialized')
+      const credentials = skipIfInitialized && !reinstall ? undefined : resolveInitSuperadminCredentials(initArgs)
       const skipExamples = initArgs.includes('--no-examples')
       const skipDemoUsers = initArgs.includes('--no-demo-users')
       const stressTestEnabled =
@@ -1127,7 +1240,12 @@ export async function run(argv = process.argv) {
               'SELECT COUNT(*)::text AS count FROM users',
             )
             const existingUsersCount = Number.parseInt(countResult.rows?.[0]?.count ?? '0', 10)
-            if (Number.isFinite(existingUsersCount) && existingUsersCount > 0) {
+            const existingDatabase = decideExistingDatabase(existingUsersCount, skipIfInitialized)
+            if (existingDatabase === 'skip') {
+              for (const line of formatSkipIfInitializedMessage(existingUsersCount, dbUrl)) console.log(line)
+              return 0
+            }
+            if (existingDatabase === 'abort') {
               console.error(
                 `❌ Initialization aborted: found ${existingUsersCount} existing user(s) in the database.`,
               )
@@ -1146,10 +1264,12 @@ export async function run(argv = process.argv) {
         }
       }
 
+      const { email, password, skipPasswordPolicy } = credentials ?? resolveInitSuperadminCredentials(initArgs)
+
       // Step 1: Run generators directly (no process spawn)
       console.log('🔧 Preparing modules (registry, entities, DI)...')
       const { createResolver } = await import('./lib/resolver')
-      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters } = await import('./lib/generators')
+      const { generateEntityIds, generateModuleRegistries, generateModuleEntities, generateModuleDi, generateModulePackageSources, generateOpenApi, generateWebResearchAdapters, generateCacheProviders } = await import('./lib/generators')
       const resolver = createResolver()
       await generateEntityIds({ resolver, quiet: true })
       await generateModuleRegistries({ resolver, quiet: true })
@@ -1157,6 +1277,7 @@ export async function run(argv = process.argv) {
       await generateModuleDi({ resolver, quiet: true })
       await generateModulePackageSources({ resolver, quiet: true })
       await generateWebResearchAdapters({ resolver, quiet: true })
+      await generateCacheProviders({ resolver, quiet: true })
       await generateOpenApi({ resolver, quiet: true })
       console.log('✅ Modules prepared\n')
 
@@ -1179,9 +1300,11 @@ export async function run(argv = process.argv) {
       const allModules = await buildAllModules()
 
       // Step 6: Restore configuration defaults
-      console.log('⚙️  Restoring module defaults...')
-      await runModuleCommand(allModules, 'configs', 'restore-defaults', [])
-      console.log('✅ Module defaults restored\n')
+      if (allModules.some((module) => module.id === 'configs')) {
+        console.log('⚙️  Restoring module defaults...')
+        await runModuleCommand(allModules, 'configs', 'restore-defaults', [])
+        console.log('✅ Module defaults restored\n')
+      }
 
       // Step 7: Setup RBAC (tenant/org, users, ACLs)
       const findArgValue = (names: string[], fallback: string) => {
@@ -1194,16 +1317,7 @@ export async function run(argv = process.argv) {
         }
         return fallback
       }
-      const readEnvDefault = (key: string) => {
-        const value = process.env[key]
-        if (typeof value === 'string' && value.trim().length > 0) return value.trim()
-        return undefined
-      }
-      const defaultEmail = readEnvDefault('OM_INIT_SUPERADMIN_EMAIL') ?? 'superadmin@acme.com'
-      const defaultPassword = readEnvDefault('OM_INIT_SUPERADMIN_PASSWORD') ?? 'secret'
       const orgName = findArgValue(['--org=', '--orgName='], 'Acme Corp')
-      const email = findArgValue(['--email='], defaultEmail)
-      const password = findArgValue(['--password='], defaultPassword)
       const derivedSecrets = resolveInitDerivedSecrets({ email, env: process.env })
       const adminEmailDerived = derivedSecrets.adminEmail
       const employeeEmailDerived = derivedSecrets.employeeEmail
@@ -1213,17 +1327,30 @@ export async function run(argv = process.argv) {
       if (!skipDemoUsers && employeeEmailDerived && derivedSecrets.employeePassword) {
         process.env.OM_INIT_EMPLOYEE_PASSWORD = derivedSecrets.employeePassword
       }
+      // Symmetrical with the passwords above: setupInitialTenant derives admin/employee
+      // emails from a hardcoded DEFAULT_DERIVED_EMAIL_DOMAIN ('acme.com') when these are
+      // unset, so without this the summary banner (which reads adminEmailDerived/
+      // employeeEmailDerived directly) and the actually-seeded accounts silently disagree
+      // for any --email domain other than acme.com (#5806). Skip when --no-demo-users
+      // (no accounts are created) or when the derived address equals the superadmin's
+      // own email — otherwise deactivateDemoUsersIfSelfOnboardingEnabled would treat
+      // the superadmin as a demo account and lock them out.
+      const primaryEmailLower = email.trim().toLowerCase()
+      if (
+        !skipDemoUsers &&
+        adminEmailDerived &&
+        adminEmailDerived.trim().toLowerCase() !== primaryEmailLower
+      ) {
+        process.env.OM_INIT_ADMIN_EMAIL = adminEmailDerived
+      }
+      if (
+        !skipDemoUsers &&
+        employeeEmailDerived &&
+        employeeEmailDerived.trim().toLowerCase() !== primaryEmailLower
+      ) {
+        process.env.OM_INIT_EMPLOYEE_EMAIL = employeeEmailDerived
+      }
       const roles = findArgValue(['--roles='], 'superadmin,admin,employee')
-      const skipPasswordPolicyRaw = initArgs.find((arg) =>
-        arg === '--skip-password-policy' ||
-        arg.startsWith('--skip-password-policy=') ||
-        arg === '--allow-weak-password' ||
-        arg.startsWith('--allow-weak-password=')
-      )
-      const skipPasswordPolicy = skipPasswordPolicyRaw
-        ? parseBooleanToken(skipPasswordPolicyRaw.split('=')[1] ?? 'true') ?? true
-        : true
-
       console.log('🔐 Setting up RBAC and users...')
       // Run auth setup command via CLI
       const setupArgs = [
@@ -1397,25 +1524,18 @@ export async function run(argv = process.argv) {
         pushUser('Admin', '🧰', adminEmailDerived, adminPasswordOverride ?? password)
         pushUser('Employee', '👷', employeeEmailDerived, employeePasswordOverride ?? password)
       }
-      // Simplified success message: we know which users were created
-      console.log('🎉 App initialization complete!\n')
-      console.log('╔══════════════════════════════════════════════════════════════╗')
-      console.log('║  🚀 You\'re now ready to start development!                   ║')
-      console.log('║                                                              ║')
-      console.log('║  Start the dev server:                                       ║')
-      console.log('║    yarn dev                                                  ║')
-      console.log('║                                                              ║')
-      console.log('║  Users created:                                              ║')
-      for (const entry of createdUsers) {
-        const label = `${entry.icon} ${entry.label}:`
-        const labelPad = padByCodePointWidth(label, 13)
-        const entryPassword = createdPasswords.get(entry.email.toLowerCase()) ?? password
-        console.log(`║    ${labelPad}${entry.email.padEnd(42)} ║`)
-        console.log(`║       Password: ${entryPassword.padEnd(44)} ║`)
-      }
-      console.log('║                                                              ║')
-      console.log('║  Happy coding!                                               ║')
-      console.log('╚══════════════════════════════════════════════════════════════╝')
+      const summaryColor = parseBooleanToken(process.env.OM_INIT_SUMMARY_COLOR)
+      const summaryColumns = Number(process.env.OM_INIT_SUMMARY_COLUMNS ?? process.stdout.columns)
+      const summary = formatInitSummary({
+        users: createdUsers.map((entry) => ({
+          ...entry,
+          password: createdPasswords.get(entry.email.toLowerCase()) ?? password,
+        })),
+        autoStart: parseBooleanToken(process.env.OM_INIT_DEV_AUTOSTART) === true,
+        columns: summaryColumns,
+        color: process.env.NO_COLOR === undefined && (summaryColor ?? (Boolean(process.stdout.isTTY) || parseBooleanToken(process.env.FORCE_COLOR) === true)),
+      })
+      for (const line of summary) console.log(line)
 
       return 0
     } catch (error: unknown) {
@@ -1451,11 +1571,21 @@ export async function run(argv = process.argv) {
       const commandArgs = remaining.filter(Boolean)
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
-        console.log('Usage: yarn mercato module <add|enable|eject> ...')
+        console.log('Usage: yarn mercato module <add|enable|eject|search|info|scaffold> ...')
         console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
+        console.log('  yarn mercato module search [<query>] [--category <id>] [--kind <kind>] [--all-lines] [--limit <n>] [--json]')
+        console.log('  yarn mercato module info <package-or-module-id> [--json]')
+        console.log('  yarn mercato module scaffold <moduleId> --entity <entity> --fields "<fields>" [--with-ui] [--target app|packages/core] [--features-prefix <prefix>] [--dry-run]')
         return 0
+      }
+
+      if (subcommand === 'search' || subcommand === 'info') {
+        const { runModuleSearch, runModuleInfo } = await import('./lib/module-search')
+        const { readEnabledModules } = await import('./lib/modules-config')
+        const deps = { readEnabledModules }
+        return subcommand === 'search' ? await runModuleSearch(commandArgs, deps) : await runModuleInfo(commandArgs, deps)
       }
 
       if (subcommand === 'add') {
@@ -1469,10 +1599,7 @@ export async function run(argv = process.argv) {
         }
 
         const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined, allowThirdParty)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
-        console.log('Next steps:')
-        console.log('  1. Review generated files if needed: .mercato/generated/')
-        console.log('  2. Start dev:                         yarn dev')
+        printModuleCommandResult(result, 'If yarn add changed the package version, run "yarn mercato generate" to refresh generated files.')
         return 0
       }
 
@@ -1487,15 +1614,17 @@ export async function run(argv = process.argv) {
         const { enableOfficialModule } = await import('./lib/module-install')
         const { moduleId, eject, allowThirdParty } = parseModuleInstallArgs(commandArgs)
         const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject, allowThirdParty)
-        console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
-        console.log('Next steps:')
-        console.log('  1. Review generated files if needed: .mercato/generated/')
-        console.log('  2. Start dev:                         yarn dev')
+        printModuleCommandResult(result)
         return 0
       }
 
       if (subcommand === 'eject') {
         return handleDirectEjectCommand(commandArgs)
+      }
+
+      if (subcommand === 'scaffold') {
+        const { runModuleScaffold } = await import('./lib/scaffold')
+        return await runModuleScaffold(commandArgs)
       }
 
       console.error(`Unknown module subcommand "${subcommand}".`)
@@ -1970,9 +2099,13 @@ export async function run(argv = process.argv) {
         run: async (args: string[]) => {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
-          console.log('Running all generators...')
-          await runGeneratorSuiteWithStructuralInvalidation(quiet)
-          console.log('All generators completed.')
+          if (!quiet) console.log('Running all generators...')
+          const watchRequest = readGenerateWatchRequest()
+          await runGeneratorSuiteWithStructuralInvalidation(quiet, watchRequest?.plan,
+            watchRequest?.logCascade
+              ? (reason) => console.log(`[generate:watch] Cascading; groups=openapi; reason=${reason}`)
+              : undefined)
+          if (!quiet) console.log('All generators completed.')
         },
       },
       {
@@ -1990,8 +2123,8 @@ export async function run(argv = process.argv) {
             skipInitial,
             quiet,
             ...generateWatchRuntime,
-            runGenerators: async () => {
-              await runGeneratorSuiteWithStructuralInvalidation(true)
+            runGenerators: async (_reason, plan) => {
+              await runWatchGeneratorSuite(plan, !quiet)
             },
           })
 
@@ -2241,7 +2374,7 @@ export async function run(argv = process.argv) {
               )
               const nextProcess = spawn('node', nextDevCommand.args, {
                 stdio: ['inherit', 'pipe', 'pipe'],
-                env: runtimeEnv,
+                env: { ...runtimeEnv, NODE_ENV: 'development' },
                 cwd: appDir,
               })
               processes.push(nextProcess)
@@ -2461,12 +2594,10 @@ export async function run(argv = process.argv) {
               })
 
               if (generateWatcherMode === 'in-process') {
-                // Run the structural regeneration watcher inside this process
-                // instead of spawning a dedicated `mercato generate watch --skip-initial`
-                // sidecar. Saves ~190 MB of resident RSS on a typical dev box
-                // (measured against the legacy sidecar). Opt back into the
-                // sidecar with `OM_DEV_GENERATE_WATCH_MODE=legacy` if needed.
-                console.log('[server] In-process generate watcher enabled — structural changes will regenerate without a sidecar process.')
+                // Keep the event watcher here, but evaluate each generation in
+                // a fresh one-shot child so imported module revisions do not
+                // accumulate in this long-lived supervisor.
+                console.log('[server] In-process generate watcher enabled — structural changes regenerate in a one-shot child.')
                 const generateWatchRuntime = await createGenerateWatchRuntime()
                 activeGenerateWatcher = startInProcessGenerateWatcher({
                   // `--skip-initial` equivalent: `yarn dev` always runs an
@@ -2477,8 +2608,8 @@ export async function run(argv = process.argv) {
                   skipInitial: true,
                   quiet: false,
                   ...generateWatchRuntime,
-                  runGenerators: async () => {
-                    await runGeneratorSuiteWithStructuralInvalidation(true)
+                  runGenerators: async (_reason, plan) => {
+                    await runWatchGeneratorSuite(plan, true)
                   },
                 })
               } else {
@@ -2529,7 +2660,10 @@ export async function run(argv = process.argv) {
           applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
           // Throws on single-instance strategies under a multi-instance topology,
           // aborting before the start lock is acquired or any process is spawned.
-          assertSingleInstanceStrategies(runtimeEnv)
+          const cacheProvider = await resolveEffectiveCacheProviderSnapshot(appDir, runtimeEnv)
+          assertSingleInstanceStrategies(runtimeEnv, {
+            snapshot: readInfraStrategySnapshot(runtimeEnv, { cacheProvider }),
+          })
           const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
           const serverStartLock = acquireServerStartLock(appDir, {
             port: runtimeEnv.PORT ?? process.env.PORT ?? null,
@@ -2719,7 +2853,7 @@ export async function run(argv = process.argv) {
 
   if (appCli.length) all.push({ id: 'app', cli: appCli } as any)
 
-  const quietBanner = process.env.OM_CLI_QUIET === '1'
+  const quietBanner = process.env.OM_CLI_QUIET === '1' || quietGeneration
   const banner = '🧩 Open Mercato CLI'
   if (!quietBanner) {
     const header = [
@@ -2783,23 +2917,43 @@ export async function run(argv = process.argv) {
     return 0
   }
 
-  console.log('')
+  if (!quietGeneration) console.log('')
   const started = Date.now()
-  const loggedArgs = modName === 'deploy' && cmdName === 'railway'
-    ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
-    : rest
-  console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  if (!quietGeneration) {
+    const commandArgs = modName === 'deploy' && cmdName === 'railway'
+      ? (await import('./lib/deploy/railway/options')).redactRailwayCliArgs(rest)
+      : rest
+    const loggedArgs = redactSensitiveModuleCliArgs(commandArgs, `${modName}:${cmdName}`)
+    console.log(`🚀 Running ${modName}:${cmdName} ${loggedArgs.join(' ')}`)
+  }
   try {
     const commandExitCode = await runWithCapturedExitCode(async () => {
       await cmd.run(rest)
     })
-    if (modName !== 'deploy' || cmdName !== 'railway') {
+    if (!quietGeneration && (modName !== 'deploy' || cmdName !== 'railway')) {
       const ms = Date.now() - started
       console.log(`⏱️ Done in ${ms}ms`)
     }
     return commandExitCode
   } catch (e: any) {
-    console.error(`💥 Failed: ${formatCliFailureMessage(modName, cmdName, e)}`)
+    const message = formatCliFailureMessage(modName, cmdName, e)
+    if (modName === 'entities' && cmdName === 'rotate-encryption-key' && process.env.OM_ROTATION_PROGRESS === 'json') {
+      process.stderr.write(JSON.stringify({
+        schemaVersion: 1,
+        type: 'phase.changed',
+        runId: 'rotation',
+        phase: 'rotation.failed',
+        entity: message,
+        rowsDone: '0',
+        rowsTotal: '0',
+        rowsTotalExact: false,
+        bytesDone: '0',
+        chunksDone: 0,
+        at: new Date().toISOString(),
+      }) + '\n')
+    } else {
+      console.error(`💥 Failed: ${message}`)
+    }
     return 1
   }
 }

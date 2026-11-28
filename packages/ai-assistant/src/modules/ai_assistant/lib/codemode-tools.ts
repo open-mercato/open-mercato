@@ -584,6 +584,9 @@ export async function loadCodeModeTools(): Promise<number> {
 /**
  * search — Query the OpenAPI spec and entity graph programmatically.
  */
+const MAX_CONCURRENT_CODE_MODE_SEARCHES = 8
+let activeCodeModeSearches = 0
+
 function registerSearchTool(): void {
   registerCodeModeTool(
     {
@@ -628,9 +631,18 @@ Use BEFORE execute to learn endpoint schemas for CREATE/UPDATE. Skip for common 
           }
         }
 
-        const spec = await getCodeModeSpec()
-        const sandbox = createSandbox({ spec })
-        const result = await sandbox.execute(input.code)
+        if (activeCodeModeSearches >= MAX_CONCURRENT_CODE_MODE_SEARCHES) {
+          return { success: false, error: 'Search is busy. Retry shortly.' }
+        }
+        activeCodeModeSearches += 1
+        const result = await (async () => {
+          try {
+            const spec = await getCodeModeSpec()
+            return await createSandbox({ spec }).execute(input.code)
+          } finally {
+            activeCodeModeSearches -= 1
+          }
+        })()
 
         if (result.error) {
           logger.info('search tool errored', { durationMs: result.durationMs, err: result.error })
@@ -681,6 +693,7 @@ function registerExecuteTool(commonTypes: string): void {
       // provide the structured before/after preview that approval flow requires.
       isMutation: true,
       isDestructive: true,
+      mcp: { approvalMode: 'refuse', explicitDirectOnly: true },
       description: `Make API calls. Returns JSON.
 Globals: api.request({ method, path, query?, body? }) → { success, statusCode, data }, context { tenantId, organizationId, userId }.
 RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection path with id in BODY. NEVER PUT/POST/DELETE unless user explicitly asked to change data. Before ANY write operation (POST/PUT/DELETE), you MUST use the AskUserQuestion tool to get explicit user confirmation. Do NOT just ask in text — use the tool so execution pauses until the user responds.${typesBlock}`,
@@ -835,8 +848,18 @@ export function createApiRequestFn(
       method: normalizedMethod,
       headers,
       body: requestBody ? JSON.stringify(requestBody) : undefined,
+      redirect: 'manual',
       timeoutMs: resolveAiApiRequestTimeoutMs(),
     })
+
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel()
+      return {
+        success: false,
+        statusCode: response.status,
+        error: `API redirect ${response.status} blocked`,
+      }
+    }
 
     const responseText = await response.text()
     const data = tryParseJson(responseText)

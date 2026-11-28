@@ -110,7 +110,9 @@ test('npm snapshot credentials are isolated behind the preview environment', () 
     'NPM_PREVIEW_TOKEN',
   ])
   assert.equal(workflow.jobs['resolve-pr'].env, undefined)
-  assert.equal(workflow.jobs['standalone-integration'].env, undefined)
+  assert.deepEqual(workflow.jobs['standalone-integration'].env, {
+    NPM_PROPAGATION_VERSION: '${{ needs.snapshot.outputs.snapshot_version }}',
+  })
 })
 
 test('npm snapshot approval rejects self approval and fails closed before PR checkout', async () => {
@@ -163,17 +165,73 @@ test('published standalone lanes verify the disabled baseline before activating 
   }
 })
 
+test('published standalone test processes drain queues when app workers are disabled', () => {
+  for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
+    const workflow = parse(readText(workflowPath))
+    const steps = workflow.jobs['standalone-integration'].steps
+    const configure = steps.find((step) => step.name === 'Configure standalone app environment')
+    const integration = steps.find((step) => step.name === 'Run integration tests')
+
+    assert.match(configure.run, /^AUTO_SPAWN_WORKERS=false$/m, workflowPath)
+    assert.equal(integration.env.AUTO_SPAWN_WORKERS, 'false', workflowPath)
+    assert.equal(integration.env.OM_TEST_APP_ROOT, '/tmp/standalone-app', workflowPath)
+  }
+})
+
+for (const workflowPath of [snapshotWorkflowPath, npmSnapshotPreviewWorkflowPath]) {
+  test(`${path.basename(workflowPath)} marks the standalone test process as isolated`, () => {
+    const workflow = parse(readText(workflowPath))
+    const standalone = workflow.jobs['standalone-integration']
+    const configure = standalone.steps.find((step) => step.name === 'Configure standalone app environment')
+    const integration = standalone.steps.find((step) => step.name === 'Run integration tests')
+
+    assert.equal(standalone.services.postgres.env.POSTGRES_DB, 'mercato_test')
+    assert.match(configure.run, /^OM_INTEGRATION_TEST=true$/m)
+    assert.equal(integration.env.OM_INTEGRATION_TEST, 'true')
+    assert.equal(integration.env.OM_TEST_APP_ROOT, '/tmp/standalone-app')
+    assert.ok(configure.run.includes(`DATABASE_URL=${integration.env.DATABASE_URL}`))
+    assert.equal(new URL(integration.env.DATABASE_URL).pathname, '/mercato_test')
+  })
+}
+
 test('develop snapshot standalone initialization replaces the scaffold database URL', () => {
   const workflow = readText(snapshotWorkflowPath)
   const configureStart = stepIndex(workflow, 'Configure standalone app environment')
-  const installStart = stepIndex(workflow, 'Install standalone app dependencies')
-  const configureStep = workflow.slice(configureStart, installStart)
+  const configureEnd = stepIndex(workflow, 'Install standalone enterprise package')
+  const configureStep = workflow.slice(configureStart, configureEnd)
   const appendedEnvironment = configureStep.slice(configureStep.indexOf("cat >> .env"))
 
   assert.ok(configureStep.includes(
     "sed -i 's|^DATABASE_URL=.*$|DATABASE_URL=postgres://mercato:secret@localhost:5432/mercato_test|' .env",
   ))
   assert.equal(countOccurrences(appendedEnvironment, 'DATABASE_URL='), 0)
+})
+
+test('develop snapshot standalone post-publish canary runs on a clean copy and never skips the integration suite', () => {
+  const workflow = readText(snapshotWorkflowPath)
+  const installIndex = stepIndex(workflow, 'Install standalone app dependencies')
+  const copyIndex = stepIndex(workflow, 'Keep a clean copy of the scaffold for the post-publish canary')
+  const configureIndex = stepIndex(workflow, 'Configure standalone app environment')
+  const enterpriseIndex = stepIndex(workflow, 'Install standalone enterprise package')
+  const exampleActivationIndex = stepIndex(workflow, 'Verify disabled baseline and activate example integration fixture')
+  const integrationIndex = stepIndex(workflow, 'Run integration tests')
+  const canaryIndex = stepIndex(workflow, 'Post-publish canary - yarn ci on a clean scaffold (7 GB cap)')
+
+  assert.ok(installIndex < copyIndex, 'The canary copy must be an installed, not merely scaffolded, app')
+  assert.ok(copyIndex < configureIndex, 'The canary copy must be taken before the job writes its own .env')
+  assert.ok(copyIndex < enterpriseIndex, 'The canary copy must be taken before the enterprise package is activated')
+  assert.ok(copyIndex < exampleActivationIndex, 'The canary copy must be taken before the example integration fixture is activated')
+  assert.ok(integrationIndex < canaryIndex, 'A canary failure must not skip the integration suite')
+
+  const copyStep = workflow.slice(copyIndex, configureIndex)
+  assert.match(copyStep, /cp -a \/tmp\/standalone-app \/tmp\/standalone-app-canary/)
+
+  const canaryStep = workflow.slice(canaryIndex)
+  assert.match(canaryStep, /if: \$\{\{ !cancelled\(\) && steps\.canary-copy\.outcome == 'success' \}\}/)
+  assert.match(canaryStep, /\byarn ci\b/)
+  assert.match(canaryStep, /docker run --rm --memory=7g --memory-swap=7g --cpus=2/)
+  assert.match(canaryStep, /-e CIRCLE_NODE_TOTAL=2\b/, 'Next must start one build worker, as on a real 2-vCPU runner')
+  assert.match(canaryStep, /-w \/tmp\/standalone-app-canary/)
 })
 
 test('standalone example activation helper is executable through the workflow CJS entrypoint', () => {

@@ -104,6 +104,7 @@ export interface SetupOverridesShape {
   seedDefaults?: false
   seedExamples?: false
   onTenantCreated?: false
+  onOrganizationCreated?: false
 }
 
 /** Phase 16 — ACL features (per-feature override). */
@@ -131,6 +132,17 @@ export interface NavOverridesShape {
   groupOrder?: string[]
 }
 
+export type FormSectionOverride =
+  | { operation: 'add'; contributionId: string; placement?: InjectionPlacement }
+  | { operation: 'hide'; contributionId: string }
+  | { operation: 'replace'; contributionId: string }
+
+export type FormSectionOverridesMap = Record<string, FormSectionOverride | null>
+
+export interface FormsOverridesShape {
+  sections?: FormSectionOverridesMap
+}
+
 /**
  * Umbrella shape for `entry.overrides`. Every key is optional; a
  * downstream app sets only the domains it cares about.
@@ -152,6 +164,7 @@ export interface ModuleOverrides {
   di?: DiOverridesMap | LooseOverrideMap
   encryption?: EncryptionOverridesShape
   nav?: NavOverridesShape
+  forms?: FormsOverridesShape
 }
 
 /**
@@ -192,6 +205,7 @@ export type ModuleOverrideDomain =
   | 'di'
   | 'encryption'
   | 'nav'
+  | 'forms'
 
 export interface ModuleOverrideEntry<TShape> {
   moduleId: string
@@ -245,6 +259,7 @@ const DOMAIN_KEYS: ModuleOverrideDomain[] = [
   'di',
   'encryption',
   'nav',
+  'forms',
 ]
 
 const TRACKING_ISSUE_HINT =
@@ -360,6 +375,7 @@ import type {
 import { createLogger } from '../lib/logger'
 import { resolveDeclaredPageRouteMetadata } from './pageRouteMetadata'
 import type { ModuleInjectionTable } from './widgets/injection'
+import type { InjectionPlacement } from './widgets/injection-position'
 import type { ComponentOverride } from './widgets/component-registry'
 import type { NotificationHandler } from './notifications/handler'
 import type { NotificationTypeDefinition } from './notifications/types'
@@ -468,6 +484,10 @@ const pageGuardOverrideStore: OverrideStore<PageRouteMiddleware> = { modules: {}
 const aclFeatureOverrideStore: OverrideStore<Exclude<AclFeatureOverride, null>> = { modules: {}, programmatic: {} }
 const encryptionMapOverrideStore: OverrideStore<ModuleEncryptionMap> = { modules: {}, programmatic: {} }
 const diOverrideStore: OverrideStore<Exclude<DiBindingOverride, null>> = { modules: {}, programmatic: {} }
+const formSectionOverrideStore: OverrideStore<FormSectionOverride> = {
+  modules: Object.create(null),
+  programmatic: Object.create(null),
+}
 const setupOverridesByModule: Record<string, SetupOverridesShape> = {}
 
 /**
@@ -867,6 +887,7 @@ export function resetModuleContractOverridesForTests(): void {
   clearStore(aclFeatureOverrideStore)
   clearStore(encryptionMapOverrideStore)
   clearStore(diOverrideStore)
+  clearStore(formSectionOverrideStore)
   getInjectionWidgetIdAliases().clear()
   for (const key of Object.keys(setupOverridesByModule)) delete setupOverridesByModule[key]
   const navState = getNavOverrideState()
@@ -1022,6 +1043,17 @@ export function applyDiOverrides(overrides: DiOverridesMap): void {
 
 export function composeDiOverrides(): DiOverridesMap {
   return composeStore(diOverrideStore) as DiOverridesMap
+}
+
+export function applyFormSectionOverrides(overrides: FormSectionOverridesMap): void {
+  applyStoreOverrides(formSectionOverrideStore, 'programmatic', overrides, { label: 'forms.sections' })
+}
+
+export function composeFormSectionOverrides(
+  contributions?: Readonly<FormSectionOverridesMap>,
+): FormSectionOverridesMap {
+  const overrides = composeStore(formSectionOverrideStore)
+  return contributions ? { ...contributions, ...overrides } : overrides
 }
 
 /**
@@ -1496,6 +1528,7 @@ function applySetupOverride(setup: ModuleSetupConfig | undefined, override: Setu
   if (override.seedDefaults === false) delete next.seedDefaults
   if (override.seedExamples === false) delete next.seedExamples
   if (override.onTenantCreated === false) delete next.onTenantCreated
+  if (override.onOrganizationCreated === false) delete next.onOrganizationCreated
   return next
 }
 
@@ -1736,8 +1769,15 @@ function navOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<NavOverr
   }
 }
 
+function formsOverridesApplier(entries: ReadonlyArray<ModuleOverrideEntry<FormsOverridesShape>>): void {
+  for (const entry of entries) {
+    applyStoreOverrides(formSectionOverrideStore, 'modules', entry.overrides.sections, { label: 'forms.sections' })
+  }
+}
+
 function registerBuiltInModuleOverrideAppliers(): void {
   registerModuleOverrideApplier<NavOverridesShape>('nav', navOverridesApplier)
+  registerModuleOverrideApplier<FormsOverridesShape>('forms', formsOverridesApplier)
   registerModuleOverrideApplier<RoutesOverridesShape>('routes', routesOverridesApplier)
   registerModuleOverrideApplier<EventsOverridesShape>('events', eventsOverridesApplier)
   registerModuleOverrideApplier<WorkerOverridesMap>('workers', workersOverridesApplier)

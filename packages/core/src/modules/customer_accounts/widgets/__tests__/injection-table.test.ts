@@ -45,16 +45,18 @@ function expectSingleGroupWidget(
 }
 
 describe('customer_accounts injection table', () => {
-  it('registers the account-status widget on the spots the person detail host requests', () => {
-    for (const spotId of ['customers.person', 'crud-form:customers.person']) {
-      expectSingleGroupWidget(
-        injectionTable,
-        spotId,
-        'customer_accounts.injection.account-status',
-        'customer_accounts.widgets.accountStatus',
-        2,
-      )
-    }
+  it('registers the account-status widget as a person detail tab, not a form group (#7499)', () => {
+    expect(injectionTable['detail:customers.person:tabs']).toEqual([
+      expect.objectContaining({
+        widgetId: 'customer_accounts.injection.account-status',
+        kind: 'tab',
+        groupId: 'portal-account',
+        groupLabel: 'customer_accounts.widgets.portalAccountTab',
+        priority: -50,
+      }),
+    ])
+    expect(injectionTable['customers.person']).toBeUndefined()
+    expect(injectionTable['crud-form:customers.person']).toBeUndefined()
   })
 
   // Regression guard for #4400: a column-2 group forces CrudForm into the narrow

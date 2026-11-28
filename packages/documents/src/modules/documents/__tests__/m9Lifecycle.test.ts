@@ -170,6 +170,12 @@ describe('M9 watch notification projection interceptor', () => {
           if (name === 'notificationService') {
             return { create, deleteBySource: jest.fn() }
           }
+          if (name === 'em') {
+            return { findOne: jest.fn(async () => ({ id: documentId, ownerUserId: recipientUserId })) }
+          }
+          if (name === 'rbacService') {
+            return { userHasAllFeatures: jest.fn(async () => true) }
+          }
           return undefined
         }),
       },

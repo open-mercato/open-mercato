@@ -1,9 +1,13 @@
+import { matchRoutePattern } from '@open-mercato/shared/modules/registry'
+import { sourceHasDefaultExport, sourceExportedHttpMethods } from './source-exports'
 import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript-js'
 import type { ModuleEntry, PackageResolver } from '../resolver'
+import { getEnabledModuleIdentities } from '../module-identity'
+import { getModuleRequirementHint, resolveModuleRequirement, type ModuleIdentity } from '@open-mercato/shared/modules/module-locators'
 import {
   DEV_SUPERVISOR_MANIFEST_FILE,
   DEV_SUPERVISOR_MANIFEST_VERSION,
@@ -11,6 +15,7 @@ import {
   type DevSupervisorWorkerDescriptor,
 } from '../dev-supervisor-manifest'
 import {
+  calculateChecksum,
   calculateStructureChecksum,
   toVar,
   moduleHasExport,
@@ -75,6 +80,7 @@ import {
   resolveStandaloneSourceMirrorBase,
 } from './scanner'
 import { loadGeneratorExtensions } from './extensions'
+import { prepareCrudFormSectionRegistries, writeCrudFormSectionRegistries, writeDerivedCrudFormSectionRoutes } from './form-sections'
 import type { ModuleScanContext, StandaloneConfigOptions } from './extension'
 import {
   renderRouteManifestShardOutputs,
@@ -88,12 +94,16 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export interface ModuleRegistryOptions {
   resolver: PackageResolver
   quiet?: boolean
+  /** Undefined generates every output; an explicit list selects output families. */
+  outputGroups?: readonly string[]
 }
 
 interface ModuleRegistryDiscovery {
   enabled: ModuleEntry[]
   modules: ModuleRegistryDiscoveryEntry[]
+  identities: ReturnType<typeof getEnabledModuleIdentities>
   getStructureChecksum: () => string
+  getCrudFormSections: () => ReturnType<typeof prepareCrudFormSectionRegistries>
 }
 
 type DiscoveredSubscriber = {
@@ -120,6 +130,7 @@ type ModuleRegistryDiscoveryEntry = {
   imps: ModuleImports
   appImportBase: string
   isAppModule: boolean
+  formSectionOverrides?: ModuleEntry['formSectionOverrides']
   resolve: (relativePath: string) => ResolvedFile | null
   frontendFiles: ScannedFile[]
   backendFiles: ScannedFile[]
@@ -519,6 +530,145 @@ function extractNamedObjectLiteralSource(sourceFile: string, exportName: string)
   }
 
   return null
+}
+
+export type ModuleRequiresExtraction =
+  | { status: 'declared'; requires: string[] }
+  | { status: 'absent' }
+  | { status: 'unresolvable'; reason: string }
+
+function isCommonJsMetadataTarget(expression: ts.Expression): boolean {
+  if (!ts.isPropertyAccessExpression(expression) || expression.name.text !== 'metadata') return false
+  const target = expression.expression
+  if (ts.isIdentifier(target)) return target.text === 'exports'
+  return ts.isPropertyAccessExpression(target)
+    && target.name.text === 'exports'
+    && ts.isIdentifier(target.expression)
+    && target.expression.text === 'module'
+}
+
+type ExportedMetadataSource =
+  | { kind: 'initializer'; expression: ts.Expression }
+  | { kind: 're-export' }
+  | { kind: 'no-initializer' }
+
+function findExportedMetadataSource(parsed: ts.SourceFile): ExportedMetadataSource | undefined {
+  const localNamesExportedAsMetadata = new Set<string>()
+  for (const statement of parsed.statements) {
+    if (
+      ts.isExportDeclaration(statement)
+      && !statement.isTypeOnly
+      && statement.exportClause
+      && ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const element of statement.exportClause.elements) {
+        if (element.name.text !== 'metadata' || element.isTypeOnly) continue
+        if (statement.moduleSpecifier) return { kind: 're-export' }
+        localNamesExportedAsMetadata.add(element.propertyName?.text ?? element.name.text)
+      }
+    }
+  }
+
+  let commonJsInitializer: ts.Expression | undefined
+  for (const statement of parsed.statements) {
+    if (ts.isVariableStatement(statement)) {
+      const exportsDirectly = (ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined)
+        ?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword) ?? false
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name)) continue
+        const localName = declaration.name.text
+        const exported = (exportsDirectly && localName === 'metadata') || localNamesExportedAsMetadata.has(localName)
+        if (!exported) continue
+        return declaration.initializer
+          ? { kind: 'initializer', expression: declaration.initializer }
+          : { kind: 'no-initializer' }
+      }
+      continue
+    }
+    if (
+      ts.isExpressionStatement(statement)
+      && ts.isBinaryExpression(statement.expression)
+      && statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsToken
+      && isCommonJsMetadataTarget(statement.expression.left)
+      && !ts.isVoidExpression(statement.expression.right)
+    ) {
+      commonJsInitializer = statement.expression.right
+    }
+  }
+  if (commonJsInitializer) return { kind: 'initializer', expression: commonJsInitializer }
+  if (localNamesExportedAsMetadata.size > 0) return { kind: 're-export' }
+  return undefined
+}
+
+/**
+ * Reads `metadata.requires` from a module `index` source purely syntactically — the file is parsed,
+ * never executed, so packaged TypeScript sources and module side effects are both safe. Only the
+ * exported `metadata` object is consulted, and only string-literal entries are accepted: anything
+ * computed is reported as unresolvable instead of being guessed.
+ */
+export function extractModuleRequiresFromSource(sourceFile: string): ModuleRequiresExtraction {
+  let source = ''
+  try {
+    source = fs.readFileSync(sourceFile, 'utf8')
+  } catch {
+    return { status: 'absent' }
+  }
+
+  const parsed = ts.createSourceFile(
+    sourceFile,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    inferScriptKind(sourceFile),
+  )
+
+  const metadataSource = findExportedMetadataSource(parsed)
+  if (!metadataSource) return { status: 'absent' }
+  if (metadataSource.kind === 're-export') {
+    return { status: 'unresolvable', reason: 'exported metadata is re-exported from another file' }
+  }
+  if (metadataSource.kind === 'no-initializer') {
+    return { status: 'unresolvable', reason: 'exported metadata has no initializer' }
+  }
+
+  const metadata = unwrapExpression(metadataSource.expression)
+  if (!ts.isObjectLiteralExpression(metadata)) {
+    return { status: 'unresolvable', reason: 'exported metadata is not an object literal' }
+  }
+
+  let requiresInitializer: ts.Expression | undefined
+  for (const property of metadata.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      return { status: 'unresolvable', reason: 'exported metadata uses a spread' }
+    }
+    const name = property.name
+    if (!name) continue
+    if (ts.isComputedPropertyName(name)) {
+      return { status: 'unresolvable', reason: 'exported metadata uses a computed key' }
+    }
+    const key = ts.isIdentifier(name) || ts.isStringLiteral(name) ? name.text : null
+    if (key !== 'requires') continue
+    if (!ts.isPropertyAssignment(property)) {
+      return { status: 'unresolvable', reason: 'metadata.requires is not a property assignment' }
+    }
+    requiresInitializer = property.initializer
+  }
+  if (!requiresInitializer) return { status: 'absent' }
+
+  const requiresArray = unwrapExpression(requiresInitializer)
+  if (!ts.isArrayLiteralExpression(requiresArray)) {
+    return { status: 'unresolvable', reason: 'metadata.requires is not an array literal' }
+  }
+
+  const requires: string[] = []
+  for (const element of requiresArray.elements) {
+    const value = unwrapExpression(element)
+    if (!ts.isStringLiteral(value) && !ts.isNoSubstitutionTemplateLiteral(value)) {
+      return { status: 'unresolvable', reason: 'metadata.requires contains a non-literal entry' }
+    }
+    requires.push(value.text)
+  }
+  return { status: 'declared', requires }
 }
 
 function resolveLocalStringConstants(parsed: ts.SourceFile): Map<string, string> {
@@ -1158,44 +1308,11 @@ function inferScriptKind(filePath: string): ts.ScriptKind {
 }
 
 function hasDefaultExport(sourceFile: string): boolean {
-  let source = ''
   try {
-    source = fs.readFileSync(sourceFile, 'utf8')
+    return sourceHasDefaultExport(sourceFile, fs.readFileSync(sourceFile, 'utf8'))
   } catch {
     return false
   }
-
-  const parsed = ts.createSourceFile(
-    sourceFile,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    inferScriptKind(sourceFile),
-  )
-
-  for (const statement of parsed.statements) {
-    if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
-      return true
-    }
-
-    if (
-      ts.isExportDeclaration(statement)
-      && statement.exportClause
-      && ts.isNamedExports(statement.exportClause)
-      && statement.exportClause.elements.some(
-        (element) => element.name.text === 'default' || element.propertyName?.text === 'default',
-      )
-    ) {
-      return true
-    }
-
-    const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) : undefined
-    if (modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) {
-      return true
-    }
-  }
-
-  return false
 }
 
 function requiresRuntimePageMetadataFromSourceFile(sourceFile: string): boolean {
@@ -1614,6 +1731,52 @@ function alreadyWarned(sourcePath: string): boolean {
   return false
 }
 
+export type MissingModuleRequires = { moduleId: string; missing: string[] }
+
+export function findMissingModuleRequires(
+  modules: readonly ModuleIdentity[],
+  requiresByModule: ReadonlyMap<string, string[]>,
+): MissingModuleRequires[] {
+  const problems: MissingModuleRequires[] = []
+  for (const [moduleId, requires] of requiresByModule.entries()) {
+    const missing = requires.filter((requirement) => !resolveModuleRequirement(requirement, modules))
+    if (missing.length) problems.push({ moduleId, missing })
+  }
+  return problems
+}
+
+function exitOnMissingModuleRequires(
+  modules: readonly ModuleIdentity[],
+  requiresByModule: ReadonlyMap<string, string[]>,
+): void {
+  const problems = findMissingModuleRequires(modules, requiresByModule)
+  if (!problems.length) return
+  console.error('\nModule dependency check failed:')
+  for (const problem of problems) console.error(`- Module "${problem.moduleId}" requires: ${problem.missing.join(', ')}`)
+  const missingRequirements = new Set(problems.flatMap((problem) => problem.missing))
+  for (const requirement of missingRequirements) console.error(`Fix: ${getModuleRequirementHint(requirement)}`)
+  process.exit(1)
+}
+
+function collectDeclaredModuleRequires(
+  moduleId: string,
+  indexPath: string,
+  requiresByModule: Map<string, string[]>,
+  quiet: boolean,
+): void {
+  const extraction = extractModuleRequiresFromSource(indexPath)
+  if (extraction.status === 'declared') {
+    if (extraction.requires.length) requiresByModule.set(moduleId, extraction.requires)
+    return
+  }
+  if (extraction.status === 'unresolvable' && !quiet && !alreadyWarned(`requires:${indexPath}`)) {
+    console.warn(
+      `[generate] ⚠ Module "${moduleId}" declares metadata.requires that cannot be read statically `
+      + `(${extraction.reason}); its dependency check is skipped. Use an array of string literals: ${indexPath}`,
+    )
+  }
+}
+
 /**
  * Warns when a discovered page metadata file exports no `metadata` binding.
  *
@@ -1723,66 +1886,11 @@ function resolveApiPathFromMetadata(metadata: unknown, fallbackPath: string): st
 }
 
 function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
-  let source = ''
   try {
-    source = fs.readFileSync(sourceFile, 'utf8')
+    return sourceExportedHttpMethods(fs.readFileSync(sourceFile, 'utf8'))
   } catch {
     return []
   }
-
-  const knownMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as HttpMethod[]
-  const exportedMethods = new Set<HttpMethod>()
-  const collectKnownMethods = (rawSpecifiers: string[], opts?: { useExportedAlias?: boolean; useDestructuredProperty?: boolean }) => {
-    for (const specifier of rawSpecifiers) {
-      const trimmed = specifier.trim()
-      if (!trimmed) continue
-
-      let candidate = trimmed
-      if (opts?.useExportedAlias) {
-        candidate = trimmed.split(/\s+as\s+/i).pop()?.trim() ?? trimmed
-      }
-      if (opts?.useDestructuredProperty) {
-        candidate = trimmed.split(':')[0]?.trim() ?? trimmed
-      }
-
-      if (knownMethods.includes(candidate as HttpMethod)) {
-        exportedMethods.add(candidate as HttpMethod)
-      }
-    }
-  }
-
-  for (const method of knownMethods) {
-    const pattern = new RegExp(`export\\s+(?:async\\s+)?function\\s+${method}\\b|export\\s+(?:const|let|var)\\s+${method}\\b`)
-    if (pattern.test(source)) {
-      exportedMethods.add(method)
-    }
-  }
-
-  const reExportPattern = /export\s*{([^}]+)}/g
-  for (const match of source.matchAll(reExportPattern)) {
-    const exportBlock = match[1] ?? ''
-    collectKnownMethods(
-      exportBlock
-      .split(',')
-      .map((part) => part.trim())
-      .filter((part) => part.length > 0),
-      { useExportedAlias: true },
-    )
-  }
-
-  const destructuredExportPattern = /export\s+(?:const|let|var)\s*{([^}]+)}/g
-  for (const match of source.matchAll(destructuredExportPattern)) {
-    const exportBlock = match[1] ?? ''
-    collectKnownMethods(
-      exportBlock
-        .split(',')
-        .map((part) => part.trim())
-        .filter((part) => part.length > 0),
-      { useDestructuredProperty: true },
-    )
-  }
-
-  return knownMethods.filter((method) => exportedMethods.has(method))
 }
 
 function buildPageRouteProps(metaExpr: string, routePath: string): string {
@@ -1819,6 +1927,7 @@ function buildManifestRouteLoader(importPath: string): WriterFunction {
 function buildManifestApiLoader(importPath: string): WriterFunction {
   return arrowFunction({
     async: true,
+    returnType: "ReturnType<ApiRouteManifestEntry['load']>",
     body: importExpression(sanitizeGeneratedModuleSpecifier(importPath)),
   })
 }
@@ -2048,12 +2157,22 @@ async function createModuleRegistryDiscovery(
 ): Promise<ModuleRegistryDiscovery> {
   resetConventionWarnings()
   const enabled = resolver.loadEnabledModules()
+  const rootsByEntry = new Map<ModuleEntry, ModuleRoots>()
+  const getModulePaths = (entry: ModuleEntry): ModuleRoots => {
+    let roots = rootsByEntry.get(entry)
+    if (!roots) {
+      roots = resolver.getModulePaths(entry)
+      rootsByEntry.set(entry, roots)
+    }
+    return roots
+  }
+  const identities = getEnabledModuleIdentities({ ...resolver, getModulePaths }, enabled)
   const modules: ModuleRegistryDiscoveryEntry[] = []
   const trackedRoots = new Set<string>()
 
   for (const entry of enabled) {
     const modId = entry.id
-    const roots = resolver.getModulePaths(entry)
+    const roots = getModulePaths(entry)
     verifyThirdPartyModuleShape(entry, roots.pkgBase)
     const rawImps = resolver.getModuleImportBase(entry)
     const appImportBase = entry.from === '@app' ? `../../src/modules/${modId}` : rawImps.appBase
@@ -2076,6 +2195,7 @@ async function createModuleRegistryDiscovery(
       imps,
       appImportBase,
       isAppModule: entry.from === '@app',
+      formSectionOverrides: entry.formSectionOverrides,
       resolve,
       frontendFiles: scanModuleDir(roots, SCAN_CONFIGS.frontendPages),
       backendFiles: scanModuleDir(roots, SCAN_CONFIGS.backendPages),
@@ -2093,10 +2213,22 @@ async function createModuleRegistryDiscovery(
   }
 
   let structureChecksum: string | undefined
+  let crudFormSections: ReturnType<typeof prepareCrudFormSectionRegistries> | undefined
+  function getCrudFormSections() {
+    if (crudFormSections) return crudFormSections
+    const requiresByModule = new Map<string, string[]>()
+    for (const module of modules) {
+      const index = module.resolve('index.ts')
+      if (index) collectDeclaredModuleRequires(module.modId, index.absolutePath, requiresByModule, quiet)
+    }
+    return crudFormSections = prepareCrudFormSectionRegistries({ modules, identities, requiresByModule })
+  }
   return {
     enabled,
     modules,
+    identities,
     getStructureChecksum: () => structureChecksum ??= calculateStructureChecksum(Array.from(trackedRoots)),
+    getCrudFormSections,
   }
 }
 
@@ -2603,6 +2735,7 @@ function buildModuleCustomFieldSetsValue(options: {
   fieldsImportName?: string | null
   customEntitiesImportName?: string | null
   moduleId: string
+  compiledFields?: readonly import('@open-mercato/shared/modules/entities').CustomFieldSet[]
 }): WriterFunction {
   const parts: WriterFunction[] = []
 
@@ -2657,7 +2790,12 @@ function buildModuleCustomFieldSetsValue(options: {
     parts.push(spreadExpression(mappedEntities))
   }
 
+  if (options.compiledFields?.length) parts.push(spreadExpression(identifier(compiledFieldSetsExpression(options.compiledFields))))
   return arrayLiteral(parts, writeValue)
+}
+
+function compiledFieldSetsExpression(fields: readonly import('@open-mercato/shared/modules/entities').CustomFieldSet[]): string {
+  return `(${JSON.stringify(fields)} satisfies import('@open-mercato/shared/modules/entities').CustomFieldSet[])`
 }
 
 function buildModuleDashboardWidgetsValue(entries: DashboardWidgetEntry[]): WriterFunction {
@@ -3409,11 +3547,21 @@ function sourceDeclaresCliCommand(filePath: string, commandName: string): boolea
     })
   }
 
-  return sourceFile.statements.some((statement) => (
-    ts.isExportAssignment(statement)
-    && !statement.isExportEquals
-    && expressionDeclaresCommand(statement.expression)
-  ))
+  return sourceFile.statements.some((statement) => {
+    if (ts.isExportAssignment(statement)) {
+      return !statement.isExportEquals && expressionDeclaresCommand(statement.expression)
+    }
+    if (
+      !ts.isExportDeclaration(statement)
+      || statement.moduleSpecifier
+      || !statement.exportClause
+      || !ts.isNamedExports(statement.exportClause)
+    ) return false
+    return statement.exportClause.elements.some((element) => (
+      element.name.text === 'default'
+      && expressionDeclaresCommand(element.propertyName && ts.isIdentifier(element.propertyName) ? element.propertyName : element.name)
+    ))
+  })
 }
 
 function appDeclaresProgrammaticDevSupervisorOverrides(appDir: string): boolean {
@@ -3530,14 +3678,16 @@ function renderI18nLocaleLoadersFile(locales: string[]): string {
   return `// AUTO-GENERATED by mercato generate registry (locale-specific i18n loaders)\nimport type { Module } from '@open-mercato/shared/modules/registry'\n\nexport async function loadI18nModules(locale: string): Promise<Module[]> {\n  switch (locale) {\n${cases ? `${cases}\n` : ''}    default:\n      return []\n  }\n}\n`
 }
 
-function removeStaleI18nLocaleShards(outputDir: string, expectedFileNames: Set<string>): void {
+function removeStaleI18nLocaleShards(outputDir: string, expectedFileNames: Set<string>, result: GeneratorResult): void {
   if (!fs.existsSync(outputDir)) return
   for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
     if (!entry.isFile()) continue
     if (!/^modules\.i18n\..+\.generated\.(?:ts|checksum)$/.test(entry.name)) continue
     if (entry.name.startsWith('modules.i18n.loaders.generated.')) continue
     if (expectedFileNames.has(entry.name)) continue
-    fs.unlinkSync(path.join(outputDir, entry.name))
+    const stalePath = path.join(outputDir, entry.name)
+    fs.unlinkSync(stalePath)
+    result.filesWritten.push(stalePath)
   }
 }
 
@@ -3565,30 +3715,44 @@ function resolveConventionFile(
 
 type ModuleRegistryRenderOptions = ModuleRegistryOptions & {
   discovery: ModuleRegistryDiscovery
+  skipCommands?: boolean
+}
+
+function selectsRegistryOutput(options: ModuleRegistryOptions, group: string): boolean {
+  return options.outputGroups === undefined || options.outputGroups.includes(group)
+}
+
+function createRegistryOutputWriter(options: ModuleRegistryRenderOptions, result: GeneratorResult) {
+  const outputDir = options.resolver.getOutputDir()
+  return (group: string, fileName: string, render: () => string): void => {
+    if (!selectsRegistryOutput(options, group)) return
+    const content = render()
+    writeGeneratedFile({
+      outFile: path.join(outputDir, fileName),
+      checksumFile: path.join(outputDir, fileName.replace(/\.(ts|json)$/, '.checksum')),
+      content,
+      // Incremental output identity must not depend on unrelated module-root mtimes.
+      // Keep the historical checksum format and value on the default full path.
+      structureChecksum: options.outputGroups === undefined
+        ? options.discovery.getStructureChecksum()
+        : calculateChecksum(content),
+      result,
+      quiet: options.quiet,
+    })
+  }
 }
 
 async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRenderOptions): Promise<GeneratorResult> {
   const { resolver, quiet = false } = options
   const { discovery } = options
   const result = createGeneratorResult()
+  if (options.outputGroups !== undefined && !options.outputGroups.some((group) =>
+    ['main', 'runtime', 'frontend-routes', 'backend-routes', 'api-routes', 'commands', 'plugins', 'bootstrap-registrations'].includes(group)
+    || group.startsWith('registry.'),
+  )) return result
+  const writeOutput = createRegistryOutputWriter(options, result)
 
   const outputDir = resolver.getOutputDir()
-  const outFile = path.join(outputDir, 'modules.generated.ts')
-  const checksumFile = path.join(outputDir, 'modules.generated.checksum')
-  const runtimeOutFile = path.join(outputDir, 'modules.runtime.generated.ts')
-  const runtimeChecksumFile = path.join(outputDir, 'modules.runtime.generated.checksum')
-  const frontendRoutesOutFile = path.join(outputDir, 'frontend-routes.generated.ts')
-  const frontendRoutesChecksumFile = path.join(outputDir, 'frontend-routes.generated.checksum')
-  const backendRoutesOutFile = path.join(outputDir, 'backend-routes.generated.ts')
-  const backendRoutesChecksumFile = path.join(outputDir, 'backend-routes.generated.checksum')
-  const apiRoutesOutFile = path.join(outputDir, 'api-routes.generated.ts')
-  const apiRoutesChecksumFile = path.join(outputDir, 'api-routes.generated.checksum')
-  const bootstrapRegsOutFile = path.join(outputDir, 'bootstrap-registrations.generated.ts')
-  const bootstrapRegsChecksumFile = path.join(outputDir, 'bootstrap-registrations.generated.checksum')
-  const legacySubscribersOutFile = path.join(outputDir, 'subscribers.generated.ts')
-  const legacySubscribersChecksumFile = path.join(outputDir, 'subscribers.generated.checksum')
-  const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
-  const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
   const enabled = discovery.enabled
   const extensions = loadGeneratorExtensions(resolver)
@@ -3628,6 +3792,22 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
   const backendRouteMetadataEntries: RouteManifestShardEntry[] = []
   const apiRouteShardEntries: RouteManifestShardEntry[] = []
   const apiRouteMetadataEntries: RouteManifestShardEntry[] = []
+  const needsDerivedRoutes = ['main', 'runtime', 'api-routes'].some((group) => selectsRegistryOutput(options, group))
+  const derivedCrudRoutes = needsDerivedRoutes ? writeDerivedCrudFormSectionRoutes({
+    modules: discovery.modules,
+    identities: discovery.identities,
+    requiresByModule: new Map(),
+    outputDir,
+    structureChecksum: discovery.getStructureChecksum(),
+    result,
+    quiet,
+  }) : []
+  for (const { routePath } of derivedCrudRoutes) {
+    if (!/^(?:\/[A-Za-z0-9_.-]+)+$/.test(routePath) || routePath.split('/').some((segment) => segment === '.' || segment === '..')) {
+      throw new Error(`[generate] Derived CrudForm route requires a literal API path without parameters: "${routePath}"`)
+    }
+  }
+
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
   const requiresByModule = new Map<string, string[]>()
@@ -3681,13 +3861,7 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       runtimeImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexResolved.absolutePath)
-        const reqs: string[] | undefined =
-          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
-        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
-      } catch {}
+      collectDeclaredModuleRequires(modId, indexResolved.absolutePath, requiresByModule, quiet)
     }
 
     // 2. Pages: frontend
@@ -3753,6 +3927,9 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       sanitizeGeneratedModuleSpecifier,
     }
     for (const extension of extensions) {
+      // Extensions with no shared import IDs can skip discovery as well as emission.
+      // Other scans retain canonical full-generation numbering for selected outputs.
+      if (extension.usesSharedImportIds === false && !selectsRegistryOutput(options, extension.id)) continue
       extension.scanModule(extensionContext)
     }
 
@@ -3874,6 +4051,25 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       apiRouteManifestDecls.push(...generatedApis.manifestApis)
       apiRouteShardEntries.push(...generatedApis.manifestShardApis)
       apiRouteMetadataEntries.push(...generatedApis.metadataApis)
+      for (const derived of derivedCrudRoutes.filter((route) => route.moduleId === modId)) {
+        const importPath = `./${stripModuleCodeExtension(derived.fileName)}`
+        const importName = `DERIVED_CRUD_${importIdRef.value++}`
+        imports.push(buildImportStatement(`* as ${importName}`, importPath))
+        runtimeImports.push(buildImportStatement(`* as ${importName}`, importPath))
+        const entry = `{ path: ${toLiteral(derived.routePath)}, metadata: ${importName}.metadata, handlers: ${importName}, docs: ${importName}.openApi }`
+        apis.push(entry)
+        runtimeApis.push(entry)
+        const entries: GeneratedObjectEntry[] = [
+          { name: 'moduleId', value: modId },
+          { name: 'kind', value: 'route-file' },
+          { name: 'path', value: derived.routePath },
+          { name: 'methods', value: arrayLiteral(derived.methods, writeValue) },
+        ]
+        const manifestEntry = objectLiteral([...entries, { name: 'load', value: buildManifestApiLoader(importPath) }])
+        apiRouteManifestDecls.push(manifestEntry)
+        apiRouteShardEntries.push({ path: derived.routePath, declaration: renderGeneratedValue(manifestEntry) })
+        apiRouteMetadataEntries.push({ path: derived.routePath, declaration: renderGeneratedValue(objectLiteral(entries)) })
+      }
     }
 
     // 15. CLI
@@ -3913,6 +4109,8 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
         parts.push(
           `((( ${customEntitiesImportName}.default ?? ${customEntitiesImportName}.entities) as any) || []).filter((e: any) => Array.isArray(e.fields) && e.fields.length).map((e: any) => ({ entity: e.id, fields: e.fields, source: ${toLiteral(modId)} }))`
         )
+      const compiledFields = discovery.getCrudFormSections().compiled.customFieldSetsByModule.get(modId)
+      if (compiledFields?.length) parts.push(compiledFieldSetsExpression(compiledFields))
       customFieldSetsExpr = parts.length ? `[...${parts.join(', ...')}]` : '[]'
     }
 
@@ -4160,49 +4358,74 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
     }
   }
 
-  const output = renderAstModuleRegistryFile({
+  exitOnMissingModuleRequires(discovery.identities, requiresByModule)
+
+  writeOutput('main', 'modules.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.generated.ts',
     generator: 'registry',
     imports,
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
     includeAbandonHookImport: hasAbandonHookWorkers,
-  })
-  const runtimeOutput = renderAstModuleRegistryFile({
+  }))
+  writeOutput('runtime', 'modules.runtime.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.runtime.generated.ts',
     generator: 'registry',
     imports: runtimeImports,
     moduleEntries: runtimeModuleDecls,
     includeCreateElementImport: true,
     includeAbandonHookImport: hasAbandonHookWorkers,
-  })
-  const frontendRoutesOutput = renderAstManifestFile({
+  }))
+  writeOutput('frontend-routes', 'frontend-routes.generated.ts', () => renderAstManifestFile({
     fileName: 'frontend-routes.generated.ts',
     typeName: 'FrontendRouteManifestEntry',
     exportName: 'frontendRoutes',
     imports: frontendRouteManifestImports,
     entries: frontendRouteManifestDecls,
-  })
-  const backendRoutesOutput = renderAstManifestFile({
+  }))
+  writeOutput('backend-routes', 'backend-routes.generated.ts', () => renderAstManifestFile({
     fileName: 'backend-routes.generated.ts',
     typeName: 'BackendRouteManifestEntry',
     exportName: 'backendRoutes',
     imports: backendRouteManifestImports,
     entries: backendRouteManifestDecls,
-  })
-  const apiRoutesOutput = renderAstManifestFile({
+  }))
+  for (const derived of derivedCrudRoutes) {
+    if (apiRouteMetadataEntries.filter(({ path: routePath }) => matchRoutePattern(routePath, derived.routePath) !== undefined).length !== 1) {
+      throw new Error(`[generate] Derived CrudForm route conflicts with an existing API route "${derived.routePath}"`)
+    }
+  }
+  writeOutput('api-routes', 'api-routes.generated.ts', () => renderAstManifestFile({
     fileName: 'api-routes.generated.ts',
     typeName: 'ApiRouteManifestEntry',
     exportName: 'apiRoutes',
     entries: apiRouteManifestDecls,
-  })
-  const routeManifestOutputs = [
-    ...renderRouteManifestShardOutputs('backend', backendRouteShardEntries),
-    ...renderRouteManifestShardOutputs('api', apiRouteShardEntries),
-    renderRouteMetadataOutput('backend', backendRouteMetadataEntries),
-    renderRouteMetadataOutput('api', apiRouteMetadataEntries),
-  ]
-  const legacySubscribersOutput = renderAstLegacyAliasFile({
+  }))
+  for (const kind of ['backend', 'api'] as const) {
+    const group = `${kind}-routes`
+    if (!selectsRegistryOutput(options, group)) continue
+    const routeManifestOutputs = [
+      ...renderRouteManifestShardOutputs(kind, kind === 'backend' ? backendRouteShardEntries : apiRouteShardEntries),
+      renderRouteMetadataOutput(kind, kind === 'backend' ? backendRouteMetadataEntries : apiRouteMetadataEntries),
+    ]
+    const expectedRouteManifestFiles = new Set(routeManifestOutputs.flatMap(({ fileName }) => [
+      fileName,
+      fileName.replace(/\.ts$/, '.checksum'),
+    ]))
+    if (fs.existsSync(outputDir)) {
+      for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.startsWith(`${kind}-route-shard.`) || !routeManifestShardFilePattern.test(entry.name)) continue
+        if (expectedRouteManifestFiles.has(entry.name)) continue
+        const stalePath = path.join(outputDir, entry.name)
+        fs.unlinkSync(stalePath)
+        result.filesWritten.push(stalePath)
+      }
+    }
+    for (const routeOutput of routeManifestOutputs) {
+      writeOutput(group, routeOutput.fileName, () => routeOutput.content)
+    }
+  }
+  writeOutput('runtime', 'subscribers.generated.ts', () => renderAstLegacyAliasFile({
     fileName: 'subscribers.generated.ts',
     exportName: 'moduleSubscribers',
     exportType: "NonNullable<Module['subscribers']>",
@@ -4218,99 +4441,41 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
         ),
       }),
     ]),
-  })
-  // Validate module dependencies declared via ModuleInfo.requires
-  {
-    const enabledIds = new Set(enabled.map((e) => e.id))
-    const problems: string[] = []
-    for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((r) => !enabledIds.has(r))
-      if (missing.length) {
-        problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
-      }
-    }
-    if (problems.length) {
-      console.error('\nModule dependency check failed:')
-      for (const p of problems) console.error(p)
-      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-      console.error(
-        '  export const enabledModules = [ { id: \'' +
-          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
-          "' } ]"
-      )
-      process.exit(1)
-    }
+  }))
+  if (!options.skipCommands) {
+    writeOutput('commands', 'command-loaders.generated.ts', () => renderCommandLoadersFile(commandLoaderEntries))
   }
-
-  const structureChecksum = discovery.getStructureChecksum()
-
-  writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: runtimeOutFile, checksumFile: runtimeChecksumFile, content: runtimeOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: frontendRoutesOutFile, checksumFile: frontendRoutesChecksumFile, content: frontendRoutesOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: backendRoutesOutFile, checksumFile: backendRoutesChecksumFile, content: backendRoutesOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: apiRoutesOutFile, checksumFile: apiRoutesChecksumFile, content: apiRoutesOutput, structureChecksum, result, quiet })
-  const expectedRouteManifestFiles = new Set(routeManifestOutputs.flatMap(({ fileName }) => [
-    fileName,
-    fileName.replace(/\.ts$/, '.checksum'),
-  ]))
-  if (fs.existsSync(outputDir)) {
-    for (const entry of fs.readdirSync(outputDir, { withFileTypes: true })) {
-      if (!entry.isFile() || !routeManifestShardFilePattern.test(entry.name)) continue
-      if (expectedRouteManifestFiles.has(entry.name)) continue
-      const stalePath = path.join(outputDir, entry.name)
-      fs.unlinkSync(stalePath)
-      result.filesWritten.push(stalePath)
-    }
-  }
-  for (const routeOutput of routeManifestOutputs) {
-    writeGeneratedFile({
-      outFile: path.join(outputDir, routeOutput.fileName),
-      checksumFile: path.join(outputDir, routeOutput.fileName.replace(/\.ts$/, '.checksum')),
-      content: routeOutput.content,
-      structureChecksum,
-      result,
-      quiet,
-    })
-  }
-  writeGeneratedFile({ outFile: legacySubscribersOutFile, checksumFile: legacySubscribersChecksumFile, content: legacySubscribersOutput, structureChecksum, result, quiet })
-  const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
-  writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 
   for (const extension of extensions) {
+    // generateOutput may write outside outputDir (notably file agents), so select before calling it.
+    if (!selectsRegistryOutput(options, extension.id)) continue
     const outputs = extension.generateOutput()
     for (const [fileName, content] of outputs) {
-      writeGeneratedFile({
-        outFile: path.join(outputDir, fileName),
-        checksumFile: path.join(outputDir, fileName.replace('.ts', '.checksum')),
-        content,
-        structureChecksum,
-        result,
-        quiet,
-      })
+      writeOutput(extension.id, fileName, () => content)
     }
   }
 
   // Generator plugin outputs (registered via modules' generators.ts)
-  for (const [pluginId, plugin] of pluginRegistry) {
-    const state = pluginState.get(pluginId)!
-    const importSection = state.imports.join('\n')
-    const entriesLiteral = state.configs.join(',\n  ')
-    const content = plugin.buildOutput({ importSection, entriesLiteral })
-    const outFile = path.join(outputDir, pluginOutputNames.get(pluginId)!)
-    const checksumFile = outFile.replace(/\.ts$/, '.checksum')
-    writeGeneratedFile({ outFile, checksumFile, content, structureChecksum, result, quiet })
+  if (selectsRegistryOutput(options, 'plugins')) {
+    for (const [pluginId, plugin] of pluginRegistry) {
+      const state = pluginState.get(pluginId)!
+      writeOutput('plugins', pluginOutputNames.get(pluginId)!, () => plugin.buildOutput({
+        importSection: state.imports.join('\n'),
+        entriesLiteral: state.configs.join(',\n  '),
+      }))
+    }
+    reconcileGeneratorPluginOutputs({
+      outputDir,
+      outputNames: pluginOutputNames.values(),
+      result,
+    })
   }
-  reconcileGeneratorPluginOutputs({
-    outputDir,
-    outputNames: pluginOutputNames.values(),
-    result,
-  })
 
   // Bootstrap registrations: aggregate core registrations + plugin bootstrap-registration hooks
   // into one file. Always written (with at least the core backend route registration) so bootstrap.ts
   // can unconditionally import it and every runtime consumer sees a populated route manifest
   // regardless of Next.js server bundle isolation.
-  {
+  if (selectsRegistryOutput(options, 'bootstrap-registrations')) {
     const bootstrapPlugins = [...pluginRegistry.values()].filter((p) => p.bootstrapRegistration)
     const allEntryImports: string[] = [
       buildImportStatement(`{ backendRouteFacades }`, `./backend-route-shards.generated`),
@@ -4330,12 +4495,11 @@ async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRender
       allRegImports.push(...reg.registrationImports)
       allCalls.push(reg.buildCall(reg.entriesExportName))
     }
-    const bootstrapRegsOutput = renderBootstrapRegistrationsFile({
+    writeOutput('bootstrap-registrations', 'bootstrap-registrations.generated.ts', () => renderBootstrapRegistrationsFile({
       entryImports: allEntryImports,
       registrationImports: allRegImports,
       calls: allCalls,
-    })
-    writeGeneratedFile({ outFile: bootstrapRegsOutFile, checksumFile: bootstrapRegsChecksumFile, content: bootstrapRegsOutput, structureChecksum, result, quiet })
+    }))
   }
 
   return result
@@ -4345,22 +4509,13 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
   const { resolver, quiet = false } = options
   const { discovery } = options
   const result = createGeneratorResult()
+  if (options.outputGroups !== undefined && !options.outputGroups.some((group) =>
+    ['app', 'bootstrap', 'i18n', 'enabled-ids'].includes(group)
+    || (group === 'commands' && !options.skipCommands),
+  )) return result
+  const writeOutput = createRegistryOutputWriter(options, result)
 
   const outputDir = resolver.getOutputDir()
-  const outFile = path.join(outputDir, 'modules.app.generated.ts')
-  const checksumFile = path.join(outputDir, 'modules.app.generated.checksum')
-  const bootstrapOutFile = path.join(outputDir, 'modules.bootstrap.generated.ts')
-  const bootstrapChecksumFile = path.join(outputDir, 'modules.bootstrap.generated.checksum')
-  const i18nOutFile = path.join(outputDir, 'modules.i18n.generated.ts')
-  const i18nChecksumFile = path.join(outputDir, 'modules.i18n.generated.checksum')
-  const i18nLoadersOutFile = path.join(outputDir, 'modules.i18n.loaders.generated.ts')
-  const i18nLoadersChecksumFile = path.join(outputDir, 'modules.i18n.loaders.generated.checksum')
-  const legacyOutFile = path.join(outputDir, 'bootstrap-modules.generated.ts')
-  const legacyChecksumFile = path.join(outputDir, 'bootstrap-modules.generated.checksum')
-  const enabledIdsOutFile = path.join(outputDir, 'enabled-module-ids.generated.ts')
-  const enabledIdsChecksumFile = path.join(outputDir, 'enabled-module-ids.generated.checksum')
-  const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
-  const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
   const enabled = discovery.enabled
   const imports: string[] = []
@@ -4404,13 +4559,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       bootstrapImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexResolved.absolutePath)
-        const reqs: string[] | undefined =
-          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
-        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
-      } catch {}
+      collectDeclaredModuleRequires(modId, indexResolved.absolutePath, requiresByModule, quiet)
     }
 
     {
@@ -4554,7 +4703,7 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
 
     const moduleEntries: GeneratedObjectEntry[] = [
       { name: 'id', value: modId },
-      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId }) },
+      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId, compiledFields: discovery.getCrudFormSections().compiled.customFieldSetsByModule.get(modId) }) },
     ]
     const i18nModuleEntries: GeneratedObjectEntry[] = [
       { name: 'id', value: modId },
@@ -4675,104 +4824,76 @@ async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRen
     i18nModuleDecls.push(objectLiteral(i18nModuleEntries))
   }
 
-  const output = renderAstModuleRegistryFile({
+  exitOnMissingModuleRequires(discovery.identities, requiresByModule)
+
+  if (selectsRegistryOutput(options, 'app')) {
+    writeCrudFormSectionRegistries({
+      prepared: discovery.getCrudFormSections(),
+      modules: discovery.modules,
+      identities: discovery.identities,
+      requiresByModule,
+      outputDir,
+      structureChecksum: discovery.getStructureChecksum(),
+      result,
+      quiet,
+    })
+  }
+
+  writeOutput('app', 'modules.app.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.app.generated.ts',
     generator: 'registry (app version)',
     imports,
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
     includeAbandonHookImport: hasAbandonHookWorkers,
-  })
-  const bootstrapOutput = renderAstModuleRegistryFile({
+  }))
+  writeOutput('bootstrap', 'modules.bootstrap.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.bootstrap.generated.ts',
     generator: 'registry (bootstrap version)',
     imports: bootstrapImports,
     moduleEntries: bootstrapModuleDecls,
     includeAbandonHookImport: hasAbandonHookWorkers,
-  })
-  const i18nOutput = renderAstModuleRegistryFile({
+  }))
+  writeOutput('i18n', 'modules.i18n.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.i18n.generated.ts',
     generator: 'registry (i18n version)',
     imports: i18nImports,
     moduleEntries: i18nModuleDecls,
     includeAbandonHookImport: hasAbandonHookWorkers,
-  })
-  const legacyOutput = renderAstLegacyAliasFile({
+  }))
+  if (selectsRegistryOutput(options, 'i18n')) {
+    const i18nLocales = [...i18nLocaleShards.keys()].sort((a, b) => a.localeCompare(b))
+    const shardFileNames = new Set<string>()
+    const expectedShardArtifacts = new Set<string>()
+    for (const locale of i18nLocales) {
+      const fileName = buildI18nLocaleShardFileName(locale)
+      if (shardFileNames.has(fileName)) {
+        throw new Error(`Locale names produce the same generated i18n shard file: ${locale}`)
+      }
+      shardFileNames.add(fileName)
+      expectedShardArtifacts.add(fileName)
+      expectedShardArtifacts.add(fileName.replace(/\.ts$/, '.checksum'))
+      const shard = i18nLocaleShards.get(locale)!
+      writeOutput('i18n', fileName, () => renderAstI18nLocaleRegistryFile({
+        fileName,
+        imports: shard.imports,
+        moduleEntries: shard.moduleDecls,
+      }))
+    }
+    removeStaleI18nLocaleShards(outputDir, expectedShardArtifacts, result)
+    writeOutput('i18n', 'modules.i18n.loaders.generated.ts', () => renderI18nLocaleLoadersFile(i18nLocales))
+  }
+  writeOutput('bootstrap', 'bootstrap-modules.generated.ts', () => renderAstLegacyAliasFile({
     fileName: 'bootstrap-modules.generated.ts',
     exportName: 'bootstrapModules',
     exportType: 'Module[]',
     sourceFileName: 'modules.bootstrap.generated.ts',
     initializer: identifier('modules'),
-  })
-
-  {
-    const enabledIds = new Set(enabled.map((e) => e.id))
-    const problems: string[] = []
-    for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((r) => !enabledIds.has(r))
-      if (missing.length) {
-        problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
-      }
-    }
-    if (problems.length) {
-      console.error('\nModule dependency check failed:')
-      for (const p of problems) console.error(p)
-      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-      console.error(
-        '  export const enabledModules = [ { id: \'' +
-          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
-          "' } ]"
-      )
-      process.exit(1)
-    }
+  }))
+  writeOutput('enabled-ids', 'enabled-module-ids.generated.ts', () => renderEnabledModuleIdsFile(enabled.map((entry) => entry.id)))
+  if (!options.skipCommands) {
+    writeOutput('commands', 'command-loaders.generated.ts', () => renderCommandLoadersFile(commandLoaderEntries))
   }
-
-  const structureChecksum = discovery.getStructureChecksum()
-  writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: bootstrapOutFile, checksumFile: bootstrapChecksumFile, content: bootstrapOutput, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: i18nOutFile, checksumFile: i18nChecksumFile, content: i18nOutput, structureChecksum, result, quiet })
-  const i18nLocales = [...i18nLocaleShards.keys()].sort((a, b) => a.localeCompare(b))
-  const shardFileNames = new Set<string>()
-  const expectedShardArtifacts = new Set<string>()
-  for (const locale of i18nLocales) {
-    const fileName = buildI18nLocaleShardFileName(locale)
-    if (shardFileNames.has(fileName)) {
-      throw new Error(`Locale names produce the same generated i18n shard file: ${locale}`)
-    }
-    shardFileNames.add(fileName)
-    expectedShardArtifacts.add(fileName)
-    expectedShardArtifacts.add(fileName.replace(/\.ts$/, '.checksum'))
-    const shard = i18nLocaleShards.get(locale)!
-    const content = renderAstI18nLocaleRegistryFile({
-      fileName,
-      imports: shard.imports,
-      moduleEntries: shard.moduleDecls,
-    })
-    writeGeneratedFile({
-      outFile: path.join(outputDir, fileName),
-      checksumFile: path.join(outputDir, fileName.replace(/\.ts$/, '.checksum')),
-      content,
-      structureChecksum,
-      result,
-      quiet,
-    })
-  }
-  removeStaleI18nLocaleShards(outputDir, expectedShardArtifacts)
-  writeGeneratedFile({
-    outFile: i18nLoadersOutFile,
-    checksumFile: i18nLoadersChecksumFile,
-    content: renderI18nLocaleLoadersFile(i18nLocales),
-    structureChecksum,
-    result,
-    quiet,
-  })
-  writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
-
-  const enabledIdsOutput = renderEnabledModuleIdsFile(enabled.map((entry) => entry.id))
-  writeGeneratedFile({ outFile: enabledIdsOutFile, checksumFile: enabledIdsChecksumFile, content: enabledIdsOutput, structureChecksum, result, quiet })
-
-  const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
-  writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 
   return result
 }
@@ -4790,16 +4911,11 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   const { resolver, quiet = false } = options
   const { discovery } = options
   const result = createGeneratorResult()
+  if (options.outputGroups !== undefined && !options.outputGroups.some((group) =>
+    ['cli', 'supervisor'].includes(group) || (group === 'commands' && !options.skipCommands),
+  )) return result
+  const writeOutput = createRegistryOutputWriter(options, result)
 
-  const outputDir = resolver.getOutputDir()
-  const outFile = path.join(outputDir, 'modules.cli.generated.ts')
-  const checksumFile = path.join(outputDir, 'modules.cli.generated.checksum')
-  const legacyOutFile = path.join(outputDir, 'cli-modules.generated.ts')
-  const legacyChecksumFile = path.join(outputDir, 'cli-modules.generated.checksum')
-  const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
-  const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
-  const devSupervisorOutFile = path.join(outputDir, DEV_SUPERVISOR_MANIFEST_FILE)
-  const devSupervisorChecksumFile = path.join(outputDir, 'dev-supervisor.generated.checksum')
 
   const enabled = discovery.enabled
   const imports: string[] = []
@@ -4810,8 +4926,10 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   const devSupervisorWorkers: DevSupervisorWorkerDescriptor[] = []
   let schedulerStartStatus: DevSupervisorSchedulerStartStatus = 'missing-module'
-  let requiresFullBootstrap = enabled.some((entry) => entry.devSupervisorRequiresFullBootstrap === true)
+  let requiresFullBootstrap = selectsRegistryOutput(options, 'supervisor') && (
+    enabled.some((entry) => entry.devSupervisorRequiresFullBootstrap === true)
     || appDeclaresProgrammaticDevSupervisorOverrides(resolver.getAppDir())
+  )
 
   for (const discovered of discovery.modules) {
     const { modId, imps, appImportBase } = discovered
@@ -4839,13 +4957,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require(indexResolved.absolutePath)
-        const reqs: string[] | undefined =
-          mod?.metadata && Array.isArray(mod.metadata.requires) ? mod.metadata.requires : undefined
-        if (reqs && reqs.length) requiresByModule.set(modId, reqs)
-      } catch {}
+      collectDeclaredModuleRequires(modId, indexResolved.absolutePath, requiresByModule, quiet)
     }
 
     // Module setup configuration: setup.ts
@@ -4956,7 +5068,7 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
 
     const moduleEntries: GeneratedObjectEntry[] = [
       { name: 'id', value: modId },
-      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId }) },
+      { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId, compiledFields: discovery.getCrudFormSections().compiled.customFieldSetsByModule.get(modId) }) },
     ]
 
     if (infoImportName) {
@@ -5075,14 +5187,16 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
     moduleDecls.push(objectLiteral(moduleEntries))
   }
 
-  const output = renderAstModuleRegistryFile({
+  exitOnMissingModuleRequires(discovery.identities, requiresByModule)
+
+  writeOutput('cli', 'modules.cli.generated.ts', () => renderAstModuleRegistryFile({
     fileName: 'modules.cli.generated.ts',
     generator: 'registry (CLI version)',
     imports,
     moduleEntries: moduleDecls,
     includeAbandonHookImport: hasAbandonHookWorkers,
-  })
-  const legacyOutput = renderAstLegacyAliasFile({
+  }))
+  writeOutput('cli', 'cli-modules.generated.ts', () => renderAstLegacyAliasFile({
     fileName: 'cli-modules.generated.ts',
     exportName: 'cliModules',
     exportType: "Pick<Module, 'id' | 'cli'>[]",
@@ -5096,74 +5210,46 @@ async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRen
         ])),
       }),
     ]),
-  })
-
-  // Validate module dependencies declared via ModuleInfo.requires
-  {
-    const enabledIds = new Set(enabled.map((e) => e.id))
-    const problems: string[] = []
-    for (const [modId, reqs] of requiresByModule.entries()) {
-      const missing = reqs.filter((r) => !enabledIds.has(r))
-      if (missing.length) {
-        problems.push(`- Module "${modId}" requires: ${missing.join(', ')}`)
-      }
-    }
-    if (problems.length) {
-      console.error('\nModule dependency check failed:')
-      for (const p of problems) console.error(p)
-      console.error('\nFix: Enable required module(s) in src/modules.ts. Example:')
-      console.error(
-        '  export const enabledModules = [ { id: \'' +
-          Array.from(new Set(requiresByModule.values()).values()).join("' }, { id: '") +
-          "' } ]"
-      )
-      process.exit(1)
-    }
-  }
-
-  const structureChecksum = discovery.getStructureChecksum()
-  writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
-  writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
-  const devSupervisorOutput = `${JSON.stringify({
+  }))
+  writeOutput('supervisor', DEV_SUPERVISOR_MANIFEST_FILE, () => `${JSON.stringify({
     version: DEV_SUPERVISOR_MANIFEST_VERSION,
     workers: devSupervisorWorkers,
     schedulerStartStatus,
     requiresFullBootstrap,
-  }, null, 2)}\n`
-  writeGeneratedFile({
-    outFile: devSupervisorOutFile,
-    checksumFile: devSupervisorChecksumFile,
-    content: devSupervisorOutput,
-    structureChecksum,
-    result,
-    quiet,
-  })
-  const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
-  writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
+  }, null, 2)}\n`)
+  if (!options.skipCommands) {
+    writeOutput('commands', 'command-loaders.generated.ts', () => renderCommandLoadersFile(commandLoaderEntries))
+  }
 
   return result
 }
 
 export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+  if (options.outputGroups?.length === 0) return createGeneratorResult()
   const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistryApp(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+  if (options.outputGroups?.length === 0) return createGeneratorResult()
   const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryAppFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistryCli(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+  if (options.outputGroups?.length === 0) return createGeneratorResult()
   const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return generateModuleRegistryCliFromDiscovery({ ...options, discovery })
 }
 
 export async function generateModuleRegistries(options: ModuleRegistryOptions): Promise<GeneratorResult[]> {
+  if (options.outputGroups?.length === 0) {
+    return [createGeneratorResult(), createGeneratorResult(), createGeneratorResult()]
+  }
   const discovery = await createModuleRegistryDiscovery(options.resolver, options.quiet ?? false)
   return [
     await generateModuleRegistryFromDiscovery({ ...options, discovery }),
-    await generateModuleRegistryAppFromDiscovery({ ...options, discovery }),
-    await generateModuleRegistryCliFromDiscovery({ ...options, discovery }),
+    await generateModuleRegistryAppFromDiscovery({ ...options, discovery, skipCommands: true }),
+    await generateModuleRegistryCliFromDiscovery({ ...options, discovery, skipCommands: true }),
   ]
 }

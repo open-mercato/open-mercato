@@ -14,6 +14,7 @@ import { asValue, createContainer, InjectionMode } from 'awilix'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { SalesOrder, SalesQuote } from '../../data/entities'
 import { documentUpdateSchema, type DocumentUpdateInput } from '../documents'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 
 jest.mock('#generated/entities.ids.generated', () => ({
   E: {
@@ -157,6 +158,7 @@ function makeEm(document: Record<string, unknown>, entityClass: unknown = SalesO
     getReference: jest.fn((_entityClass: unknown, id: string) => ({ id })),
     flush: jest.fn(async () => {}),
     begin: jest.fn(async () => {}),
+    getKysely: () => createSalesDocumentLockKyselyFixture(String(document.id)),
     commit: jest.fn(async () => {}),
     rollback: jest.fn(async () => {}),
     isInTransaction: jest.fn(() => false),
@@ -210,6 +212,31 @@ describe('sales document update commands — customFields (#6217)', () => {
   beforeEach(() => {
     setRecordCustomFields.mockReset()
     emitCrudSideEffects.mockReset()
+  })
+
+  it.each(['order', 'quote'] as const)('allows the unchanged %s number without number-edit access', async (kind) => {
+    const document = kind === 'order' ? makeOrder() : makeQuote()
+    const em = makeEm(document, kind === 'order' ? SalesOrder : SalesQuote)
+    const numberField = kind === 'order' ? 'orderNumber' : 'quoteNumber'
+    const number = kind === 'order' ? 'O-1' : 'Q-1'
+    await getHandler('sales.' + kind + 's.update').execute(
+      { id: document.id, [numberField]: number } as never,
+      makeCtx(em),
+    )
+    expect(document).toEqual(expect.objectContaining({ [numberField]: number }))
+  })
+
+  it.each(['order', 'quote'] as const)('rejects a changed %s number without number-edit access', async (kind) => {
+    const document = kind === 'order' ? makeOrder() : makeQuote()
+    const em = makeEm(document, kind === 'order' ? SalesOrder : SalesQuote)
+    const numberField = kind === 'order' ? 'orderNumber' : 'quoteNumber'
+    const number = kind === 'order' ? 'O-1' : 'Q-1'
+    await expect(getHandler('sales.' + kind + 's.update').execute(
+      { id: document.id, [numberField]: 'FORBIDDEN-2' } as never,
+      makeCtx(em),
+    )).rejects.toMatchObject({ status: 403 })
+    expect(document).toEqual(expect.objectContaining({ [numberField]: number }))
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
   })
 
   it('persists customFields supplied to sales.orders.update', async () => {

@@ -237,28 +237,32 @@ export async function POST(req: Request) {
       return emailSendFailedResponse()
     }
 
-    const adminEmail = process.env.ADMIN_EMAIL || 'piotr@catchthetornado.com'
-    const adminSubject = translate('onboarding.email.adminSubject', 'New self-service onboarding request')
-    const adminCopy = {
-      preview: translate('onboarding.email.adminPreview', 'New onboarding request submitted'),
-      heading: translate('onboarding.email.adminHeading', 'New onboarding request'),
-      body: translate('onboarding.email.adminBody', '{firstName} {lastName} ({email}) submitted an onboarding request for {organizationName}.', {
-        firstName: request.firstName,
-        lastName: request.lastName,
-        email: request.email,
-        organizationName: request.organizationName,
-      }),
-      marketingConsent: marketingConsentText,
-      footer: translate('onboarding.email.adminFooter', 'You can review the tenant after verification is complete.'),
-    }
-    try {
-      await sendEmail({
-        to: adminEmail,
-        subject: adminSubject,
-        react: AdminNotificationEmail({ copy: adminCopy }),
-      })
-    } catch (err) {
-      logger.error('Admin email failed', { err })
+    const adminEmail = process.env.ADMIN_EMAIL?.trim()
+    if (!adminEmail) {
+      logger.warn('ADMIN_EMAIL is unset; skipping self-service onboarding notification')
+    } else {
+      const adminSubject = translate('onboarding.email.adminSubject', 'New self-service onboarding request')
+      const adminCopy = {
+        preview: translate('onboarding.email.adminPreview', 'New onboarding request submitted'),
+        heading: translate('onboarding.email.adminHeading', 'New onboarding request'),
+        body: translate('onboarding.email.adminBody', '{firstName} {lastName} ({email}) submitted an onboarding request for {organizationName}.', {
+          firstName: request.firstName,
+          lastName: request.lastName,
+          email: request.email,
+          organizationName: request.organizationName,
+        }),
+        marketingConsent: marketingConsentText,
+        footer: translate('onboarding.email.adminFooter', 'You can review the tenant after verification is complete.'),
+      }
+      try {
+        await sendEmail({
+          to: adminEmail,
+          subject: adminSubject,
+          react: AdminNotificationEmail({ copy: adminCopy }),
+        })
+      } catch (err) {
+        logger.error('Admin email failed', { err })
+      }
     }
 
     return acceptedResponse()

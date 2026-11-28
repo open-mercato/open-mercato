@@ -240,7 +240,7 @@
   "business_rules.rules.form.placeholders.entityType": "Tippen Sie, um Vorschläge zu sehen",
   "business_rules.rules.form.placeholders.eventType": "Tippen Sie, um Vorschläge zu sehen",
   "business_rules.rules.form.placeholders.ruleCategory": "z.B. Preisgestaltung, Workflow, Datenqualität",
-  "business_rules.rules.form.placeholders.ruleId": "AUTO_GENERATED_ID",
+  "business_rules.rules.form.placeholders.ruleId": "ORDER_APPROVAL_CHECK",
   "business_rules.rules.form.placeholders.ruleName": "Geben Sie einen beschreibenden Regelnamen ein",
   "business_rules.rules.form.priority": "Priorität",
   "business_rules.rules.form.ruleCategory": "Kategorie",

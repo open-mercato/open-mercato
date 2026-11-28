@@ -60,10 +60,17 @@ export function addImportSpec(sourceFile: SourceFile, spec: GeneratedImportSpec)
   })
 }
 
+/**
+ * Inserts every import in one ts-morph manipulation. Each `addImportDeclaration` call
+ * re-prints and re-parses the whole source file, so adding registry imports one by one is
+ * quadratic in the import count and dominated `mercato generate` peak memory.
+ */
 export function addImportSpecs(sourceFile: SourceFile, specs: GeneratedImportSpec[]): void {
-  for (const spec of specs) {
-    addImportSpec(sourceFile, spec)
-  }
+  if (specs.length === 0) return
+  sourceFile.addImportDeclarations(specs.map((spec) => ({
+    kind: StructureKind.ImportDeclaration,
+    ...spec,
+  })))
 }
 
 export function addImportStatement(sourceFile: SourceFile, statement: string): void {
@@ -73,7 +80,10 @@ export function addImportStatement(sourceFile: SourceFile, statement: string): v
 }
 
 export function addImportStatements(sourceFile: SourceFile, statements: string[]): void {
+  const specs: GeneratedImportSpec[] = []
   for (const statement of statements) {
-    addImportStatement(sourceFile, statement)
+    const trimmed = statement.trim()
+    if (trimmed) specs.push(toImportSpec(trimmed))
   }
+  addImportSpecs(sourceFile, specs)
 }

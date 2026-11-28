@@ -81,7 +81,8 @@ for pkg_dir in $PACKAGES; do
   fi
 
   if [ -f "package.tgz" ]; then
-    if npm publish "package.tgz" --access public --tag "$TAG" --provenance 2>&1; then
+    if "$ROOT_DIR/scripts/ci/npm-retry-on-provenance-conflict.sh" \
+      npm publish "package.tgz" --access public --tag "$TAG" --provenance; then
       echo "    ✓ Published"
     else
       echo "    ✗ Failed to publish"

@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { updateProgressSchema } from '../../../data/validators'
 import type { ProgressService } from '../../../lib/progressService'
+import { createProgressJobMutationPolicy, progressCancelFeatures } from '../../jobPermissions'
 import {
   hasReadableProgressScope,
   hasWritableProgressScope,
@@ -12,10 +14,16 @@ import {
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['progress.view'] },
   PUT: { requireAuth: true, requireFeatures: ['progress.update'] },
-  DELETE: { requireAuth: true, requireFeatures: ['progress.cancel'] },
+  DELETE: { requireAuth: true, requireFeatures: progressCancelFeatures },
 }
 
 export const metadata = routeMetadata
+
+const jobIdSchema = z.guid()
+
+function cannotCancelJobResponse() {
+  return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
+}
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const auth = await getAuthFromRequest(req)
@@ -25,7 +33,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   const container = await createRequestContainer()
   const scope = await resolveProgressRequestScope(container, auth, req)
-  if (!hasReadableProgressScope(scope)) {
+  if (!hasReadableProgressScope(scope) || !jobIdSchema.safeParse(params.id).success) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
   const progressService = container.resolve('progressService') as ProgressService
@@ -92,8 +100,11 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     organizationIds: scope.filterIds,
     userId: auth.sub,
   }
-  const existing = await progressService.getJob(params.id, progressContext)
-  if (!existing) {
+  const existing = jobIdSchema.safeParse(params.id).success
+    ? await progressService.getJob(params.id, progressContext)
+    : null
+  const canMutateJob = createProgressJobMutationPolicy(container, auth)
+  if (!existing || !(await canMutateJob(existing))) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
@@ -120,16 +131,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     organizationIds: scope.filterIds,
     userId: auth.sub,
   }
-  // No existence pre-check here on purpose. `cancelJob` already loads the job
-  // through the SAME scoped filter and throws when it resolves to nothing, so a
-  // job outside the caller's organization scope is rejected exactly like one that
-  // does not exist — and the route keeps its documented answer for an unknown id
-  // (400 "Cannot cancel this job", TC-PROG-009) instead of a 404.
   try {
+    const existing = await progressService.getJob(params.id, progressContext)
+    const canMutateJob = createProgressJobMutationPolicy(container, auth)
+    if (!existing || !(await canMutateJob(existing))) {
+      return cannotCancelJobResponse()
+    }
     await progressService.cancelJob(params.id, progressContext)
     return NextResponse.json({ ok: true })
   } catch {
-    return NextResponse.json({ error: 'Cannot cancel this job' }, { status: 400 })
+    return cannotCancelJobResponse()
   }
 }
 
@@ -145,7 +156,7 @@ export const openApi = {
   },
   PUT: {
     summary: 'Update progress job',
-    description: 'Updates progress metrics and heartbeat for a running job.',
+    description: 'Updates progress metrics and heartbeat for a running job. Callers can update jobs they started; updating another user\'s job requires progress.manage.',
     tags: ['Progress'],
     responses: {
       200: { description: 'Progress updated' },
@@ -155,7 +166,7 @@ export const openApi = {
   },
   DELETE: {
     summary: 'Cancel progress job',
-    description: 'Requests cancellation of a running or pending job.',
+    description: 'Requests cancellation of a running or pending job. Callers can cancel jobs they started; cancelling another user\'s job requires progress.manage.',
     tags: ['Progress'],
     responses: {
       200: { description: 'Cancellation requested' },

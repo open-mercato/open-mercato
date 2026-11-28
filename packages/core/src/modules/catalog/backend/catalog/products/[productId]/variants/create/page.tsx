@@ -19,6 +19,7 @@ import {
   createVariantInitialValues,
   normalizeOptionSchema,
   findInvalidVariantPriceKinds,
+  resolveVariantPriceAmount,
 } from '@open-mercato/core/modules/catalog/components/products/variantForm'
 import {
   type PriceKindSummary,
@@ -26,7 +27,6 @@ import {
   type TaxRateSummary,
   normalizePriceKindSummary,
 } from '@open-mercato/core/modules/catalog/components/products/productForm'
-import { parseNumericInput } from '@open-mercato/core/modules/catalog/components/products/productFormUtils'
 import {
   VariantBasicsSection,
   VariantOptionValuesSection,
@@ -35,10 +35,10 @@ import {
   VariantPricesSection,
   VariantMediaSection,
 } from '@open-mercato/core/modules/catalog/components/products/VariantBuilder'
-import type { ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { fetchOptionSchemaTemplate } from '../../../optionSchemaClient'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { transferDraftMedia } from '@open-mercato/core/modules/catalog/components/products/mediaTransfer'
 
 const logger = createLogger('catalog')
 
@@ -231,12 +231,13 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
         column: 1,
         title: t('catalog.variants.form.pricesLabel', 'Prices'),
         description: t('catalog.variants.form.pricesHint', 'Populate list prices per price kind.'),
-        component: ({ values, setValue }) => (
+        component: ({ values, setValue, errors }) => (
           <VariantPricesSection
             values={values as VariantFormValues}
             setValue={setValue}
             priceKinds={priceKinds}
             taxRates={taxRates}
+            errors={errors}
             showHeader={false}
             embedded
           />
@@ -393,11 +394,19 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
             if (!variantId) {
               throw createCrudFormError(t('catalog.variants.form.errors.idMissing', 'Variant id missing after create.'))
             }
-            await transferVariantMedia({
+            const mediaTransfer = await transferDraftMedia({
+              entityId: E.catalog.catalog_product_variant,
               draftId: values.mediaDraftId,
-              variantId,
+              recordId: variantId,
               mediaItems: Array.isArray(values.mediaItems) ? values.mediaItems : [],
             })
+            if (mediaTransfer.failedCount > 0) {
+              logger.error('attachments.transfer.failed', {
+                failed: mediaTransfer.failedCount,
+                requested: mediaTransfer.requestedCount,
+                errors: mediaTransfer.errors,
+              })
+            }
             await syncVariantPrices({
               priceKinds,
               priceDrafts: values.prices ?? {},
@@ -408,40 +417,23 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
               productTaxRateId,
               productTaxRate,
             })
-            flash(t('catalog.variants.form.createSuccess', 'Variant created.'), 'success')
+            if (mediaTransfer.failedCount > 0) {
+              flash(
+                t(
+                  'catalog.variants.form.mediaTransferIncomplete',
+                  'Variant created, but {failed} of {total} media files could not be attached.',
+                  { failed: mediaTransfer.failedCount, total: mediaTransfer.requestedCount },
+                ),
+                'warning',
+              )
+            } else {
+              flash(t('catalog.variants.form.createSuccess', 'Variant created.'), 'success')
+            }
             router.push(`/backend/catalog/products/${productId}#variants`)
           }}
         />
       </PageBody>
     </Page>
-  )
-}
-
-async function transferVariantMedia({
-  draftId,
-  variantId,
-  mediaItems,
-}: {
-  draftId?: string | null
-  variantId: string
-  mediaItems: ProductMediaItem[]
-}): Promise<void> {
-  if (!draftId || !variantId) return
-  const attachmentIds = mediaItems.map((item) => item.id).filter((id): id is string => typeof id === 'string' && id.length > 0)
-  if (!attachmentIds.length) return
-  await apiCall(
-    '/api/attachments/transfer',
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        entityId: E.catalog.catalog_product_variant,
-        attachmentIds,
-        fromRecordId: draftId,
-        toRecordId: variantId,
-      }),
-    },
-    { fallback: null },
   )
 }
 
@@ -476,10 +468,8 @@ async function syncVariantPrices({
   const resolvedTaxRateId = (selectedTaxRate ?? fallbackProductTaxRate)?.id ?? null
   for (const kind of priceKinds) {
     const draft = priceDrafts?.[kind.id]
-    const amount = typeof draft?.amount === 'string' ? draft.amount.trim() : ''
-    if (!amount) continue
-    const numeric = parseNumericInput(amount)
-    if (!Number.isFinite(numeric) || numeric < 0) continue
+    const amount = resolveVariantPriceAmount(draft)
+    if (amount === null) continue
     const payload: Record<string, unknown> = {
       productId,
       variantId,
@@ -491,8 +481,8 @@ async function syncVariantPrices({
     } else if (typeof resolvedTaxRateValue === 'number' && Number.isFinite(resolvedTaxRateValue)) {
       payload.taxRate = resolvedTaxRateValue
     }
-    if (kind.displayMode === 'including-tax') payload.unitPriceGross = numeric
-    else payload.unitPriceNet = numeric
+    if (kind.displayMode === 'including-tax') payload.unitPriceGross = amount
+    else payload.unitPriceNet = amount
     await createCrud('catalog/prices', payload)
   }
 }

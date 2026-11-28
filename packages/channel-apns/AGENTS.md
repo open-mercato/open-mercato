@@ -27,6 +27,8 @@ Do not remove the pin while this package depends on `@parse/node-apn`: dropping 
 
 Implements the shared push-adapter contract (see `channel-fcm` AGENTS.md). Permanent-token reasons mapped to the uniform `device_unregistered` sentinel: `Unregistered` (410), `BadDeviceToken` (400). One HTTP/2 `apn.Provider` is cached per credentials hash. The `ApnsSender` seam keeps the node-apn provider out of the control flow and out of unit tests.
 
+A visible push with `pushOptions.image` sets `mutable-content: 1` and sends the URL as a top-level `imageUrl` key beside `aps` (it overrides a `data.imageUrl` key), so the app's Notification Service Extension can download and attach it. Silent pushes ignore `image`. Treat the `imageUrl` key name as a client contract.
+
 ## Credentials
 
 Tenant-level credentials on `IntegrationCredentials` for provider `channel_apns`: `{ p8Key (PEM contents), keyId, teamId, bundleId (APNs topic), production }`. Connect via the existing `communication_channels` credentials-connect flow. Device tokens live in `devices.UserDevice.push_token`, never here.

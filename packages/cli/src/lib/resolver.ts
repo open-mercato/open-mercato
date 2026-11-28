@@ -1,7 +1,9 @@
+import type { FormSectionOverridesMap, FormSectionOverride } from '@open-mercato/shared/modules/overrides'
 import path from 'node:path'
 import fs from 'node:fs'
 import ts from 'typescript-js'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { resolveInstalledPackageRootWithRequire } from './module-package'
 
 /**
  * Resolved execution environment for the CLI.
@@ -25,7 +27,10 @@ export type CliEnvironment = {
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
+  locator?: string
+  packageName?: string
   devSupervisorRequiresFullBootstrap?: boolean
+  formSectionOverrides?: Readonly<FormSectionOverridesMap>
 }
 
 export type PackageInfo = {
@@ -49,49 +54,113 @@ export interface PackageResolver {
   getPackageRoot(from?: string): string
 }
 
-function pkgDirFor(rootDir: string, from?: string, isMonorepo = true): string {
-  if (!isMonorepo) {
-    const pkgName = from || '@open-mercato/core'
-    const pkgRoot = path.join(rootDir, 'node_modules', pkgName)
-    const distModules = path.join(pkgRoot, 'dist', 'modules')
-    if (fs.existsSync(distModules)) return distModules
-    return path.join(pkgRoot, 'src', 'modules')
-  }
-
-  // Monorepo mode - read from src/modules (TypeScript source)
-  if (!from || from === '@open-mercato/core') {
-    return path.resolve(rootDir, 'packages/core/src/modules')
-  }
-  // Support other local packages like '@open-mercato/onboarding' => packages/onboarding/src/modules
-  const m = from.match(/^@open-mercato\/(.+)$/)
-  if (m) {
-    return path.resolve(rootDir, `packages/${m[1]}/src/modules`)
-  }
-  // Fallback to core modules path
-  return path.resolve(rootDir, 'packages/core/src/modules')
+function pkgDirFor(rootDir: string, from?: string, isMonorepo = true, appDir = rootDir): string {
+  const packageRoot = pkgRootFor(rootDir, from, isMonorepo, appDir)
+  const sourceModules = path.join(packageRoot, 'src', 'modules')
+  const distModules = path.join(packageRoot, 'dist', 'modules')
+  const workspacePackage = isMonorepo && packageRoot.startsWith(path.join(rootDir, 'packages') + path.sep)
+  if (workspacePackage && fs.existsSync(sourceModules)) return sourceModules
+  if (fs.existsSync(distModules)) return distModules
+  return sourceModules
 }
 
-function pkgRootFor(rootDir: string, from?: string, isMonorepo = true): string {
-  if (!isMonorepo) {
-    const pkgName = from || '@open-mercato/core'
-    return path.join(rootDir, 'node_modules', pkgName)
+function pkgRootFor(rootDir: string, from?: string, isMonorepo = true, appDir = rootDir): string {
+  const packageName = from || '@open-mercato/core'
+  if (isMonorepo) {
+    const workspaceMatch = packageName.match(/^@open-mercato\/(.+)$/)
+    if (workspaceMatch) {
+      const workspaceRoot = path.join(rootDir, 'packages', workspaceMatch[1])
+      if (fs.existsSync(workspaceRoot)) return workspaceRoot
+    }
   }
+  return resolveInstalledPackageRootWithRequire(packageName, appDir) ?? path.join(rootDir, 'node_modules', packageName)
+}
 
-  if (!from || from === '@open-mercato/core') {
-    return path.resolve(rootDir, 'packages/core')
+function staticFormSectionOverrides(expression: ts.Expression): FormSectionOverridesMap | undefined {
+  const initializers = new Map<string, ts.Expression>()
+  for (const statement of expression.getSourceFile().statements) {
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) initializers.set(declaration.name.text, declaration.initializer)
+    }
   }
-  const m = from.match(/^@open-mercato\/(.+)$/)
-  if (m) {
-    return path.resolve(rootDir, `packages/${m[1]}`)
+  function unwrap(value: ts.Expression): ts.Expression {
+    const visited = new Set<string>()
+    while (true) {
+      if (ts.isAsExpression(value) || ts.isSatisfiesExpression(value) || ts.isParenthesizedExpression(value)) {
+        value = value.expression
+        continue
+      }
+      if (!ts.isIdentifier(value) || visited.has(value.text)) return value
+      const resolved = initializers.get(value.text)
+      if (!resolved) return value
+      visited.add(value.text)
+      value = resolved
+    }
   }
-  return path.resolve(rootDir, 'packages/core')
+  function fields(value: ts.Expression | undefined, visited: ReadonlySet<ts.Expression> = new Set()): Map<string, ts.Expression> {
+    if (!value) return new Map()
+    const node = unwrap(value)
+    if (!ts.isObjectLiteralExpression(node) || visited.has(node)) return new Map()
+    const next = new Set([...visited, node])
+    const output = new Map<string, ts.Expression>()
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) for (const [key, entry] of fields(property.expression, next)) output.set(key, entry)
+      else if (ts.isShorthandPropertyAssignment(property)) output.set(property.name.text, property.name)
+      else if (ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))) {
+        output.set(property.name.text, property.initializer)
+      }
+    }
+    return output
+  }
+  const entries = fields(fields(fields(expression).get('forms')).get('sections'))
+  const result = new Map<string, FormSectionOverride | null>()
+  function text(input: ts.Expression | undefined): string | undefined {
+    const node = input ? unwrap(input) : undefined
+    return node && ts.isStringLiteralLike(node) ? node.text : undefined
+  }
+  for (const [key, value] of entries) {
+    if (unwrap(value).kind === ts.SyntaxKind.NullKeyword) {
+      result.set(key, null)
+      continue
+    }
+    const options = fields(value)
+    const operation = text(options.get('operation'))
+    const contributionId = text(options.get('contributionId'))
+    if (!contributionId || (operation !== 'add' && operation !== 'hide' && operation !== 'replace')) continue
+    if (operation !== 'add') {
+      result.set(key, { operation, contributionId })
+      continue
+    }
+    const placement = fields(options.get('placement'))
+    const rawPosition = placement.get('position')
+    const positionNode = rawPosition ? unwrap(rawPosition) : undefined
+    const position = positionNode && ts.isPropertyAccessExpression(positionNode)
+      && ts.isIdentifier(positionNode.expression) && positionNode.expression.text === 'InjectionPosition'
+      && ['First', 'Last', 'Before', 'After'].includes(positionNode.name.text)
+      ? positionNode.name.text.toLowerCase() : text(rawPosition)
+    const relativeTo = text(placement.get('relativeTo'))
+    const allowed: ReadonlySet<string> = new Set(['first', 'last', 'before', 'after'])
+    if (placement.size && (!position || !allowed.has(position))) continue
+    result.set(key, { operation, contributionId, ...(position ? {
+      placement: { position: position as NonNullable<Extract<FormSectionOverride, { operation: 'add' }>['placement']>['position'], relativeTo },
+    } : {}) })
+  }
+  return result.size ? Object.fromEntries(result) : undefined
 }
 
 function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): ModuleEntry | null {
   let id: string | null = null
   let from: string | null = null
+  let locator: string | undefined
+  let packageName: string | undefined
   let devSupervisorRequiresFullBootstrap = false
+  let formSectionOverrides: FormSectionOverridesMap | undefined
   for (const property of node.properties) {
+    if (ts.isShorthandPropertyAssignment(property) && property.name.text === 'overrides') {
+      formSectionOverrides = staticFormSectionOverrides(property.name)
+      continue
+    }
     if (!ts.isPropertyAssignment(property)) continue
     const key = ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
       ? property.name.text
@@ -102,7 +171,14 @@ function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): Mo
     if (key === 'from' && ts.isStringLiteralLike(property.initializer)) {
       from = property.initializer.text
     }
+    if (key === 'packageName' && ts.isStringLiteralLike(property.initializer)) {
+      packageName = property.initializer.text
+    }
+    if (key === 'locator' && ts.isStringLiteralLike(property.initializer)) {
+      locator = property.initializer.text
+    }
     if (key === 'overrides') {
+      formSectionOverrides = staticFormSectionOverrides(property.initializer)
       if (!ts.isObjectLiteralExpression(property.initializer)) {
         devSupervisorRequiresFullBootstrap = true
         continue
@@ -127,7 +203,10 @@ function parseModuleEntryFromObjectLiteral(node: ts.ObjectLiteralExpression): Mo
   return {
     id,
     from: from ?? '@open-mercato/core',
+    ...(locator ? { locator } : {}),
+    ...(packageName ? { packageName } : {}),
     ...(devSupervisorRequiresFullBootstrap ? { devSupervisorRequiresFullBootstrap: true } : {}),
+    ...(formSectionOverrides ? { formSectionOverrides } : {}),
   }
 }
 
@@ -292,10 +371,146 @@ function collectPushEntriesFromStatement(
   })
 }
 
+function validateFormSectionGates(sourceFile: ts.SourceFile, targetVariableName: string): void {
+  const initializers = new Map<string, ts.Expression>()
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      const initializer = declaration.initializer
+      if (!initializer) continue
+      function mapBinding(binding: ts.BindingName, value: ts.Expression): void {
+        if (ts.isIdentifier(binding)) initializers.set(binding.text, value)
+        else for (const element of binding.elements) if (ts.isBindingElement(element)) mapBinding(element.name, value)
+      }
+      mapBinding(declaration.name, initializer)
+    }
+  }
+
+  function serverEnvironmentReads(expression: ts.Expression): string[] {
+    const found = new Set<string>()
+    const seen = new Set<string>()
+    function visit(node: ts.Node): void {
+      if (ts.isIdentifier(node) && !seen.has(node.text)) {
+        seen.add(node.text)
+        const initializer = initializers.get(node.text)
+        if (initializer && node.text !== targetVariableName) visit(initializer)
+      }
+      if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)
+          && node.expression.text === 'process' && node.name.text === 'env') {
+        found.add('<dynamic process.env>')
+        return
+      }
+      if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+        const target = node.expression
+        if (ts.isPropertyAccessExpression(target) && target.name.text === 'env'
+            && ts.isIdentifier(target.expression) && target.expression.text === 'process') {
+          const environmentKey = ts.isPropertyAccessExpression(node) ? node.name.text
+            : ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : '<dynamic process.env>'
+          if (!environmentKey.startsWith('NEXT_PUBLIC_')) found.add(environmentKey)
+          return
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(expression)
+    return [...found].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+  }
+
+  function assertGates(gates: readonly ts.Expression[]): void {
+    const serverKeys = [...new Set(gates.flatMap(serverEnvironmentReads))].sort((left, right) => left < right ? -1 : left > right ? 1 : 0)
+    if (serverKeys.length) {
+      throw new Error(`[resolver] forms.sections in src/modules.ts requires browser-visible module gating; server-only: ${serverKeys.join(', ')}`)
+    }
+  }
+
+  function inspectOverride(
+    node: ts.Expression,
+    keys: readonly string[],
+    gates: readonly ts.Expression[],
+    seen: ReadonlySet<string> = new Set(),
+  ): void {
+    if (ts.isParenthesizedExpression(node) || ts.isSatisfiesExpression(node) || ts.isAsExpression(node)) {
+      inspectOverride(node.expression, keys, gates, seen)
+    } else if (ts.isConditionalExpression(node)) {
+      inspectOverride(node.whenTrue, keys, [...gates, node.condition], seen)
+      inspectOverride(node.whenFalse, keys, [...gates, node.condition], seen)
+    } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      inspectOverride(node.right, keys, [...gates, node.left], seen)
+    } else if (ts.isIdentifier(node) && !seen.has(node.text) && initializers.has(node.text)) {
+      const initializer = initializers.get(node.text)
+      if (initializer) inspectOverride(initializer, keys, gates, new Set([...seen, node.text]))
+    } else if (!keys.length) {
+      assertGates([...gates, node])
+    } else if (ts.isObjectLiteralExpression(node)) {
+      for (const property of node.properties) {
+        if (ts.isSpreadAssignment(property)) inspectOverride(property.expression, keys, gates, seen)
+        if (ts.isShorthandPropertyAssignment(property) && property.name.text === keys[0]) {
+          inspectOverride(property.name, keys.slice(1), gates, seen)
+        }
+        if (ts.isPropertyAssignment(property)
+            && (ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name))
+            && property.name.text === keys[0]) {
+          inspectOverride(property.initializer, keys.slice(1), gates, seen)
+        }
+      }
+    }
+  }
+
+  function inspectModules(node: ts.Node, gates: readonly ts.Expression[], seen: ReadonlySet<string> = new Set()): void {
+    if (ts.isIdentifier(node) && !seen.has(node.text)) {
+      const initializer = initializers.get(node.text)
+      if (initializer && node.text !== targetVariableName) inspectModules(initializer, gates, new Set([...seen, node.text]))
+    } else if (ts.isObjectLiteralExpression(node)) {
+      inspectOverride(node, ['overrides', 'forms', 'sections'], gates)
+    } else if (ts.isConditionalExpression(node)) {
+      inspectModules(node.whenTrue, [...gates, node.condition], seen)
+      inspectModules(node.whenFalse, [...gates, node.condition], seen)
+    } else {
+      ts.forEachChild(node, (child) => inspectModules(child, gates, seen))
+    }
+  }
+
+  function inspectStatement(statement: ts.Statement, gates: readonly ts.Expression[]): void {
+    if (ts.isBlock(statement)) {
+      for (const child of statement.statements) inspectStatement(child, gates)
+      return
+    }
+    if (ts.isIfStatement(statement)) {
+      const branchGates = [...gates, statement.expression]
+      inspectStatement(statement.thenStatement, branchGates)
+      if (statement.elseStatement) inspectStatement(statement.elseStatement, branchGates)
+      return
+    }
+    if (ts.isExpressionStatement(statement)) inspectPush(statement.expression, gates)
+  }
+
+  function inspectPush(node: ts.Expression, gates: readonly ts.Expression[]): void {
+    if (ts.isParenthesizedExpression(node)) inspectPush(node.expression, gates)
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
+      inspectPush(node.right, [...gates, node.left])
+    }
+    if (ts.isConditionalExpression(node)) {
+      inspectPush(node.whenTrue, [...gates, node.condition])
+      inspectPush(node.whenFalse, [...gates, node.condition])
+    }
+    if (!ts.isCallExpression(node)) return
+    const { expression, arguments: entries } = node
+    if (ts.isPropertyAccessExpression(expression) && expression.name.text === 'push'
+        && ts.isIdentifier(expression.expression) && expression.expression.text === targetVariableName) {
+      for (const entry of entries) inspectModules(entry, gates)
+    }
+  }
+
+  const enabled = initializers.get(targetVariableName)
+  if (enabled) inspectModules(enabled, [])
+  for (const statement of sourceFile.statements) inspectStatement(statement, [])
+}
+
 function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process.env): ModuleEntry[] {
   const sourceFile = ts.createSourceFile('modules.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   const modules: ModuleEntry[] = []
   const variableName = 'enabledModules'
+  validateFormSectionGates(sourceFile, variableName)
   const scope = new Map<string, unknown>()
   let foundDeclaration = false
 
@@ -331,7 +546,29 @@ function parseModulesFromSource(source: string, env: NodeJS.ProcessEnv = process
     }
   }
 
-  return modules
+  return dedupeModulesById(modules)
+}
+
+const reportedDuplicateModuleIds = new Set<string>()
+
+function dedupeModulesById(modules: ModuleEntry[]): ModuleEntry[] {
+  const seen = new Map<string, ModuleEntry>()
+  for (const entry of modules) {
+    const existing = seen.get(entry.id)
+    if (!existing) {
+      seen.set(entry.id, entry)
+      continue
+    }
+    if (entry.devSupervisorRequiresFullBootstrap && !existing.devSupervisorRequiresFullBootstrap) {
+      seen.set(entry.id, { ...existing, devSupervisorRequiresFullBootstrap: true })
+    }
+    if (reportedDuplicateModuleIds.has(entry.id)) continue
+    reportedDuplicateModuleIds.add(entry.id)
+    console.warn(
+      `[resolver] Module "${entry.id}" is registered more than once in src/modules.ts (from "${existing.from ?? '@open-mercato/core'}" and "${entry.from ?? '@open-mercato/core'}"). Keeping the first registration; remove the duplicate entry.`,
+    )
+  }
+  return Array.from(seen.values())
 }
 
 export function readEnabledModulesFromConfig(cfgPath: string): ModuleEntry[] {
@@ -343,8 +580,7 @@ function loadEnabledModulesFromConfig(appDir: string): ModuleEntry[] {
   const cfgPath = path.resolve(appDir, 'src/modules.ts')
   if (fs.existsSync(cfgPath)) {
     try {
-      const loadedModules = readEnabledModulesFromConfig(cfgPath)
-      if (loadedModules.length > 0) return loadedModules
+      return readEnabledModulesFromConfig(cfgPath)
     } catch (error) {
       console.warn(
         '[resolver] Failed to read enabled modules from src/modules.ts, falling back to src/modules scan:',
@@ -560,7 +796,7 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
 
     getModulePaths: (entry: ModuleEntry) => {
       const appBase = path.resolve(appDir, 'src/modules', entry.id)
-      const pkgModulesRoot = pkgDirFor(rootDir, entry.from, _isMonorepo)
+      const pkgModulesRoot = pkgDirFor(rootDir, entry.from, _isMonorepo, appDir)
       const pkgBase = path.join(pkgModulesRoot, entry.id)
       return { appBase, pkgBase }
     },
@@ -579,12 +815,12 @@ export function createResolver(cwd: string = process.cwd()): PackageResolver {
         // App output goes to .mercato/generated
         return path.join(appDir, '.mercato', 'generated')
       }
-      const pkgRoot = pkgRootFor(rootDir, packageName, _isMonorepo)
+      const pkgRoot = pkgRootFor(rootDir, packageName, _isMonorepo, appDir)
       return path.join(pkgRoot, 'generated')
     },
 
     getPackageRoot: (from?: string) => {
-      return pkgRootFor(rootDir, from, _isMonorepo)
+      return pkgRootFor(rootDir, from, _isMonorepo, appDir)
     },
   }
 }
@@ -602,6 +838,6 @@ export function resolveEnvironment(cwd: string = process.cwd()): CliEnvironment 
     mode: _isMonorepo ? 'monorepo' : 'standalone',
     rootDir,
     appDir,
-    packageRoot: (packageName: string) => pkgRootFor(rootDir, packageName, _isMonorepo),
+    packageRoot: (packageName: string) => pkgRootFor(rootDir, packageName, _isMonorepo, appDir),
   }
 }

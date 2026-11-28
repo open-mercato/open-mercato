@@ -11,6 +11,8 @@ const mockCancelJob = jest.fn()
 const mockGetActiveJobs = jest.fn()
 const mockGetRecentlyCompletedJobs = jest.fn()
 const mockMarkStaleJobsFailed = jest.fn()
+const mockUserHasAllFeatures = jest.fn()
+const mockResolveFeatureCheckContext = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn((request: Request) => mockGetAuthFromRequest(request)),
@@ -18,6 +20,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(() => mockCreateRequestContainer()),
+}))
+
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveFeatureCheckContext: (...args: unknown[]) => mockResolveFeatureCheckContext(...args),
 }))
 
 type RouteModule = typeof import('../route')
@@ -58,6 +64,7 @@ describe('progress jobs route', () => {
       resolve: (token: string) => {
         if (token === 'em') return { findAndCount: mockFindAndCount }
         if (token === 'organizationScopeService') return { resolveForRequest: mockResolveForRequest }
+        if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
         if (token === 'progressService') {
           return {
             createJob: mockCreateJob,
@@ -86,6 +93,11 @@ describe('progress jobs route', () => {
     mockGetActiveJobs.mockResolvedValue([])
     mockGetRecentlyCompletedJobs.mockResolvedValue([])
     mockMarkStaleJobsFailed.mockResolvedValue(0)
+    mockUserHasAllFeatures.mockResolvedValue(false)
+    mockResolveFeatureCheckContext.mockResolvedValue({
+      organizationId: 'org-1',
+      scope: { tenantId: 'tenant-1' },
+    })
   })
 
   it('requires progress.view for progress read routes', () => {
@@ -327,9 +339,23 @@ describe('progress jobs route', () => {
     expect(filter).not.toHaveProperty('organizationId')
   })
 
+  it.each([
+    ['', { createdAt: 'DESC', id: 'DESC' }],
+    ['?sortDir=asc', { createdAt: 'DESC', id: 'DESC' }],
+    ['?sortField=createdAt&sortDir=asc', { createdAt: 'ASC', id: 'ASC' }],
+    ['?sortField=startedAt&sortDir=desc', { startedAt: 'DESC', id: 'DESC' }],
+    ['?sortField=finishedAt&sortDir=asc', { finishedAt: 'ASC', id: 'ASC' }],
+  ])('breaks sort ties by id so offset pages stay stable (%s)', async (query, expectedOrderBy) => {
+    await listHandler(new Request(`http://localhost/api/progress/jobs${query}`))
+
+    const options = mockFindAndCount.mock.calls[0][2]
+    expect(options.orderBy).toEqual(expectedOrderBy)
+    expect(Object.keys(options.orderBy)).toEqual(Object.keys(expectedOrderBy))
+  })
+
   it('returns same-organization detail and passes the finite scope to the service', async () => {
     mockGetJob.mockResolvedValue({
-      id: 'job-1',
+      id: '22222222-2222-4222-8222-222222222222',
       jobType: 'export',
       name: 'Export',
       status: 'running',
@@ -344,12 +370,12 @@ describe('progress jobs route', () => {
     })
 
     const response = await detailGetHandler(
-      new Request('http://localhost/api/progress/jobs/job-1'),
-      { params: { id: 'job-1' } },
+      new Request('http://localhost/api/progress/jobs/22222222-2222-4222-8222-222222222222'),
+      { params: { id: '22222222-2222-4222-8222-222222222222' } },
     )
 
     expect(response.status).toBe(200)
-    expect(mockGetJob).toHaveBeenCalledWith('job-1', {
+    expect(mockGetJob).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222', {
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       organizationIds: ['org-1'],
@@ -366,14 +392,14 @@ describe('progress jobs route', () => {
     })
 
     const response = await detailGetHandler(
-      new Request('http://localhost/api/progress/jobs/job-1'),
-      { params: { id: 'job-1' } },
+      new Request('http://localhost/api/progress/jobs/22222222-2222-4222-8222-222222222222'),
+      { params: { id: '22222222-2222-4222-8222-222222222222' } },
     )
 
     expect(response.status).toBe(404)
     await expect(response.json()).resolves.toEqual({ error: 'Not found' })
     expect(mockGetJob).toHaveBeenCalledWith(
-      'job-1',
+      '22222222-2222-4222-8222-222222222222',
       expect.objectContaining({ organizationIds: ['org-2'] }),
     )
   })
@@ -388,12 +414,12 @@ describe('progress jobs route', () => {
     })
 
     const response = await detailPutHandler(
-      new Request('http://localhost/api/progress/jobs/job-1', {
+      new Request('http://localhost/api/progress/jobs/22222222-2222-4222-8222-222222222222', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ processedCount: 2 }),
       }),
-      { params: { id: 'job-1' } },
+      { params: { id: '22222222-2222-4222-8222-222222222222' } },
     )
 
     expect(response.status).toBe(404)
@@ -402,7 +428,7 @@ describe('progress jobs route', () => {
   })
 
   it('cancels an allowed selected-organization job with the resolved scope', async () => {
-    mockGetJob.mockResolvedValue({ id: 'job-1' })
+    mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'user-1', organizationId: 'org-1' })
 
     const response = await detailDeleteHandler(
       new Request('http://localhost/api/progress/jobs/job-1', { method: 'DELETE' }),
@@ -415,6 +441,276 @@ describe('progress jobs route', () => {
       organizationId: 'org-1',
       organizationIds: ['org-1'],
       userId: 'user-1',
+    })
+  })
+
+  describe('job ownership on update and cancel', () => {
+    const putRequest = () => new Request('http://localhost/api/progress/jobs/22222222-2222-4222-8222-222222222222', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ processedCount: 5 }),
+    })
+    const deleteRequest = () => new Request('http://localhost/api/progress/jobs/job-1', { method: 'DELETE' })
+
+    it('hides another user\'s job from PUT when the caller lacks progress.manage', async () => {
+      mockGetJob.mockResolvedValue({ id: '22222222-2222-4222-8222-222222222222', startedByUserId: 'owner-1', organizationId: 'org-1' })
+
+      const response = await detailPutHandler(putRequest(), { params: { id: '22222222-2222-4222-8222-222222222222' } })
+
+      expect(response.status).toBe(404)
+      await expect(response.json()).resolves.toEqual({ error: 'Not found' })
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith('user-1', ['progress.manage'], {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+      expect(mockUpdateProgress).not.toHaveBeenCalled()
+    })
+
+    it('refuses to cancel another user\'s job when the caller lacks progress.manage', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'owner-1', organizationId: 'org-1' })
+
+      const response = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Cannot cancel this job' })
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith('user-1', ['progress.manage'], {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+      expect(mockCancelJob).not.toHaveBeenCalled()
+    })
+
+    it('treats a job without a recorded starter as not owned by the caller', async () => {
+      mockGetJob.mockResolvedValue({ id: '22222222-2222-4222-8222-222222222222', startedByUserId: null, organizationId: 'org-1' })
+
+      const updateResponse = await detailPutHandler(putRequest(), { params: { id: '22222222-2222-4222-8222-222222222222' } })
+      const deleteResponse = await detailDeleteHandler(deleteRequest(), { params: { id: '22222222-2222-4222-8222-222222222222' } })
+
+      expect(updateResponse.status).toBe(404)
+      expect(deleteResponse.status).toBe(400)
+      expect(mockUpdateProgress).not.toHaveBeenCalled()
+      expect(mockCancelJob).not.toHaveBeenCalled()
+    })
+
+    it('lets the job owner update and cancel without a progress.manage lookup', async () => {
+      mockGetJob.mockResolvedValue({ id: '22222222-2222-4222-8222-222222222222', startedByUserId: 'user-1', organizationId: 'org-1' })
+
+      const updateResponse = await detailPutHandler(putRequest(), { params: { id: '22222222-2222-4222-8222-222222222222' } })
+      const deleteResponse = await detailDeleteHandler(deleteRequest(), { params: { id: '22222222-2222-4222-8222-222222222222' } })
+
+      expect(updateResponse.status).toBe(200)
+      expect(deleteResponse.status).toBe(200)
+      expect(mockUpdateProgress).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222', { processedCount: 5 }, expect.objectContaining({ userId: 'user-1' }))
+      expect(mockCancelJob).toHaveBeenCalledWith('22222222-2222-4222-8222-222222222222', expect.objectContaining({ userId: 'user-1' }))
+      expect(mockUserHasAllFeatures).not.toHaveBeenCalled()
+    })
+
+    it('lets a progress.manage holder update and cancel another user\'s job', async () => {
+      mockGetJob.mockResolvedValue({ id: '22222222-2222-4222-8222-222222222222', startedByUserId: 'owner-1', organizationId: 'org-1' })
+      mockUserHasAllFeatures.mockResolvedValue(true)
+
+      const updateResponse = await detailPutHandler(putRequest(), { params: { id: '22222222-2222-4222-8222-222222222222' } })
+      const deleteResponse = await detailDeleteHandler(deleteRequest(), { params: { id: '22222222-2222-4222-8222-222222222222' } })
+
+      expect(updateResponse.status).toBe(200)
+      expect(deleteResponse.status).toBe(200)
+      expect(mockUpdateProgress).toHaveBeenCalledTimes(1)
+      expect(mockCancelJob).toHaveBeenCalledTimes(1)
+    })
+
+    it('checks progress.manage against the job organization, including a tenant-level job', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'owner-1', organizationId: null })
+      mockUserHasAllFeatures.mockResolvedValue(true)
+
+      const response = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(response.status).toBe(200)
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith('user-1', ['progress.manage'], {
+        tenantId: 'tenant-1',
+        organizationId: null,
+      })
+    })
+
+    it('keeps the documented 400 when the owner\'s job cannot be cancelled', async () => {
+      mockGetJob.mockResolvedValue({ id: 'job-1', startedByUserId: 'user-1', organizationId: 'org-1' })
+      mockCancelJob.mockRejectedValueOnce(new Error('[internal] Job job-1 is not cancellable'))
+
+      const response = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Cannot cancel this job' })
+      expect(mockCancelJob).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps the documented 400 for cancelling an unknown job id', async () => {
+      mockGetJob.mockResolvedValue(null)
+
+      const response = await detailDeleteHandler(deleteRequest(), { params: { id: 'job-1' } })
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Cannot cancel this job' })
+      expect(mockCancelJob).not.toHaveBeenCalled()
+    })
+
+    it('keeps the documented 400 when the job lookup rejects for a malformed id', async () => {
+      mockGetJob.mockRejectedValueOnce(new Error('[internal] invalid input syntax for type uuid: "not-a-uuid"'))
+
+      const response = await detailDeleteHandler(
+        new Request('http://localhost/api/progress/jobs/not-a-uuid', { method: 'DELETE' }),
+        { params: { id: 'not-a-uuid' } },
+      )
+
+      expect(response.status).toBe(400)
+      await expect(response.json()).resolves.toEqual({ error: 'Cannot cancel this job' })
+      expect(mockCancelJob).not.toHaveBeenCalled()
+    })
+  })
+
+  it('answers a malformed id on GET with the not-found 404 without reaching the uuid column', async () => {
+    mockGetJob.mockRejectedValue(new Error('[internal] invalid input syntax for type uuid: "not-a-uuid"'))
+
+    const response = await detailGetHandler(
+      new Request('http://localhost/api/progress/jobs/not-a-uuid'),
+      { params: { id: 'not-a-uuid' } },
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ error: 'Not found' })
+    expect(mockGetJob).not.toHaveBeenCalled()
+  })
+
+  it('answers a malformed id on PUT with the not-found 404 without reaching the uuid column', async () => {
+    mockGetJob.mockRejectedValue(new Error('[internal] invalid input syntax for type uuid: "not-a-uuid"'))
+
+    const response = await detailPutHandler(
+      new Request('http://localhost/api/progress/jobs/not-a-uuid', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ processedCount: 5 }),
+      }),
+      { params: { id: 'not-a-uuid' } },
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({ error: 'Not found' })
+    expect(mockGetJob).not.toHaveBeenCalled()
+    expect(mockUpdateProgress).not.toHaveBeenCalled()
+  })
+
+  it('still looks up an uppercase uuid on GET and PUT', async () => {
+    const uppercaseId = 'A1B2C3D4-E5F6-4A7B-8C9D-0E1F2A3B4C5D'
+    mockGetJob.mockResolvedValue(null)
+
+    const getResponse = await detailGetHandler(
+      new Request(`http://localhost/api/progress/jobs/${uppercaseId}`),
+      { params: { id: uppercaseId } },
+    )
+    const putResponse = await detailPutHandler(
+      new Request(`http://localhost/api/progress/jobs/${uppercaseId}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ processedCount: 5 }),
+      }),
+      { params: { id: uppercaseId } },
+    )
+
+    expect(getResponse.status).toBe(404)
+    expect(putResponse.status).toBe(404)
+    expect(mockGetJob).toHaveBeenCalledTimes(2)
+    expect(mockGetJob).toHaveBeenNthCalledWith(1, uppercaseId, expect.objectContaining({ tenantId: 'tenant-1' }))
+    expect(mockGetJob).toHaveBeenNthCalledWith(2, uppercaseId, expect.objectContaining({ tenantId: 'tenant-1' }))
+  })
+
+  describe('active job cancellation capabilities', () => {
+    const ownJob = {
+      id: 'owned',
+      jobType: 'export',
+      name: 'Own export',
+      status: 'running',
+      cancellable: true,
+      startedByUserId: 'user-1',
+      organizationId: 'org-1',
+    }
+
+    it.each([
+      { cancel: false, manage: false, own: false, other: false },
+      { cancel: false, manage: true, own: false, other: false },
+      { cancel: true, manage: false, own: true, other: false },
+      { cancel: true, manage: true, own: true, other: true },
+    ])('uses cancel=$cancel and manage=$manage grants with job ownership', async ({ cancel, manage, own, other }) => {
+      mockGetActiveJobs.mockResolvedValue([
+        ownJob,
+        { ...ownJob, id: 'other', startedByUserId: 'user-2' },
+        { ...ownJob, id: 'system', startedByUserId: null },
+        { ...ownJob, id: 'non-cancellable', cancellable: false },
+      ])
+      mockUserHasAllFeatures.mockImplementation(async (_userId, features: string[]) =>
+        features.includes('progress.cancel') ? cancel : manage,
+      )
+
+      const request = new Request('http://localhost/api/progress/active', {
+        headers: { cookie: 'om_selected_org=org-1' },
+      })
+      const response = await activeHandler(request)
+      const body = await response.json()
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+      expect(body.active).toEqual([
+        expect.objectContaining({ id: 'owned', cancellable: true, canCancel: own }),
+        expect.objectContaining({ id: 'other', cancellable: true, canCancel: other }),
+        expect.objectContaining({ id: 'system', cancellable: true, canCancel: other }),
+        expect.objectContaining({ id: 'non-cancellable', cancellable: false, canCancel: false }),
+      ])
+      for (const job of body.active) expect(job).not.toHaveProperty('startedByUserId')
+      expect(mockResolveFeatureCheckContext).toHaveBeenCalledWith(expect.objectContaining({
+        requiredFeatures: detailMetadata.DELETE.requireFeatures,
+        request: expect.any(Request),
+      }))
+      const cancelRequest: Request = mockResolveFeatureCheckContext.mock.calls[0][0].request
+      expect(cancelRequest).not.toBe(request)
+      expect(cancelRequest.headers.get('cookie')).toBe(request.headers.get('cookie'))
+      expect(mockUserHasAllFeatures).toHaveBeenCalledTimes(cancel ? 2 : 1)
+    })
+
+    it('uses the cancellation scope even when the read scope includes more organizations', async () => {
+      mockResolveForRequest.mockResolvedValueOnce({
+        tenantId: 'tenant-1',
+        selectedId: null,
+        filterIds: ['org-1', 'org-2'],
+        allowedIds: ['org-1', 'org-2'],
+      })
+      mockGetActiveJobs.mockResolvedValue([
+        ownJob,
+        { ...ownJob, id: 'outside-cancel-scope', organizationId: 'org-2' },
+      ])
+      mockUserHasAllFeatures.mockResolvedValue(true)
+
+      const response = await activeHandler(new Request('http://localhost/api/progress/active'))
+      expect((await response.json()).active).toEqual([
+        expect.objectContaining({ id: 'owned', canCancel: true }),
+        expect.objectContaining({ id: 'outside-cancel-scope', canCancel: false }),
+      ])
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith('user-1', ['progress.cancel'], {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+    })
+
+    it('offers no cancellation when an explicit organization selection was rejected', async () => {
+      mockResolveForRequest.mockResolvedValue({
+        tenantId: 'tenant-1',
+        selectedId: 'org-1',
+        filterIds: ['org-1'],
+        allowedIds: ['org-1'],
+        selectionRejected: true,
+      })
+      mockGetActiveJobs.mockResolvedValue([ownJob])
+      mockUserHasAllFeatures.mockResolvedValue(true)
+
+      const response = await activeHandler(new Request('http://localhost/api/progress/active'))
+      expect((await response.json()).active).toEqual([expect.objectContaining({ id: 'owned', canCancel: false })])
+      expect(mockUserHasAllFeatures).not.toHaveBeenCalled()
     })
   })
 
@@ -445,16 +741,16 @@ describe('progress jobs route', () => {
     const listResponse = await listHandler(new Request('http://localhost/api/progress/jobs'))
     const activeResponse = await activeHandler(new Request('http://localhost/api/progress/active'))
     const detailResponse = await detailGetHandler(
-      new Request('http://localhost/api/progress/jobs/job-1'),
-      { params: { id: 'job-1' } },
+      new Request('http://localhost/api/progress/jobs/22222222-2222-4222-8222-222222222222'),
+      { params: { id: '22222222-2222-4222-8222-222222222222' } },
     )
     const updateResponse = await detailPutHandler(
-      new Request('http://localhost/api/progress/jobs/job-1', {
+      new Request('http://localhost/api/progress/jobs/22222222-2222-4222-8222-222222222222', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ processedCount: 2 }),
       }),
-      { params: { id: 'job-1' } },
+      { params: { id: '22222222-2222-4222-8222-222222222222' } },
     )
     const deleteResponse = await detailDeleteHandler(
       new Request('http://localhost/api/progress/jobs/job-1', { method: 'DELETE' }),

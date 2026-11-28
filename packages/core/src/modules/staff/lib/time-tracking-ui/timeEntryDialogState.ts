@@ -5,6 +5,8 @@ import {
   type ComputedIntervalField,
   type IntervalInput,
 } from '../time-tracking/interval'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
+import type { TimeEntryMode } from '../time-tracking/settings'
 
 export type IntervalField = 'start' | 'end' | 'duration'
 
@@ -230,6 +232,8 @@ export type TimeEntryRecord = {
   timeProjectId: string | null
   isBillable: boolean
   rateOverrideAmount: number | null
+  /** The stored override as an exact decimal string, so an edit never rounds it through a float. */
+  rateOverrideAmountExact?: string | null
   currencyCode: string | null
   tagIds: string[]
   isLocked: boolean
@@ -255,6 +259,14 @@ export function readRowNumber(row: ApiRow, ...keys: string[]): number | null {
       const parsed = Number(value)
       if (Number.isFinite(parsed)) return parsed
     }
+  }
+  return null
+}
+
+function readRowDecimal(row: ApiRow, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const parsed = parseDecimal(row[key])
+    if (parsed) return decimalToString(parsed)
   }
   return null
 }
@@ -287,6 +299,7 @@ export function toTimeEntryRecord(row: ApiRow): TimeEntryRecord | null {
     timeProjectId: readRowString(row, 'time_project_id', 'timeProjectId'),
     isBillable: readRowBoolean(row, true, 'is_billable', 'isBillable'),
     rateOverrideAmount: readRowNumber(row, 'rate_override_amount', 'rateOverrideAmount'),
+    rateOverrideAmountExact: readRowDecimal(row, 'rate_override_amount', 'rateOverrideAmount'),
     currencyCode: readRowString(row, 'currencyCode', 'rate_currency_code', 'rateCurrencyCode'),
     tagIds: tags
       .map((tag) => (tag && typeof tag === 'object' ? readRowString(tag as ApiRow, 'id') : null))
@@ -295,6 +308,17 @@ export function toTimeEntryRecord(row: ApiRow): TimeEntryRecord | null {
     lockedReportId: readRowString(row, 'lockedReportId', 'locked_report_id'),
     updatedAt: readRowString(row, 'updated_at', 'updatedAt'),
   }
+}
+
+/**
+ * The override rate as the dialog shows and sends it: the exact stored digits,
+ * falling back to the float copy for a record mapped without them.
+ */
+export function timeEntryRateOverrideText(
+  record: Pick<TimeEntryRecord, 'rateOverrideAmount' | 'rateOverrideAmountExact'>,
+): string | null {
+  const exact = parseDecimal(record.rateOverrideAmountExact) ?? parseDecimal(record.rateOverrideAmount)
+  return exact ? decimalToString(exact) : null
 }
 
 export type TaskOption = {
@@ -321,6 +345,8 @@ export type ProjectOption = {
   name: string
   customerName: string | null
   hourlyRate: number | null
+  /** `hourlyRate` as an exact decimal string. */
+  hourlyRateExact?: string | null
   currencyCode: string | null
   billableByDefault: boolean | null
 }
@@ -351,6 +377,7 @@ export function toProjectOption(row: ApiRow): ProjectOption | null {
     name: readRowString(row, 'name') ?? id,
     customerName,
     hourlyRate: readRowNumber(row, 'hourly_rate', 'hourlyRate'),
+    hourlyRateExact: readRowDecimal(row, 'hourly_rate', 'hourlyRate'),
     currencyCode: readRowString(row, 'currency_code', 'currencyCode'),
     billableByDefault:
       typeof row.billable_by_default === 'boolean'
@@ -397,4 +424,37 @@ export function toOverlapEntry(row: ApiRow): OverlapEntry | null {
     projectName: readRowString(row, 'project_name', 'projectName'),
     description: readRowString(row, 'notes', 'description'),
   }
+}
+
+/**
+ * Which way the dialog logs time. An entry that already has a project and no task
+ * can only be edited as a project entry, whatever the host or the tenant asks for;
+ * otherwise an explicit `mode` prop wins over the tenant's `defaults.entryMode`,
+ * and task mode is the fallback while the settings are unknown.
+ */
+export function resolveTimeEntryDialogMode(input: {
+  entry: Pick<TimeEntryRecord, 'taskId' | 'timeProjectId'> | null
+  propMode: TimeEntryMode | null | undefined
+  settingMode: TimeEntryMode | null | undefined
+}): TimeEntryMode {
+  if (input.entry && !input.entry.taskId && input.entry.timeProjectId) return 'project'
+  if (input.propMode === 'task' || input.propMode === 'project') return input.propMode
+  if (input.settingMode === 'project') return 'project'
+  return 'task'
+}
+
+/**
+ * Adds projects found by the project field to the ones the dialog already knows,
+ * keeping the first copy of each. Returns `current` itself when nothing is new,
+ * so a state update with it does not re-render.
+ */
+export function mergeProjectOptions(
+  current: ReadonlyMap<string, ProjectOption>,
+  found: readonly ProjectOption[],
+): ReadonlyMap<string, ProjectOption> {
+  const added = found.filter((project) => !current.has(project.id))
+  if (added.length === 0) return current
+  const next = new Map(current)
+  for (const project of added) if (!next.has(project.id)) next.set(project.id, project)
+  return next
 }

@@ -44,7 +44,7 @@ export async function getAuthToken(
   }
 
   if (!response.ok() || !body || typeof body.token !== 'string' || !body.token) {
-    throw new Error(`Failed to obtain auth token (status ${response.status()})`)
+    throw new Error(`[internal] Failed to obtain auth token (status ${response.status()})`)
   }
 
   return body.token

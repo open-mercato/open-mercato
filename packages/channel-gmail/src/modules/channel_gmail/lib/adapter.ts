@@ -42,6 +42,8 @@ import {
   encodeBase64Url,
   getGmailApiClient,
   GmailApiError,
+  type GmailApiClient,
+  type GmailGetMessageHeadersResponse,
   type GmailGetMessageRawResponse,
 } from './gmail-client'
 import {
@@ -50,11 +52,12 @@ import {
 } from './oauth'
 import {
   convertOutboundForGmail,
+  prepareOutboundForGmail,
   type GmailEmailNativeMetadata,
 } from './convert-outbound'
-import { normalizeInboundGmailMessage } from './normalize-inbound'
+import { GMAIL_THREAD_REF_PREFIX, normalizeInboundGmailMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
-import { decodeCursor, encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { decodeCursor, encodeCursor, stripBrackets } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
 import {
   IMPORT_HISTORY_DEFAULT_SINCE_DAYS,
   IMPORT_HISTORY_DEFAULT_MAX_MESSAGES,
@@ -62,6 +65,7 @@ import {
   getImportHistoryMaxMessages,
 } from '@open-mercato/core/modules/communication_channels/lib/import-history-limits'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('channel_gmail')
 
@@ -85,6 +89,110 @@ const logger = createLogger('channel_gmail')
  *     we fall back to `gmail.users.messages.list?labelIds=INBOX` and persist
  *     the new historyId from the next `getProfile` call.
  */
+/**
+ * Overall budget for the post-send Message-ID read-back. The send is already
+ * accepted by Gmail but the hub has not persisted it yet, so this enrichment
+ * must not hold the worker on Gmail's retry/backoff schedule: one attempt,
+ * bounded by this deadline, and on expiry the client-built id is kept.
+ */
+export const SENT_MESSAGE_ID_READBACK_DEADLINE_MS = 5_000
+
+function withReadBackDeadline(
+  request: Promise<GmailGetMessageHeadersResponse>,
+): Promise<GmailGetMessageHeadersResponse> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () =>
+        reject(
+          new GmailApiError(
+            `Gmail Message-ID read-back exceeded ${SENT_MESSAGE_ID_READBACK_DEADLINE_MS}ms`,
+            599,
+            'read-back deadline exceeded',
+          ),
+        ),
+      SENT_MESSAGE_ID_READBACK_DEADLINE_MS,
+    )
+  })
+  return Promise.race([request, deadline]).finally(() => clearTimeout(timer))
+}
+
+/**
+ * Gmail replaces the `Message-ID` of a message sent through `users.messages.send`
+ * with one it mints itself, and the send response carries only `id`/`threadId`.
+ * The recipient's reply, and Gmail's own copy picked up by the next poll, both
+ * carry Gmail's id, so the hub must record that one for JWZ threading and
+ * sent-folder dedup to resolve this message. Best-effort: on any failure the
+ * caller falls back to the client-built id, and the failure is logged and
+ * reported to telemetry so a persistent read-back problem stays visible.
+ */
+async function readSentMessageId(
+  api: GmailApiClient,
+  auth: { accessToken: string },
+  gmailMessageId: string | undefined,
+): Promise<string | undefined> {
+  if (!gmailMessageId || typeof api.getMessageHeaders !== 'function') return undefined
+  try {
+    const message = await withReadBackDeadline(
+      api.getMessageHeaders(auth, gmailMessageId, ['Message-ID'], {
+        maxRetries: 0,
+        timeoutMs: SENT_MESSAGE_ID_READBACK_DEADLINE_MS,
+      }),
+    )
+    const header = message.payload?.headers?.find((entry) => entry.name.toLowerCase() === 'message-id')
+    return stripBrackets(header?.value)
+  } catch (error) {
+    logger.warn('could not read back the Message-ID Gmail sent, keeping the client-built id', {
+      gmailMessageId,
+      err: error,
+    })
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'channel_gmail',
+        code: 'channel_gmail.sent_message_id_readback_failed',
+        attributes: { gmailMessageId },
+      })
+    } catch (telemetryError) {
+      logger.warn('could not report a Message-ID read-back failure to telemetry', { err: telemetryError })
+    }
+    return undefined
+  }
+}
+
+const CONNECT_PROFILE_LOOKUP_OPTIONS = { maxRetries: 1, timeoutMs: 10_000 } as const
+
+/**
+ * Resolves the address of the mailbox a Gmail OAuth connect just authorized.
+ * The channel's `externalIdentifier` (the Pub/Sub push lookup key) and the
+ * outbound `From` both depend on it, so a connect that cannot resolve it fails
+ * instead of creating a channel without an address. Userinfo is asked first for
+ * the display name; `users.getProfile` is the fallback when userinfo fails or
+ * returns no email (custom scopes without `userinfo.email`).
+ */
+async function resolveConnectedMailbox(accessToken: string): Promise<{ email: string; name?: string }> {
+  let name: string | undefined
+  try {
+    const userInfo = await getGoogleOAuthClient().fetchUserInfo(accessToken)
+    name = userInfo.name
+    if (userInfo.email) return { email: userInfo.email, name }
+  } catch (error) {
+    logger.warn('Gmail userinfo lookup failed during connect, falling back to the Gmail profile', { err: error })
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'channel_gmail',
+        code: 'channel_gmail.userinfo_fetch_failed',
+      })
+    } catch (telemetryError) {
+      logger.warn('could not report a userinfo lookup failure to telemetry', { err: telemetryError })
+    }
+  }
+  const profile = await getGmailApiClient().getProfile({ accessToken }, CONNECT_PROFILE_LOOKUP_OPTIONS)
+  if (!profile.emailAddress) {
+    throw new Error('[internal] Gmail connect could not resolve the mailbox address')
+  }
+  return { email: profile.emailAddress, name }
+}
+
 class GmailChannelAdapter implements ChannelAdapter {
   readonly providerKey = 'gmail'
   readonly channelType = 'email'
@@ -92,33 +200,43 @@ class GmailChannelAdapter implements ChannelAdapter {
 
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const userCredentials = parseUserCredentialsOrThrow(input.credentials)
-    let native: ChannelNativeContent
+    const api = getGmailApiClient()
+    const auth = { accessToken: userCredentials.accessToken }
+    let fromAddress = userCredentials.email
     try {
-      native = await convertOutboundForGmail({
+      if (!fromAddress) {
+        const profile = await api.getProfile(auth)
+        const mailboxAddress = gmailUserCredentialsSchema.shape.email.safeParse(profile.emailAddress)
+        if (!mailboxAddress.success || !mailboxAddress.data) {
+          throw new Error('[internal] Gmail profile did not return a valid mailbox address')
+        }
+        fromAddress = mailboxAddress.data
+      }
+
+      const native = await convertOutboundForGmail({
         body: input.content.html ?? input.content.text ?? '',
         bodyFormat: input.content.bodyFormat ?? (input.content.html ? 'html' : 'text'),
         attachments: input.content.attachments,
         channelMetadata: input.metadata,
-        fromAddress: userCredentials.email ?? 'me',
+        fromAddress,
       })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Outbound conversion failed'
-      return { externalMessageId: '', status: 'failed', error: message }
-    }
-
-    const nativeMeta = native.metadata as unknown as GmailEmailNativeMetadata
-    const rawBase64Url = encodeBase64Url(nativeMeta.rawMessage)
-
-    try {
-      const response = await getGmailApiClient().sendRawMessage(
-        { accessToken: userCredentials.accessToken },
-        { rawBase64Url, threadId: nativeMeta.threadId },
-      )
+      const metadata = native.metadata as unknown as GmailEmailNativeMetadata
+      const response = await api.sendRawMessage(auth, {
+        rawBase64Url: encodeBase64Url(metadata.rawMessage),
+        rawMessage: metadata.rawMessage,
+        threadId: metadata.threadId,
+      })
+      const sentMessageId = await readSentMessageId(api, auth, response.id)
       return {
-        externalMessageId: nativeMeta.messageId ?? response.id,
-        conversationId: response.threadId,
+        externalMessageId: metadata.messageId ?? response.id,
+        conversationId: response.threadId ? `${GMAIL_THREAD_REF_PREFIX}${response.threadId}` : undefined,
         status: 'sent',
-        metadata: { gmailMessageId: response.id, gmailThreadId: response.threadId, labelIds: response.labelIds ?? [] },
+        metadata: {
+          gmailMessageId: response.id,
+          gmailThreadId: response.threadId,
+          labelIds: response.labelIds ?? [],
+          ...(sentMessageId ? { messageId: sentMessageId } : {}),
+        },
       }
     } catch (error) {
       if (error instanceof GmailApiError && error.status === 401) {
@@ -126,6 +244,12 @@ class GmailChannelAdapter implements ChannelAdapter {
         // communication_channels error-classification.isReauthError), not a
         // user/log message — do NOT prefix or translate it.
         return { externalMessageId: '', status: 'failed', error: 'requires_reauth' }
+      }
+      if (!fromAddress && error instanceof GmailApiError) {
+        if (error.status >= 500 && error.status < 600) {
+          throw Object.assign(error, { transient: true })
+        }
+        throw error
       }
       const message = error instanceof Error ? error.message : 'Gmail send failed'
       return { externalMessageId: '', status: 'failed', error: message }
@@ -147,7 +271,7 @@ class GmailChannelAdapter implements ChannelAdapter {
   }
 
   async convertOutbound(input: ConvertOutboundInput): Promise<ChannelNativeContent> {
-    return convertOutboundForGmail({ ...input, fromAddress: 'me' })
+    return prepareOutboundForGmail(input)
   }
 
   async normalizeInbound(raw: InboundMessage): Promise<NormalizedInboundMessage> {
@@ -194,15 +318,7 @@ class GmailChannelAdapter implements ChannelAdapter {
       redirectUri: input.redirectUri,
       code: input.code,
     })
-    let email: string | undefined
-    let displayName: string | undefined
-    try {
-      const userInfo = await getGoogleOAuthClient().fetchUserInfo(token.access_token)
-      email = userInfo.email
-      displayName = userInfo.name ?? userInfo.email
-    } catch {
-      // Userinfo failure is non-fatal; fall back to the optional `id_token` parser later.
-    }
+    const { email, name } = await resolveConnectedMailbox(token.access_token)
     const expiresAt = tokenResponseToExpiresAt(token)
     const credentials: GmailUserCredentials = {
       accessToken: token.access_token,
@@ -214,7 +330,7 @@ class GmailChannelAdapter implements ChannelAdapter {
     return {
       credentials: credentials as unknown as Record<string, unknown>,
       externalIdentifier: email,
-      displayName: displayName ?? email,
+      displayName: name ?? email,
       expiresAt,
     }
   }
@@ -690,14 +806,14 @@ class GmailChannelAdapter implements ChannelAdapter {
         const ref = refs[index]
         try {
           const raw = await api.getMessageRaw(auth, ref.id)
-          const fallbackDate = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
+          const receivedAt = raw.internalDate ? new Date(Number(raw.internalDate)) : undefined
           results[index] = await normalizeInboundGmailMessage({
             rawMessage: decodeBase64Url(raw.raw),
             gmailMessageId: raw.id,
             gmailThreadId: raw.threadId,
             gmailLabelIds: raw.labelIds ?? [],
             accountIdentifier,
-            fallbackDate,
+            receivedAt,
           })
         } catch (error) {
           if (isFatalGmailImportError(error)) throw error

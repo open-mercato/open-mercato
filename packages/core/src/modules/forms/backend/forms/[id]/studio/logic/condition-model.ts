@@ -130,6 +130,12 @@ function parseSingleRow(expression: unknown): ConditionRow | null {
   if (!(op in operatorMap)) return null
   if (!Array.isArray(args) || args.length < 2) return null
   const [left, right] = args
+  if (op === 'in' && typeof left === 'string' && right && typeof right === 'object' && !Array.isArray(right)) {
+    const path = (right as Record<string, unknown>).var
+    if (Object.keys(right).length === 1 && typeof path === 'string') {
+      return { id: nextRowId(), source: path, operator: 'contains', value: left }
+    }
+  }
   if (!left || typeof left !== 'object' || Array.isArray(left)) return null
   const leftKeys = Object.keys(left as Record<string, unknown>)
   if (leftKeys.length !== 1 || leftKeys[0] !== 'var') return null

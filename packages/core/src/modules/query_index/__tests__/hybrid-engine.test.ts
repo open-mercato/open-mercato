@@ -1,15 +1,22 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { HybridQueryEngine, coerceSortDirection, clearBaseTableExistsCache } from '../../query_index/lib/engine'
+import { HybridQueryEngine, coerceSortDirection, clearBaseColumnsCache, clearBaseTableExistsCache } from '../../query_index/lib/engine'
 import { BasicQueryEngine, clearEncryptedLikeFieldsCache } from '@open-mercato/shared/lib/query/engine'
-import { SortDir } from '@open-mercato/shared/lib/query/types'
+import { SortDir, type Filter } from '@open-mercato/shared/lib/query/types'
 import { clearSearchTokenPresenceCache } from '@open-mercato/shared/lib/search/availability'
+import { DECRYPT_REFUSAL_LOG_MESSAGE } from '@open-mercato/shared/lib/encryption/decryptScope'
 import { encryptCustomFieldValue } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { registerSyncSubscribers, type SyncSubscriberEntry } from '@open-mercato/shared/lib/crud/sync-subscriber-store'
+import type { QueryResult } from '@open-mercato/shared/lib/query/types'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { createMemoryStrategy, type CacheStrategy } from '@open-mercato/cache'
+import { invalidateDefinitionsCache } from '@open-mercato/core/modules/entities/api/definitions.cache'
 
-// The token-presence and base-table-existence answers are cached process-wide (TTL); without
+// The token-presence, base-table-existence and column answers are cached process-wide (TTL); without
 // clearing them, probe-count assertions would observe hits from earlier tests in this file.
 beforeEach(() => {
   clearSearchTokenPresenceCache()
   clearBaseTableExistsCache()
+  clearBaseColumnsCache()
 })
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
@@ -49,7 +56,7 @@ type KyselyMockConfig = {
   customFieldDefs?: Array<Record<string, unknown>>
   rows?: Record<string, Array<Record<string, unknown>>>
   /** If provided, returned for information_schema.columns lookups. */
-  columns?: Array<{ table_name: string; column_name: string }>
+  columns?: Array<{ table_name: string; column_name: string; data_type?: string }>
 }
 
 type ChainLog = {
@@ -184,7 +191,7 @@ function resolveFirstRow(
       const match = config.columns.find(
         (col) => col.table_name === tableName && col.column_name === columnName,
       )
-      return match ? { one: 1 } : undefined
+      return match ? (log.selects.includes('data_type') ? { data_type: match.data_type ?? 'text' } : { one: 1 }) : undefined
     }
     // Default: report that common columns exist so scope filters can apply.
     if (columnName === 'organization_id' || columnName === 'tenant_id' || columnName === 'deleted_at' || columnName === 'id') {
@@ -260,7 +267,7 @@ function resolveRows(
       const tableName = args[args.indexOf('table_name') + 2] as string | undefined
       return config.columns
         .filter((col) => col.table_name === tableName)
-        .map((col) => ({ column_name: col.column_name, data_type: 'text' }))
+        .map((col) => ({ column_name: col.column_name, data_type: col.data_type ?? 'text' }))
     }
     return [
       { column_name: 'id', data_type: 'uuid' },
@@ -312,6 +319,30 @@ describe('HybridQueryEngine', () => {
     if (originalCoverageOptimization === undefined) delete process.env.OPTIMIZE_INDEX_COVERAGE_STATS
     else process.env.OPTIMIZE_INDEX_COVERAGE_STATS = originalCoverageOptimization
     jest.clearAllMocks()
+  })
+
+  test.each([
+    { $or: [] },
+    { $and: [{ status: 'open' }, { $or: [] }] },
+    { status: { $unsupported: 'open' } },
+    [{ field: 'status', op: 'unsupported', value: 'open' }] as unknown as Filter[],
+  ])('rejects invalid filters in indexed, fallback and custom storage: %j', async (filters) => {
+    for (const mode of ['indexed', 'fallback', 'custom']) {
+      const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 1, indexCount: 1 })
+      const em = buildEm(db)
+      const fallback = new BasicQueryEngine(em, () => db)
+      const fallbackQuery = jest.spyOn(fallback, 'query')
+      const engine = new HybridQueryEngine(em, fallback)
+
+      await expect(engine.query('example:todo', {
+        tenantId: 't1',
+        organizationId: 'org1',
+        forceCustomEntityStorage: mode === 'custom',
+        omitAutomaticTenantOrgScope: mode === 'fallback',
+        filters,
+      })).rejects.toBeInstanceOf(TypeError)
+      expect(fallbackQuery).not.toHaveBeenCalled()
+    }
   })
 
   test('serves fresh coverage snapshots without recomputing coverage counts', async () => {
@@ -583,7 +614,7 @@ describe('HybridQueryEngine', () => {
     expect(emitEvent).toHaveBeenCalledWith(
       'query_index.reindex',
       expect.objectContaining({ entityType: 'example:todo', tenantId: 't1', organizationId: 'org1', force: false }),
-      { persistent: true },
+      { persistent: true, tenantId: 't1', organizationId: 'org1' },
     )
     warnSpy.mockRestore()
   })
@@ -1269,6 +1300,37 @@ describe('HybridQueryEngine', () => {
     })
   })
 
+  test('does not join historical tenant-stamped documents for a tenantless source', async () => {
+    const db = createFakeKysely({
+      baseTable: 'feature_toggles', hasIndexAny: true, baseCount: 1, indexCount: 1,
+      customFieldKeys: { 'feature_toggles:feature_toggle': ['name'] },
+      columns: [{ table_name: 'feature_toggles', column_name: 'id' }, { table_name: 'feature_toggles', column_name: 'name' }],
+    })
+    const conditions: unknown[][] = []
+    const selectFrom = db.selectFrom.bind(db)
+    db.selectFrom = (table: string) => {
+      const chain = selectFrom(table)
+      const leftJoin = chain.leftJoin.bind(chain)
+      chain.leftJoin = (target: unknown, on: unknown) => {
+        if (target === 'entity_indexes as ei' && typeof on === 'function') {
+          const join = {
+            on: (...args: unknown[]) => { conditions.push(args); return join },
+            onRef: () => join,
+          }
+          on(join)
+        }
+        return leftJoin(target, on)
+      }
+      return chain
+    }
+    const em = buildEmWithOrmMetadata(db, { FeatureToggle: 'feature_toggles' })
+    const fallback = { query: jest.fn() }
+    const engine = new HybridQueryEngine(em, fallback as never)
+    await expect(engine.query('feature_toggles:feature_toggle', { tenantId: 'victim-tenant', fields: ['id', 'cf:name'], includeCustomFields: ['name'] })).rejects.toThrow('unscoped base table requires explicit scope opt-out')
+    expect(fallback.query).not.toHaveBeenCalled()
+    expect(conditions).toEqual([])
+  })
+
   test('joins entity index aliases for customFieldSources', async () => {
     const db = createFakeKysely({ baseTable: 'customer_entities', hasIndexAny: true, baseCount: 5, indexCount: 5 })
     const em = buildEm(db)
@@ -1764,7 +1826,7 @@ describe('HybridQueryEngine custom-entity classification (#2939)', () => {
         baseCount: 10,
         indexCount: 10,
         customFieldKeys: {},
-        columns: [{ table_name: 'users', column_name: 'display_name' }],
+        columns: [{ table_name: 'users', column_name: 'display_name' }, { table_name: 'todos', column_name: 'tenant_id' }],
       })
       const engine = buildHybridEngine(buildEm(db))
 
@@ -2078,11 +2140,8 @@ describe('HybridQueryEngine cf filter operator coverage (#5039)', () => {
     expect(predicates.length).toBeGreaterThan(0)
   })
 
-  test('an operator the builder does not compile emits no custom-field predicate at all', async () => {
-    // `cfFilterHasPredicate` must agree with the switch: an unsupported operator has to
-    // drop out entirely rather than reach SQL as a half-built or always-true clause.
-    const predicates = await cfPredicatesFor('regex', 'high')
-    expect(predicates).toHaveLength(0)
+  test('rejects an unsupported custom-field operator before building a predicate', async () => {
+    await expect(cfPredicatesFor('regex', 'high')).rejects.toBeInstanceOf(TypeError)
   })
 })
 
@@ -2300,20 +2359,17 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
 
   // The gate reads the map with `ignoreRuntimeHealth` -- a column holds ciphertext even while the
   // KMS is down -- and no other caller of `getEncryptedFieldNames` passes that option, so it is the
-  // signature that tells the gate's read apart from the decoration path's.
-  // Reading the encryption map is what SWITCHES the gate on: `searchRuntime.encryptedFields` is
-  // only populated from that read, and `buildBaseFilterExpression` sends everything through tokens
-  // while it stays nullish. Whether the read happens is therefore the query()-level signal that the
-  // per-column carve-out is active -- the routing it then drives is pinned by the
-  // `applyColumnFilter` suite above, which the fake builder cannot exercise because it never
-  // invokes Kysely's expression callbacks.
-  test('with the env var unset, query() never consults the map and every column stays on tokens', async () => {
+  // signature that tells the gate's read apart from the decoration path's. With the switch unset the
+  // map is still read, but only into `knownEncryptedFields`: `encryptedFields` stays null, so every
+  // column keeps the token rewrite and plaintext columns get the containment narrowing on top
+  // (pinned by the "plaintext narrowing" suite below).
+  test('with the env var unset, query() keeps every column on tokens but resolves the map for narrowing', async () => {
     const { engine, readEncryptedFieldNames } = buildEngine()
 
     await search(engine)
 
-    expect(readEncryptedFieldNames).not.toHaveBeenCalledWith(
-      expect.anything(), expect.anything(), expect.anything(), { ignoreRuntimeHealth: true },
+    expect(readEncryptedFieldNames).toHaveBeenCalledWith(
+      'example:todo', 't1', null, { ignoreRuntimeHealth: true },
     )
   })
 
@@ -2326,5 +2382,955 @@ describe('HybridQueryEngine like/ilike routing default (#5383, #5803)', () => {
     expect(readEncryptedFieldNames).toHaveBeenCalledWith(
       'example:todo', 't1', null, { ignoreRuntimeHealth: true },
     )
+  })
+})
+
+describe('HybridQueryEngine encrypted-search response diagnostics', () => {
+  test.each([
+    ['missing-base', 'development'],
+    ['omit-automatic-scope', 'development'],
+    ['no-index', 'development'],
+    ['partial-index', 'development'],
+    ['no-index', 'production'],
+  ] as const)(
+    'preserves fallback diagnostics after a replacement subscriber (%s, %s)',
+    async (fallbackReason, environment) => {
+      const originalEnvironment = process.env.NODE_ENV
+      process.env.NODE_ENV = environment
+      const db = createFakeKysely({
+        baseTable: 'todos', hasIndexAny: fallbackReason !== 'no-index', baseCount: 2, indexCount: 1,
+      })
+      const em = buildEm(db)
+      const service = { getEncryptedFieldNames: async () => ['notes'] }
+      const basicEngine = new BasicQueryEngine(
+        em, undefined,
+        () => service as unknown as ReturnType<NonNullable<ConstructorParameters<typeof BasicQueryEngine>[2]>>,
+      )
+      const fallbackQuery = jest.spyOn(basicEngine, 'query')
+      const engine = new HybridQueryEngine(em, basicEngine)
+      if (fallbackReason === 'missing-base') {
+        jest.spyOn(engine as unknown as { tableExists: (table: string) => Promise<boolean> }, 'tableExists').mockResolvedValue(false)
+      }
+      const replacement: QueryResult<Record<string, unknown>> = { items: [], page: 2, pageSize: 5, total: 0 }
+      if (fallbackReason === 'missing-base') {
+        replacement.meta = { listCountCapWarning: { entity: 'example:todo', cap: 10 } }
+      }
+      const subscriber = jest.fn(async () => ({ modifiedResult: replacement }))
+      registerSyncSubscribers([{
+        metadata: { event: 'example.todo.queried', sync: true, id: 'diagnostic-result-replacement' },
+        handler: subscriber as unknown as SyncSubscriberEntry['handler'],
+      }])
+      try {
+        const result = await engine.query('example:todo', {
+          tenantId: 'private-fallback-tenant', organizationId: 'private-fallback-org',
+          fields: ['id', 'cf:priority'], filters: { notes: { $ilike: '%private-fallback-search%' } },
+          omitAutomaticTenantOrgScope: fallbackReason === 'omit-automatic-scope',
+          skipAutoReindex: true, extensions: {},
+        })
+        expect(fallbackQuery).toHaveBeenCalledTimes(1)
+        expect(subscriber).toHaveBeenCalledTimes(1)
+        expect(result).toMatchObject({ items: [], page: 2, pageSize: 5, total: 0 })
+        if (fallbackReason === 'missing-base') {
+          expect(result.meta?.listCountCapWarning).toEqual({ entity: 'example:todo', cap: 10 })
+        }
+        if (environment === 'production') {
+          expect(result.meta?.ciphertextSearchWarnings).toBeUndefined()
+        } else {
+          expect(result.meta?.ciphertextSearchWarnings).toEqual([{
+            entity: 'example:todo', field: 'notes', reason: 'no-search-tokens',
+            hint: expect.stringContaining('query_index'),
+          }])
+        }
+        for (const privateValue of ['private-fallback-tenant', 'private-fallback-org', 'private-fallback-search']) {
+          expect(JSON.stringify(result.meta ?? {})).not.toContain(privateValue)
+        }
+      } finally {
+        registerSyncSubscribers([])
+        process.env.NODE_ENV = originalEnvironment
+      }
+    },
+  )
+
+  test.each(['development', 'production'])('reports missing scoped tokens only outside production (%s)', async (environment) => {
+    const originalEnvironment = process.env.NODE_ENV
+    process.env.NODE_ENV = environment
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: true, baseCount: 0, indexCount: 0, customFieldKeys: {} })
+    const em = buildEm(db)
+    const service = { getEncryptedFieldNames: async () => ['notes'] }
+    const engine = new HybridQueryEngine(
+      em, new BasicQueryEngine(em), undefined, undefined,
+      () => service as unknown as ReturnType<NonNullable<ConstructorParameters<typeof HybridQueryEngine>[4]>>,
+    )
+    const availability = engine as unknown as {
+      searchAvailability: () => { staticEnabled: () => Promise<boolean>; hasTokens: () => Promise<boolean>; anySourceHasTokens: () => Promise<boolean> }
+    }
+    jest.spyOn(availability, 'searchAvailability').mockReturnValue({
+      staticEnabled: async () => true, hasTokens: async () => false, anySourceHasTokens: async () => false,
+    })
+    try {
+      for (const tenantId of ['diagnostic-tenant-a', 'diagnostic-tenant-b']) {
+        const result = await engine.query('example:todo', {
+          tenantId, organizationId: 'diagnostic-org', fields: ['id'],
+          filters: { notes: { $ilike: '%private-search-term%' } },
+        })
+        if (environment === 'production') {
+          expect(result.meta?.ciphertextSearchWarnings).toBeUndefined()
+        } else {
+          expect(result.meta?.ciphertextSearchWarnings).toEqual([{
+            entity: 'example:todo', field: 'notes', reason: 'no-search-tokens',
+            hint: expect.stringContaining('query_index'),
+          }])
+          expect(JSON.stringify(result.meta)).not.toContain('private-search-term')
+          expect(JSON.stringify(result.meta)).not.toContain(tenantId)
+        }
+      }
+    } finally {
+      process.env.NODE_ENV = originalEnvironment
+    }
+  })
+})
+
+describe('HybridQueryEngine decrypt tenant binding (#5430)', () => {
+  const buildEngine = (rows: any[], decryptEntityPayload: jest.Mock) => {
+    const db = createFakeKysely({
+      baseTable: 'users',
+      hasIndexAny: true,
+      baseCount: rows.length,
+      indexCount: rows.length,
+      rows: { users: rows },
+    })
+    return new HybridQueryEngine(
+      buildEm(db),
+      { query: jest.fn() } as any,
+      () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }),
+      undefined,
+      () => ({ decryptEntityPayload }),
+    )
+  }
+
+  test('returns ciphertext and never fetches a DEK when the row tenant contradicts the query tenant', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(result.items).toEqual([expect.objectContaining({ id: 'user-1', name: 'encrypted-name' })])
+  })
+
+  test('still decrypts a row whose tenant matches the query tenant', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).toHaveBeenCalledWith(
+      'auth:user',
+      expect.objectContaining({ id: 'user-1' }),
+      'tenant-a',
+      'org1',
+      { em: expect.anything() },
+    )
+    expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
+  test('a row with no tenant of its own still decrypts under the caller tenant', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine([{ id: 'user-1', name: 'encrypted-name', tenant_id: null }], decryptEntityPayload)
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      organizationId: 'org1',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).toHaveBeenCalledWith(
+      'auth:user',
+      expect.objectContaining({ id: 'user-1' }),
+      'tenant-a',
+      'org1',
+      { em: expect.anything() },
+    )
+    expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
+  test('performs no DEK lookup at all when the query declines decryption', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(result.items).toEqual([expect.objectContaining({ name: 'encrypted-name' })])
+  })
+
+  test('an explicit true still decrypts', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: true,
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).toHaveBeenCalledTimes(1)
+    expect(result.items).toEqual([expect.objectContaining({ name: 'Alice Owner' })])
+  })
+
+  // A declined query must not take the plaintext-sort path: that path exists only to order rows by
+  // decrypted values, so running it without decryption would scan the whole candidate set and then
+  // order by ciphertext. The gate therefore sits on `getEncryptionService()`, upstream of the sort
+  // resolution — this mirrors the BasicQueryEngine case so a regression that moved it downstream is
+  // caught in both engines rather than only in `packages/shared`.
+  test('a declined query resolves no encrypted sort fields and never scans for a plaintext sort', async () => {
+    const plaintextById: Record<string, string> = { '1': 'Bravo', '2': 'Alpha' }
+    const buildSortFixture = () => {
+      const db = createFakeKysely({
+        baseTable: 'customer_entities',
+        hasIndexAny: true,
+        baseCount: 2,
+        indexCount: 2,
+        columns: [
+          { table_name: 'customer_entities', column_name: 'id' },
+          { table_name: 'customer_entities', column_name: 'tenant_id' },
+          { table_name: 'customer_entities', column_name: 'organization_id' },
+          { table_name: 'customer_entities', column_name: 'deleted_at' },
+          { table_name: 'customer_entities', column_name: 'display_name' },
+        ],
+        rows: {
+          customer_entities: [
+            { id: '1', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-b' },
+            { id: '2', tenant_id: 't1', organization_id: 'org1', display_name: 'cipher-a' },
+          ],
+        },
+      })
+      const decryptEntityPayload = jest.fn(async (_entityId: unknown, payload: Record<string, unknown>) => ({
+        display_name: plaintextById[String(payload.id)],
+      }))
+      const engine = new HybridQueryEngine(
+        buildEm(db),
+        { query: jest.fn() } as any,
+        () => ({ emitEvent: jest.fn().mockResolvedValue(undefined) }),
+        undefined,
+        () => ({
+          isEnabled: () => true,
+          getEncryptedFieldNames: async () => ['display_name'],
+          decryptEntityPayload,
+        }),
+      )
+      return { engine, decryptEntityPayload }
+    }
+    const queryOpts = {
+      fields: ['id', 'display_name'],
+      organizationId: 'org1',
+      tenantId: 't1',
+      sort: [{ field: 'display_name', dir: SortDir.Asc }],
+      page: { page: 1, pageSize: 10 },
+    }
+
+    const declined = buildSortFixture()
+    const declinedResult = await declined.engine.query('customers:customer_entity', {
+      ...queryOpts,
+      decryptEncryptedFields: false,
+    })
+    expect(declined.decryptEntityPayload).not.toHaveBeenCalled()
+    // Rows come back in the order the database produced them: no candidate scan, no in-memory sort.
+    expect(declinedResult.items.map((item: any) => item.display_name)).toEqual(['cipher-b', 'cipher-a'])
+
+    // Control: the same fixture DOES take the plaintext-sort path when decryption is allowed, so
+    // the assertions above cannot pass vacuously.
+    const allowed = buildSortFixture()
+    const allowedResult = await allowed.engine.query('customers:customer_entity', queryOpts)
+    expect(allowed.decryptEntityPayload).toHaveBeenCalled()
+    expect(allowedResult.items.map((item: any) => item.display_name)).toEqual(['Alpha', 'Bravo'])
+  })
+
+  // The decision reads the row's own tenant_id, which a caller-supplied `fields` list omits. The
+  // engine widens the projection to carry it and strips it back out of the response.
+  test('a projection without tenant_id still refuses a foreign-tenant row and hides the column', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name', 'organization_id'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(Object.prototype.hasOwnProperty.call(result.items[0], 'tenant_id')).toBe(false)
+    expect((result.items[0] as any).organization_id).toBe('org1')
+  })
+
+  test('a caller that asked for tenant_id still gets it back', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-a', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name', 'tenant_id'],
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect((result.items[0] as any).tenant_id).toBe('tenant-a')
+  })
+
+  // A declined query decrypts nothing, so a scope mismatch on it is not a refusal — warning about
+  // one would be noise, and the basic engine already returns before resolving the scope.
+  test('a declined query emits no decrypt-refusal warning', async () => {
+    mockLogger.warn.mockClear()
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', organization_id: 'org1' }],
+      decryptEntityPayload,
+    )
+    await engine.query('auth:user', {
+      fields: ['id', 'name'],
+      tenantId: 'tenant-a',
+      decryptEncryptedFields: false,
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect(
+      mockLogger.warn.mock.calls.filter(([message]) => message === DECRYPT_REFUSAL_LOG_MESSAGE),
+    ).toHaveLength(0)
+  })
+
+  test('a refused row keeps its cf: custom-field values encrypted too', async () => {
+    const decryptEntityPayload = jest.fn(async () => ({ name: 'Alice Owner' }))
+    const engine = buildEngine(
+      [{ id: 'user-1', name: 'encrypted-name', tenant_id: 'tenant-b', 'cf:priority': 'enc:v1:cipher-priority' }],
+      decryptEntityPayload,
+    )
+    const result = await engine.query('auth:user', {
+      fields: ['id', 'name', 'cf:priority'],
+      includeCustomFields: true,
+      tenantId: 'tenant-a',
+      page: { page: 1, pageSize: 50 },
+    })
+    expect(decryptEntityPayload).not.toHaveBeenCalled()
+    expect((result.items[0] as any)['cf:priority']).toBe('enc:v1:cipher-priority')
+  })
+})
+
+
+test('HybridQueryEngine shares joined overlap metadata across request engines and refreshes expired entries', async () => {
+  const originalTtl = process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS
+  process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS = '1000'
+  const db = createFakeKysely({
+    baseTable: 'staff_team_members', hasIndexAny: true, baseCount: 1, indexCount: 1,
+    customFieldKeys: {},
+    columns: [
+      { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+      { table_name: 'staff_team_members', column_name: 'tenant_id', data_type: 'uuid' },
+      { table_name: 'staff_member_labels', column_name: 'member_id', data_type: 'uuid' },
+      { table_name: 'staff_member_labels', column_name: 'labels', data_type: 'jsonb' },
+    ],
+  })
+  const query = async (database = db) => {
+    const em = buildEmWithOrmMetadata(database, { StaffTeamMember: 'staff_team_members' })
+    const engine = new HybridQueryEngine(em, new BasicQueryEngine(em, () => database))
+    await engine.query('staff:staff_team_member', {
+      fields: ['id'], tenantId: 'tenant-1', organizationId: 'org-1',
+      joins: [{ alias: 'labels', table: 'staff_member_labels', from: { field: 'id' }, to: { field: 'member_id' } }],
+      filters: [{ field: 'labels.labels', op: 'overlap', value: ['alpha'] }],
+    })
+  }
+  const probes = () => (db._chains as ChainLog[])
+    .filter((chain) => chain.table === 'information_schema.columns' && chain.selects.includes('data_type'))
+  try {
+    await query()
+    await query()
+    expect(probes()).toHaveLength(1)
+    const expressions = (db._chains as ChainLog[]).flatMap((chain) => chain.wheres.flat() as unknown[])
+      .filter((value): value is { toOperationNode: () => unknown } => !!value && typeof value === 'object' && 'toOperationNode' in value)
+      .map((value) => JSON.stringify(value.toOperationNode())).join('\n')
+    expect(expressions).toContain('?|')
+    const otherDatabase = createFakeKysely({
+      baseTable: 'staff_team_members', hasIndexAny: true, baseCount: 1, indexCount: 1,
+      customFieldKeys: {},
+      columns: [
+        { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+        { table_name: 'staff_team_members', column_name: 'tenant_id', data_type: 'uuid' },
+        { table_name: 'staff_member_labels', column_name: 'member_id', data_type: 'uuid' },
+        { table_name: 'staff_member_labels', column_name: 'labels', data_type: 'ARRAY' },
+      ],
+    })
+    await query(otherDatabase)
+    const otherChains = otherDatabase._chains as ChainLog[]
+    expect(otherChains.filter((chain) => chain.table === 'information_schema.columns' && chain.selects.includes('data_type'))).toHaveLength(1)
+    const otherExpressions = otherChains.flatMap((chain) => chain.wheres.flat() as unknown[])
+      .filter((value): value is { toOperationNode: () => unknown } => !!value && typeof value === 'object' && 'toOperationNode' in value)
+      .map((value) => JSON.stringify(value.toOperationNode())).join('\n')
+    expect(otherExpressions).toContain('&&')
+    const clock = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1001)
+    try {
+      await query()
+      expect(probes()).toHaveLength(2)
+    } finally {
+      clock.mockRestore()
+    }
+  } finally {
+    if (originalTtl === undefined) delete process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS
+    else process.env.OM_QUERY_COLUMN_EXISTS_CACHE_MS = originalTtl
+  }
+})
+
+test('HybridQueryEngine query uses resolved JSONB role metadata and retains both all-of members (#7996)', async () => {
+  const db = createFakeKysely({
+    baseTable: 'staff_team_members', hasIndexAny: true, baseCount: 1, indexCount: 1,
+    customFieldKeys: { 'staff:staff_team_member': ['labels'] },
+    columns: [
+      { table_name: 'staff_team_members', column_name: 'id', data_type: 'uuid' },
+      { table_name: 'staff_team_members', column_name: 'tenant_id', data_type: 'uuid' },
+      { table_name: 'staff_team_members', column_name: 'organization_id', data_type: 'uuid' },
+      { table_name: 'staff_team_members', column_name: 'deleted_at', data_type: 'timestamp' },
+      { table_name: 'staff_team_members', column_name: 'role_ids', data_type: 'jsonb' },
+    ],
+  })
+  const em = buildEmWithOrmMetadata(db, { StaffTeamMember: 'staff_team_members' })
+  const engine = new HybridQueryEngine(em, new BasicQueryEngine(em, () => db))
+  const tracked = engine as unknown as {
+    applyCfFilterAcrossSources: (builder: unknown, field: string, op: string, value: unknown, ...rest: unknown[]) => unknown
+  }
+  const applyCustomField = jest.spyOn(tracked, 'applyCfFilterAcrossSources')
+  await engine.query('staff:staff_team_member', {
+    tenantId: 'tenant-1', organizationId: 'org-1', fields: ['id'],
+    filters: { $and: [
+      { role_ids: { $overlap: ['role-1'] } },
+      { 'cf:labels': { $overlap: ['alpha'] } },
+      { 'cf:labels': { $overlap: ['beta'] } },
+    ] },
+  })
+  const chains = db._chains as ChainLog[]
+  const sqlNodes = chains.filter((chain) => chain.table === 'staff_team_members')
+    .flatMap((chain) => chain.wheres.flat() as unknown[])
+    .filter((value): value is { toOperationNode: () => unknown } => !!value && typeof value === 'object' && 'toOperationNode' in value)
+    .map((value) => JSON.stringify(value.toOperationNode())).join('\n')
+  expect(sqlNodes).toContain('?|')
+  expect(sqlNodes).not.toContain(' && ')
+  expect(chains.filter((chain) => chain.table === 'information_schema.columns' && chain.selects.includes('data_type'))).toHaveLength(0)
+  const applied = applyCustomField.mock.calls.map((call) => call.slice(1, 4))
+  expect(applied).toEqual(expect.arrayContaining([
+    ['cf:labels', 'overlap', ['alpha']], ['cf:labels', 'overlap', ['beta']],
+  ]))
+})
+
+describe('HybridQueryEngine custom-document encryption (#7810)', () => {
+  const entity = 'user:protected_documents'
+  const tenant = 'document-tenant'
+  const fixedKey = Buffer.alloc(32, 23).toString('base64')
+  const originalToggle = process.env.TENANT_DATA_ENCRYPTION
+  const originalScanLimit = process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+  const originalSearch = process.env.OM_SEARCH_ENABLED
+
+  const definition = (key: string, kind = 'text', organizationId: string | null = null) => ({
+    entity_id: entity, key, kind, organization_id: organizationId, tenant_id: tenant,
+    config_json: { encrypted: true }, updated_at: '2026-10-29T00:00:00Z',
+  })
+
+  function fixture(rows: Array<Record<string, unknown>>, definitions = [definition('code')], options: { missingKey?: boolean } = {}) {
+    const getDek = jest.fn(async () => options.missingKey ? null : { tenantId: tenant, key: fixedKey, fetchedAt: 0 })
+    const service = { isEnabled: () => true, getDek } as unknown as TenantDataEncryptionService
+    const fallback = { query: jest.fn() }
+    const db = createFakeKysely({
+      baseTable: 'custom_entities_storage', hasIndexAny: false, baseCount: rows.length, indexCount: 0,
+      customFieldKeys: { [entity]: definitions.map((field) => field.key) },
+      customFieldDefs: definitions,
+      rows: { custom_entities_storage: rows },
+    })
+    const engine = new HybridQueryEngine(buildEm(db), fallback as never, undefined, undefined, () => service)
+    const seal = (value: unknown) => encryptCustomFieldValue(value, tenant, service, new Map())
+    return { engine, service, getDek, fallback, db, seal }
+  }
+
+  function row(id: string, values: Record<string, unknown>, organizationId: string | null = 'org-a', rowTenant = tenant) {
+    return { id, ...values, __om_ce_tenant_id: rowTenant, __om_ce_organization_id: organizationId }
+  }
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    process.env.OM_SEARCH_ENABLED = 'off'
+    delete process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+  })
+
+  afterEach(() => {
+    if (originalToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+    else process.env.TENANT_DATA_ENCRYPTION = originalToggle
+    if (originalScanLimit === undefined) delete process.env.OM_ENCRYPTED_SORT_MAX_ROWS
+    else process.env.OM_ENCRYPTED_SORT_MAX_ROWS = originalScanLimit
+    if (originalSearch === undefined) delete process.env.OM_SEARCH_ENABLED
+    else process.env.OM_SEARCH_ENABLED = originalSearch
+  })
+
+  test('decrypts bare and cf_ projections with real AES while preserving string kinds and arrays', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, db, fallback } = fixture(rows, [definition('code'), definition('tags'), definition('enabled', 'boolean')])
+    rows.push(row('doc-1', { code: await seal('123'), cf_tags: [await seal('true'), await seal('123'), null], cf_enabled: await seal(true) }))
+
+    const result = await engine.query(entity, { fields: ['id', 'code', 'cf:tags', 'cf:enabled'], tenantId: tenant, forceCustomEntityStorage: true })
+
+    expect(result.items).toEqual([{ id: 'doc-1', code: '123', cf_tags: ['true', '123', null], cf_enabled: true }])
+    expect(fallback.query).not.toHaveBeenCalled()
+    const selections = (db._chains as ChainLog[]).filter((chain) => chain.table === 'custom_entities_storage').flatMap((chain) => chain.selects.flat())
+    expect(selections).toEqual(expect.arrayContaining(['ce.tenant_id as __om_ce_tenant_id', 'ce.organization_id as __om_ce_organization_id']))
+  })
+
+  test('selects bare protected arrays as JSONB instead of converting their ciphertext entries to JSON text', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, db } = fixture(rows, [definition('tags')])
+    rows.push(row('doc-1', { tags: [await seal('first'), await seal('second')] }))
+    const result = await engine.query(entity, { fields: ['id', 'tags'], tenantId: tenant, forceCustomEntityStorage: true })
+    expect(result.items).toEqual([{ id: 'doc-1', tags: ['first', 'second'] }])
+    const selections = (db._chains as ChainLog[]).filter((chain) => chain.table === 'custom_entities_storage').flatMap((chain) => chain.selects.flat())
+    const selectedTags = selections.find((selection: unknown) => typeof selection === 'object' && selection !== null && 'alias' in selection && selection.alias === 'tags') as { toOperationNode(): { node: { sqlFragments: string[] } } } | undefined
+    expect(selectedTags).toBeDefined()
+    expect(selectedTags?.toOperationNode().node.sqlFragments.join('')).not.toContain('->>')
+  })
+
+  test('resolves same-key kinds against each document organization without exposing internal scope aliases', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows, [definition('code', 'integer', 'org-a'), definition('code', 'text', 'org-b')])
+    rows.push(row('doc-a', { cf_code: await seal(123) }, 'org-a'), row('doc-b', { cf_code: await seal('123') }, 'org-b'))
+    const result = await engine.query(entity, { fields: ['id', 'cf:code'], tenantId: tenant, forceCustomEntityStorage: true })
+    expect(result.items).toEqual([{ id: 'doc-a', cf_code: 123 }, { id: 'doc-b', cf_code: '123' }])
+  })
+
+  test('refuses foreign-tenant decryption before any DEK lookup', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, getDek } = fixture(rows)
+    const ciphertext = await seal('foreign private value')
+    rows.push(row('foreign-doc', { code: ciphertext }, 'org-a', 'foreign-tenant'))
+    getDek.mockClear()
+    const result = await engine.query(entity, { fields: ['id', 'code'], tenantId: tenant, forceCustomEntityStorage: true })
+    expect(result.items).toEqual([{ id: 'foreign-doc', code: ciphertext }])
+    expect(getDek).not.toHaveBeenCalled()
+  })
+
+  test('an explicit decryption opt-out keeps ciphertext and performs no DEK lookup', async () => {
+    const { seal } = fixture([])
+    const ciphertext = await seal('private')
+    const { engine, getDek } = fixture([{ id: 'doc-1', code: ciphertext }])
+    const result = await engine.query(entity, { fields: ['id', 'code'], tenantId: tenant, forceCustomEntityStorage: true, decryptEncryptedFields: false })
+    expect(result.items).toEqual([{ id: 'doc-1', code: ciphertext }])
+    expect(getDek).not.toHaveBeenCalled()
+  })
+
+  test('filters and sorts decrypted values before pagination and computes the matching total with no configured scan cap', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, db } = fixture(rows, [definition('code'), definition('rank', 'integer')])
+    rows.push(
+      row('doc-1', { code: await seal('match'), rank: await seal(30) }),
+      row('doc-2', { code: await seal('match'), rank: await seal(10) }),
+      row('doc-3', { code: await seal('other'), rank: await seal(0) }),
+      row('doc-4', { code: await seal('match'), rank: await seal(20) }),
+    )
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { code: 'match' }, sort: [{ field: 'rank', dir: SortDir.Asc }], page: { page: 2, pageSize: 1 },
+    })
+    expect(result).toMatchObject({ items: [{ id: 'doc-4' }], total: 3, page: 2, pageSize: 1 })
+    const candidate = (db._chains as ChainLog[]).find((chain) => chain.table === 'custom_entities_storage' && chain.selects.some((selection: unknown) => selection === 'ce.entity_id as id'))
+    expect(candidate?.offset).toBeNull()
+    expect(candidate?.orderBys).toEqual([])
+  })
+
+  test('encrypted cf filters use decrypted aliases and do not send their plaintext predicate to SQL', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, db } = fixture(rows)
+    rows.push(row('match', { cf_code: await seal('private match') }), row('other', { cf_code: await seal('other') }))
+    const result = await engine.query(entity, { fields: ['id', 'cf:code'], tenantId: tenant, forceCustomEntityStorage: true, filters: { cf_code: 'private match' } })
+    expect(result.items).toEqual([{ id: 'match', cf_code: 'private match' }])
+    expect(result.total).toBe(1)
+    const candidate = (db._chains as ChainLog[]).find((chain) => chain.table === 'custom_entities_storage' && chain.selects.some((selection: unknown) => selection === 'ce.entity_id as id'))
+    expect(candidate?.wheres.flat()).not.toContain('private match')
+  })
+
+  test.each([
+    ['nonmatching', 'private value', true],
+    ['matching case-insensitively', 'Private FOO value', false],
+    ['empty string', '', true],
+    ['null', null, false],
+    ['missing', undefined, false],
+    ['empty array', [], false],
+    ['null-only array', [null], false],
+    ['nonmatching array', ['private', 'other'], true],
+    ['matching array', ['private', 'FOO'], false],
+    ['nonmatching array with null', ['private', null], true],
+  ] as const)('negated encrypted text handles %s values before pagination', async (_label, value, matches) => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    const encrypted = Array.isArray(value)
+      ? await Promise.all(value.map((entry) => entry == null ? entry : seal(entry)))
+      : value == null ? value : await seal(value)
+    rows.push(row('candidate', value === undefined ? {} : { cf_code: encrypted }))
+    const result = await engine.query(entity, {
+      fields: ['id', 'cf:code'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { 'cf:code': { $not: { $ilike: '%foo%' } } }, page: { page: 1, pageSize: 1 },
+    })
+    expect(result.items).toEqual(matches ? [{ id: 'candidate', cf_code: value }] : [])
+    expect(result.total).toBe(matches ? 1 : 0)
+  })
+
+  test('negates the prepared pattern on bare encrypted document fields', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(row('match', { code: await seal('other') }), row('excluded', { code: await seal('FOO') }))
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { code: { $not: { $ilike: '%foo%' } } },
+    })
+    expect(result.items).toEqual([{ id: 'match' }])
+    expect(result.total).toBe(1)
+  })
+
+  test('preserves negated plaintext leaves in OR groups deferred by an encrypted field', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, db } = fixture(rows)
+    rows.push(
+      row('encrypted-match', { code: await seal('private'), status: 'open' }),
+      row('public-match', { code: await seal('other'), status: 'closed' }),
+      row('excluded', { code: await seal('other'), status: 'OPEN' }),
+      row('null', { code: await seal('other'), status: null }),
+      row('missing', { code: await seal('other') }),
+    )
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { $or: [{ code: 'private' }, { status: { $not: { $ilike: '%open%' } } }] },
+    })
+    expect(result.items).toEqual([{ id: 'encrypted-match' }, { id: 'public-match' }])
+    expect(result.total).toBe(2)
+    const candidate = (db._chains as ChainLog[]).find((chain) => chain.table === 'custom_entities_storage' && chain.selects.some((selection: unknown) => selection === 'ce.entity_id as id'))
+    expect(candidate?.wheres.flat().filter((predicate) => typeof predicate === 'function')).toHaveLength(0)
+  })
+
+  test('preserves negated encrypted leaves in mixed OR groups', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(
+      row('encrypted-match', { code: await seal('other'), status: 'closed' }),
+      row('public-match', { code: await seal('private'), status: 'open' }),
+      row('excluded', { code: await seal('private'), status: 'closed' }),
+    )
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { $or: [{ code: { $not: { $ilike: '%private%' } } }, { status: 'open' }] },
+    })
+    expect(result.items).toEqual([{ id: 'encrypted-match' }, { id: 'public-match' }])
+    expect(result.total).toBe(2)
+  })
+
+  test('preserves OR groups mixing encrypted and public fields while removing hidden comparison projections', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, db } = fixture(rows)
+    rows.push(
+      row('encrypted-match', { code: await seal('private'), status: 'closed' }),
+      row('public-match', { code: await seal('other'), status: 'open' }),
+      row('neither', { code: await seal('other'), status: 'closed' }),
+    )
+    const result = await engine.query(entity, { fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true, filters: { $or: [{ code: 'private' }, { status: 'open' }] } })
+    expect(result.items).toEqual([{ id: 'encrypted-match' }, { id: 'public-match' }])
+    expect(result.total).toBe(2)
+    const candidate = (db._chains as ChainLog[]).find((chain) => chain.table === 'custom_entities_storage' && chain.selects.some((selection: unknown) => selection === 'ce.entity_id as id'))
+    expect(candidate?.wheres.flat().filter((predicate) => typeof predicate === 'function')).toHaveLength(0)
+  })
+
+  test('does not re-evaluate common predicates already matched by SQL against document projections', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(row('match', { code: await seal('private') }))
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { code: 'private', organization_id: { $in: ['org-a'] }, tags: { $overlap: ['red'] } },
+    })
+    expect(result.items).toEqual([{ id: 'match' }])
+    expect(result.total).toBe(1)
+  })
+
+  test('selects storage metadata columns for deferred OR predicates', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal, db } = fixture(rows)
+    rows.push(row('match', { code: await seal('other'), organization_id: 'org-a' }))
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { $or: [{ code: 'private' }, { organization_id: 'org-a' }] },
+    })
+    expect(result.items).toEqual([{ id: 'match' }])
+    const selections = (db._chains as ChainLog[]).filter((chain) => chain.table === 'custom_entities_storage').flatMap((chain) => chain.selects.flat())
+    expect(selections).toContain('ce.organization_id as organization_id')
+  })
+
+  test('uses a hidden JSON projection for deferred public array comparisons and preserves requested text projections', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(row('match', { code: await seal('other'), tags: '["red", "blue"]', __om_ce_filter_0: ['red', 'blue'] }))
+    const result = await engine.query(entity, {
+      fields: ['id', 'tags'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: { $or: [{ code: 'private' }, { tags: { $overlap: ['red'] } }] },
+    })
+    expect(result.items).toEqual([{ id: 'match', tags: '["red", "blue"]' }])
+    expect(result.total).toBe(1)
+  })
+
+  test('rejects a candidate scan beyond the configured limit before key lookup', async () => {
+    process.env.OM_ENCRYPTED_SORT_MAX_ROWS = '2'
+    const { engine, getDek } = fixture([row('doc-1', { code: 'c' }), row('doc-2', { code: 'b' }), row('doc-3', { code: 'a' })])
+    await expect(engine.query(entity, { fields: ['id', 'code'], tenantId: tenant, forceCustomEntityStorage: true, sort: [{ field: 'code', dir: SortDir.Asc }] })).rejects.toThrow('candidate row limit')
+    expect(getDek).not.toHaveBeenCalled()
+  })
+
+  test('keeps legacy plaintext document queries readable', async () => {
+    const { engine } = fixture([row('legacy', { code: '123' })])
+    const result = await engine.query(entity, { fields: ['id', 'code'], tenantId: tenant, forceCustomEntityStorage: true })
+    expect(result.items).toEqual([{ id: 'legacy', code: '123' }])
+  })
+
+  test('authoritative null organization scope selects the tenant-wide kind instead of the caller organization override', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows, [definition('code', 'integer'), definition('code', 'text', 'org-a')])
+    rows.push(row('global-doc', { cf_code: await seal('123') }, null))
+    const result = await engine.query(entity, { fields: ['id', 'cf:code'], tenantId: tenant, organizationId: 'org-a', forceCustomEntityStorage: true })
+    expect(result.items).toEqual([{ id: 'global-doc', cf_code: 123 }])
+  })
+
+  test.each(['missing', 'wrong'] as const)('encrypted sort fails explicitly when the tenant key is %s', async (failure) => {
+    const { seal } = fixture([])
+    const ciphertext = await seal('private-sort-value')
+    const { engine, getDek } = fixture([row('doc-1', { code: ciphertext })], [definition('code')], { missingKey: failure === 'missing' })
+    if (failure === 'wrong') getDek.mockResolvedValue({ tenantId: tenant, key: Buffer.alloc(32, 37).toString('base64'), fetchedAt: 0 })
+    await expect(engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      sort: [{ field: 'code', dir: SortDir.Asc }],
+    })).rejects.toThrow('Cannot compare custom entity ciphertext')
+  })
+
+  test.each([
+    ['like', 'Al%a', 'Alpha', true],
+    ['like', 'Al_ha', 'Alpha', true],
+    ['like', 'Al_ha', 'Alha', false],
+    ['like', '50\\%\\_done', '50%_done', true],
+    ['like', '50\\%\\_done', '50xxdone', false],
+    ['like', 'a.b', 'axb', false],
+    ['ilike', 'AL%_', 'alpha', true],
+    ['like', 'AL%_', 'alpha', false],
+    ['ilike', '_', 'İ', true],
+    ['ilike', '__', 'İ', false],
+  ] as const)('encrypted %s pattern %s matches %s according to SQL wildcard semantics', async (operator, pattern, value, matches) => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(row('doc-1', { code: await seal(value) }))
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: [{ field: 'code', op: operator, value: pattern }],
+    })
+    expect(result.items).toEqual(matches ? [{ id: 'doc-1' }] : [])
+    expect(result.total).toBe(matches ? 1 : 0)
+  })
+
+  test('adversarial encrypted LIKE wildcards finish without exponential regex backtracking', async () => {
+    const rows: Array<Record<string, unknown>> = []
+    const { engine, seal } = fixture(rows)
+    rows.push(row('doc-1', { code: await seal('a'.repeat(200)) }))
+    const result = await engine.query(entity, {
+      fields: ['id'], tenantId: tenant, forceCustomEntityStorage: true,
+      filters: [{ field: 'code', op: 'like', value: '%a'.repeat(14) + '%ab' }],
+    })
+    expect(result.items).toEqual([])
+    expect(result.total).toBe(0)
+  })
+})
+
+describe('HybridQueryEngine process-wide metadata caches (#2967)', () => {
+  const originalCfTtl = process.env.QUERY_INDEX_CF_KEYS_CACHE_MS
+
+  afterEach(() => {
+    if (originalCfTtl === undefined) delete process.env.QUERY_INDEX_CF_KEYS_CACHE_MS
+    else process.env.QUERY_INDEX_CF_KEYS_CACHE_MS = originalCfTtl
+  })
+
+  function chainCount(db: any, table: string): number {
+    return (db._chains as ChainLog[]).filter((chain) => chain.table === table).length
+  }
+
+  function newEngine(db: any, cache?: CacheStrategy): any {
+    return new HybridQueryEngine(
+      buildEm(db),
+      { query: jest.fn() } as any,
+      undefined,
+      undefined,
+      undefined,
+      cache ? () => cache : undefined,
+    )
+  }
+
+  test('reads a table column map once and answers every column lookup from it, across engine instances', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+
+    expect(await newEngine(db).columnExists('todos', 'tenant_id')).toBe(true)
+    const second = newEngine(db)
+    expect(await second.columnExists('todos', 'organization_id')).toBe(true)
+    expect(await second.columnExists('todos', 'deleted_at')).toBe(true)
+    expect((await second.getBaseColumnsForEntity('example:todo')).has('id')).toBe(true)
+
+    expect(chainCount(db, 'information_schema.columns')).toBe(1)
+  })
+
+  test('re-reads the column map before reporting a scoping column absent, so a newly added tenant_id applies at once', async () => {
+    const columns = [
+      { table_name: 'todos', column_name: 'id' },
+      { table_name: 'todos', column_name: 'organization_id' },
+    ]
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0, columns })
+
+    expect(await newEngine(db).columnExists('todos', 'tenant_id')).toBe(false)
+    expect(chainCount(db, 'information_schema.columns')).toBe(1)
+
+    columns.push({ table_name: 'todos', column_name: 'tenant_id' })
+    const afterMigration = newEngine(db)
+    expect(await afterMigration.columnExists('todos', 'tenant_id')).toBe(true)
+    expect(chainCount(db, 'information_schema.columns')).toBe(2)
+    expect(await afterMigration.columnExists('todos', 'tenant_id')).toBe(true)
+    expect(chainCount(db, 'information_schema.columns')).toBe(2)
+  })
+
+  test('uses the refreshed organization column for the first query after a schema change', async () => {
+    const columns = [
+      { table_name: 'todos', column_name: 'id' },
+      { table_name: 'todos', column_name: 'tenant_id' },
+      { table_name: 'todos', column_name: 'deleted_at' },
+    ]
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 1, indexCount: 0, columns })
+    await newEngine(db).getBaseColumnsForEntity('example:todo')
+    columns.push({ table_name: 'todos', column_name: 'organization_id' })
+
+    await newEngine(db).query('example:todo', {
+      tenantId: 't1',
+      organizationId: 'org1',
+      fields: ['id', 'organization_id'],
+      sort: [{ field: 'organization_id', dir: 'asc' }],
+    })
+
+    const orders = (db._chains as ChainLog[]).flatMap((chain) => chain.orderBys)
+    expect(orders).toContainEqual(['b.organization_id', 'asc'])
+  })
+
+  test('does not cache the empty column map of a table that does not exist yet', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0,
+      columns: [{ table_name: 'other', column_name: 'id' }],
+    })
+
+    expect(await newEngine(db).columnExists('todos', 'id')).toBe(false)
+    expect(await newEngine(db).columnExists('todos', 'id')).toBe(false)
+    expect(chainCount(db, 'information_schema.columns')).toBe(2)
+  })
+
+  test('shares custom field definitions across engine instances through the DI cache', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const cache = createMemoryStrategy()
+
+    const first = await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+    const second = await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    expect(first.map((def: { key: string }) => def.key)).toEqual(['priority'])
+    expect(second).toEqual(first)
+    expect(chainCount(db, 'custom_field_defs')).toBe(1)
+  })
+
+  test.each([
+    ['tenant', 't1'],
+    ['global', null],
+  ])('re-reads definitions after invalidateDefinitionsCache() for a %s definition of the entity', async (_label, definitionTenantId) => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const cache = createMemoryStrategy()
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    await invalidateDefinitionsCache(cache, { tenantId: definitionTenantId, organizationId: null, entityIds: ['example:todo'] })
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    expect(chainCount(db, 'custom_field_defs')).toBe(2)
+  })
+
+  test('keeps an unrelated entity cached when another entity definitions are invalidated', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const cache = createMemoryStrategy()
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    await invalidateDefinitionsCache(cache, { tenantId: 't1', organizationId: null, entityIds: ['customers:customer_entity'] })
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    expect(chainCount(db, 'custom_field_defs')).toBe(1)
+  })
+
+  test('bypasses the shared cache for fresh reads', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const cache = createMemoryStrategy()
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    await newEngine(db, cache).resolveCustomFieldDefs(['example:todo'], 't1', true)
+
+    expect(chainCount(db, 'custom_field_defs')).toBe(2)
+  })
+
+  test('keeps per-instance caching only when no cache is available or the TTL is zero', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    await newEngine(db).resolveCustomFieldDefs(['example:todo'], 't1')
+    await newEngine(db).resolveCustomFieldDefs(['example:todo'], 't1')
+    expect(chainCount(db, 'custom_field_defs')).toBe(2)
+
+    process.env.QUERY_INDEX_CF_KEYS_CACHE_MS = '0'
+    const cache = createMemoryStrategy()
+    const noTtl = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    await newEngine(noTtl, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+    await newEngine(noTtl, cache).resolveCustomFieldDefs(['example:todo'], 't1')
+    expect(chainCount(noTtl, 'custom_field_defs')).toBe(2)
+    expect(await cache.keys('*')).toEqual([])
+  })
+
+  test('falls back to the database when the shared cache fails', async () => {
+    const db = createFakeKysely({ baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0 })
+    const failing = createMemoryStrategy()
+    failing.get = jest.fn().mockRejectedValue(new Error('[internal] cache down'))
+    failing.set = jest.fn().mockRejectedValue(new Error('[internal] cache down'))
+
+    const defs = await newEngine(db, failing).resolveCustomFieldDefs(['example:todo'], 't1')
+
+    expect(defs.map((def: { key: string }) => def.key)).toEqual(['priority'])
+    expect(chainCount(db, 'custom_field_defs')).toBe(1)
+  })
+
+  test('shares resolved custom field sort kinds across engine instances', async () => {
+    const db = createFakeKysely({
+      baseTable: 'todos', hasIndexAny: false, baseCount: 0, indexCount: 0,
+      customFieldKinds: { priority: 'integer' },
+    })
+    const cache = createMemoryStrategy()
+
+    const first = await newEngine(db, cache).resolveCustomFieldSortKinds(['example:todo'], 't1', ['org1'], ['priority'])
+    const second = await newEngine(db, cache).resolveCustomFieldSortKinds(['example:todo'], 't1', ['org1'], ['priority'])
+
+    expect(Array.from(first.entries())).toEqual([['priority', 'integer']])
+    expect(Array.from(second.entries())).toEqual([['priority', 'integer']])
+    expect(chainCount(db, 'custom_field_defs')).toBe(1)
   })
 })

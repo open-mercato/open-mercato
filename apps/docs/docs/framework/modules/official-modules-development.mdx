@@ -5,7 +5,11 @@ description: How to develop modules for the official-modules repository from ins
 
 # Developing Official Modules
 
-The [Official Modules](/framework/modules/official-modules) repository (`open-mercato/official-modules`) is a separate repo that publishes each module as its own npm package. To develop those modules with the **full open-mercato context** — core source, `AGENTS.md`, skills, the running dev app — without copy-pasting code between repos, open-mercato can pull `official-modules` in as a **git submodule** at `external/official-modules/`.
+:::caution Legacy
+Legacy: the official-modules repository is archived. Build modules in your app with create-mercato-module. See [Publishing Custom Modules](/framework/modules/publishing-custom-modules), then list the package in the [Modules catalog](/framework/modules/official-modules).
+:::
+
+The archived [official-modules repository](https://github.com/open-mercato/official-modules) (`open-mercato/official-modules`) is a separate repo that publishes each module as its own npm package. To develop those modules with the **full open-mercato context** (core source, `AGENTS.md`, skills, the running dev app) without copy-pasting code between repos, open-mercato can pull `official-modules` in as a **git submodule** at `external/official-modules/`.
 
 In this setup:
 
@@ -14,7 +18,7 @@ In this setup:
 - Which official modules are active in your local dev app is driven by a small config file, not by editing `apps/mercato/src/modules.ts` by hand.
 
 :::note Who this page is for
-This is for contributors working **inside the open-mercato monorepo** on official modules. If you just want to *use* an official module in your own app, see [Official Modules](/framework/modules/official-modules) and the [`module add` CLI reference](/cli/module-add) instead.
+This is for contributors working **inside the open-mercato monorepo** on official modules. If you just want to *use* a module in your own app, see the [Modules catalog](/framework/modules/official-modules) and the [`module add` CLI reference](/cli/module-add) instead.
 :::
 
 ## Layout

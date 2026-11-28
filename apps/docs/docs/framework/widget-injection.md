@@ -58,6 +58,28 @@ Supported positions:
 
 If `relativeTo` cannot be resolved, the item is appended.
 
+### Tab placements
+
+A widget mapped to a `detail:<module>.<entity>:tabs` spot with `placement.kind: 'tab'` becomes a tab of that detail page:
+
+- `groupId`: stable tab id (falls back to the widget id); used in `?tab=` URLs
+- `groupLabel`: translation key for the tab label (falls back to the widget title)
+- `icon`: optional lucide icon name (`'list-checks'`, `'ListChecks'` or `'lucide:list-checks'`) shown next to the label
+- `priority`: ordering hint, higher first, default `0`. The host's built-in tabs sit at `0`: a positive priority places the tab before them, a negative one after, and tabs sharing a priority keep their declaration order
+
+```ts
+'detail:customers.person:tabs': [
+  {
+    widgetId: 'workflows.injection.pending-work',
+    kind: 'tab',
+    groupId: 'pending-work',
+    groupLabel: 'workflows.pendingWork.title',
+    icon: 'list-checks',
+    priority: -10,
+  },
+],
+```
+
 ### i18n requirements for injected menus
 
 Every user-facing injected menu item should include:
@@ -156,6 +178,24 @@ useAppEvent('example.todo.created', (event) => {
   flash('New todo created!', 'info')
 })
 ```
+
+#### Delivery contract: at-most-once, refetch on reconnect
+
+Browser delivery is **at-most-once with gaps**. The bridge closes its stream while the tab is hidden, the server recycles every stream after about five minutes, and errors trigger a backoff before reconnecting. Events emitted while the stream is closed are **never replayed**. Once a stream reopens, the bridge dispatches `BRIDGE_RECONNECTED_EVENT_ID` (`om:bridge:reconnected`, exported from `@open-mercato/ui/backend/injection/useAppEvent`). Any view that keeps displayed data fresh must refetch on that event.
+
+`useLiveRefetch` covers both cases with one hook. It calls `refetch()` on a matching event that passes `filter`, and on every reconnect. The reconnect always refetches, because `filter` is not applied to it:
+
+```ts
+import { useLiveRefetch } from '@open-mercato/ui/backend/injection/useLiveRefetch'
+
+useLiveRefetch('example.todo.*', () => reload(), {
+  filter: (event) => event.payload.id === todoId,
+  deps: [todoId, reload],
+  coalesceMs: 1000, // optional: a burst plus a reconnect collapse into leading + trailing calls
+})
+```
+
+Portal pages use `usePortalLiveRefetch` from `@open-mercato/ui/portal/hooks/usePortalLiveRefetch` (same API without `coalesceMs`), which listens for `PORTAL_BRIDGE_RECONNECTED_EVENT_ID` (`om:portal-bridge:reconnected`).
 
 ### Extended Widget Event Handlers (Phase C)
 
@@ -678,6 +718,35 @@ export const injectionTable: ModuleInjectionTable = {
 
 export default injectionTable
 ```
+
+### Ordering a contributed tab
+
+On a `kind: 'tab'` spot, `priority` orders the contributed tab **against the host's
+built-in tabs**, not just against other contributed tabs. Built-in tabs sit at `0`:
+
+- a **positive** priority places the tab before every built-in tab
+- a **negative** priority places it after them
+- entries sharing a priority keep their declaration order, so omitting `priority`
+  leaves a contributed tab where it has always been — last
+
+```typescript
+export const injectionTable: ModuleInjectionTable = {
+  'detail:customers.company:tabs': [
+    {
+      widgetId: 'my_module.injection.overview-tab',
+      priority: 100,
+      kind: 'tab',
+      groupId: 'overview',
+      groupLabel: 'my_module.tabs.overview',
+    },
+  ],
+}
+```
+
+Ordering a tab first does not make it the tab the page opens on — hosts keep their
+own default. Link to `?tab=<groupId>` to land a user on a contributed tab.
+
+Hosts honouring this: company, person and deal detail pages in `customers`.
 
 ## Using Injection Spots in CRUD Forms
 

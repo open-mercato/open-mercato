@@ -186,6 +186,22 @@ describe('evaluatePromotions — ordering, cumulativity, and tag exclusion acros
   })
 })
 
+describe('isPromotionEligible — exact budget pre-check', () => {
+  const budget = { maxBudget: '1.000000000000000001', budgetCurrency: 'ETH' }
+
+  it('keeps a promotion eligible when one wei of budget remains', () => {
+    expect(isPromotionEligible(promotion({ ...budget, totalDiscountGranted: '1.00' }), input(), [])).toBe(true)
+  })
+
+  it('skips a promotion whose usage exactly equals the budget', () => {
+    expect(isPromotionEligible(promotion({ ...budget, totalDiscountGranted: '1.000000000000000001' }), input(), [])).toBe(false)
+  })
+
+  it('skips a promotion whose usage exceeds the budget', () => {
+    expect(isPromotionEligible(promotion({ ...budget, totalDiscountGranted: '1.000000000000000002' }), input(), [])).toBe(false)
+  })
+})
+
 describe('isPromotionEligible — excluded-tags check', () => {
   it('returns false when excludedTags intersects the running appliedTags set', () => {
     const eligible = isPromotionEligible(

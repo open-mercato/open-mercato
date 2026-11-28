@@ -16,6 +16,8 @@ describe('CommandBus change inference', () => {
     unregisterCommand('test.date.equal')
     unregisterCommand('test.null.vs.object')
     unregisterCommand('test.circular.ref')
+    unregisterCommand('test.shared.ref')
+    unregisterCommand('test.shared.ref.change')
   })
 
   it('flattens custom field diffs into cf_ changes', async () => {
@@ -276,6 +278,87 @@ describe('CommandBus change inference', () => {
     expect(payload?.changes).toMatchObject({
       name: { from: 'Before', to: 'After' },
     })
+  })
+
+  it('compares an object referenced twice in one value by value', async () => {
+    const logMock = jest.fn(async (payload: LogRecord) => payload)
+    // Mirrors the sales shipment snapshot, which holds one array under `items` and `itemsSnapshot`.
+    const snapshot = (name: string) => {
+      const items = [{ id: 'item-1', quantity: 1 }]
+      return { id: 'rec-s1', name, shipments: [{ id: 'shipment-1', items, itemsSnapshot: items }] }
+    }
+
+    registerCommand({
+      id: 'test.shared.ref',
+      execute: jest.fn(async () => ({ id: 'rec-s1' })),
+      prepare: jest.fn(async () => ({ before: snapshot('Before') })),
+      captureAfter: jest.fn(async () => snapshot('After')),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({ log: logMock }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn() }),
+    })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      organizationScope: null,
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+    }
+
+    await bus.execute('test.shared.ref', {
+      input: {},
+      ctx,
+      metadata: { resourceKind: 'test.record', resourceId: 'rec-s1' },
+    })
+
+    const payload = logMock.mock.calls[0]?.[0] as LogRecord
+    expect(payload?.changes).toEqual({
+      name: { from: 'Before', to: 'After' },
+    })
+  })
+
+  it('still reports a change inside an object referenced twice', async () => {
+    const logMock = jest.fn(async (payload: LogRecord) => payload)
+    const snapshot = (quantity: number) => {
+      const items = [{ id: 'item-1', quantity }]
+      return { id: 'rec-s2', shipments: [{ id: 'shipment-1', items, itemsSnapshot: items }] }
+    }
+
+    registerCommand({
+      id: 'test.shared.ref.change',
+      execute: jest.fn(async () => ({ id: 'rec-s2' })),
+      prepare: jest.fn(async () => ({ before: snapshot(1) })),
+      captureAfter: jest.fn(async () => snapshot(2)),
+    })
+
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      actionLogService: asValue({ log: logMock }),
+      dataEngine: asValue({ flushOrmEntityChanges: jest.fn() }),
+    })
+
+    const bus = new CommandBus()
+    const ctx = {
+      container,
+      auth: { sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' },
+      organizationScope: null,
+      selectedOrganizationId: 'org-1',
+      organizationIds: null,
+    }
+
+    await bus.execute('test.shared.ref.change', {
+      input: {},
+      ctx,
+      metadata: { resourceKind: 'test.record', resourceId: 'rec-s2' },
+    })
+
+    const payload = logMock.mock.calls[0]?.[0] as LogRecord
+    expect(Object.keys(payload?.changes ?? {})).toEqual(['shipments'])
   })
 
   it('skips updatedAt fields when inferring changes', async () => {

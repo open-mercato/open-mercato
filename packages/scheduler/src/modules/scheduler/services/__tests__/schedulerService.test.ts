@@ -40,6 +40,12 @@ describe('SchedulerService', () => {
       persist: jest.fn(),
       remove: jest.fn(),
       flush: jest.fn(),
+      isInTransaction: jest.fn().mockReturnValue(false),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      getTransactionContext: jest.fn().mockReturnValue(undefined),
+      getConnection: jest.fn().mockReturnValue({ execute: jest.fn().mockResolvedValue([]) }),
       count: jest.fn(),
       find: jest.fn(),
     } as any
@@ -101,6 +107,7 @@ describe('SchedulerService', () => {
       const existingSchedule = {
         id: 'test-schedule-1',
         name: 'Old Name',
+        sourceType: 'module',
         isEnabled: true,
       } as ScheduledJob
 
@@ -113,6 +120,7 @@ describe('SchedulerService', () => {
       })
 
       expect(existingSchedule.name).toBe('Updated Name')
+      expect(existingSchedule.sourceType).toBe('module')
       expect(mockForkedEm.flush).toHaveBeenCalled()
       expect(mockForkedEm.create).not.toHaveBeenCalled()
     })
@@ -204,6 +212,7 @@ describe('SchedulerService', () => {
           ...baseRegistration,
           scopeType: 'tenant',
           tenantId: 'tenant-1',
+          sourceType: 'user',
           scheduleType: 'interval',
           scheduleValue: '15m',
         })).rejects.toMatchObject({
@@ -213,6 +222,7 @@ describe('SchedulerService', () => {
 
         expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
           tenantId: 'tenant-1',
+          sourceType: 'user',
           isEnabled: true,
           deletedAt: null,
         })
@@ -222,6 +232,58 @@ describe('SchedulerService', () => {
         if (originalLimit === undefined) delete process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
         else process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = originalLimit
       }
+    })
+
+    it('does not apply the user schedule cap to module registrations', async () => {
+      mockForkedEm.findOne.mockResolvedValue(null)
+      mockForkedEm.count.mockResolvedValue(100)
+      mockForkedEm.flush.mockResolvedValue()
+
+      await service.register({
+        ...baseRegistration,
+        scopeType: 'organization',
+        organizationId: 'organization-1',
+        tenantId: 'tenant-1',
+        scheduleType: 'interval',
+        scheduleValue: '15m',
+      })
+
+      expect(mockForkedEm.count).not.toHaveBeenCalled()
+      expect(mockForkedEm.create).toHaveBeenCalledWith(ScheduledJob, expect.objectContaining({
+        sourceType: 'module',
+      }))
+      expect(mockForkedEm.flush).toHaveBeenCalled()
+    })
+
+    it('applies the user schedule cap when reclassifying an enabled module schedule', async () => {
+      const existingSchedule = {
+        id: 'test-schedule-1',
+        sourceType: 'module',
+        isEnabled: true,
+        tenantId: 'tenant-1',
+      } as ScheduledJob
+      mockForkedEm.findOne.mockResolvedValue(existingSchedule)
+      mockForkedEm.count.mockResolvedValue(100)
+
+      await expect(service.register({
+        ...baseRegistration,
+        scopeType: 'tenant',
+        tenantId: 'tenant-1',
+        sourceType: 'user',
+        scheduleType: 'interval',
+        scheduleValue: '15m',
+      })).rejects.toMatchObject({
+        status: 422,
+        body: { error: 'translated:scheduler.error.active_schedule_limit:max=100' },
+      })
+
+      expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
+        tenantId: 'tenant-1',
+        sourceType: 'user',
+        isEnabled: true,
+        deletedAt: null,
+      })
+      expect(mockForkedEm.flush).not.toHaveBeenCalled()
     })
   })
 
@@ -292,6 +354,25 @@ describe('SchedulerService', () => {
       mockEm.count.mockResolvedValue(0)
 
       const result = await service.exists('test-1')
+
+      expect(result).toBe(false)
+    })
+  })
+
+  describe('isActive', () => {
+    it('counts only enabled, non-deleted schedules', async () => {
+      mockEm.count.mockResolvedValue(1)
+
+      const result = await service.isActive('test-1')
+
+      expect(result).toBe(true)
+      expect(mockEm.count).toHaveBeenCalledWith(ScheduledJob, { id: 'test-1', deletedAt: null, isEnabled: true })
+    })
+
+    it('returns false when the schedule is missing, disabled, or soft-deleted', async () => {
+      mockEm.count.mockResolvedValue(0)
+
+      const result = await service.isActive('test-1')
 
       expect(result).toBe(false)
     })
@@ -429,6 +510,7 @@ describe('SchedulerService', () => {
           tenantId: 'tenant-1',
           organizationId: null,
           scopeType: 'tenant',
+          sourceType: 'user',
           isEnabled: false,
           scheduleType: 'interval',
           scheduleValue: '15m',
@@ -445,6 +527,7 @@ describe('SchedulerService', () => {
 
         expect(mockForkedEm.count).toHaveBeenCalledWith(ScheduledJob, {
           tenantId: 'tenant-1',
+          sourceType: 'user',
           isEnabled: true,
           deletedAt: null,
         })
@@ -454,6 +537,30 @@ describe('SchedulerService', () => {
         if (originalLimit === undefined) delete process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT
         else process.env.OM_SCHEDULER_MAX_ACTIVE_SCHEDULES_PER_TENANT = originalLimit
       }
+    })
+
+    it('does not apply the user schedule cap when enabling a module schedule', async () => {
+      const schedule = {
+        id: 'test-1',
+        tenantId: 'tenant-1',
+        organizationId: 'organization-1',
+        scopeType: 'organization',
+        sourceType: 'module',
+        isEnabled: false,
+        scheduleType: 'interval',
+        scheduleValue: '15m',
+        timezone: 'UTC',
+      } as ScheduledJob
+
+      mockForkedEm.findOne.mockResolvedValue(schedule)
+      mockForkedEm.count.mockResolvedValue(100)
+      mockForkedEm.flush.mockResolvedValue()
+
+      await service.update('test-1', { isEnabled: true })
+
+      expect(mockForkedEm.count).not.toHaveBeenCalled()
+      expect(schedule.isEnabled).toBe(true)
+      expect(mockForkedEm.flush).toHaveBeenCalled()
     })
 
     it('should reject interval updates below one minute', async () => {

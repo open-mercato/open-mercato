@@ -9,7 +9,7 @@ import {
   deleteCustomerGroupMembershipIfExists,
 } from '@open-mercato/core/helpers/integration/customerGroupsFixtures';
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures';
-import { fixturePriority, uniqueStamp } from './helpers';
+import { fixturePriority, openGroupsTab, uniqueStamp } from './helpers';
 
 /**
  * TC-CGRP-023: Phase 2 UI gate — the "Explain terms" panel
@@ -80,7 +80,7 @@ test.describe('TC-CGRP-023: Explain-terms panel on the customer detail page', ()
         timeout: 15_000,
       });
 
-      await page.getByRole('tab', { name: 'Groups' }).click();
+      await openGroupsTab(page);
       await expect(page.getByRole('heading', { name: 'Explain terms' })).toBeVisible({ timeout: 15_000 });
 
       const list = page.getByLabel('Resolved commercial terms');

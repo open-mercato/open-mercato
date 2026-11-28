@@ -4,6 +4,9 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { metadata as pipelineMetadata } from '../page.meta'
 
 export type KanbanView = 'kanban' | 'list' | 'map'
 
@@ -70,6 +73,8 @@ export function resolveVisibleViews(
 
 export function ViewTabsRow({ active, className, visibleViews }: ViewTabsRowProps): React.ReactElement {
   const t = useT()
+  const { payload } = useBackendChrome()
+  const canViewPipeline = hasAllFeatures(payload?.grantedFeatures, pipelineMetadata.requireFeatures)
   const labels: Record<KanbanView, string> = {
     kanban: translateWithFallback(t, 'customers.deals.kanban.view.kanban', 'Kanban'),
     list: translateWithFallback(t, 'customers.deals.kanban.view.list', 'List'),
@@ -88,6 +93,7 @@ export function ViewTabsRow({ active, className, visibleViews }: ViewTabsRowProp
   // The active tab renders as a non-navigating `<span>` and every other tab as a
   // `<Link>`, so the user can always round-trip between the views from any page.
   const views = resolveVisibleViews(active, visibleViews)
+    .filter((view) => view !== 'kanban' || view === active || canViewPipeline)
 
   return (
     <div

@@ -1,7 +1,7 @@
 /**
  * @jest-environment jsdom
  */
-import { screen } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import enDict from '../../../i18n/en.json'
 import plDict from '../../../i18n/pl.json'
@@ -89,5 +89,85 @@ describe('ActivityTimeline canceled status', () => {
     renderWithProviders(<ActivityTimeline activities={[createActivity()]} onMarkDone={jest.fn()} />)
 
     expect(screen.getByRole('button', { name: /Mark done/i })).toBeInTheDocument()
+  })
+})
+
+it.each([
+  { locale: 'en', dict: enDict, label: 'Unknown date' },
+  { locale: 'pl', dict: plDict, label: 'Nieznana data' },
+])('ActivityTimeline preserves unknown dates ($locale)', ({ locale, dict, label }) => {
+  const activity = createActivity({ occurredAt: null, scheduledAt: null, createdAt: '2035-01-01T12:34:00.000Z' })
+  renderWithProviders(<ActivityTimeline activities={[activity]} />, { locale, dict })
+  expect(screen.getByText(label)).toBeInTheDocument()
+  expect(screen.queryByText('2035')).not.toBeInTheDocument()
+  expect(screen.queryByText(/12:34/)).not.toBeInTheDocument()
+})
+
+describe('ActivityTimeline delete affordance', () => {
+  it('keeps delete inside the overflow menu and forwards the activity to onDelete', async () => {
+    const onDelete = jest.fn()
+    const onEdit = jest.fn()
+    const activity = createActivity({ interactionType: 'call', title: 'Intro call' })
+    renderWithProviders(<ActivityTimeline activities={[activity]} onEdit={onEdit} onDelete={onDelete} />)
+
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete activity' }))
+
+    await waitFor(() => {
+      expect(onDelete).toHaveBeenCalledWith(activity)
+    })
+    expect(onEdit).not.toHaveBeenCalled()
+  })
+
+  it('offers Edit in the same menu and opens the activity for editing', async () => {
+    const onEdit = jest.fn()
+    const activity = createActivity()
+    renderWithProviders(<ActivityTimeline activities={[activity]} onEdit={onEdit} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+
+    expect(onEdit).toHaveBeenCalledTimes(1)
+    expect(onEdit).toHaveBeenCalledWith(activity)
+  })
+
+  it('leaves Delete out of the menu for a row the user may not delete, and keeps Edit', async () => {
+    const onDelete = jest.fn()
+    const onEdit = jest.fn()
+    const activity = createActivity({ status: 'done' })
+    renderWithProviders(
+      <ActivityTimeline activities={[activity]} onEdit={onEdit} onDelete={onDelete} canDelete={() => false} />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open actions' }))
+    expect(await screen.findByRole('menuitem', { name: 'Edit' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Delete activity' })).toBeNull()
+    expect(onDelete).not.toHaveBeenCalled()
+  })
+
+  it('does not render the overflow menu when the row has no actions', () => {
+    renderWithProviders(<ActivityTimeline activities={[createActivity()]} />)
+    expect(screen.queryByRole('button', { name: 'Open actions' })).toBeNull()
+  })
+})
+
+describe('ActivityTimeline Mark done version', () => {
+  it('sends the version of the row as it is now, after a reload replaced it with a newer one', async () => {
+    const onMarkDone = jest.fn(async () => {})
+    const view = renderWithProviders(<ActivityTimeline activities={[createActivity()]} onMarkDone={onMarkDone} />)
+
+    view.rerender(
+      <ActivityTimeline
+        activities={[createActivity({ title: 'Send revised offer v2', updatedAt: '2026-04-11T12:00:00.000Z' })]}
+        onMarkDone={onMarkDone}
+      />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Mark done' }))
+
+    await waitFor(() => expect(onMarkDone).toHaveBeenCalledTimes(1))
+    expect(onMarkDone).toHaveBeenCalledWith('activity-1', '2026-04-11T12:00:00.000Z')
   })
 })

@@ -22,6 +22,13 @@ export type CiphertextLikeFallbackReason =
   | 'search-disabled'
   | 'raw-orm-filter'
 
+export type CiphertextSearchWarning = {
+  entity: string
+  field: string
+  reason: CiphertextLikeFallbackReason
+  hint: string
+}
+
 const REASON_HINTS: Record<CiphertextLikeFallbackReason, string> = {
   'search-disabled':
     'OM_SEARCH_ENABLED is off, so the filter runs as ILIKE against ciphertext and matches nothing.',
@@ -66,16 +73,18 @@ export async function warnOnCiphertextLikeFallback(params: {
   tenantId: string | null
   reason: CiphertextLikeFallbackReason
   service: CiphertextWarningEncryptionService
+  onDiagnostic?: (warning: CiphertextSearchWarning) => void
 }): Promise<void> {
   const { entity, tenantId, reason, service } = params
   if (!service || service.isEnabled?.() === false) return
   if (typeof service.getEncryptedFieldNames !== 'function') return
 
+  const onDiagnostic = process.env.NODE_ENV !== 'production' ? params.onDiagnostic : undefined
   const candidates = params.fields
     .filter((field) => typeof field === 'string' && !field.startsWith('cf:'))
     .map((field) => normalizeColumnName(field))
     .filter((field, index, all) => field.length > 0 && all.indexOf(field) === index)
-    .filter((field) => !warned.has(warnKey(entity, tenantId, field)))
+    .filter((field) => onDiagnostic || !warned.has(warnKey(entity, tenantId, field)))
   if (!candidates.length) return
 
   try {
@@ -88,14 +97,12 @@ export async function warnOnCiphertextLikeFallback(params: {
     )
     for (const field of candidates) {
       if (!encrypted.has(field)) continue
+      const diagnostic = { entity, field, reason, hint: REASON_HINTS[reason] }
+      onDiagnostic?.(diagnostic)
+      if (warned.has(warnKey(entity, tenantId, field))) continue
       if (warned.size >= WARN_CACHE_CAP) warned.clear()
       warned.add(warnKey(entity, tenantId, field))
-      logger.warn('Text search filter cannot match an encrypted column', {
-        entity,
-        field,
-        reason,
-        hint: REASON_HINTS[reason],
-      })
+      logger.warn('Text search filter cannot match an encrypted column', diagnostic)
     }
   } catch (err) {
     logger.debug('Ciphertext search warning check failed', {

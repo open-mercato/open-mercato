@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import EnforcementDeadlineEmail from '../emails/enforcement-deadline'
 import { MfaEnforcementPolicy, UserMfaMethod } from '../data/entities'
+import { inAppNotificationsAvailable } from '../lib/inAppNotifications'
 import { notificationTypes } from '../notifications'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -149,7 +150,7 @@ export async function notifyEnforcementPolicyChange(
   if (!typeDef) return
 
   const em = ctx.resolve<EntityManager>('em').fork()
-  const notificationService = resolveNotificationService(ctx)
+  const notificationService = inAppNotificationsAvailable(ctx) ? resolveNotificationService(ctx) : null
   const policy = await em.findOne(MfaEnforcementPolicy, {
     id: payload.policyId,
     deletedAt: null,
@@ -174,26 +175,28 @@ export async function notifyEnforcementPolicyChange(
   for (const user of users) {
     if (enrolledUserIds.has(user.id)) continue
 
-    const notificationInput = buildNotificationFromType(typeDef, {
-      recipientUserId: user.id,
-      bodyVariables: message.bodyVariables,
-      sourceEntityType: 'security:mfa_enforcement_policy',
-      sourceEntityId: policy.id,
-      linkHref: '/backend/profile/security/mfa',
-      groupKey: `security.mfa.enforcement_deadline:${policy.id}`,
-    })
+    if (notificationService) {
+      const notificationInput = buildNotificationFromType(typeDef, {
+        recipientUserId: user.id,
+        bodyVariables: message.bodyVariables,
+        sourceEntityType: 'security:mfa_enforcement_policy',
+        sourceEntityId: policy.id,
+        linkHref: '/backend/profile/security/mfa',
+        groupKey: `security.mfa.enforcement_deadline:${policy.id}`,
+      })
 
-    await notificationService.create(
-      {
-        ...notificationInput,
-        bodyKey: message.bodyKey,
-        body: message.bodyKey,
-      },
-      {
-        tenantId: user.tenantId,
-        organizationId: user.organizationId,
-      },
-    )
+      await notificationService.create(
+        {
+          ...notificationInput,
+          bodyKey: message.bodyKey,
+          body: message.bodyKey,
+        },
+        {
+          tenantId: user.tenantId,
+          organizationId: user.organizationId,
+        },
+      )
+    }
 
     if (user.email) {
       await sendEmail({

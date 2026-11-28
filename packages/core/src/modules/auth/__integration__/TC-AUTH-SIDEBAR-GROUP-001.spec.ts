@@ -99,14 +99,30 @@ async function expectGroupLinks(
 }
 
 async function saveAndSettle(page: Page): Promise<void> {
+  const preferencesSaved = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === '/api/auth/sidebar/preferences'
+      && response.request().method() === 'PUT',
+  );
   await page.getByRole('button', { name: SAVE_ACTION_NAME }).first().click();
-  // The action relabels while in flight ("Saving…"/"Creating…"); wait for it to come back.
-  await expect(page.getByRole('button', { name: SAVE_ACTION_NAME }).first()).toBeVisible({
-    timeout: 30_000,
-  });
+  expect((await preferencesSaved).ok(), 'sidebar preferences should save successfully').toBe(true);
+  await expect(page.getByRole('button', { name: SAVE_ACTION_NAME }).first()).toBeDisabled();
 }
 
 test.describe('sidebar group visibility toggle', () => {
+  let restoreGroupName: string | null = null;
+
+  test.afterEach(async ({ page }) => {
+    if (!restoreGroupName) return;
+    await page.goto(CUSTOMIZATION_PATH);
+    const groupSwitch = page.getByRole('switch', { name: `Show ${restoreGroupName}`, exact: true });
+    await expect(groupSwitch).toBeVisible();
+    if (await groupSwitch.getAttribute('aria-checked') === 'false') {
+      await groupSwitch.click();
+      await saveAndSettle(page);
+    }
+    await expect(groupSwitch).toHaveAttribute('aria-checked', 'true');
+    restoreGroupName = null;
+  });
   test('hides a whole group in one action, persists it, and drops its entries from the sidebar', async ({ page }) => {
     test.slow();
     await login(page);
@@ -121,6 +137,11 @@ test.describe('sidebar group visibility toggle', () => {
     const accessibleName = (await groupSwitch.getAttribute('aria-label')) ?? '';
     const groupName = accessibleName.replace(/^Show\s+/, '').trim();
     expect(groupName.length, 'the switch should name the group it controls').toBeGreaterThan(0);
+    restoreGroupName = groupName;
+    if (await groupSwitch.getAttribute('aria-checked') === 'false') {
+      await groupSwitch.click();
+      await saveAndSettle(page);
+    }
     await expect(groupSwitch, 'the group should start visible').toHaveAttribute('aria-checked', 'true');
     const declaredGroupHrefs = await visibleGroupHrefs(page, groupName);
     const renderedBaselineHrefs = await sidebarHrefs(page);
@@ -133,39 +154,34 @@ test.describe('sidebar group visibility toggle', () => {
     await expectGroupLinks(page, groupHrefs, true);
     await page.goto(CUSTOMIZATION_PATH);
 
-    try {
-      await namedSwitch().click();
-      await expect(namedSwitch(), 'one click should switch the whole group off').toHaveAttribute(
-        'aria-checked',
-        'false',
-      );
+    await namedSwitch().click();
+    await expect(namedSwitch(), 'one click should switch the whole group off').toHaveAttribute(
+      'aria-checked',
+      'false',
+    );
 
-      await saveAndSettle(page);
+    await saveAndSettle(page);
 
-      // Persistence: the state must survive a full reload, not merely live in the draft.
-      await page.reload();
-      await expect(namedSwitch(), 'the hidden state should survive a reload').toHaveAttribute(
-        'aria-checked',
-        'false',
-        { timeout: 30_000 },
-      );
+    // Persistence: the state must survive a full reload, not merely live in the draft.
+    await page.reload();
+    await expect(namedSwitch(), 'the hidden state should survive a reload').toHaveAttribute(
+      'aria-checked',
+      'false',
+      { timeout: 30_000 },
+    );
 
-      await expect
-        .poll(() => visibleGroupHrefs(page, groupName), {
-          message: `the nav payload should hide every entry in "${groupName}"`,
-          timeout: 30_000,
-        })
-        .toEqual([]);
+    await expect
+      .poll(() => visibleGroupHrefs(page, groupName), {
+        message: `the nav payload should hide every entry in "${groupName}"`,
+        timeout: 30_000,
+      })
+      .toEqual([]);
 
-      await page.goto(BACKEND_PATH);
-      await expectGroupLinks(page, groupHrefs, false);
-    } finally {
-      await page.goto(CUSTOMIZATION_PATH).catch(() => undefined);
-      if ((await namedSwitch().getAttribute('aria-checked').catch(() => null)) === 'false') {
-        await namedSwitch().click().catch(() => undefined);
-        await saveAndSettle(page).catch(() => undefined);
-      }
-    }
+    await page.goto(BACKEND_PATH);
+    await expectGroupLinks(page, groupHrefs, false);
+    await page.goto(CUSTOMIZATION_PATH);
+    await namedSwitch().click();
+    await saveAndSettle(page);
 
     await expect(namedSwitch(), 'toggling back on should restore the group').toHaveAttribute(
       'aria-checked',

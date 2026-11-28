@@ -1,7 +1,7 @@
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
-import { discoverIntegrationSpecFiles } from '../integration-discovery'
+import { discoverIntegrationSpecFiles, isAppOwnedIntegrationSpecPath } from '../integration-discovery'
 
 async function writeTestFile(projectRoot: string, relativePath: string, content = 'export {}\n'): Promise<void> {
   const absolutePath = path.join(projectRoot, relativePath)
@@ -17,6 +17,8 @@ describe('integration discovery', () => {
     'OM_TEST_DISCOVERY_FALLBACK_AI_KEY',
     'OM_TEST_DISCOVERY_REQUIRED_KEY',
     'OM_TEST_APP_ROOT',
+    'OM_INTEGRATION_APP_ONLY',
+    'OM_INTEGRATION_SKIP_METADATA_FILTERS',
   ] as const
   const previousTestEnvValues = new Map<string, string | undefined>()
 
@@ -194,6 +196,95 @@ describe('integration discovery', () => {
     ])
   })
 
+  it('skips standalone specs whose owning module the OM_TEST_APP_ROOT app does not ship', async () => {
+    for (const moduleId of ['catalog', 'ecommerce', 'record_locks_probe', 'official_probe']) {
+      await writeTestFile(tempRoot, `packages/core/src/modules/${moduleId}/index.ts`)
+      await writeTestFile(tempRoot, `packages/core/src/modules/${moduleId}/__integration__/TC-${moduleId}.spec.ts`)
+    }
+    await writeTestFile(tempRoot, 'packages/core/src/modules/catalog/__integration__/nested/TC-catalog-nested.spec.ts')
+    await writeTestFile(tempRoot, 'packages/core/src/modules/core/__integration__/TC-core-shell.spec.ts')
+    await writeTestFile(tempRoot, 'packages/ui/__integration__/TC-ui.spec.ts')
+    await writeTestFile(
+      tempRoot,
+      'standalone-app/src/modules.ts',
+      [
+        "export const enabledModules = [",
+        "  { id: 'catalog', from: '@open-mercato/core' },",
+        "  // { id: 'ecommerce', from: '@open-mercato/core' },",
+        ']',
+        "if (process.env.FLAG) enabledModules.push({ id: 'record_locks_probe', from: '@open-mercato/core' })",
+        '',
+      ].join('\n'),
+    )
+    await writeTestFile(
+      tempRoot,
+      'standalone-app/src/official-modules.generated.ts',
+      "export const officialModuleEntries = [{ id: 'official_probe', from: '@open-mercato/official' }]\n",
+    )
+
+    let discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toContain(
+      'packages/core/src/modules/ecommerce/__integration__/TC-ecommerce.spec.ts',
+    )
+
+    process.env.OM_TEST_APP_ROOT = path.join(tempRoot, 'standalone-app')
+    discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toEqual([
+      'packages/core/src/modules/catalog/__integration__/nested/TC-catalog-nested.spec.ts',
+      'packages/core/src/modules/catalog/__integration__/TC-catalog.spec.ts',
+      'packages/core/src/modules/core/__integration__/TC-core-shell.spec.ts',
+      'packages/core/src/modules/official_probe/__integration__/TC-official_probe.spec.ts',
+      'packages/core/src/modules/record_locks_probe/__integration__/TC-record_locks_probe.spec.ts',
+      'packages/ui/__integration__/TC-ui.spec.ts',
+    ])
+  })
+
+  it('keeps conditional enabledModules pushes out of standalone dependency filtering', async () => {
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/index.ts')
+    await writeTestFile(
+      tempRoot,
+      'packages/core/src/modules/sales/__integration__/TC-SALES-030.meta.ts',
+      "export const integrationMeta = { dependsOnModules: ['gated_probe'] }\n",
+    )
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/__integration__/TC-SALES-030.spec.ts')
+    await writeTestFile(
+      tempRoot,
+      'standalone-app/src/modules.ts',
+      "export const enabledModules = [{ id: 'sales', from: '@open-mercato/core' }]\nif (process.env.FLAG) enabledModules.push({ id: 'gated_probe', from: '@app' })\n",
+    )
+    process.env.OM_TEST_APP_ROOT = path.join(tempRoot, 'standalone-app')
+
+    const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toEqual([])
+  })
+
+  it('fails loudly when OM_TEST_APP_ROOT has no modules.ts instead of skipping every spec', async () => {
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/index.ts')
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/__integration__/TC-SALES-040.spec.ts')
+    process.env.OM_TEST_APP_ROOT = path.join(tempRoot, 'missing-standalone-app')
+
+    expect(() => discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))).toThrow(/modules\.ts/)
+  })
+
+  it('reads only the top-level enabledModules declaration of a standalone app', async () => {
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/index.ts')
+    await writeTestFile(
+      tempRoot,
+      'packages/core/src/modules/sales/__integration__/TC-SALES-041.meta.ts',
+      "export const integrationMeta = { dependsOnModules: ['nested_probe'] }\n",
+    )
+    await writeTestFile(tempRoot, 'packages/core/src/modules/sales/__integration__/TC-SALES-041.spec.ts')
+    await writeTestFile(
+      tempRoot,
+      'standalone-app/src/modules.ts',
+      "export const enabledModules = [{ id: 'sales', from: '@open-mercato/core' }]\nfunction preview() {\n  const enabledModules = [{ id: 'nested_probe', from: '@app' }]\n  return enabledModules\n}\n",
+    )
+    process.env.OM_TEST_APP_ROOT = path.join(tempRoot, 'standalone-app')
+
+    const discovered = discoverIntegrationSpecFiles(tempRoot, path.join(tempRoot, '.ai', 'qa', 'tests'))
+    expect(discovered.map((entry) => entry.path)).toEqual([])
+  })
+
   it('applies folder and per-test metadata environment requirements', async () => {
     await writeTestFile(tempRoot, 'packages/ai-assistant/src/modules/ai_assistant/.gitkeep')
     await writeTestFile(
@@ -241,5 +332,47 @@ describe('integration discovery', () => {
       'packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-001.spec.ts',
       'packages/ai-assistant/src/modules/ai_assistant/__integration__/TC-AI-002.spec.ts',
     ])
+  })
+
+  it('keeps installed package specs by default and drops them when app-only discovery is enabled', async () => {
+    await writeTestFile(tempRoot, 'src/modules/orders/__integration__/TC-APP-001.spec.ts')
+    await writeTestFile(tempRoot, 'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts')
+
+    const legacyRoot = path.join(tempRoot, '.ai', 'qa', 'tests')
+    expect(discoverIntegrationSpecFiles(tempRoot, legacyRoot).map((entry) => entry.path)).toEqual([
+      'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts',
+      'src/modules/orders/__integration__/TC-APP-001.spec.ts',
+    ])
+
+    process.env.OM_INTEGRATION_APP_ONLY = '1'
+    expect(discoverIntegrationSpecFiles(tempRoot, legacyRoot).map((entry) => entry.path)).toEqual([
+      'src/modules/orders/__integration__/TC-APP-001.spec.ts',
+    ])
+  })
+
+  it('keeps a spec whose metadata the caller environment cannot satisfy when metadata filters are skipped', async () => {
+    await writeTestFile(tempRoot, 'src/modules/orders/__integration__/TC-APP-001.spec.ts')
+    await writeTestFile(
+      tempRoot,
+      'src/modules/orders/__integration__/meta.ts',
+      "export const integrationMeta = { dependsOnModules: ['missing_module'], requiredEnvVars: ['OM_TEST_DISCOVERY_REQUIRED_KEY'] }\n",
+    )
+    await writeTestFile(tempRoot, 'node_modules/@open-mercato/webhooks/src/modules/webhooks/__integration__/TC-WH-001.spec.ts')
+    const legacyRoot = path.join(tempRoot, '.ai', 'qa', 'tests')
+    process.env.OM_INTEGRATION_APP_ONLY = '1'
+
+    expect(discoverIntegrationSpecFiles(tempRoot, legacyRoot)).toEqual([])
+
+    process.env.OM_INTEGRATION_SKIP_METADATA_FILTERS = '1'
+    expect(discoverIntegrationSpecFiles(tempRoot, legacyRoot).map((entry) => entry.path)).toEqual([
+      'src/modules/orders/__integration__/TC-APP-001.spec.ts',
+    ])
+  })
+
+  it('classifies spec paths under node_modules as not app-owned', () => {
+    expect(isAppOwnedIntegrationSpecPath('src/modules/orders/__integration__/TC-APP-001.spec.ts')).toBe(true)
+    expect(isAppOwnedIntegrationSpecPath('.ai/qa/tests/TC-APP-002.spec.ts')).toBe(true)
+    expect(isAppOwnedIntegrationSpecPath('node_modules/@open-mercato/search/src/modules/search/__integration__/TC-S-001.spec.ts')).toBe(false)
+    expect(isAppOwnedIntegrationSpecPath('packages/app/node_modules/x/__integration__/TC-X-001.spec.ts')).toBe(false)
   })
 })

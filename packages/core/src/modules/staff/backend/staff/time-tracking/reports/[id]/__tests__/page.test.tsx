@@ -14,6 +14,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open-mercato/shared/modules/widgets/injection-loader'
 import TimeTrackingReportDetailPage from '../page'
 
 function renderWithQueryClient(children: React.ReactElement) {
@@ -119,7 +120,12 @@ function renderPage(options: {
   rowCount?: number
 }) {
   mockSearchParams = new URLSearchParams(options.search)
-  mockUseBackendChrome.mockReturnValue({ payload: { grantedFeatures: options.features } } as never)
+  mockUseBackendChrome.mockReturnValue({
+    payload: { grantedFeatures: options.features },
+    isLoading: false,
+    isReady: true,
+    refresh: jest.fn(),
+  } as never)
   mockReadApiResultOrThrow.mockImplementation(
     async () => sheetPayload(options.status, options.rows, options.rowCount) as never,
   )
@@ -129,6 +135,8 @@ function renderPage(options: {
 const UNLOCK_FEATURES = ['staff.timesheets.reports.unlock', 'staff.timesheets.rates.view']
 
 beforeEach(() => {
+  registerCoreInjectionWidgets([])
+  registerCoreInjectionTables([])
   jest.clearAllMocks()
   mockUseConfirmDialog.mockReturnValue({
     confirm: jest.fn(async () => true),
@@ -204,5 +212,16 @@ describe('report detail — locked entries table', () => {
 
     await waitFor(() => expect(screen.getByTestId('report-sheet')).toBeInTheDocument())
     expect(screen.queryByText('Locked entries')).not.toBeInTheDocument()
+  })
+
+  it('scrolls the locked-entries table inside its card instead of widening the page', async () => {
+    renderPage({ status: 'closed', features: UNLOCK_FEATURES, search: '' })
+
+    const card = await screen.findByTestId('report-locked-entries')
+    const scroller = screen.getByTestId('report-locked-entries-scroll')
+    expect(card).toHaveClass('min-w-0')
+    expect(card).toContainElement(scroller)
+    expect(scroller).toHaveClass('overflow-x-auto')
+    expect(scroller.querySelector('table')).not.toBeNull()
   })
 })

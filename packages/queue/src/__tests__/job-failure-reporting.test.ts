@@ -166,6 +166,26 @@ describe('queue job failures are reported, not only logged', () => {
 
       await queue.close()
     })
+
+    it('reports a malformed active lease before failing open', async () => {
+      const { runtime, reported } = runtimeStub()
+      registerTelemetryRuntime(runtime)
+      const queue = createQueue<{ value: number }>('data-sync', 'local')
+      await queue.enqueue({ value: 1 }, { coalesce: { key: 'record:1' } })
+      fs.writeFileSync(path.join('.mercato', 'queue', 'data-sync', 'active.json'), 'not json', 'utf8')
+
+      await queue.enqueue({ value: 2 }, { coalesce: { key: 'record:1' } })
+
+      expect(reported).toEqual([
+        expect.objectContaining({
+          code: 'queue.active_lease_parse_failed',
+          message: expect.stringContaining('Unexpected token'),
+          attributes: expect.objectContaining({ queue: 'data-sync' }),
+        }),
+      ])
+
+      await queue.close()
+    })
   })
 
   describe('async strategy', () => {

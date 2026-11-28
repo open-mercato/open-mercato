@@ -2,11 +2,25 @@ import * as client from 'openid-client'
 import { createHash } from 'node:crypto'
 import type { SsoConfig } from '../data/entities'
 import type { SsoIdentityPayload, SsoProtocolProvider } from './types'
-import { createOidcFetch } from './oidc-url-safety'
+import type { UrlSafetyReason } from '@open-mercato/shared/lib/url-safety'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createOidcFetch, UnsafeOidcUrlError } from './oidc-url-safety'
 
 const OIDC_DISCOVERY_TIMEOUT_SECONDS = 10
 const OIDC_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000
 const OIDC_DISCOVERY_CACHE_MAX_ENTRIES = 100
+
+const OIDC_URL_ERROR_MESSAGES: Record<UrlSafetyReason, { key: string; fallback: string }> = {
+  invalid_url: { key: 'sso.errors.oidc_url.invalid_url', fallback: 'OIDC endpoint URL is invalid' },
+  forbidden_protocol: { key: 'sso.errors.oidc_url.forbidden_protocol', fallback: 'OIDC endpoint URL must use HTTPS' },
+  credentials_in_url: { key: 'sso.errors.oidc_url.credentials_in_url', fallback: 'OIDC endpoint URL must not contain credentials' },
+  missing_host: { key: 'sso.errors.oidc_url.missing_host', fallback: 'OIDC endpoint URL must include a host' },
+  blocked_hostname: { key: 'sso.errors.oidc_url.blocked_hostname', fallback: 'OIDC endpoint host is not allowed' },
+  private_ip_literal: { key: 'sso.errors.oidc_url.private_ip_literal', fallback: 'OIDC endpoint must use a public IP address' },
+  private_ip_resolved: { key: 'sso.errors.oidc_url.private_ip_resolved', fallback: 'OIDC endpoint must resolve only to public IP addresses' },
+  dns_resolution_failed: { key: 'sso.errors.oidc_url.dns_resolution_failed', fallback: 'OIDC endpoint DNS lookup failed; check the provider configuration' },
+  dns_resolution_empty: { key: 'sso.errors.oidc_url.dns_resolution_empty', fallback: 'OIDC endpoint has no DNS address records; check the provider configuration' },
+}
 
 interface CachedDiscovery {
   expiresAt: number
@@ -75,7 +89,7 @@ export class OidcProvider implements SsoProtocolProvider {
 
     const claims = tokens.claims()
     if (!claims) {
-      throw new Error('No ID token claims received from IdP')
+      throw new Error('[internal] No ID token claims received from IdP')
     }
 
     const mergedClaims = await mergeWithUserInfoClaims(oidcConfig, tokens, claims)
@@ -86,7 +100,7 @@ export class OidcProvider implements SsoProtocolProvider {
     const upnAsEmail = typeof upnCandidate === 'string' && upnCandidate.includes('@') ? upnCandidate : undefined
     const email = rawEmail ?? upnAsEmail
     if (!email) {
-      throw new Error('IdP did not return an email claim (checked: email, upn, unique_name)')
+      throw new Error('[internal] IdP did not return an email claim (checked: email, upn, unique_name)')
     }
 
     const emailVerified = normalizeEmailVerifiedClaim(mergedClaims.email_verified)
@@ -105,10 +119,25 @@ export class OidcProvider implements SsoProtocolProvider {
     config: SsoConfig,
     params?: { clientSecret?: string },
   ): Promise<{ ok: boolean; error?: string }> {
+    if (!config.issuer || !config.clientId) {
+      const { translate } = await resolveTranslations()
+      return config.issuer
+        ? { ok: false, error: translate('sso.errors.discovery.missingClientId', 'SSO config is missing client ID') }
+        : { ok: false, error: translate('sso.errors.discovery.missingIssuer', 'SSO config is missing issuer URL') }
+    }
     try {
       await this.discover(config, params?.clientSecret)
       return { ok: true }
     } catch (err) {
+      let cause: unknown = err
+      for (let depth = 0; depth < 10 && cause instanceof Error; depth += 1) {
+        if (cause instanceof UnsafeOidcUrlError) {
+          const { translate } = await resolveTranslations()
+          const message = OIDC_URL_ERROR_MESSAGES[cause.reason]
+          return { ok: false, error: translate(message.key, message.fallback) }
+        }
+        cause = cause.cause
+      }
       return {
         ok: false,
         error: err instanceof Error ? err.message : 'Discovery failed',
@@ -121,10 +150,10 @@ export class OidcProvider implements SsoProtocolProvider {
     clientSecret?: string,
   ): Promise<client.Configuration> {
     if (!config.issuer) {
-      throw new Error('SSO config is missing issuer URL')
+      throw new Error('[internal] SSO config is missing issuer URL')
     }
     if (!config.clientId) {
-      throw new Error('SSO config is missing client ID')
+      throw new Error('[internal] SSO config is missing client ID')
     }
 
     const clientSecretFingerprint = createHash('sha256')

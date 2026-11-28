@@ -1,5 +1,6 @@
+import { getEnabledModuleIdentities } from '../module-identity'
 import path from 'node:path'
-import { readOfficialModulePackageFromRoot, resolveInstalledPackageRoot } from '../module-package'
+import { resolveInstalledOfficialModulePackage } from '../module-package'
 import type { PackageResolver } from '../resolver'
 import { calculateChecksum, createGeneratorResult, type GeneratorResult, writeGeneratedFile } from '../utils'
 
@@ -24,14 +25,15 @@ export async function generateModulePackageSources(
   const sourcePaths = new Set<string>()
   const checksumInputs = new Set<string>()
 
-  for (const entry of resolver.loadEnabledModules()) {
-    if (!entry.from || entry.from === '@app' || entry.from === '@open-mercato/core') continue
+  const enabled = resolver.loadEnabledModules()
+  getEnabledModuleIdentities(resolver, enabled)
 
-    const packageRoot = resolveInstalledPackageRoot(resolver, entry.from)
+  for (const entry of enabled) {
+    if (!entry.from || entry.from === '@app' || entry.from === '@open-mercato/core') continue
 
     let modulePackage
     try {
-      modulePackage = readOfficialModulePackageFromRoot(packageRoot, entry.from, entry.id)
+      modulePackage = resolveInstalledOfficialModulePackage(resolver, entry.from, entry.id)
     } catch {
       continue
     }

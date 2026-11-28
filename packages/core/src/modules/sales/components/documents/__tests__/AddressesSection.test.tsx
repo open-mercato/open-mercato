@@ -4,20 +4,27 @@
 
 import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { SalesDocumentAddressesSection } from '../AddressesSection'
+
+type TabEmptyStateMockProps = Pick<
+  React.ComponentProps<typeof import('@open-mercato/ui/backend/detail').TabEmptyState>,
+  'action'
+>
 
 const mockApiCall = jest.fn()
 const mockApiCallOrThrow = jest.fn()
+const mockScopedHeaders = jest.fn()
 const mockTranslate = (_key: string, fallback?: string) => fallback ?? _key
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: any[]) => mockApiCall(...args),
   apiCallOrThrow: (...args: any[]) => mockApiCallOrThrow(...args),
-  withScopedApiRequestHeaders: async (_headers: unknown, operation: () => Promise<unknown>) => operation(),
-}))
-
-jest.mock('@open-mercato/ui/backend/utils/optimisticLock', () => ({
-  buildOptimisticLockHeader: () => ({}),
+  withScopedApiRequestHeaders: async (headers: unknown, operation: () => Promise<unknown>) => {
+    mockScopedHeaders(headers)
+    return operation()
+  },
 }))
 
 jest.mock('@open-mercato/ui/backend/utils/crud', () => ({
@@ -38,7 +45,12 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   ErrorMessage: () => null,
   LoadingMessage: () => null,
-  TabEmptyState: () => null,
+  TabEmptyState: ({ action }: TabEmptyStateMockProps) =>
+    action ? (
+      <button type="button" onClick={action.onClick} disabled={action.disabled}>
+        {action.label}
+      </button>
+    ) : null,
 }))
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
@@ -106,6 +118,9 @@ jest.mock('@open-mercato/core/modules/customers/components/AddressEditor', () =>
       <button type="button" onClick={() => onChange({ ...value, city: '' })}>
         Clear city
       </button>
+      <button type="button" onClick={() => onChange({ ...value, addressLine1: '1 Dock Road' })}>
+        Fill address line
+      </button>
     </>
   ),
 }))
@@ -129,30 +144,34 @@ jest.mock('lucide-react', () => ({
   Trash2: () => null,
 }))
 
+function mockDefaultApi() {
+  mockApiCall.mockImplementation(async (url: string) => {
+    if (url.startsWith('/api/customers/addresses?')) {
+      return {
+        ok: true,
+        result: {
+          items: [{
+            id: 'customer-address-1',
+            name: 'Main warehouse',
+            address_line1: '12 Market Street',
+            city: 'London',
+            postal_code: 'SW1A 1AA',
+            country: 'GB',
+          }],
+        },
+      }
+    }
+    if (url === '/api/customers/settings/address-format') {
+      return { ok: true, result: { addressFormat: 'line_first' } }
+    }
+    return { ok: true, result: { items: [] } }
+  })
+}
+
 describe('SalesDocumentAddressesSection', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockApiCall.mockImplementation(async (url: string) => {
-      if (url.startsWith('/api/customers/addresses?')) {
-        return {
-          ok: true,
-          result: {
-            items: [{
-              id: 'customer-address-1',
-              name: 'Main warehouse',
-              address_line1: '12 Market Street',
-              city: 'London',
-              postal_code: 'SW1A 1AA',
-              country: 'GB',
-            }],
-          },
-        }
-      }
-      if (url === '/api/customers/settings/address-format') {
-        return { ok: true, result: { addressFormat: 'line_first' } }
-      }
-      return { ok: true, result: { items: [] } }
-    })
+    mockDefaultApi()
   })
 
   it('omits null snapshots for a saved address and adopts the server-resolved snapshot', async () => {
@@ -511,5 +530,190 @@ describe('SalesDocumentAddressesSection', () => {
     )
     await screen.findAllByRole('combobox')
     expect(screen.queryByText(/1234567890/)).toBeNull()
+  })
+})
+
+describe('SalesDocumentAddressesSection additional addresses (#6194)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockDefaultApi()
+  })
+
+  function renderSection() {
+    return render(
+      <SalesDocumentAddressesSection documentId="order-1" kind="order" customerId="customer-1" />,
+    )
+  }
+
+  // The empty state unmounts while the document addresses load and mounts again after, so the
+  // click is retried until the form title shows instead of targeting a node from the first paint.
+  async function openAdditionalForm() {
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add address' }))
+      expect(screen.getByText('Add a new address')).toBeInTheDocument()
+    })
+  }
+
+  it('opens straight on the address fields when the customer has no saved addresses', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/customers/settings/address-format') return { ok: true, result: { addressFormat: 'line_first' } }
+      return { ok: true, result: { items: [] } }
+    })
+    renderSection()
+
+    await openAdditionalForm()
+
+    expect(screen.getByTestId('address-editor-disabled')).toHaveTextContent('false')
+    expect(screen.queryByRole('radiogroup', { name: 'Address source' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Save address' })).toBeInTheDocument()
+  })
+
+  it('offers saved or new with the saved address first when the customer has one', async () => {
+    renderSection()
+
+    await openAdditionalForm()
+
+    const source = await screen.findByRole('radiogroup', { name: 'Address source' })
+    expect(source).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('radio', { name: 'Saved address' })).toBeChecked())
+    expect(screen.queryByTestId('address-editor-disabled')).toBeNull()
+
+    fireEvent.click(screen.getByRole('radio', { name: 'New address' }))
+    expect(screen.getByTestId('address-editor-disabled')).toHaveTextContent('false')
+    expect(screen.getByRole('button', { name: 'Save address' })).toBeInTheDocument()
+  })
+
+  it('hides the header entry point while the empty state offers the only one', async () => {
+    renderSection()
+    await screen.findByRole('button', { name: 'Add address' })
+    expect(screen.getAllByRole('button', { name: 'Add address' })).toHaveLength(1)
+  })
+})
+
+describe('SalesDocumentAddressesSection on a document with no customer (#3531)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/customers/settings/address-format') return { ok: true, result: { addressFormat: 'line_first' } }
+      return { ok: true, result: { items: [] } }
+    })
+  })
+
+  it('lets the shipping address be defined while saving it to a customer stays unavailable', async () => {
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: {} })
+    render(<SalesDocumentAddressesSection documentId="order-1" kind="order" customerId={null} />)
+
+    const defineNew = await screen.findByLabelText('Define new address')
+    expect(defineNew).not.toBeDisabled()
+    fireEvent.click(defineNew)
+    fireEvent.click(await screen.findByRole('button', { name: 'Fill address line' }))
+    expect(screen.getByLabelText('Save this address to the customer')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [url, request] = mockApiCallOrThrow.mock.calls[0]
+    expect(url).toBe('/api/sales/orders')
+    expect(JSON.parse(request.body)).toMatchObject({
+      id: 'order-1',
+      shippingAddressId: null,
+      shippingAddressSnapshot: expect.objectContaining({ addressLine1: '1 Dock Road' }),
+    })
+  })
+
+  it('keeps saving to the customer available once a customer is linked', async () => {
+    render(<SalesDocumentAddressesSection documentId="order-1" kind="order" customerId="customer-1" />)
+
+    fireEvent.click(await screen.findByLabelText('Define new address'))
+    expect(await screen.findByLabelText('Save this address to the customer')).not.toBeDisabled()
+  })
+
+  it('saves an additional address for the document without a customer address behind it', async () => {
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: { id: 'document-address-1' } })
+    render(<SalesDocumentAddressesSection documentId="order-1" kind="order" customerId={null} />)
+
+    await waitFor(() => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add address' }))
+      expect(screen.getByText('Add a new address')).toBeInTheDocument()
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Fill address line' }))
+    const save = screen.getByRole('button', { name: 'Save address' })
+    expect(save).not.toBeDisabled()
+    fireEvent.click(save)
+
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+    const [url, request] = mockApiCallOrThrow.mock.calls[0]
+    expect(url).toBe('/api/sales/document-addresses')
+    const payload = JSON.parse(request.body)
+    expect(payload).toMatchObject({ documentId: 'order-1', documentKind: 'order', addressLine1: '1 Dock Road' })
+    expect(payload).not.toHaveProperty('customerAddressId')
+  })
+})
+
+describe('SalesDocumentAddressesSection document version on save', () => {
+  const loadedVersion = '2026-11-17T01:00:00.000Z'
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url === '/api/customers/settings/address-format') return { ok: true, result: { addressFormat: 'line_first' } }
+      return { ok: true, result: { items: [] } }
+    })
+  })
+
+  async function saveCustomShipping() {
+    fireEvent.click(await screen.findByLabelText('Define new address'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Fill address line' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Update addresses' }))
+    await waitFor(() => expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1))
+  }
+
+  it('sends the loaded document version and adopts the fresh one', async () => {
+    const freshVersion = '2026-11-17T01:05:00.000Z'
+    mockApiCallOrThrow.mockResolvedValue({ ok: true, result: { updatedAt: freshVersion } })
+    const onUpdated = jest.fn()
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId={null}
+        documentUpdatedAt={loadedVersion}
+        onUpdated={onUpdated}
+      />,
+    )
+
+    await saveCustomShipping()
+
+    expect(mockScopedHeaders).toHaveBeenCalledWith({ [OPTIMISTIC_LOCK_HEADER_NAME]: loadedVersion })
+    await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(expect.objectContaining({ updatedAt: freshVersion })))
+  })
+
+  it('reloads instead of reporting success when another user saved the document first', async () => {
+    mockApiCallOrThrow.mockRejectedValue(Object.assign(new Error('Conflict'), {
+      status: 409,
+      body: {
+        error: 'record_modified',
+        code: 'optimistic_lock_conflict',
+        currentUpdatedAt: '2026-11-17T01:03:00.000Z',
+        expectedUpdatedAt: loadedVersion,
+      },
+    }))
+    const onUpdated = jest.fn()
+    const onReload = jest.fn()
+    render(
+      <SalesDocumentAddressesSection
+        documentId="order-1"
+        kind="order"
+        customerId={null}
+        documentUpdatedAt={loadedVersion}
+        onUpdated={onUpdated}
+        onReload={onReload}
+      />,
+    )
+
+    await saveCustomShipping()
+
+    await waitFor(() => expect(onReload).toHaveBeenCalled())
+    expect(onUpdated).not.toHaveBeenCalled()
+    expect(flash).not.toHaveBeenCalledWith('Document updated.', 'success')
   })
 })

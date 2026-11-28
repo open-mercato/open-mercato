@@ -5,10 +5,12 @@ import {
   DEFAULT_TIME_TRACKING_SETTINGS,
   STAFF_TIME_TRACKING_MODULE_ID,
   TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY,
+  TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY,
   TIME_TRACKING_SETTING_KEYS,
   normalizeTimeTrackingSettings,
   readTimeTrackingSettings,
   writeTimeTrackingSettings,
+  type TimeTrackingEntryDefaults,
 } from '../settings'
 
 const TENANT = 'tenant-1'
@@ -116,5 +118,93 @@ describe('staffTimeTrackingSettingsSchema access group', () => {
     expect(() => staffTimeTrackingSettingsSchema.parse({ access: { assignmentGraceDays: -1 } })).toThrow()
     expect(() => staffTimeTrackingSettingsSchema.parse({ access: { assignmentGraceDays: 1.5 } })).toThrow()
     expect(() => staffTimeTrackingSettingsSchema.parse({ access: { assignmentGraceDays: 366 } })).toThrow()
+  })
+})
+
+describe('time tracking entry mode setting', () => {
+  it('registers defaults.entryMode as a built-in key defaulting to task', () => {
+    expect(TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY).toBe('defaults.entryMode')
+    expect(TIME_TRACKING_SETTING_KEYS).toContain(TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY)
+    expect(DEFAULT_TIME_TRACKING_SETTINGS.defaults.entryMode).toBe('task')
+    expect(normalizeTimeTrackingSettings({}).defaults.entryMode).toBe('task')
+  })
+
+  it('falls back to task for an unknown stored value', async () => {
+    const { service } = createConfigService({ [TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY]: 'tasks' })
+    const read = await readTimeTrackingSettings(service, SCOPE)
+    expect(read.defaults.entryMode).toBe('task')
+  })
+
+  it('normalizes and writes a pre-#6989 defaults group without entryMode as task', async () => {
+    const legacyDefaults: TimeTrackingEntryDefaults = { billable: false, chainStartFromPreviousEnd: true }
+    expect(normalizeTimeTrackingSettings({ defaults: legacyDefaults }).defaults).toEqual({
+      billable: false,
+      chainStartFromPreviousEnd: true,
+      entryMode: 'task',
+    })
+    const { store, service } = createConfigService()
+    await writeTimeTrackingSettings(service, SCOPE, { defaults: legacyDefaults })
+    expect(store.get(TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY)).toBe('task')
+  })
+
+  it('round-trips project mode and keeps the other defaults', async () => {
+    const { store, service } = createConfigService()
+    await writeTimeTrackingSettings(service, SCOPE, {
+      defaults: { billable: false, chainStartFromPreviousEnd: true, entryMode: 'project' },
+    })
+    expect(store.get(TIME_TRACKING_DEFAULTS_ENTRY_MODE_KEY)).toBe('project')
+    const read = await readTimeTrackingSettings(service, SCOPE)
+    expect(read.defaults).toEqual({ billable: false, chainStartFromPreviousEnd: true, entryMode: 'project' })
+  })
+})
+
+describe('readTimeTrackingSettings batched reads', () => {
+  function createBatchedConfigService(initial: Record<string, unknown> = {}) {
+    const store = new Map<string, unknown>(Object.entries(initial))
+    const recordFor = (moduleId: string, name: string) => {
+      if (moduleId !== STAFF_TIME_TRACKING_MODULE_ID || !store.has(name)) return null
+      return {
+        moduleId,
+        name,
+        value: store.get(name),
+        tenantId: TENANT,
+        organizationId: null,
+        source: 'tenant' as const,
+        createdAt: '2026-08-12T00:00:00.000Z',
+        updatedAt: '2026-08-12T00:00:00.000Z',
+      }
+    }
+    // Never called by `getRecord` itself — a real `ModuleConfigService` keeps
+    // the two methods independent, and this spy exists only to prove
+    // `readTimeTrackingSettings` prefers the batched path over it.
+    const getRecord = jest.fn(async (moduleId: string, name: string) => recordFor(moduleId, name))
+    const getRecords = jest.fn(async (moduleId: string, names: readonly string[]) => {
+      const output: Record<string, ReturnType<typeof recordFor>> = {}
+      for (const name of names) output[name] = recordFor(moduleId, name)
+      return output
+    })
+    const service = { getRecord, getRecords } as unknown as ModuleConfigService
+    return { store, service, getRecord, getRecords }
+  }
+
+  it('reads the whole registry through one getRecords call instead of one getRecord call per key', async () => {
+    const { service, getRecord, getRecords } = createBatchedConfigService({
+      [TIME_TRACKING_ACCESS_ASSIGNMENT_GRACE_DAYS_KEY]: 30,
+    })
+    const settings = await readTimeTrackingSettings(service, SCOPE)
+    expect(settings.access.assignmentGraceDays).toBe(30)
+    expect(getRecords).toHaveBeenCalledTimes(1)
+    expect(getRecords).toHaveBeenCalledWith(
+      STAFF_TIME_TRACKING_MODULE_ID,
+      expect.arrayContaining([...TIME_TRACKING_SETTING_KEYS]),
+      SCOPE,
+    )
+    expect(getRecord).not.toHaveBeenCalled()
+  })
+
+  it('keeps an explicit null distinguishable from an absent key through the batched path', async () => {
+    const { service } = createBatchedConfigService({ 'targets.dailyHours': null })
+    const settings = await readTimeTrackingSettings(service, SCOPE)
+    expect(settings.targets).toEqual({ dailyHours: null })
   })
 })

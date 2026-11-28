@@ -13,14 +13,10 @@ export function readRateLimitConfig(): RateLimitGlobalConfig {
 
   const trustProxyDepth = parseTrustProxyDepth(process.env.RATE_LIMIT_TRUST_PROXY_DEPTH)
 
-  // Integration test runs disable rate limiting globally so suites do not
-  // have to juggle per-endpoint bypass headers or reshape default caps.
-  // The targeted OM_TEST_MODE + OM_TEST_AUTH_RATE_LIMIT_MODE=opt-in escape
-  // hatch (checkAuthRateLimit) still works for suites that explicitly test
-  // rate-limit behavior.
   const integrationTest = parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
+  const testRateLimitsEnabled = process.env.OM_TEST_MODE === '1' && process.env.OM_TEST_RATE_LIMIT_MODE === 'enabled'
   const enabled = integrationTest
-    ? false
+    ? testRateLimitsEnabled
     : parseBooleanWithDefault(process.env.RATE_LIMIT_ENABLED, true)
 
   return {

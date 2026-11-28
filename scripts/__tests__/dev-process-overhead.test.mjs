@@ -36,8 +36,23 @@ test('monorepo app runtime runs its script directly from the app workspace', () 
 })
 
 test('direct monorepo app runtime retains access to workspace binaries', () => {
-  const body = functionBody('buildAppDevEnv')
+  assert.match(functionBody('buildAppDevEnv'), /env\.PATH = buildWorkspaceBinPath\(\)/)
 
+  const body = functionBody('buildWorkspaceBinPath')
   assert.match(body, /node_modules', '\.bin'/)
   assert.match(body, /path\.delimiter/)
+})
+
+test('MCP CLI runs as a direct Node child from the app workspace without a Yarn wrapper', () => {
+  const body = functionBody('spawnMcpCommand')
+
+  assert.match(body, /resolveMercatoInvocation\(\{ cwd: mcpCliCwd \}\)/)
+  assert.match(body, /cwd: mcpCliCwd/)
+  assert.match(body, /PATH: buildWorkspaceBinPath\(\)/)
+  assert.doesNotMatch(body, /yarnCommand/)
+  assert.match(source, /const mcpCliCwd = isMonorepo \? monorepoAppDir : process\.cwd\(\)/)
+})
+
+test('MCP cold-start admission retains app dotenv keys with process environment precedence', () => {
+  assert.match(functionBody('readKnownMcpApiKeys'), /process\.env\.MCP_SERVER_API_KEY \?\? appDotEnv\.MCP_SERVER_API_KEY/)
 })

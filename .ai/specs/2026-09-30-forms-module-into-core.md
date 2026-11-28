@@ -220,6 +220,9 @@ The `official-modules` copy is unaffected and remains inert in this repo: the
 activate `forms`. Retiring it there is separate work in that repository, and until it happens the
 two copies can drift — so that PR should follow closely.
 
+The authenticated runner requests `GET /api/forms/form-submissions/by-subject/:subject_type/:subject_id`
+with the optional `resume_form_id` query parameter ([#7067](https://github.com/open-mercato/open-mercato/issues/7067)). This opt-in filter returns active-actor submissions for the subject across the selected form's versions. It includes reopened submissions and drafts with saved progress, ordered by their latest update. A draft with only its initial revision and no recorded field changes is omitted. The authenticated detail response adds `formId` so the runner can check the form, subject and editable status when opening a submission. Requests without the new list filter retain the existing results and ordering. Explicit continuation still supports untouched same-form drafts, and the anonymous transport continues to use its existing token flow.
+
 ## Integration Coverage
 
 Root `AGENTS.md` requires integration coverage for every affected API path and key UI path, shipping
@@ -233,15 +236,27 @@ areas — the P0/P1/P2 breakdown lives in
 - the public runner: start, autosave, submit, resume token, tamper rejection
 - distributions: creation, the public `[slug]` route, embed policy, invitations and `[token]` redemption
 - submissions: list/detail, revisions, reopen, actors, access audit, anonymize, export, PDF
-- attachments on submissions, authenticated and anonymous
+- attachments on submissions, authenticated and anonymous; `TC-FORMS-ATT-005` checks two roles
+  sharing one submission, hidden-field upload/download denial, read-only downloads, and pinned
+  permissions after a newer version is published
 - rate limiting and captcha on the public endpoints
 - the analytics endpoint
 - the portal pages under `frontend/[orgSlug]/portal/forms/**`
+- authenticated draft discovery and continuation via the scoped by-subject list, the draft detail, and the portal runner (`TC-FORMS-PORTAL-003`)
 
 Studio interactions that depend on real drag-and-drop go to browser QA rather than integration
 tests.
 
 ## Security Review
+
+Public attachment uploads require `canWrite(fieldKey)` and downloads require
+`canRead(attachment.fieldKey)`, resolved with the participant's role against the submission's
+pinned compiled form version. Downloads read only scoped field metadata before authorizing;
+unauthorized requests never reach file decryption. Missing roles, fields, versions, and hidden
+attachments fail closed with `404 { error: 'NOT_FOUND' }`, without revealing hidden field names.
+Successful response shapes and route paths stay unchanged. Clients previously uploading to
+read-only/hidden fields or downloading hidden bytes must use a participant role with the required
+field permissions; the newly denied requests are intentional security hardening (#7533).
 
 The module's anonymous surface is the reason this migration needs more than a green gate: on merge,
 `api/public/**` becomes the platform's public surface. A dedicated review covers the unauthenticated
@@ -429,6 +444,8 @@ is static, so failing the boot with one clear message beats thirty runtime 500s.
 
 ## Changelog
 
+- 2026-10-28 — Enforced pinned field-role permissions on public attachment uploads and downloads
+  (#7533), with route regression tests and `TC-FORMS-ATT-005` integration coverage.
 - 2026-10-05 — Review autofix resolved the conflict with `develop`, all Critical/High/Medium
   security findings, missing aggregate optimistic locking, public schema leakage, and disabled
   browser coverage; final validation and browser evidence remain in progress.

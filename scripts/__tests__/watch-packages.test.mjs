@@ -234,8 +234,9 @@ test('runConsolidatedWatch wires one fs.watch per discovered package and trigger
   }
 })
 
-test('runConsolidatedWatch touches only referencing generated barrels after changed output', async () => {
+test('runConsolidatedWatch touches only referencing generated barrels after changed output', async (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-touch-'))
+  const controller = new AbortController()
   try {
     makePackage(root, 'packages', 'alpha', { entryFile: 'index.ts' })
     const generatedDir = path.join(root, 'apps/mercato/.mercato/generated')
@@ -250,10 +251,10 @@ test('runConsolidatedWatch touches only referencing generated barrels after chan
       return { close() {} }
     }
 
-    const controller = new AbortController()
+    const logs = []
     await runConsolidatedWatch({
       root,
-      log: () => {},
+      log: (line) => logs.push(line),
       build: async () => ({ changedOutputPaths: ['dist/change.js'] }),
       watch,
       signal: controller.signal,
@@ -261,17 +262,18 @@ test('runConsolidatedWatch touches only referencing generated barrels after chan
 
     fs.writeFileSync(path.join(root, 'packages/alpha/src/change.json'), '{}\n')
     watchers[0].onChange('change', 'change.json')
-    await new Promise((resolve) => setTimeout(resolve, 150))
+    await context.waitFor(() => assert.ok(logs.includes('[watch] alpha: rebuild complete')), { timeout: 5000 })
 
-    controller.abort()
     assert.ok(fs.statSync(generatedFile).mtimeMs > oldTime.getTime())
   } finally {
+    controller.abort()
     fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('runConsolidatedWatch preserves generated mtimes when rebuild output is unchanged', async () => {
+test('runConsolidatedWatch preserves generated mtimes when rebuild output is unchanged', async (context) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'watch-packages-noop-'))
+  const controller = new AbortController()
   try {
     makePackage(root, 'packages', 'alpha', { entryFile: 'index.ts' })
     const generatedDir = path.join(root, 'apps/mercato/.mercato/generated')
@@ -281,10 +283,10 @@ test('runConsolidatedWatch preserves generated mtimes when rebuild output is unc
     const oldTime = new Date('2020-01-01T00:00:00Z')
     fs.utimesSync(generatedFile, oldTime, oldTime)
     const watchers = []
-    const controller = new AbortController()
+    const logs = []
     await runConsolidatedWatch({
       root,
-      log: () => {},
+      log: (line) => logs.push(line),
       build: async () => ({ changedOutputPaths: [] }),
       watch: (dir, options, onChange) => {
         watchers.push({ dir, options, onChange })
@@ -294,11 +296,11 @@ test('runConsolidatedWatch preserves generated mtimes when rebuild output is unc
     })
 
     watchers[0].onChange('change', 'index.ts')
-    await new Promise((resolve) => setTimeout(resolve, 150))
+    await context.waitFor(() => assert.ok(logs.includes('[watch] alpha: rebuild complete')), { timeout: 5000 })
 
-    controller.abort()
     assert.equal(fs.statSync(generatedFile).mtimeMs, oldTime.getTime())
   } finally {
+    controller.abort()
     fs.rmSync(root, { recursive: true, force: true })
   }
 })

@@ -5,6 +5,7 @@
   "api_keys.copy.warning": "Bewahre diesen Schlüssel sicher auf – er kann später nicht erneut abgerufen werden.",
   "api_keys.errors.forbidden": "Verboten",
   "api_keys.errors.notFound": "Nicht gefunden",
+  "api_keys.errors.organizationMustMatchCreator": "Ein organisationsgebundener API-Schlüssel muss die Organisation Ihres Kontos verwenden. Wählen Sie diese Organisation aus, um einen nutzbaren Schlüssel zu erstellen.",
   "api_keys.errors.organizationOutOfScope": "Organisation außerhalb des Geltungsbereichs",
   "api_keys.errors.roleNotFound": "Rolle {identifier} nicht gefunden",
   "api_keys.errors.roleWrongTenant": "Rolle {role} gehört zu einem anderen Mandanten",

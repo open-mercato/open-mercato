@@ -11,7 +11,7 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
-import { ResourcesResource, ResourcesResourceTag, ResourcesResourceTagAssignment } from '../data/entities'
+import { ResourcesResource, ResourcesResourceTag, ResourcesResourceTagAssignment, ResourcesResourceType } from '../data/entities'
 import {
   resourcesResourceCreateSchema,
   resourcesResourceUpdateSchema,
@@ -19,8 +19,10 @@ import {
   type ResourcesResourceUpdateInput,
 } from '../data/validators'
 import { resourcesResourceCrudEvents } from '../lib/crud'
+import { lockResourceType } from '../lib/resourceTypeLock'
 import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
 import { RESOURCES_CAPACITY_UNIT_DICTIONARY_KEY } from '../lib/capacityUnits'
+import { isDictionariesModuleEnabled } from '../lib/optionalModules'
 import { E } from '#generated/entities.ids.generated'
 
 const resourceCrudIndexer: CrudIndexerConfig<ResourcesResource> = {
@@ -72,7 +74,7 @@ async function resolveCapacityUnit(
   if (!trimmed) {
     throw new CrudHttpError(400, { error: 'Capacity unit is required.' })
   }
-  const dictionary = await findOneWithDecryption(
+  const dictionary = isDictionariesModuleEnabled() && await findOneWithDecryption(
     em,
     Dictionary,
     {
@@ -175,6 +177,7 @@ async function syncResourcesResourceTags(em: EntityManager, params: {
   organizationId: string
   tenantId: string
   tagIds?: Array<string | null | undefined> | null
+  ignoreMissing?: boolean
 }) {
   if (params.tagIds === undefined) return
   const tagIds = normalizeTagIds(params.tagIds ?? [])
@@ -187,7 +190,7 @@ async function syncResourcesResourceTags(em: EntityManager, params: {
     organizationId: params.organizationId,
     tenantId: params.tenantId,
   })
-  if (tagsInScope.length !== tagIds.length) {
+  if (!params.ignoreMissing && tagsInScope.length !== tagIds.length) {
     throw new CrudHttpError(400, { error: 'One or more tags not found for this scope' })
   }
   const byId = new Map(tagsInScope.map((tag) => [tag.id, tag]))
@@ -206,6 +209,70 @@ async function syncResourcesResourceTags(em: EntityManager, params: {
     })
     em.persist(assignment)
   }
+}
+
+type ResourceScope = { tenantId: string; organizationId: string }
+
+async function countResourceTypes(
+  em: EntityManager,
+  resourceTypeId: string,
+  scope: ResourceScope,
+  state: 'live' | 'deleted',
+): Promise<number> {
+  return em.count(ResourcesResourceType, {
+    id: resourceTypeId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: state === 'live' ? null : { $ne: null },
+  })
+}
+
+async function assertResourceTypeAssignable(
+  em: EntityManager,
+  resourceTypeId: string | null | undefined,
+  scope: ResourceScope,
+): Promise<void> {
+  if (!resourceTypeId) return
+  await lockResourceType(em, resourceTypeId)
+  if (await countResourceTypes(em, resourceTypeId, scope, 'live') > 0) return
+  throw await resourceTypeUnavailableError(400)
+}
+
+async function resourceTypeUnavailableError(status: 400 | 409): Promise<CrudHttpError> {
+  const { translate } = await resolveTranslations()
+  return new CrudHttpError(status, {
+    error: translate('resources.resources.errors.resourceTypeUnavailable', 'The selected resource type is no longer available.'),
+    code: 'resources.resources.errors.resourceTypeUnavailable',
+  })
+}
+
+async function assertResourceTypeRestorable(
+  em: EntityManager,
+  record: ResourcesResource | null,
+  resourceTypeId: string | null | undefined,
+  scope: ResourceScope,
+): Promise<void> {
+  if (!resourceTypeId) return
+  await lockResourceType(em, resourceTypeId)
+  if (record && await em.count(ResourcesResource, {
+    id: record.id,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    resourceTypeId,
+    deletedAt: null,
+  }) > 0) return
+  if (await countResourceTypes(em, resourceTypeId, scope, 'live') > 0) return
+  if (await countResourceTypes(em, resourceTypeId, scope, 'deleted') === 0) {
+    throw await resourceTypeUnavailableError(409)
+  }
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(409, {
+    error: translate(
+      'resources.resources.errors.resourceTypeDeleted',
+      'This would put the resource on a deleted resource type. Restore the resource type first.',
+    ),
+    code: 'resources.resources.errors.resourceTypeDeleted',
+  })
 }
 
 const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { resourceId: string }> = {
@@ -243,6 +310,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
     })
     await withAtomicFlush(em, [
       async () => {
+        await assertResourceTypeAssignable(em, parsed.resourceTypeId, parsed)
         em.persist(record)
         await em.flush()
       },
@@ -344,6 +412,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
     let record = await em.findOne(ResourcesResource, { id: after.id })
     await withAtomicFlush(em, [
       async () => {
+        await assertResourceTypeRestorable(em, record, after.resourceTypeId, after)
         if (!record) {
           record = em.create(ResourcesResource, {
             id: after.id,
@@ -391,6 +460,7 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
         organizationId: (record as ResourcesResource).organizationId,
         tenantId: (record as ResourcesResource).tenantId,
         tagIds: after.tags,
+        ignoreMissing: true,
       }),
     ], { transaction: true })
     const resolvedRecord = record as ResourcesResource
@@ -448,6 +518,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     if (!record) throw new CrudHttpError(404, { error: 'Resources resource not found.' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
+    const resourceTypeChanged = parsed.resourceTypeId !== undefined && parsed.resourceTypeId !== record.resourceTypeId
 
     let capacityUnit: CapacityUnitSnapshot | null | undefined
     if (parsed.capacityUnitValue !== undefined) {
@@ -462,7 +533,8 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         : null
     }
     await withAtomicFlush(em, [
-      () => {
+      async () => {
+        if (resourceTypeChanged) await assertResourceTypeAssignable(em, parsed.resourceTypeId, record)
         if (parsed.capacityUnitValue !== undefined) {
           record.capacityUnitValue = capacityUnit?.value ?? null
           record.capacityUnitName = capacityUnit?.name ?? null
@@ -577,7 +649,8 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
     const record = await em.findOne(ResourcesResource, { id: before.id })
     if (!record) return
     await withAtomicFlush(em, [
-      () => {
+      async () => {
+        await assertResourceTypeRestorable(em, record, before.resourceTypeId, before)
         record.name = before.name
         record.description = before.description ?? null
         record.resourceTypeId = before.resourceTypeId ?? null
@@ -599,6 +672,7 @@ const updateResourceCommand: CommandHandler<ResourcesResourceUpdateInput, { reso
         organizationId: record.organizationId,
         tenantId: record.tenantId,
         tagIds: before.tags,
+        ignoreMissing: true,
       }),
     ], { transaction: true })
 
@@ -707,6 +781,7 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
     let record = await em.findOne(ResourcesResource, { id: before.id })
     await withAtomicFlush(em, [
       async () => {
+        await assertResourceTypeRestorable(em, record, before.resourceTypeId, before)
         if (!record) {
           record = em.create(ResourcesResource, {
             id: before.id,
@@ -754,6 +829,7 @@ const deleteResourceCommand: CommandHandler<{ id?: string }, { resourceId: strin
         organizationId: (record as ResourcesResource).organizationId,
         tenantId: (record as ResourcesResource).tenantId,
         tagIds: before.tags,
+        ignoreMissing: true,
       }),
     ], { transaction: true })
     const resolvedRecord = record as ResourcesResource

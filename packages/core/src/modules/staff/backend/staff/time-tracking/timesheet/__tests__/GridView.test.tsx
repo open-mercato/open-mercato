@@ -160,6 +160,30 @@ describe('the grid keeps its look (W3)', () => {
     })
     expect(firstCell().value).toBe('1.25')
   })
+
+  // The sticky Project column is `z-10`, the same as the app top bar
+  // (`z-sticky`); without an isolated stacking context around the grid it
+  // painted over the top bar while the page scrolled (#7414).
+  it('confines the sticky Project column to the grid stacking context', () => {
+    renderGrid()
+    const scrollWrapper = screen.getByRole('table').parentElement
+    expect(scrollWrapper?.classList.contains('isolate')).toBe(true)
+    expect(scrollWrapper?.classList.contains('overflow-x-auto')).toBe(true)
+  })
+
+  // On a 390 px phone the week grid was squeezed to the card width, leaving
+  // ~19 px day columns under 64 px hour inputs (#9946). The week table keeps a
+  // minimum width so it scrolls inside the card instead.
+  it('keeps a minimum width on the week grid so it scrolls instead of squeezing the day columns', () => {
+    renderGrid()
+    expect(screen.getByRole('table').classList.contains('min-w-4xl')).toBe(true)
+  })
+
+  it('leaves the dense month grid to its fixed column widths', () => {
+    const monthDays = Array.from({ length: 30 }, (_, index) => `2026-07-${String(index + 1).padStart(2, '0')}`)
+    renderGrid({ days: monthDays })
+    expect(screen.getByRole('table').classList.contains('min-w-4xl')).toBe(false)
+  })
 })
 
 describe('the cells now use the shared parser', () => {
@@ -400,6 +424,49 @@ describe('refused saves (#7393, #7394)', () => {
     })
     expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1)
     expect(mockCreateCrud).toHaveBeenCalledTimes(2)
+  })
+
+  it.each([
+    ['a transient 5xx', Object.assign(new Error('Service unavailable'), { status: 503 }), 'Service unavailable'],
+    ['a network failure', new TypeError('Failed to fetch'), 'Failed to save timesheets.'],
+  ])('only flashes, without marking the task cell refused, after %s', async (_label, failure, shown) => {
+    mockCreateCrud.mockRejectedValueOnce(failure)
+    renderGrid({
+      rowMode: 'tasks',
+      entries: [entry({ id: TASK_ENTRY_ID, taskId: TASK_ID, durationMinutes: 60 })],
+    })
+    const taskRow = screen.getByRole('row', { name: /Cart migration/ })
+    const taskTuesday = taskRow.querySelectorAll('input[type="text"]')[1] as HTMLInputElement
+    fireEvent.change(taskTuesday, { target: { value: '1' } })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    })
+    expect(flash).toHaveBeenCalledWith(shown, 'error')
+    expect(taskTuesday).toHaveAttribute('aria-invalid', 'false')
+    expect(screen.getByRole('button', { name: 'Save Changes' })).toBeEnabled()
+  })
+
+  it('only flashes a task cell 5xx that follows a committed bulk save', async () => {
+    mockCreateCrud.mockRejectedValueOnce(Object.assign(new Error('Service unavailable'), { status: 503 }))
+    const { onSaved } = renderGrid({
+      rowMode: 'tasks',
+      entries: [entry({ id: TASK_ENTRY_ID, taskId: TASK_ID, durationMinutes: 60 })],
+    })
+    const projectRow = screen.getByRole('row', { name: /^Nordvik/ })
+    const taskRow = screen.getByRole('row', { name: /Cart migration/ })
+    const projectTuesday = projectRow.querySelectorAll('input[type="text"]')[1] as HTMLInputElement
+    const taskTuesday = taskRow.querySelectorAll('input[type="text"]')[1] as HTMLInputElement
+    fireEvent.change(projectTuesday, { target: { value: '1' } })
+    fireEvent.change(taskTuesday, { target: { value: '1' } })
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
+    })
+    expect(mockApiCallOrThrow).toHaveBeenCalledTimes(1)
+    expect(flash).toHaveBeenCalledWith('Service unavailable', 'error')
+    expect(taskTuesday).toHaveAttribute('aria-invalid', 'false')
+    expect(onSaved).toHaveBeenCalledTimes(1)
   })
 })
 

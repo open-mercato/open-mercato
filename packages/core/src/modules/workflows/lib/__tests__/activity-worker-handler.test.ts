@@ -25,6 +25,7 @@ import { z } from 'zod'
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import type { JobContext, QueuedJob } from '@open-mercato/queue'
+import '../../events'
 import { WorkflowInstance } from '../../data/entities'
 import { createActivityWorkerHandler } from '../activity-worker-handler'
 import { registerActivityType } from '../activity-registry'
@@ -164,14 +165,14 @@ describe('Activity Worker Handler (registry dispatch)', () => {
       makeJob(
         makePayload({
           activityType: 'EMIT_EVENT',
-          activityConfig: { eventName: 'example.thing.created', payload: { id: '1' } },
+          activityConfig: { eventName: 'approval.requested', payload: { id: '1' } },
         })
       ),
       jobCtx
     )
 
     expect(emitEvent).toHaveBeenCalledWith(
-      'example.thing.created',
+      'approval.requested',
       expect.objectContaining({ id: '1' }),
       expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' })
     )
@@ -248,5 +249,38 @@ describe('Activity Worker Handler (registry dispatch)', () => {
       mockEm,
       expect.objectContaining({ eventType: 'ACTIVITY_FAILED' })
     )
+  })
+
+  test('honors a webhook timeout longer than the 30-second default in the worker', async () => {
+    jest.useFakeTimers()
+    const originalFetch = global.fetch
+    const originalAllowPrivate = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+    process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = '1'
+    global.fetch = jest.fn(() => new Promise<Response>((resolve) => {
+      setTimeout(() => resolve(new Response('complete')), 60000)
+    }))
+    try {
+      const handler = createActivityWorkerHandler(mockEm, mockContainer)
+      const pending = handler(makeJob(makePayload({
+        activityType: 'CALL_WEBHOOK',
+        activityConfig: { url: 'https://example.com/webhook' },
+        timeoutMs: 120000,
+      })), jobCtx)
+      const assertion = expect(pending).resolves.toBeUndefined()
+
+      await jest.advanceTimersByTimeAsync(60000)
+
+      await assertion
+      expect(mockLogWorkflowEvent).toHaveBeenCalledWith(mockEm, expect.objectContaining({
+        eventType: 'ACTIVITY_COMPLETED',
+        eventData: expect.objectContaining({ output: expect.objectContaining({ result: 'complete' }) }),
+      }))
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      global.fetch = originalFetch
+      if (originalAllowPrivate === undefined) delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      else process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = originalAllowPrivate
+      jest.useRealTimers()
+    }
   })
 })

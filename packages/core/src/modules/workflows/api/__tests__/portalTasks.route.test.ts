@@ -13,9 +13,26 @@
  * must be indistinguishable.
  */
 
-import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { describe, test, expect, jest, beforeEach, afterAll } from '@jest/globals'
 import { NextRequest } from 'next/server'
 import { UserTask } from '../../data/entities'
+import { TaskCompletionBlockedError } from '../../lib/task-handler'
+import {
+  clearTaskCompletionGuards,
+  registerTaskCompletionGuards,
+} from '../../lib/task-completion-guards'
+import { portalTaskDetailResponseSchema } from '../openapi'
+
+const mockTranslations: Record<string, string> = {}
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => {
+  const { createFallbackTranslator } = jest.requireActual<typeof import('@open-mercato/shared/lib/i18n/translate')>(
+    '@open-mercato/shared/lib/i18n/translate',
+  )
+  return {
+    resolveTranslations: async () => ({ locale: 'pl', translate: createFallbackTranslator(mockTranslations) }),
+  }
+})
 
 const getCustomerAuthFromRequest = jest.fn<(req: Request) => Promise<unknown>>()
 const requireCustomerFeature = jest.fn<(...args: unknown[]) => Promise<void>>()
@@ -222,6 +239,16 @@ describe('the list', () => {
     expect(body.tasks).toEqual([])
   })
 
+  test('orders by createdAt then id so offset pages stay stable on equal timestamps', async () => {
+    await runList('?page=2')
+
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      UserTask,
+      expect.anything(),
+      expect.objectContaining({ orderBy: { createdAt: 'DESC', id: 'DESC' } }),
+    )
+  })
+
   test('caps the page size at 100 however large the request asks for', async () => {
     await runList('?pageSize=5000')
 
@@ -230,6 +257,31 @@ describe('the list', () => {
       expect.anything(),
       expect.objectContaining({ limit: 100 }),
     )
+  })
+
+  test.each([
+    { page: 3335, pageSize: 30 },
+    { page: 1002, pageSize: 100 },
+    { page: 100002, pageSize: 1 },
+    { page: 999999999, pageSize: 30 },
+  ])('rejects an excessive derived offset for page $page / size $pageSize', async ({ page, pageSize }) => {
+    const response = await runList(`?page=${page}&pageSize=${pageSize}`)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ ok: false, error: 'WORKFLOW_LIST_OFFSET_EXCEEDED' })
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum derived offset without changing the requested page', async () => {
+    const response = await runList('?page=1001&pageSize=100')
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      UserTask,
+      expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORG_ID }),
+      expect.objectContaining({ limit: 100, offset: 100000 }),
+    )
+    expect(body.pagination).toMatchObject({ page: 1001, pageSize: 100 })
   })
 })
 
@@ -323,11 +375,127 @@ describe('completion', () => {
     expect(completeUserTask).not.toHaveBeenCalled()
   })
 
+  test('a task whose run is closed collapses into the standard 404 refusal', async () => {
+    taskRow = null
+    const missing = await runComplete()
+    const missingBody = await missing.json()
+
+    taskRow = makeTask()
+    completeUserTask.mockRejectedValue(
+      Object.assign(new Error('Workflow is no longer active'), { code: 'WORKFLOW_NOT_ACTIVE' }),
+    )
+
+    const response = await runComplete({ formData: { confirmed: true } })
+
+    expect(completeUserTask).toHaveBeenCalledTimes(1)
+    expect(response.status).toBe(404)
+    expect(missing.status).toBe(404)
+    // Byte-identical to a nonexistent id: no code, no hint that the run ended.
+    expect(await response.json()).toEqual(missingBody)
+  })
+
   test('a malformed body is a 400 before any lookup', async () => {
     taskRow = makeTask()
 
     expect((await runComplete({ comments: 'no form data' })).status).toBe(400)
     expect(completeUserTask).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Host completion guards (issue #7178) reach the portal too: the assignee's
+ * form closes with the host's message, and a veto on submit is a 409, not a
+ * logged 500.
+ */
+describe('completion guards on the portal', () => {
+  beforeEach(() => {
+    clearTaskCompletionGuards()
+    ;(mockEm as unknown as { fork: () => unknown }).fork = () => ({ findOne: mockEm.findOne, flush: jest.fn() })
+  })
+
+  afterAll(() => clearTaskCompletionGuards())
+
+  test('a vetoing guard closes the assignee\'s form and names itself', async () => {
+    registerTaskCompletionGuards([
+      {
+        moduleId: 'host',
+        guards: [
+          {
+            id: 'host.signed-contract',
+            evaluate: async () => ({ ok: false as const, code: 'CONTRACT_NOT_SIGNED', messageKey: 'host.tasks.contractNotSigned' }),
+          },
+        ],
+      },
+    ])
+    taskRow = makeTask()
+
+    const body = await (await runDetail()).json()
+
+    expect(body).toMatchObject({
+      ok: true,
+      canComplete: false,
+      completionGuard: { guardId: 'host.signed-contract', code: 'CONTRACT_NOT_SIGNED', messageKey: 'host.tasks.contractNotSigned' },
+    })
+    expect(portalTaskDetailResponseSchema.shape.completionGuard.safeParse(body.completionGuard).success).toBe(true)
+    expect(taskRow?.status).toBe('PENDING')
+  })
+
+  test('without a guard the assignee may complete and no guard is reported', async () => {
+    taskRow = makeTask()
+
+    const body = await (await runDetail()).json()
+
+    expect(body).toMatchObject({ ok: true, canComplete: true, completionGuard: null })
+  })
+
+  test('a veto on submit answers 409 with the guard code instead of a 500', async () => {
+    taskRow = makeTask()
+    completeUserTask.mockRejectedValue(
+      new TaskCompletionBlockedError({
+        guardId: 'host.signed-contract',
+        code: 'CONTRACT_NOT_SIGNED',
+        messageKey: 'host.tasks.contractNotSigned',
+        message: null,
+      }),
+    )
+
+    const response = await runComplete()
+
+    expect(response.status).toBe(409)
+    expect(await response.json()).toMatchObject({
+      ok: false,
+      code: 'CONTRACT_NOT_SIGNED',
+      guardId: 'host.signed-contract',
+      messageKey: 'host.tasks.contractNotSigned',
+    })
+  })
+
+  test('a veto on submit localizes the host message key, keeping code, guardId and messageKey', async () => {
+    Object.assign(mockTranslations, { 'host.tasks.contractNotSigned': 'Najpierw podpisz umowę.' })
+    taskRow = makeTask()
+    completeUserTask.mockRejectedValue(
+      new TaskCompletionBlockedError({
+        guardId: 'host.signed-contract',
+        code: 'CONTRACT_NOT_SIGNED',
+        messageKey: 'host.tasks.contractNotSigned',
+        message: 'The contract must be signed first',
+      }),
+    )
+
+    try {
+      const response = await runComplete()
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({
+        ok: false,
+        error: 'Najpierw podpisz umowę.',
+        code: 'CONTRACT_NOT_SIGNED',
+        guardId: 'host.signed-contract',
+        messageKey: 'host.tasks.contractNotSigned',
+      })
+    } finally {
+      for (const key of Object.keys(mockTranslations)) delete mockTranslations[key]
+    }
   })
 })
 

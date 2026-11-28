@@ -64,12 +64,16 @@ jest.mock('../../../lib/interactionCompatibility', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findAndCountWithDecryption: jest.fn((_em: unknown, entity: unknown, where: unknown, options: unknown) => mockEm.findAndCount(entity, where, options)),
   findWithDecryption: jest.fn(async () => []),
 }))
 
 describe('activities merged GET pagination', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    jest.requireMock('@open-mercato/shared/lib/encryption/find').findAndCountWithDecryption
+      .mockReset()
+      .mockImplementation((_em: unknown, entity: unknown, where: unknown, options: unknown) => mockEm.findAndCount(entity, where, options))
 
     const { resolveCustomerInteractionFeatureFlags } = jest.requireMock(
       '../../../lib/interactionFeatureFlags',
@@ -90,6 +94,53 @@ describe('activities merged GET pagination', () => {
       .mockImplementation(async () => [])
     jest.requireMock('../../../lib/interactionCompatibility').mapInteractionRecordToActivitySummary
       .mockReset()
+  })
+
+  it.each([CustomerActivity, CustomerInteraction])('decrypts rehydrated %p rows before serializing activity content', async (source) => {
+    const storedRow = {
+      id: '123e4567-e89b-41d3-a456-426614174090',
+      tenantId: TENANT_ID,
+      organizationId: '123e4567-e89b-41d3-a456-426614174099',
+      entity: 'entity-1',
+      activityType: 'note',
+      interactionType: 'note',
+      subject: 'encrypted-subject:v1',
+      title: 'encrypted-subject:v1',
+      body: 'encrypted-body:v1',
+      createdAt: new Date('2026-11-01T12:00:00Z'),
+      deletedAt: null,
+    }
+    mockEm.findAndCount.mockImplementation(async (entity: unknown) => entity === source ? [[storedRow], 1] : [[], 0])
+    mockEm.count.mockResolvedValue(1)
+    const { findAndCountWithDecryption } = jest.requireMock('@open-mercato/shared/lib/encryption/find')
+    findAndCountWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => entity === source
+      ? [[{ ...storedRow, subject: 'Readable subject', title: 'Readable subject', body: 'Readable body' }], 1]
+      : [[], 0])
+    jest.requireMock('../../../lib/interactionReadModel').hydrateCanonicalInteractions
+      .mockImplementation(async ({ interactions }: { interactions: unknown[] }) => interactions)
+    jest.requireMock('../../../lib/interactionCompatibility').mapInteractionRecordToActivitySummary
+      .mockImplementation((row: { id: string; title: string; body: string; createdAt: Date }) => ({
+        id: row.id,
+        activityType: 'note',
+        subject: row.title,
+        body: row.body,
+        createdAt: row.createdAt.toISOString(),
+      }))
+
+    const response = await GET(new Request('http://localhost/api/customers/activities?page=1&pageSize=20'))
+    const body = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({ subject: 'Readable subject', body: 'Readable body' })
+    expect(findAndCountWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      source,
+      expect.objectContaining({ tenantId: TENANT_ID }),
+      expect.objectContaining({ limit: 40, offset: 0 }),
+      { tenantId: TENANT_ID, organizationId: ORG_ID },
+    )
+    expect(storedRow.body).toBe('encrypted-body:v1')
   })
 
   it('uses bounded DB-side paginated fetches for both sources in non-unified mode', async () => {
@@ -140,7 +191,7 @@ describe('activities merged GET pagination', () => {
       activityType: 'note',
       subject: null,
       body: null,
-      occurredAt: at,
+      occurredAt: at as Date | null,
       createdAt: at,
       appearanceIcon: null,
       appearanceColor: null,
@@ -155,7 +206,7 @@ describe('activities merged GET pagination', () => {
       id,
       interactionType: 'note',
       deletedAt: null,
-      occurredAt: createdAtIso,
+      occurredAt: createdAtIso as string | null,
       createdAt: createdAtIso,
       customValues: null,
     }
@@ -165,10 +216,37 @@ describe('activities merged GET pagination', () => {
     legacyRows: ReturnType<typeof legacyActivity>[],
     canonicalRows: ReturnType<typeof canonicalInteraction>[],
   ) {
-    mockEm.findAndCount.mockImplementation(async (entity: unknown) => {
-      if (entity === CustomerActivity) return [legacyRows, legacyRows.length]
-      if (entity === CustomerInteraction) return [canonicalRows, canonicalRows.length]
-      return [[], 0]
+    mockEm.findAndCount.mockImplementation(async (
+      entity: unknown,
+      _where: unknown,
+      options: {
+        orderBy?: Record<string, string> | Array<Record<string, string>>
+        offset?: number
+        limit?: number
+      } = {},
+    ) => {
+      const rows = entity === CustomerActivity ? legacyRows : entity === CustomerInteraction ? canonicalRows : []
+      const orderBy = Array.isArray(options.orderBy) ? options.orderBy : [options.orderBy ?? {}]
+      const fields = orderBy.flatMap((entry) => Object.entries(entry))
+      const sorted = [...rows].sort((left, right) => {
+        for (const [field, direction] of fields) {
+          const name = field === 'id' ? 'id' : field === 'createdAt' ? 'createdAt' : 'occurredAt'
+          const leftRaw = left[name]
+          const rightRaw = right[name]
+          const leftValue = name === 'id' ? left.id : leftRaw === null ? null : new Date(leftRaw).getTime()
+          const rightValue = name === 'id' ? right.id : rightRaw === null ? null : new Date(rightRaw).getTime()
+          if (leftValue === rightValue) continue
+          if (leftValue === null) return 1
+          if (rightValue === null) return -1
+          const comparison = typeof leftValue === 'string' && typeof rightValue === 'string'
+            ? leftValue.localeCompare(rightValue)
+            : Number(leftValue) - Number(rightValue)
+          return direction.startsWith('asc') ? comparison : -comparison
+        }
+        return 0
+      })
+      const offset = options.offset ?? 0
+      return [sorted.slice(offset, options.limit === undefined ? undefined : offset + options.limit), rows.length]
     })
     mockEm.count.mockImplementation(async () => 0)
 
@@ -240,6 +318,50 @@ describe('activities merged GET pagination', () => {
 
     const ids = await fetchIds('page=1&pageSize=2&sortField=createdAt&sortDir=desc')
     expect(ids).toEqual(['C6', 'L5'])
+  })
+
+  it.each(['asc', 'desc'] as const)('keeps unknown occurrence dates last after merging sources (%s)', async (sortDir) => {
+    const undatedLegacy = legacyActivity('LU', '2026-10-30T00:00:00.000Z')
+    undatedLegacy.occurredAt = null
+    const undatedCanonical = canonicalInteraction('CU', '2026-10-29T00:00:00.000Z')
+    undatedCanonical.occurredAt = null
+    wireMergedRows(
+      [legacyActivity('L1', '2026-01-01T00:00:00.000Z'), undatedLegacy],
+      [canonicalInteraction('C2', '2026-01-02T00:00:00.000Z'), undatedCanonical],
+    )
+
+    const ids = await fetchIds(`page=1&pageSize=50&sortField=occurredAt&sortDir=${sortDir}`)
+
+    expect(ids.slice(0, 2)).toEqual(sortDir === 'asc' ? ['L1', 'C2'] : ['C2', 'L1'])
+    expect(ids.slice(2)).toEqual(sortDir === 'asc' ? ['CU', 'LU'] : ['LU', 'CU'])
+  })
+
+  describe.each(['legacy', 'canonical', 'mixed'] as const)('%s undated activity pages', (source) => {
+    it.each(['asc', 'desc'] as const)('keeps every row exactly once as the fetch window grows (%s)', async (sortDir) => {
+      const legacyRows = [
+        legacyActivity('A', '2026-01-03T00:00:00.000Z'),
+        legacyActivity('B', '2026-01-02T00:00:00.000Z'),
+        legacyActivity('C', '2026-01-02T00:00:00.000Z'),
+      ].map((row) => ({ ...row, occurredAt: null }))
+      const canonicalRows = [
+        canonicalInteraction('D', '2026-01-06T00:00:00.000Z'),
+        canonicalInteraction('E', '2026-01-05T00:00:00.000Z'),
+        canonicalInteraction('F', '2026-01-05T00:00:00.000Z'),
+      ].map((row) => ({ ...row, occurredAt: null }))
+      wireMergedRows(source === 'canonical' ? [] : legacyRows, source === 'legacy' ? [] : canonicalRows)
+      const ascending = source === 'legacy'
+        ? ['B', 'C', 'A']
+        : source === 'canonical'
+          ? ['E', 'F', 'D']
+          : ['B', 'C', 'A', 'E', 'F', 'D']
+      const expected = sortDir === 'asc' ? ascending : [...ascending].reverse()
+      const actual: string[] = []
+      for (let page = 1; page <= expected.length; page += 1) {
+        actual.push(...await fetchIds(`page=${page}&pageSize=1&sortField=occurredAt&sortDir=${sortDir}`))
+      }
+      expect(actual).toEqual(expected)
+      expect(new Set(actual).size).toBe(expected.length)
+    })
   })
 
   it('drops legacy items bridged into the canonical stream so they are not duplicated', async () => {

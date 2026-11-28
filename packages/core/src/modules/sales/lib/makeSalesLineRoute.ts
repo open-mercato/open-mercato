@@ -17,6 +17,7 @@ import {
   defaultOkResponseSchema,
 } from '../api/openapi'
 import { withScopedPayload } from '../api/utils'
+import { withExactLineInput, withExactOrderTotalsInput } from './exactAmountFields'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- MikroORM entity class constructor
 type EntityClass = new (...args: any[]) => unknown
@@ -28,6 +29,15 @@ interface SalesLineRouteConfig {
   parentFkColumn: string
   parentFkParam: string
   createSchema: z.ZodObject<z.ZodRawShape>
+  /**
+   * Optional partial-update schema for PUT. When given, a PUT that carries an
+   * `id` is validated against it (plus the parent id and `writeExtensionShape`),
+   * so existing lines can be patched; a PUT without `id` keeps the full
+   * `createSchema` contract. When omitted, PUT validates like POST.
+   */
+  updateSchema?: z.ZodObject<z.ZodRawShape>
+  /** Extra fields accepted by the write payloads on top of `createSchema`. */
+  writeExtensionShape?: z.ZodRawShape
   features: { view: string; manage: string }
   commandPrefix: string
   openApi: {
@@ -110,6 +120,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     parentFkColumn,
     parentFkParam,
     createSchema,
+    updateSchema,
+    writeExtensionShape,
     features,
     commandPrefix,
   } = config
@@ -127,11 +139,34 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
 
   const upsertSchema = createSchema.extend({
     id: z.string().uuid().optional(),
+    ...(writeExtensionShape ?? {}),
   })
+
+  const partialUpdateSchema = updateSchema
+    ? updateSchema.extend({
+        [parentFkParam]: z.string().uuid(),
+        ...(writeExtensionShape ?? {}),
+      })
+    : null
+
+  const parseUpdateBody = (body: Record<string, unknown>) =>
+    partialUpdateSchema && body.id !== undefined
+      ? partialUpdateSchema.parse(body)
+      : upsertSchema.parse(body)
+
+  // PUT accepts two shapes when partial updates are enabled: a complete line
+  // without `id` (upsert) or an `id`-bearing partial patch of an existing line.
+  const updateRequestSchema = partialUpdateSchema
+    ? z.union([
+        upsertSchema.omit({ id: true }).describe('Complete line without id (validated like create).'),
+        partialUpdateSchema.describe('Partial update of an existing line identified by id.'),
+      ])
+    : upsertSchema
 
   const deleteSchema = z.object({
     id: z.string().uuid(),
     [parentFkParam]: z.string().uuid(),
+    ...(writeExtensionShape ?? {}),
   })
 
   const routeMetadata = {
@@ -199,6 +234,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         ]
         const returnedQuantity = F['returned_quantity']
         if (typeof returnedQuantity === 'string') fields.push(returnedQuantity)
+        const amountsMode = F['amounts_mode']
+        if (typeof amountsMode === 'string') fields.push(amountsMode)
         return fields
       })(),
       sortFieldMap: {
@@ -240,10 +277,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
-          const payload = upsertSchema.parse(
-            withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
-          )
-          return { body: payload }
+          const scoped = withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate)
+          return { body: withExactLineInput(upsertSchema.parse(scoped), scoped) }
         },
         response: ({ result }: { result: Record<string, unknown> | null }) => ({
           id: result?.lineId ?? null,
@@ -256,10 +291,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
-          const payload = upsertSchema.parse(
-            withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
-          )
-          return { body: payload }
+          const scoped = withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate)
+          return { body: withExactLineInput(parseUpdateBody(scoped), scoped) }
         },
         response: ({ result }: { result: Record<string, unknown> | null }) => ({
           id: result?.lineId ?? null,
@@ -271,9 +304,8 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         schema: rawBodySchema,
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
-          const payload = deleteSchema.parse(
-            withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate),
-          )
+          const scoped = withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate)
+          const payload = withExactOrderTotalsInput(deleteSchema.parse(scoped), scoped)
           if (!payload.id || !payload[parentFkParam]) {
             throw new CrudHttpError(400, {
               error: translate(
@@ -308,19 +340,20 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     normalized_unit: z.string().nullable().optional(),
     uom_snapshot: uomSnapshotOpenApiSchema,
     currency_code: z.string(),
-    unit_price_net: z.number(),
-    unit_price_gross: z.number(),
-    discount_amount: z.number(),
+    unit_price_net: z.string(),
+    unit_price_gross: z.string(),
+    discount_amount: z.string(),
     discount_percent: z.number(),
     tax_rate: z.number(),
-    tax_amount: z.number(),
-    total_net_amount: z.number(),
-    total_gross_amount: z.number(),
+    tax_amount: z.string(),
+    total_net_amount: z.string(),
+    total_gross_amount: z.string(),
     configuration: z.record(z.string(), z.unknown()).nullable().optional(),
     promotion_code: z.string().nullable().optional(),
     promotion_snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).nullable().optional(),
     custom_field_set_id: z.string().uuid().nullable().optional(),
+    amounts_mode: z.enum(['computed', 'external']).optional(),
     created_at: z.string(),
     updated_at: z.string(),
   })
@@ -340,7 +373,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
       description: `Creates ${config.openApi.description}.`,
     },
     update: {
-      schema: upsertSchema,
+      schema: updateRequestSchema,
       responseSchema: upsertResponseSchema,
       description: `Updates ${config.openApi.description}.`,
     },

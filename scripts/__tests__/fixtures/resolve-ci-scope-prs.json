@@ -1,0 +1,362 @@
+[
+  {
+    "number": 10756,
+    "title": "docs(specs): batch merge and green-tag release process",
+    "headRef": "cez/901d8720",
+    "isFork": false,
+    "labels": [
+      "documentation",
+      "review",
+      "skip-qa",
+      "priority-medium",
+      "risk-low"
+    ],
+    "files": [
+      ".ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md"
+    ]
+  },
+  {
+    "number": 10745,
+    "title": "fix(customer_accounts): handle disabled portal dependencies (#9192)",
+    "headRef": "fix/issue-9192-optional-portal-modules",
+    "isFork": true,
+    "labels": [
+      "bug",
+      "in-progress",
+      "merge-queue",
+      "skip-qa",
+      "priority-low",
+      "risk-low",
+      "partner-request"
+    ],
+    "files": [
+      "packages/core/src/modules/customer_accounts/api/admin/__tests__/user-detail.route.test.ts",
+      "packages/core/src/modules/customer_accounts/api/admin/__tests__/users-invite.route.test.ts",
+      "packages/core/src/modules/customer_accounts/api/admin/__tests__/users.route.test.ts",
+      "packages/core/src/modules/customer_accounts/api/admin/users/[id].ts",
+      "packages/core/src/modules/customer_accounts/api/admin/users/__tests__/optimistic-lock.test.ts",
+      "packages/core/src/modules/customer_accounts/api/portal/__tests__/notifications.route.test.ts",
+      "packages/core/src/modules/customer_accounts/api/portal/notifications.ts",
+      "packages/core/src/modules/customer_accounts/api/portal/notifications/[id]/dismiss.ts",
+      "packages/core/src/modules/customer_accounts/api/portal/notifications/[id]/read.ts",
+      "packages/core/src/modules/customer_accounts/api/portal/notifications/mark-all-read.ts",
+      "packages/core/src/modules/customer_accounts/api/portal/notifications/unread-count.ts",
+      "packages/core/src/modules/customer_accounts/lib/__tests__/customerEntityOwnership.test.ts",
+      "packages/core/src/modules/customer_accounts/lib/customerEntityOwnership.ts",
+      "packages/core/src/modules/customer_accounts/lib/moduleEntityRegistration.ts",
+      "packages/core/src/modules/customer_accounts/lib/portalNotificationsAvailability.ts",
+      "packages/core/src/modules/customer_accounts/subscribers/__tests__/autoLinkCrm-normalize.test.ts",
+      "packages/core/src/modules/customer_accounts/subscribers/__tests__/autoLinkCrmReverse.test.ts"
+    ]
+  },
+  {
+    "number": 10731,
+    "title": "fix(progress): show cancel only for authorized jobs (#8132)",
+    "headRef": "fix/issue-8132-progress-cancel-permissions",
+    "isFork": false,
+    "labels": [
+      "bug",
+      "merge-queue",
+      "needs-qa",
+      "priority-medium",
+      "qa-approved",
+      "qa-self-verified",
+      "risk-medium",
+      "automerge",
+      "automerge-signal-1-cr",
+      "automerge-signal-2-qa",
+      "automerge-signal-3-ci"
+    ],
+    "files": [
+      ".ai/specs/2026-05-13-operation-progress-framework.md",
+      "packages/core/src/modules/progress/__integration__/TC-PROG-014.spec.ts",
+      "packages/core/src/modules/progress/api/active/route.ts",
+      "packages/core/src/modules/progress/api/jobPermissions.ts",
+      "packages/core/src/modules/progress/api/jobs/[id]/route.ts",
+      "packages/core/src/modules/progress/api/jobs/__tests__/route.test.ts",
+      "packages/ui/src/backend/progress/ProgressTopBar.tsx",
+      "packages/ui/src/backend/progress/__tests__/ProgressTopBar.test.tsx",
+      "packages/ui/src/backend/progress/__tests__/useProgressSse.test.tsx",
+      "packages/ui/src/backend/progress/useProgressPoll.ts",
+      "packages/ui/src/backend/progress/useProgressSse.ts"
+    ]
+  },
+  {
+    "number": 10718,
+    "title": "fix(wms): stop hard-requiring customers and feature_toggles (#9216)",
+    "headRef": "fix/wms-optional-customers-feature-toggles-9216",
+    "isFork": true,
+    "labels": [
+      "bug",
+      "merge-queue",
+      "skip-qa",
+      "priority-low",
+      "risk-medium"
+    ],
+    "files": [
+      "apps/docs/docs/architecture/module-dependencies.mdx",
+      "packages/core/src/modules/wms/__tests__/moduleRequires.test.ts",
+      "packages/core/src/modules/wms/__tests__/setup.test.ts",
+      "packages/core/src/modules/wms/index.ts",
+      "packages/core/src/modules/wms/setup.ts"
+    ]
+  },
+  {
+    "number": 10713,
+    "title": "fix(search): retire stale vectors when the source returns null",
+    "headRef": "fix/issue-5930-retire-stale-vectors",
+    "isFork": false,
+    "labels": [
+      "bug",
+      "security",
+      "merge-queue",
+      "skip-qa",
+      "priority-high",
+      "risk-medium",
+      "automerge",
+      "automerge-signal-1-cr",
+      "automerge-signal-2-qa",
+      "automerge-signal-3-ci",
+      "backport release/v0.10.x"
+    ],
+    "files": [
+      ".ai/specs/2026-07-24-search-architecture-clarification-and-evolution.md",
+      "packages/search/src/__tests__/plaintext-custom-field-boundaries.test.ts",
+      "packages/search/src/indexer/search-indexer.ts",
+      "packages/search/src/strategies/vector.strategy.ts"
+    ]
+  },
+  {
+    "number": 10674,
+    "title": "docs(enterprise): publish the Enterprise feature roadmap",
+    "headRef": "docs/enterprise-roadmap",
+    "isFork": false,
+    "labels": [
+      "documentation",
+      "enterprise",
+      "merge-queue",
+      "skip-qa",
+      "priority-low",
+      "risk-low"
+    ],
+    "files": [
+      "packages/enterprise/README.md",
+      "packages/enterprise/ROADMP.md"
+    ]
+  },
+  {
+    "number": 10658,
+    "title": "docs(changelog): add the 0.10.1 entry",
+    "headRef": "chore/changelog-v0.10.1",
+    "isFork": false,
+    "labels": [
+      "documentation",
+      "review",
+      "skip-qa",
+      "priority-medium",
+      "risk-low",
+      "skip-changelog"
+    ],
+    "files": [
+      "CHANGELOG.md"
+    ]
+  },
+  {
+    "number": 10653,
+    "title": "fix(workflows): add an id tiebreak to the remaining paged workflow lists (#10234)",
+    "headRef": "fix/issue-10234-workflow-list-tiebreak",
+    "isFork": true,
+    "labels": [
+      "bug",
+      "merge-queue",
+      "skip-qa",
+      "priority-medium",
+      "risk-medium"
+    ],
+    "files": [
+      "packages/core/src/modules/workflows/api/__tests__/failureQueue.route.test.ts",
+      "packages/core/src/modules/workflows/api/__tests__/helpers/tiedTimestampOrdering.ts",
+      "packages/core/src/modules/workflows/api/__tests__/instanceSteps.route.test.ts",
+      "packages/core/src/modules/workflows/api/__tests__/instances.route.test.ts",
+      "packages/core/src/modules/workflows/api/__tests__/pagination.route.test.ts",
+      "packages/core/src/modules/workflows/api/events/route.ts",
+      "packages/core/src/modules/workflows/api/instances/[id]/events/route.ts",
+      "packages/core/src/modules/workflows/api/instances/[id]/steps/route.ts",
+      "packages/core/src/modules/workflows/api/instances/failure-queue/route.ts",
+      "packages/core/src/modules/workflows/lib/__tests__/event-logger.test.ts",
+      "packages/core/src/modules/workflows/lib/__tests__/work-inbox-provider.test.ts",
+      "packages/core/src/modules/workflows/lib/event-logger.ts",
+      "packages/core/src/modules/workflows/lib/work-inbox/user-task-source.ts"
+    ]
+  },
+  {
+    "number": 10629,
+    "title": "security(directory): anchor a null-organization feature check to an approved organization",
+    "headRef": "fix/null-org-feature-scope-narrowing",
+    "isFork": false,
+    "labels": [
+      "bug",
+      "enterprise",
+      "security",
+      "merge-queue",
+      "needs-qa",
+      "priority-high",
+      "risk-high",
+      "screenshots"
+    ],
+    "files": [
+      "apps/mercato/src/__tests__/api-authorization.test.ts",
+      "packages/core/src/modules/api_keys/__integration__/TC-APIKEY-009.spec.ts",
+      "packages/core/src/modules/audit_logs/api/__tests__/null-org-feature-scope.test.ts",
+      "packages/core/src/modules/customers/api/__tests__/people.null-org-feature-scope.test.ts",
+      "packages/core/src/modules/directory/utils/__tests__/organizationScope.test.ts",
+      "packages/core/src/modules/directory/utils/organizationScope.ts",
+      "packages/core/src/modules/entities/api/__tests__/records.acl.test.ts",
+      "packages/core/src/modules/entities/api/__tests__/records.crud.test.ts",
+      "packages/core/src/modules/entities/api/__tests__/records.get.search.test.ts",
+      "packages/core/src/modules/entities/api/__tests__/records.null-org-feature-scope.test.ts",
+      "packages/core/src/modules/entities/api/records.ts",
+      "packages/enterprise/src/modules/agent_orchestrator/__tests__/action-agent-attribution.test.ts",
+      "packages/enterprise/src/modules/agent_orchestrator/__tests__/audit-by-instigator-route.null-org-feature-scope.test.ts",
+      "packages/enterprise/src/modules/agent_orchestrator/__tests__/audit-by-instigator-route.test.ts",
+      "packages/enterprise/src/modules/agent_orchestrator/api/audit/by-instigator/[humanUserId]/route.ts",
+      "packages/enterprise/src/modules/agent_orchestrator/lib/identity/actionAgentAttribution.ts",
+      "packages/search/src/__tests__/pgvector-list-org-scoping.test.ts",
+      "packages/search/src/modules/search/api/__tests__/index.null-org-feature-scope.test.ts",
+      "packages/search/src/modules/search/api/index/route.ts",
+      "packages/search/src/strategies/vector.strategy.ts",
+      "packages/search/src/vector/drivers/pgvector/index.ts",
+      "packages/search/src/vector/types.ts"
+    ]
+  },
+  {
+    "number": 10579,
+    "title": "docs(ci): record verified green main stabilization",
+    "headRef": "stabilize/main-2026-11-25",
+    "isFork": false,
+    "labels": [
+      "documentation",
+      "merge-queue",
+      "skip-qa",
+      "priority-low",
+      "risk-low",
+      "automerge",
+      "automerge-signal-1-cr",
+      "automerge-signal-2-qa",
+      "automerge-signal-3-ci",
+      "ci-full"
+    ],
+    "files": [
+      ".ai/runs/2026-11-25-stabilize-main.md"
+    ]
+  },
+  {
+    "number": 10524,
+    "title": "fix(ci): give mutation jobs 90 minutes",
+    "headRef": "stabilize/mutation-job-timeout",
+    "isFork": false,
+    "labels": [
+      "bug",
+      "merge-queue",
+      "skip-qa",
+      "priority-medium",
+      "risk-low"
+    ],
+    "files": [
+      ".github/workflows/mutation-tests.yml",
+      "scripts/__tests__/stryker-workflow.test.mjs"
+    ]
+  },
+  {
+    "number": 10509,
+    "title": "fix(webhooks): validate string-only custom headers (#2817)",
+    "headRef": "cez/ff6c5e01-webhook-headers",
+    "isFork": false,
+    "labels": [
+      "bug",
+      "review",
+      "needs-qa",
+      "priority-low",
+      "risk-medium",
+      "automerge",
+      "automerge-signal-1-cr",
+      "automerge-signal-3-ci"
+    ],
+    "files": [
+      "packages/ui/src/backend/JsonBuilder.tsx",
+      "packages/ui/src/backend/__tests__/JsonBuilder.test.tsx",
+      "packages/webhooks/src/modules/webhooks/components/webhook-form-config.tsx"
+    ]
+  },
+  {
+    "number": 10477,
+    "title": "fix(setup): add icons to terminal status messages",
+    "headRef": "fix/setup-log-icons",
+    "isFork": false,
+    "labels": [
+      "bug",
+      "merge-queue",
+      "skip-qa",
+      "priority-low",
+      "risk-low"
+    ],
+    "files": [
+      ".ai/runs/2026-11-23-setup-log-icons.md",
+      "packages/create-app/src/lib/template-setup-infra.test.ts",
+      "packages/create-app/template/scripts/dev-orchestration-log-policy.mjs",
+      "packages/create-app/template/scripts/dev-service-connections.mjs",
+      "packages/create-app/template/scripts/dev.mjs",
+      "packages/create-app/template/scripts/setup.mjs",
+      "packages/starter/src/__tests__/service-connections.test.mjs",
+      "packages/starter/src/__tests__/setup-streaming.test.mjs",
+      "packages/starter/src/service-connections.mjs",
+      "packages/starter/src/steps.mjs",
+      "scripts/__tests__/dev-orchestration-log-policy.test.mjs",
+      "scripts/dev-orchestration-log-policy.mjs",
+      "scripts/dev.mjs"
+    ]
+  },
+  {
+    "number": 10637,
+    "title": "fix(ai_assistant): return 502 structured_output_invalid when run-object output misses the schema",
+    "headRef": "fix/run-object-structured-output-failure",
+    "isFork": false,
+    "labels": [
+      "bug",
+      "merge-queue",
+      "needs-qa",
+      "priority-medium",
+      "risk-medium"
+    ],
+    "files": [
+      ".ai/runs/2026-11-25-run-object-structured-output-failure.md",
+      "UPGRADE_NOTES.md",
+      "apps/docs/docs/framework/ai-assistant/agents.mdx",
+      "packages/ai-assistant/src/modules/ai_assistant/api/ai/run-object/__tests__/route.test.ts",
+      "packages/ai-assistant/src/modules/ai_assistant/api/ai/run-object/route.ts",
+      "packages/ai-assistant/src/modules/ai_assistant/i18n/de.json",
+      "packages/ai-assistant/src/modules/ai_assistant/i18n/en.json",
+      "packages/ai-assistant/src/modules/ai_assistant/i18n/es.json",
+      "packages/ai-assistant/src/modules/ai_assistant/i18n/ko.json",
+      "packages/ai-assistant/src/modules/ai_assistant/i18n/pl.json"
+    ]
+  },
+  {
+    "number": 10572,
+    "title": "fix(cli): let module add read unset Yarn registry settings (#10569)",
+    "headRef": "fix/issue-10569-module-add-yarn-config-undefined",
+    "isFork": false,
+    "labels": [
+      "bug",
+      "merge-queue",
+      "skip-qa",
+      "priority-high",
+      "risk-low",
+      "backport release/v0.10.x"
+    ],
+    "files": [
+      "packages/cli/src/lib/__tests__/module-inspection.test.ts",
+      "packages/cli/src/lib/module-inspection.ts"
+    ]
+  }
+]

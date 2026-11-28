@@ -19,6 +19,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 
 
 const searchLoggerWarn = createLogger('search').warn as jest.Mock
+const searchLoggerError = createLogger('search').error as jest.Mock
 
 // Mock dependencies before importing workers
 jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
@@ -48,18 +49,29 @@ jest.mock('../modules/search/lib/embedding-config', () => ({
 jest.mock('../modules/search/lib/reindex-lock', () => ({
   updateReindexProgress: jest.fn().mockResolvedValue(undefined),
   clearReindexLock: jest.fn().mockResolvedValue(undefined),
+  isReindexLockDrained: jest.requireActual('../modules/search/lib/reindex-lock').isReindexLockDrained,
 }))
 
 jest.mock('../modules/search/lib/reindex-progress', () => ({
   hasActiveReindexProgress: jest.fn().mockResolvedValue(true),
   incrementReindexProgress: jest.fn().mockResolvedValue(true),
+  completeReindexProgress: jest.fn().mockResolvedValue(undefined),
 }))
 
 import { handleVectorIndexJob } from '../modules/search/workers/vector-index.worker'
-import { handleFulltextIndexJob } from '../modules/search/workers/fulltext-index.worker'
+import {
+  __resetSkippedWithoutIndexingMemo,
+  handleFulltextIndexJob,
+} from '../modules/search/workers/fulltext-index.worker'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { updateReindexProgress, clearReindexLock } from '../modules/search/lib/reindex-lock'
-import { hasActiveReindexProgress, incrementReindexProgress } from '../modules/search/lib/reindex-progress'
+import {
+  completeReindexProgress,
+  hasActiveReindexProgress,
+  incrementReindexProgress,
+} from '../modules/search/lib/reindex-progress'
 import { refreshCoverageSnapshot } from '@open-mercato/core/modules/query_index/lib/coverage'
+import { recordIndexerLog } from '@open-mercato/shared/lib/indexers/status-log'
 
 /**
  * Create a mock job context
@@ -436,6 +448,9 @@ describe('Fulltext Index Worker', () => {
       select: jest.fn(() => chain),
       selectAll: jest.fn(() => chain),
       from: jest.fn(() => chain),
+      orderBy: jest.fn(() => chain),
+      offset: jest.fn(() => chain),
+      limit: jest.fn(() => chain),
       execute: jest.fn().mockResolvedValue([]),
       executeTakeFirst: jest.fn().mockResolvedValue(undefined),
     }
@@ -469,6 +484,8 @@ describe('Fulltext Index Worker', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    // The skip report is memoised per process, so it must be cleared between cases.
+    __resetSkippedWithoutIndexingMemo()
     ;(hasActiveReindexProgress as jest.Mock).mockResolvedValue(true)
     mockFulltextStrategy.isAvailable.mockResolvedValue(true)
     mockSearchIndexer.indexRecordById.mockResolvedValue({ action: 'indexed', created: true })
@@ -548,6 +565,45 @@ describe('Fulltext Index Worker', () => {
       expect.objectContaining({ type: 'fulltext', tenantId: 'tenant-123', delta: 2 }),
     )
     expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+  })
+
+  it.each([
+    { label: 'drained', lockCounts: { processedCount: 3, totalCount: 3 }, settles: true },
+    { label: 'still draining', lockCounts: { processedCount: 2, totalCount: 3 }, settles: false },
+    { label: 'total not recorded yet', lockCounts: { processedCount: 2, totalCount: null }, settles: false },
+  ])('settles a fulltext reindex from the lock counts only when the lock is $label', async ({ lockCounts, settles }) => {
+    ;(incrementReindexProgress as jest.Mock).mockResolvedValueOnce(false)
+    ;(updateReindexProgress as jest.Mock).mockResolvedValueOnce(lockCounts)
+    const containerWithProgress: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return [mockFulltextStrategy]
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        if (name === 'progressService') return { id: 'progress' }
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records: [{ entityId: 'test:entity', recordId: 'rec-1' }],
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), containerWithProgress)
+
+    if (settles) {
+      expect(completeReindexProgress).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'fulltext',
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+        resultSummary: lockCounts,
+      }))
+      expect(clearReindexLock).toHaveBeenCalledWith(mockDb, 'tenant-123', 'fulltext', 'org-456')
+    } else {
+      expect(completeReindexProgress).not.toHaveBeenCalled()
+      expect(clearReindexLock).not.toHaveBeenCalled()
+    }
   })
 
   it('re-throws a failed fulltext batch write without advancing reindex progress so the queue retries it', async () => {
@@ -663,6 +719,337 @@ describe('Fulltext Index Worker', () => {
     expect(mockFulltextStrategy.bulkIndex).not.toHaveBeenCalled()
   })
 
+  // A job that indexes nothing used to report `completed` with no trace anywhere, so
+  // "fulltext is not configured" and "everything indexed fine" were indistinguishable.
+  it('records a status-log row when the fulltext strategy is unregistered, and still completes', async () => {
+    const containerWithoutStrategy: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return []
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records: [{ entityId: 'test:entity', recordId: 'rec-1' }],
+    })
+
+    // Must NOT throw: retrying forever would turn a config choice into a queue backlog.
+    await expect(
+      handleFulltextIndexJob(job, createMockJobContext(), containerWithoutStrategy),
+    ).resolves.toBeUndefined()
+    expect(mockSearchIndexer.indexRecordsById).not.toHaveBeenCalled()
+
+    expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      { em: mockEm },
+      expect.objectContaining({
+        source: 'fulltext',
+        handler: 'worker:fulltext:batch-index',
+        level: 'warn',
+        message: expect.stringContaining('job skipped without indexing'),
+        tenantId: 'tenant-123',
+        details: expect.objectContaining({
+          jobType: 'batch-index',
+          organizationId: 'org-456',
+          skippedWithoutIndexing: true,
+        }),
+      }),
+    )
+
+    // The row carries the payload's organization, like the index, batch-index and error
+    // rows beside it. The all-organizations status view lists every organization of the
+    // caller's tenant (query_index/api/status.ts), and an organization-scoped caller sees
+    // the row for their own organization instead of losing it.
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ organizationId: 'org-456' }),
+    )
+
+    // ...and the log line must be readable without OM_SEARCH_DEBUG=1, at the level the
+    // sibling vector worker uses for the same skip and the row uses beside it.
+    expect(searchLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(String(searchLoggerWarn.mock.calls[0][0])).toContain(
+      'Fulltext strategy not configured',
+    )
+    expect(searchLoggerError).not.toHaveBeenCalled()
+  })
+
+  it('records a status-log row when searchStrategies cannot be resolved, and still completes', async () => {
+    const containerWithoutStrategies: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'index',
+      tenantId: 'tenant-123',
+      organizationId: null,
+      entityType: 'test:entity',
+      recordId: 'rec-1',
+    })
+
+    await expect(
+      handleFulltextIndexJob(job, createMockJobContext(), containerWithoutStrategies),
+    ).resolves.toBeUndefined()
+
+    expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      { em: mockEm },
+      expect.objectContaining({
+        source: 'fulltext',
+        handler: 'worker:fulltext:index',
+        level: 'warn',
+        message: expect.stringContaining('searchStrategies not available'),
+        tenantId: 'tenant-123',
+        details: expect.objectContaining({ jobType: 'index', organizationId: null }),
+      }),
+    )
+    expect(searchLoggerWarn).toHaveBeenCalledTimes(1)
+    expect(searchLoggerError).not.toHaveBeenCalled()
+  })
+
+  // `payloadOrganizationId` guards with `'organizationId' in job.payload` because
+  // FulltextDeletePayload and FulltextPurgePayload have no such field at all. The two
+  // cases above cover key-present-truthy and key-present-null; this is the branch the
+  // `in` operator exists for.
+  it('handles a skip on a payload shape that has no organizationId field', async () => {
+    const containerWithoutStrategy: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return []
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'delete',
+      tenantId: 'tenant-123',
+      entityType: 'test:entity',
+      recordId: 'rec-1',
+    } as unknown as FulltextIndexJobPayload)
+
+    await expect(
+      handleFulltextIndexJob(job, createMockJobContext(), containerWithoutStrategy),
+    ).resolves.toBeUndefined()
+
+    expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      { em: mockEm },
+      expect.objectContaining({
+        handler: 'worker:fulltext:delete',
+        details: expect.objectContaining({ jobType: 'delete', organizationId: null }),
+      }),
+    )
+  })
+
+  it('reports the same skip once inside the cooldown, not once per job', async () => {
+    const containerWithoutStrategy: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return []
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const makeJob = (recordId: string) =>
+      createMockJob<FulltextIndexJobPayload>({
+        jobType: 'index',
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+        entityType: 'test:entity',
+        recordId,
+      })
+
+    for (const recordId of ['rec-1', 'rec-2', 'rec-3']) {
+      await handleFulltextIndexJob(makeJob(recordId), createMockJobContext(), containerWithoutStrategy)
+    }
+
+    expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+    expect(searchLoggerWarn).toHaveBeenCalledTimes(1)
+  })
+
+  it('still reports a second tenant and a second job type', async () => {
+    const containerWithoutStrategy: HandlerContext = {
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies') return []
+        if (name === 'em') return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    }
+    const jobs = [
+      { jobType: 'index' as const, tenantId: 'tenant-a' },
+      { jobType: 'index' as const, tenantId: 'tenant-b' },
+      { jobType: 'batch-index' as const, tenantId: 'tenant-a' },
+      { jobType: 'index' as const, tenantId: 'tenant-a' },
+    ]
+    for (const { jobType, tenantId } of jobs) {
+      const job = createMockJob<FulltextIndexJobPayload>({
+        jobType,
+        tenantId,
+        organizationId: null,
+        entityType: 'test:entity',
+        recordId: 'rec-1',
+        records: [{ entityId: 'test:entity', recordId: 'rec-1' }],
+      })
+      await handleFulltextIndexJob(job, createMockJobContext(), containerWithoutStrategy)
+    }
+
+    // Three distinct (tenant, jobType) pairs; the repeat of the first is suppressed.
+    expect(recordIndexerLog).toHaveBeenCalledTimes(3)
+  })
+
+  describe('skipped diagnostic cooldown', () => {
+    const cooldownMs = 5 * 60 * 1000
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'index',
+      tenantId: 'tenant-a',
+      organizationId: null,
+      entityType: 'test:entity',
+      recordId: 'rec-1',
+    })
+    const skipContainer = (options: { missingStrategies?: boolean; missingDb?: boolean } = {}): HandlerContext => ({
+      resolve: jest.fn((name: string) => {
+        if (name === 'searchStrategies' && !options.missingStrategies) return []
+        if (name === 'em' && !options.missingDb) return mockEm
+        if (name === 'searchIndexer') return mockSearchIndexer
+        throw new Error(`Unknown service: ${name}`)
+      }) as HandlerContext['resolve'],
+    })
+    const runSkippedJob = (container: HandlerContext = skipContainer()) =>
+      handleFulltextIndexJob(job, createMockJobContext(), container)
+
+    beforeEach(() => {
+      jest.useFakeTimers({ now: 0 })
+      jest.mocked(recordIndexerLog).mockResolvedValue(undefined)
+    })
+
+    afterEach(() => {
+      jest.useRealTimers()
+      jest.mocked(recordIndexerLog).mockReset().mockResolvedValue(undefined)
+    })
+
+    it.each([false, true])('renews at each boundary without extending suppression (missingStrategies: %s)', async (missingStrategies) => {
+      const container = skipContainer({ missingStrategies })
+
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      jest.setSystemTime(cooldownMs - 1)
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+      expect(searchLoggerWarn).toHaveBeenCalledTimes(1)
+
+      jest.setSystemTime(cooldownMs)
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      jest.setSystemTime(2 * cooldownMs - 1)
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      jest.setSystemTime(2 * cooldownMs)
+      await expect(runSkippedJob(container)).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(3)
+      expect(searchLoggerWarn).toHaveBeenCalledTimes(3)
+      expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    })
+
+    it('keeps reasons independent for the same tenant and job type', async () => {
+      const configuredContainer = skipContainer()
+      const missingContainer = skipContainer({ missingStrategies: true })
+      for (const container of [configuredContainer, missingContainer, configuredContainer, missingContainer]) {
+        await runSkippedJob(container)
+      }
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      expect(jest.mocked(recordIndexerLog).mock.calls.map(([, input]) => input.message)).toEqual([
+        'Fulltext strategy not configured (MEILISEARCH_HOST unset?); job skipped without indexing',
+        'searchStrategies not available; job skipped without indexing',
+      ])
+    })
+
+    it('does not renew other tenant or job-type keys prematurely', async () => {
+      const container = skipContainer()
+      const otherTenantJob = createMockJob<FulltextIndexJobPayload>({ ...job.payload, tenantId: 'tenant-b' })
+      const otherTypeJob = createMockJob<FulltextIndexJobPayload>({
+        jobType: 'purge',
+        tenantId: 'tenant-a',
+        entityId: 'test:entity',
+      })
+      await runSkippedJob(container)
+      jest.setSystemTime(cooldownMs - 1)
+      await handleFulltextIndexJob(otherTenantJob, createMockJobContext(), container)
+      await handleFulltextIndexJob(otherTypeJob, createMockJobContext(), container)
+      expect(recordIndexerLog).toHaveBeenCalledTimes(3)
+
+      jest.setSystemTime(cooldownMs)
+      await runSkippedJob(container)
+      await handleFulltextIndexJob(otherTenantJob, createMockJobContext(), container)
+      await handleFulltextIndexJob(otherTypeJob, createMockJobContext(), container)
+      expect(recordIndexerLog).toHaveBeenCalledTimes(4)
+    })
+
+    it('reserves the cooldown before a concurrent status write completes', async () => {
+      let releaseWrite: () => void = () => undefined
+      jest.mocked(recordIndexerLog).mockImplementationOnce(() => new Promise<void>((resolve) => {
+        releaseWrite = resolve
+      }))
+      const firstJob = runSkippedJob()
+      try {
+        await expect(runSkippedJob()).resolves.toBeUndefined()
+        expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+      } finally {
+        releaseWrite()
+        await firstJob
+      }
+    })
+
+    it('renews after a failed status write without rejecting or retrying the skipped job', async () => {
+      const actualStatusLog = jest.requireActual<typeof import('@open-mercato/shared/lib/indexers/status-log')>(
+        '@open-mercato/shared/lib/indexers/status-log',
+      )
+      jest.mocked(recordIndexerLog).mockImplementation(actualStatusLog.recordIndexerLog)
+      const execute = jest.fn().mockRejectedValueOnce(new Error('database unavailable')).mockResolvedValue([])
+      const values = jest.fn().mockReturnValue({ execute })
+      mockDb.insertInto.mockReturnValueOnce({ ...createKyselyChain(), values })
+
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(execute).toHaveBeenCalledTimes(1)
+      jest.setSystemTime(cooldownMs - 1)
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+
+      jest.setSystemTime(cooldownMs)
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      expect(mockDb.insertInto).toHaveBeenCalledTimes(2)
+      expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    })
+
+    it('renews after a missing DB becomes available without rejecting the skipped job', async () => {
+      const actualStatusLog = jest.requireActual<typeof import('@open-mercato/shared/lib/indexers/status-log')>(
+        '@open-mercato/shared/lib/indexers/status-log',
+      )
+      jest.mocked(recordIndexerLog).mockImplementation(actualStatusLog.recordIndexerLog)
+      await expect(runSkippedJob(skipContainer({ missingDb: true }))).resolves.toBeUndefined()
+      expect(mockDb.insertInto).not.toHaveBeenCalled()
+
+      jest.setSystemTime(cooldownMs - 1)
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(1)
+      expect(mockDb.insertInto).not.toHaveBeenCalled()
+
+      jest.setSystemTime(cooldownMs)
+      await expect(runSkippedJob()).resolves.toBeUndefined()
+      expect(recordIndexerLog).toHaveBeenCalledTimes(2)
+      expect(mockDb.insertInto).toHaveBeenCalledTimes(1)
+      expect(mockSearchIndexer.indexRecordById).not.toHaveBeenCalled()
+    })
+  })
+
   it('should throw when fulltext search is not available', async () => {
     mockFulltextStrategy.isAvailable.mockResolvedValueOnce(false)
     const job = createMockJob<FulltextIndexJobPayload>({
@@ -676,4 +1063,96 @@ describe('Fulltext Index Worker', () => {
       'Fulltext search is not available'
     )
   })
+
+  // The organization is the only axis that correlates a fulltext index write with
+  // the record it wrote. Dropping it from the audit trail makes every row's
+  // organization_id NULL regardless of the record's real organization, which is
+  // indistinguishable from a genuinely organization-less write. The vector worker
+  // has always logged it; these pin the fulltext worker to the same contract.
+  it('records the organization on the status log for a single index', async () => {
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      entityType: 'test:entity',
+      recordId: 'rec-1',
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), mockContainer)
+
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        handler: 'worker:fulltext:index',
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+      }),
+    )
+  })
+
+  it('records the organization on the status log for a batch index', async () => {
+    mockSearchIndexer.indexRecordsById.mockResolvedValueOnce({ indexed: 1, skipped: 0 })
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'batch-index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      records: [{ entityId: 'test:entity', recordId: 'rec-1' }],
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), mockContainer)
+
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        handler: 'worker:fulltext:batch-index',
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+      }),
+    )
+  })
+
+  it('records the organization on the error log when indexing throws', async () => {
+    mockSearchIndexer.indexRecordById.mockRejectedValueOnce(new Error('boom'))
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'index',
+      tenantId: 'tenant-123',
+      organizationId: 'org-456',
+      entityType: 'test:entity',
+      recordId: 'rec-1',
+    })
+
+    await expect(handleFulltextIndexJob(job, createMockJobContext(), mockContainer)).rejects.toThrow('boom')
+
+    expect(recordIndexerError).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        handler: 'worker:fulltext:index',
+        tenantId: 'tenant-123',
+        organizationId: 'org-456',
+      }),
+    )
+  })
+
+  // `delete` and `purge` payloads carry no organization at all, so null here is
+  // the honest value rather than a dropped field. Pinned so a later payload
+  // change is a deliberate decision, not a silent one.
+  it('logs a null organization for a purge, whose payload carries none', async () => {
+    const job = createMockJob<FulltextIndexJobPayload>({
+      jobType: 'purge',
+      tenantId: 'tenant-123',
+      entityId: 'test:entity',
+    })
+
+    await handleFulltextIndexJob(job, createMockJobContext(), mockContainer)
+
+    expect(recordIndexerLog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ handler: 'worker:fulltext:purge', tenantId: 'tenant-123' }),
+    )
+    const purgeCall = (recordIndexerLog as jest.Mock).mock.calls.find(
+      ([, input]) => input?.handler === 'worker:fulltext:purge',
+    )
+    expect(purgeCall?.[1].organizationId ?? null).toBeNull()
+  })
+
 })

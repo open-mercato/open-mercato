@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -7,30 +8,7 @@ import type { IntegrationLogService } from '@open-mercato/core/modules/integrati
 import { applyAkeneoEnvPreset, readAkeneoEnvPreset } from './lib/preset'
 
 function parseArgs(args: string[]): Record<string, string | boolean> {
-  const result: Record<string, string | boolean> = {}
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-    if (!arg.startsWith('--')) continue
-
-    const key = arg.slice(2)
-    if (key.includes('=')) {
-      const [name, value] = key.split('=')
-      result[name] = value
-      continue
-    }
-
-    const next = args[i + 1]
-    if (next && !next.startsWith('--')) {
-      result[key] = next
-      i += 1
-      continue
-    }
-
-    result[key] = true
-  }
-
-  return result
+  return parseModuleCliOptions(args)
 }
 
 function printHelp(): void {

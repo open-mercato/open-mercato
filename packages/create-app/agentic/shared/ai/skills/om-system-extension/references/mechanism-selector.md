@@ -10,6 +10,7 @@ Load this reference before choosing files.
 | Add behavior before/after command execute or undo | `commands/interceptors.ts` command interceptor with stable `id`/`targetCommand`. |
 | Block/rewrite host mutation with post-success work | Mutation guard contract. |
 | Add form/table/menu/page content | Headless/rendered widget injection. |
+| Change a published CrudForm section or its owned fields | `defineCrudFormExtension` in `form-sections.ts`. Follow CrudForm section policy in `references/extension-branches.md`. |
 | Filter a client widget reaction | Widget `eventHandlers.filter.operations`. |
 | Persist app-owned data against host record | Extension entity with scalar host ID. |
 | React synchronously or asynchronously | Typed subscriber; use `metadata.sync`/`priority` only for in-pipeline lifecycle work. |

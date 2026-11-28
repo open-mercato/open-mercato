@@ -337,7 +337,7 @@ test.describe('TC-TT-025: undo cannot reach past the closed-report lock (#7507)'
       const undoResponse = page.waitForResponse((response) => (
         response.url().includes('/api/audit_logs/audit-logs/actions/undo') && response.request().method() === 'POST'
       ))
-      await updateRow.getByRole('button', { name: 'Undo last action' }).click()
+      await updateRow.getByRole('button', { name: 'Undo this action' }).click()
       expect((await undoResponse).status(), 'the UI undo must be refused').toBe(409)
       await expect(page.getByText(ENTRY_LOCKED_MESSAGE).first()).toBeVisible({ timeout: 10_000 })
 

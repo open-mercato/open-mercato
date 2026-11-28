@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import DealDetailPage from '../page'
 
@@ -26,6 +26,9 @@ const inlineActivityComposerMock = jest.fn(
     </div>
   ),
 )
+const activitiesSectionMock = jest.fn(
+  (_props: { onDataRefresh?: () => void; refreshKey?: number }) => <div>activities</div>,
+)
 const plannedActivitiesSectionMock = jest.fn(
   ({ onSchedule }: { onSchedule?: () => void }) => (
     <div data-testid="planned-activities-section">
@@ -37,6 +40,9 @@ const dealFormMock = jest.fn(() => <div>form</div>)
 const collapsibleZoneLayoutMock = jest.fn(
   ({ zone1, zone2 }: { zone1: React.ReactNode; zone2: React.ReactNode }) => <div>{zone1}{zone2}</div>,
 )
+const dealDetailTabsPropsCapture: {
+  current: { injectedTabs?: Array<{ id: string; label: string; priority?: number }> } | null
+} = { current: null }
 let activeTabParam: string | null = 'activities'
 let detailRequestCount = 0
 let injectedTabWidgets: Array<Record<string, unknown>> = []
@@ -138,10 +144,11 @@ jest.mock('#generated/entities.ids.generated', () => ({
 }), { virtual: true })
 
 jest.mock('../../../../../components/detail/DealDetailHeader', () => ({
-  DealDetailHeader: ({ deal }: { deal: { title: string } }) => <div>{deal.title}</div>,
+  DealDetailHeader: ({ deal, secondaryActions }: { deal: { title: string }; secondaryActions?: React.ReactNode }) => <div>{deal.title}{secondaryActions}</div>,
 }))
 
 jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
+  DEAL_DETAIL_TAB_IDS: ['activities', 'people', 'companies', 'notes', 'files', 'changelog'],
   resolveLegacyTab: (tab?: string | null, knownTabIds?: Iterable<string>) => {
     if (tab === 'activities' || tab === 'people' || tab === 'companies' || tab === 'notes' || tab === 'files' || tab === 'changelog') {
       return tab
@@ -157,21 +164,24 @@ jest.mock('../../../../../components/detail/DealDetailTabs', () => ({
   }: {
     children: React.ReactNode
     activeTab: string
-    injectedTabs?: Array<{ id: string; label: string }>
+    injectedTabs?: Array<{ id: string; label: string; priority?: number }>
     onTabChange: (tab: string) => void
-  }) => (
-    <div>
-      <div data-testid="active-tab">{activeTab}</div>
-      <button type="button" onClick={() => onTabChange('activities')}>tab-activities</button>
-      <button type="button" onClick={() => onTabChange('companies')}>tab-companies</button>
-      <button type="button" onClick={() => onTabChange('files')}>tab-files</button>
-      <button type="button" onClick={() => onTabChange('changelog')}>tab-changelog</button>
-      {injectedTabs.map((tab) => (
-        <button key={tab.id} type="button" onClick={() => onTabChange(tab.id)}>{`tab-${tab.id}`}</button>
-      ))}
-      {children}
-    </div>
-  ),
+  }) => {
+    dealDetailTabsPropsCapture.current = { injectedTabs }
+    return (
+      <div>
+        <div data-testid="active-tab">{activeTab}</div>
+        <button type="button" onClick={() => onTabChange('activities')}>tab-activities</button>
+        <button type="button" onClick={() => onTabChange('companies')}>tab-companies</button>
+        <button type="button" onClick={() => onTabChange('files')}>tab-files</button>
+        <button type="button" onClick={() => onTabChange('changelog')}>tab-changelog</button>
+        {injectedTabs.map((tab) => (
+          <button key={tab.id} type="button" onClick={() => onTabChange(tab.id)}>{`tab-${tab.id}`}</button>
+        ))}
+        {children}
+      </div>
+    )
+  },
 }))
 
 jest.mock('../../../../../components/detail/DealForm', () => ({
@@ -228,7 +238,7 @@ jest.mock('../../../../../components/detail/DealPeopleSection', () => ({
 }))
 
 jest.mock('../../../../../components/detail/PipelineStepper', () => ({
-  PipelineStepper: ({ footer }: { footer?: React.ReactNode }) => <div>pipeline{footer}</div>,
+  PipelineStepper: () => <div>pipeline</div>,
 }))
 
 jest.mock('../../../../../components/detail/DealClosureActionBar', () => ({
@@ -265,7 +275,7 @@ jest.mock('../../../../../components/detail/DealLostSummaryDialog', () => ({
 }))
 
 jest.mock('../../../../../components/detail/ActivitiesSection', () => ({
-  ActivitiesSection: () => <div>activities</div>,
+  ActivitiesSection: (props: { onDataRefresh?: () => void; refreshKey?: number }) => activitiesSectionMock(props),
 }))
 
 jest.mock('../../../../../components/detail/InlineActivityComposer', () => ({
@@ -368,6 +378,7 @@ function createDealPayload(closureOutcome: 'won' | 'lost' | null = null) {
       { id: 'stage-1', label: 'Discovery', order: 1, color: '#2563eb', icon: 'search' },
     ],
     pipelineName: 'Enterprise pipeline',
+    pipelineStageProbabilitiesEnabled: true,
     stageTransitions: [
       {
         stageId: 'stage-1',
@@ -389,6 +400,7 @@ describe('DealDetailPage', () => {
     activeTabParam = 'activities'
     detailRequestCount = 0
     injectedTabWidgets = []
+    dealDetailTabsPropsCapture.current = null
     readApiResultOrThrowMock.mockReset()
     updateCrudMock.mockReset()
     deleteCrudMock.mockReset()
@@ -399,6 +411,7 @@ describe('DealDetailPage', () => {
     })
     pushMock.mockReset()
     inlineActivityComposerMock.mockClear()
+    activitiesSectionMock.mockClear()
     plannedActivitiesSectionMock.mockClear()
     dealFormMock.mockClear()
     collapsibleZoneLayoutMock.mockClear()
@@ -498,6 +511,21 @@ describe('DealDetailPage', () => {
     )
   })
 
+  it('passes injected tab priority through to DealDetailTabs', async () => {
+    injectedTabWidgets = [{
+      widgetId: 'crm.overview',
+      placement: { kind: 'tab', groupId: 'crm.overview', priority: 1000 },
+      module: { metadata: { title: 'Overview' }, Widget: () => <div>overview</div> },
+    }]
+
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await screen.findByText('Expansion renewal')
+    expect(dealDetailTabsPropsCapture.current?.injectedTabs).toEqual([
+      { id: 'crm.overview', label: 'Overview', priority: 1000 },
+    ])
+  })
+
   it('resolves a deep link to an injected tab once the widgets load (#4379)', async () => {
     activeTabParam = 'crm.custom-tab'
     const view = renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
@@ -524,7 +552,7 @@ describe('DealDetailPage', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('attachments-section')).toHaveTextContent(
-        'customer_deal:deal-1:Files:Upload and manage files linked to this deal.',
+        'customer_deal:deal-1:Files:',
       )
     })
   })
@@ -538,7 +566,7 @@ describe('DealDetailPage', () => {
 
     expect(dealFormMock).toHaveBeenLastCalledWith(expect.objectContaining({
       initialPipelineOptions: [
-        { id: 'pipeline-1', name: 'Enterprise pipeline', isDefault: false },
+        { id: 'pipeline-1', name: 'Enterprise pipeline', isDefault: false, stageProbabilitiesEnabled: true },
       ],
       initialPipelineStageOptions: [
         { id: 'stage-1', label: 'Discovery', order: 1, color: '#2563eb', icon: 'search' },
@@ -728,5 +756,23 @@ describe('DealDetailPage', () => {
       expect(screen.getByTestId('inline-activity-composer')).toHaveTextContent('company:company-1:schedule-enabled')
     })
     expect(screen.getByTestId('planned-activities-section')).toHaveTextContent('schedule-enabled')
+  })
+
+  it('refreshes the composer week strip with the timeline after an activity is deleted (#9487)', async () => {
+    renderWithProviders(<DealDetailPage params={{ id: 'deal-123' }} />)
+
+    await waitFor(() => expect(activitiesSectionMock).toHaveBeenCalled())
+    await waitFor(() => expect(inlineActivityComposerMock).toHaveBeenCalled())
+    const readComposerRefreshKey = () =>
+      (inlineActivityComposerMock.mock.calls.at(-1)?.[0] as { refreshKey?: number } | undefined)?.refreshKey
+    const refreshKeyBeforeDelete = readComposerRefreshKey()
+    expect(typeof refreshKeyBeforeDelete).toBe('number')
+
+    await act(async () => {
+      activitiesSectionMock.mock.calls.at(-1)?.[0].onDataRefresh?.()
+    })
+
+    await waitFor(() => expect(readComposerRefreshKey()).toBe((refreshKeyBeforeDelete ?? 0) + 1))
+    expect(activitiesSectionMock.mock.calls.at(-1)?.[0].refreshKey).toBe(readComposerRefreshKey())
   })
 })

@@ -1,38 +1,47 @@
 ---
-title: Official Modules
-description: Community-reviewed, plug-and-play modules for Open Mercato — browse, install, and eject.
+title: Modules catalog
+sidebar_label: Modules catalog
+description: Find, install, and list Open Mercato modules from the core team, partners, and the community on modules.openmercato.com.
 ---
 
-# Official Modules
+# Modules catalog
 
-Open Mercato ships with a module system that lets you add features to your app without forking or modifying the platform. The **[Official Modules](https://github.com/open-mercato/official-modules)** repository is where the community publishes those features.
+[Open Mercato Modules](https://modules.openmercato.com) lists the modules you can add to an app without forking the platform: official `@open-mercato/*` packages and community and third-party packages. Every entry is read from the published package. Its page shows what the module adds (pages, API routes, entities, events, environment variables), its license, the Open Mercato versions it was built for, and the result of a nightly install in a fresh app.
 
-[![Official Modules Repository](/img/official-modules-repo.png)](https://github.com/open-mercato/official-modules)
+Before you build a feature, check whether it already exists. Modules that ship inside `@open-mercato/core` are listed under [Built-in](https://modules.openmercato.com/built-in). Many of them are already on in a new app; the module's page says when you need [`module enable`](/cli/module-enable).
 
-[![Watch: Official Modules](https://img.youtube.com/vi/alPsIVq7PKo/maxresdefault.jpg)](https://www.youtube.com/watch?v=alPsIVq7PKo)
+## Find a module
 
-Every module there:
+- Search [modules.openmercato.com](https://modules.openmercato.com) for what you need, for example `ksef`, `exchange rates`, or `when a deal is won`.
+- Browse a category, for example [Integrations & Data Sync](https://modules.openmercato.com/c/integrations-sync) or [Payments & Finance](https://modules.openmercato.com/c/payments-finance).
+- Let your coding agent ask the same data before it writes code: [For agents](https://modules.openmercato.com/for-agents) lists the read-only tools, the `om-find-module` skill, and the plain-text files agents can read.
 
-- **Installs in one command** — no manual wiring, no config files to edit
-- **Stays isolated** — each module is its own npm package that hooks into the platform through declared extension points, never by patching core code
-- **Is ejectable** — run `--eject` to copy the module into your app and own it fully
-- **Gets reviewed** — every submission goes through core team review before reaching npm
+## Install a module {#installing-an-official-module}
 
-Whether you're adding a small UI widget or shipping a full vertical feature with its own entities, API routes, and admin pages — if it runs on Open Mercato, it belongs there.
-
-## Installing an official module
+Each module page has an install box with the exact command for the version the catalog recommends, for example:
 
 ```bash
-# Install and register in one step
-yarn mercato module add @open-mercato/<module-name>
+yarn mercato module add @fastwhitecat/integration-ksef-direct@0.1.8 --allow-third-party
 
 # Apply any new migrations introduced by the module
 yarn db:migrate
 ```
 
-See the [`module add` CLI reference](/cli/module-add) for the full set of options including version pinning, multi-module packages, and ejection.
+- Keep the exact version from the module page. When the module is verified on your Open Mercato line, it is the version that installed cleanly there. Otherwise check the module page's status for your line before you install: the box can show a version that is untested or broken there.
+- Packages outside `@open-mercato/*` need `--allow-third-party`. The flag is an explicit opt-in; the package must still pass the module-structure validation.
+- A new app refuses third-party versions younger than 5 days (`npmMinimalAgeGate: 5d` in `.yarnrc.yml`). The module page shows the date a fresh release becomes installable as **Installable from**. Until then the catalog keeps recommending the previous version.
 
-## Ejecting a module
+See the [`module add` CLI reference](/cli/module-add) for multi-module packages, version selection, and ejection.
+
+## What Listed and Verified mean
+
+- **Listed**: the entry is valid, the npm package exists with a stable version and is not deprecated, the published package matches its kind (a module package contains `src/modules/<id>/` and `dist/modules/<id>/`; tools and libraries are listed too), the license is shown (or shown as unknown), and there is no known malware or open critical advisory. Checked by machine.
+- **Verified** (for example `VERIFIED · 0.9`): within the last 14 days the catalog installed the newest installable stable version in a fresh app of the latest Open Mercato line, with a green baseline, and the app generated, built, and started. The package must also fit the latest line statically and pass the supply chain, hygiene, and source checks. Granted and removed automatically. The module page shows the install result on each line separately. A release that is still waiting for **Installable from** does not remove the level from the previous version.
+- **OM Quality**: a human review against a published checklist. It requires Verified.
+
+Neither level is a code review of the module. The rules are on the [quality page](https://modules.openmercato.com/quality).
+
+## Eject a module {#ejecting-a-module}
 
 If you need full control over a module's source code, eject it into your app:
 
@@ -40,11 +49,11 @@ If you need full control over a module's source code, eject it into your app:
 yarn mercato module add @open-mercato/<module-name> --eject
 ```
 
-The source is copied to `src/modules/<moduleId>/` and loaded locally. You can edit it freely — the framework treats it as an app-level module from that point on. See the [`eject` CLI reference](/cli/eject) for details.
+The source is copied to `src/modules/<moduleId>/` and loaded locally. You can edit it freely; the framework treats it as an app-level module from that point on. See the [`eject` CLI reference](/cli/eject) for details.
 
-## Enabling an already-installed module
+## Enable an already-installed module {#enabling-an-already-installed-module}
 
-If the package is already in `node_modules` (e.g., added as a dependency by another package), register it without reinstalling:
+If the package is already in `node_modules` (for example added as a dependency by another package), register it without reinstalling:
 
 ```bash
 yarn mercato module enable @open-mercato/<module-name>
@@ -52,21 +61,15 @@ yarn mercato module enable @open-mercato/<module-name>
 
 See the [`module enable` CLI reference](/cli/module-enable) for details.
 
-## Publishing your module
+## Publish and list your module {#publishing-your-module}
 
-Built something useful? The official modules repo is the place to share it with the community. You get:
+1. **Publish it.** [`create-mercato-module`](https://github.com/open-mercato/create-mercato-module) turns one module of your app into an npm package, optionally with its own GitHub repository. Follow [Publishing Custom Modules](/framework/modules/publishing-custom-modules).
+2. **List it.** Open [modules.openmercato.com/submit](https://modules.openmercato.com/submit) and paste the npm package name (or open `https://modules.openmercato.com/submit?npm=<your-package>`). The page checks the package, its license, and the **Installable from** date, builds the catalog entry, and opens GitHub with the file filled in; commit it and open the pull request.
 
-- **Visibility** — your module is listed alongside other community and core-team modules
-- **Discoverability** — users find and install it with a single CLI command
-- **Review and quality** — the core team reviews every submission before it reaches npm
-- **Credit** — you're recognized as the module author in the registry and on npm
+After the pull request is merged, the module is read from its published source within minutes and installed in the next nightly run. To request an OM Quality review, follow the steps on the [quality page](https://modules.openmercato.com/quality).
 
-To contribute, fork the [official-modules repository](https://github.com/open-mercato/official-modules), follow the development workflow and conventions described in the repo README, and submit a pull request against the `develop` branch.
+Contributors who still work on the legacy `official-modules` repository from inside this monorepo can find the git-submodule workflow in [Developing Official Modules](/framework/modules/official-modules-development).
 
-If you're working inside the open-mercato monorepo, you can develop official modules with full platform context using the git-submodule workflow — see [Developing Official Modules](/framework/modules/official-modules-development).
+## Browse available modules {#browse-available-modules}
 
-## Browse available modules
-
-Visit the **[official-modules repository](https://github.com/open-mercato/official-modules)** to see the full list of available modules, their documentation, and contribution guidelines.
-
-[![Official Modules README](/img/official-modules-readme.png)](https://github.com/open-mercato/official-modules)
+Visit **[modules.openmercato.com](https://modules.openmercato.com)** for the full list, the [compatibility matrix](https://modules.openmercato.com/compat) of modules and Open Mercato versions, and the [Built-in](https://modules.openmercato.com/built-in) modules.

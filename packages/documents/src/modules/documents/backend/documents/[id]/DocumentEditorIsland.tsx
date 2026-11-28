@@ -30,7 +30,10 @@ export default function DocumentEditorIsland(props: DocumentEditorIslandProps) {
     router.replace(query ? `?${query}` : '?', { scroll: false })
   }, [forcedReadOnly, router, searchParams])
 
-  if (collaboration.mode === 'connecting') return <LoadingMessage label={t('documents.editor.loading')} />
+  if (
+    collaboration.mode === 'connecting'
+    || (collaboration.mode === 'collab' && collaboration.connectionStatus === 'connecting')
+  ) return <LoadingMessage label={t('documents.editor.loading')} />
   if (collaboration.mode === 'fallback') {
     return <DocumentEditorSurface {...props} readOnly={forcedReadOnly} key={`fallback:${props.documentId}`} transport="fallback" connectionStatus="offline" presenceUsers={[]} mode={mode} onModeChange={changeMode} />
   }

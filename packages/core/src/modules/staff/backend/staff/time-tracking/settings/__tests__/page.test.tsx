@@ -8,11 +8,13 @@
  * fired from a rule that has not been saved.
  */
 import * as React from 'react'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import type { TimeTrackingSettingsTabContext } from '../../../../../lib/time-tracking-ui/settingsTabs'
 import TimeTrackingSettingsPage from '../page'
 
 function interpolate(template: string, params?: Record<string, string | number>): string {
@@ -31,7 +33,12 @@ const mockTranslate = (
   return interpolate(key, fallbackOrParams)
 }
 
-jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => mockTranslate }))
+let mockLocale = 'en'
+
+jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
+  useLocale: () => mockLocale,
+  useT: () => mockTranslate,
+}))
 
 let mockScopeVersion = 1
 let mockScope: { tenantId: string | null; organizationId: string | null } = { tenantId: null, organizationId: null }
@@ -61,6 +68,19 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 
 jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({ useConfirmDialog: jest.fn() }))
 
+const mockRouterReplace = jest.fn()
+let mockSearch = ''
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: mockRouterReplace }),
+  usePathname: () => '/backend/staff/time-tracking/settings',
+  useSearchParams: () => new URLSearchParams(mockSearch),
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/InjectionSpot', () => {
+  const actual = jest.requireActual('@open-mercato/ui/backend/injection/InjectionSpot')
+  return { ...actual, useInjectionWidgets: jest.fn() }
+})
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => {
   const actual = jest.requireActual('@open-mercato/ui/backend/utils/apiCall')
   return { ...actual, apiCall: jest.fn() }
@@ -71,14 +91,40 @@ const mockUseBackendChrome = useBackendChrome as jest.MockedFunction<typeof useB
 const mockUseConfirmDialog = useConfirmDialog as jest.MockedFunction<typeof useConfirmDialog>
 const mockFlash = flash as jest.MockedFunction<typeof flash>
 
+const mockUseInjectionWidgets = useInjectionWidgets as jest.MockedFunction<typeof useInjectionWidgets>
+
 const confirmMock = jest.fn(async () => true)
+
+function SupportTabStub({ context }: { context: TimeTrackingSettingsTabContext }) {
+  return <div data-testid="support-tab">{context.settings.support?.referencePrefix}</div>
+}
+
+const supportTabWidget = {
+  widgetId: 'staff.injection.time-tracking-settings-support',
+  placement: { kind: 'tab', groupId: 'support', groupLabel: 'staff.support.settings.title', priority: 50 },
+  module: { metadata: { id: 'staff.injection.time-tracking-settings-support', title: 'Support' }, Widget: SupportTabStub },
+}
+
+function installTabWidgets(widgets: unknown[]) {
+  mockUseInjectionWidgets.mockReturnValue({ widgets, loading: false, error: null } as never)
+}
+
+function lastTabContext(): TimeTrackingSettingsTabContext {
+  const calls = mockUseInjectionWidgets.mock.calls.filter(
+    ([spotId]) => spotId === 'staff.time_tracking.settings:tabs',
+  )
+  const options = calls[calls.length - 1]?.[1] as { context: TimeTrackingSettingsTabContext | null } | undefined
+  if (!options?.context) throw new Error('[internal] the tabs spot has no context yet')
+  return options.context
+}
 
 let settings = {
   rounding: { unitMinutes: 15 as 0 | 5 | 10 | 15, direction: 'up' as 'up' | 'nearest' },
-  defaults: { billable: true, chainStartFromPreviousEnd: true },
+  defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
   targets: { dailyHours: 8 as number | null },
   warnings: { overlap: true, runningTimer: true },
   access: { assignmentGraceDays: 14 },
+  support: { referencePrefix: 'SUP' },
 }
 
 let impactResponse: unknown = {
@@ -96,6 +142,7 @@ const putBodies: unknown[] = []
 let putGate: Promise<void> | null = null
 
 let putOutcome: 'saved' | 'tenantScopeChanged' = 'saved'
+let putResult: typeof settings | null = null
 
 function ok<T>(result: T) {
   return { ok: true, status: 200, result, response: {} as Response, cacheStatus: null }
@@ -121,7 +168,7 @@ function installRouter() {
         putBodies.push(JSON.parse(String(init.body)))
         if (putGate) await putGate
         if (putOutcome === 'tenantScopeChanged') return tenantScopeChanged() as never
-        return ok(JSON.parse(String(init.body))) as never
+        return ok(putResult ?? JSON.parse(String(init.body))) as never
       }
       return ok(settings) as never
     }
@@ -141,14 +188,17 @@ beforeEach(() => {
   putBodies.length = 0
   putGate = null
   putOutcome = 'saved'
+  putResult = null
+  mockLocale = 'en'
   mockScopeVersion = 1
   mockScope = { tenantId: null, organizationId: null }
   settings = {
     rounding: { unitMinutes: 15, direction: 'up' },
-    defaults: { billable: true, chainStartFromPreviousEnd: true },
+    defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
     targets: { dailyHours: 8 },
     warnings: { overlap: true, runningTimer: true },
     access: { assignmentGraceDays: 14 },
+    support: { referencePrefix: 'SUP' },
   }
   reapplyResponse = { ok: true, progressJobId: 'job-1', candidateCount: 1284 }
   confirmMock.mockResolvedValue(true)
@@ -157,6 +207,8 @@ beforeEach(() => {
     payload: { grantedFeatures: ['staff.timesheets.settings.manage'] },
   } as never)
   installRouter()
+  mockSearch = ''
+  installTabWidgets([])
 })
 
 afterEach(() => {
@@ -226,11 +278,23 @@ describe('time tracking settings page', () => {
     await waitFor(() => expect(putBodies).toHaveLength(1))
     expect(putBodies[0]).toEqual({
       rounding: { unitMinutes: 15, direction: 'up' },
-      defaults: { billable: true, chainStartFromPreviousEnd: true },
+      defaults: { billable: true, chainStartFromPreviousEnd: true, entryMode: 'task' },
       targets: { dailyHours: 8 },
       warnings: { overlap: true, runningTimer: true },
       access: { assignmentGraceDays: 30 },
+      support: { referencePrefix: 'SUP' },
     })
+  })
+
+  it('saves the entry mode chosen in the entry defaults card', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('radio', { name: 'a project' }))
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    expect((putBodies[0] as { defaults: { entryMode: string } }).defaults.entryMode).toBe('project')
   })
 
   it('keeps Save disabled until something changes and while a field is unsaveable', async () => {
@@ -324,7 +388,81 @@ describe('time tracking settings page', () => {
 
     await waitFor(() => expect(putBodies).toHaveLength(1))
     const putCall = mockApiCall.mock.calls.find(([, init]) => init?.method === 'PUT')
-    expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?expectedTenantId=tenant-a')
+    expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?expectedTenantId=tenant-a&changedKeys=targets.dailyHours')
+  })
+
+  it('sends each changed key as its own query parameter', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '6' } })
+    fireEvent.change(screen.getByLabelText('Access grace period after an assignment ends'), { target: { value: '21' } })
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    const putCall = mockApiCall.mock.calls.find(([, init]) => init?.method === 'PUT')
+    const changedKeys = new URL(String(putCall?.[0]), 'http://localhost').searchParams.getAll('changedKeys')
+    expect(changedKeys.sort()).toEqual(['access.assignmentGraceDays', 'targets.dailyHours'])
+  })
+
+  it('redisplays a Polish decimal after applying the complete partial-save response', async () => {
+    mockLocale = 'pl'
+    settings = { ...settings, targets: { dailyHours: 7.123456789 } }
+    renderPage()
+    const dailyHours = await screen.findByLabelText('Daily hours target')
+    expect(dailyHours).toHaveValue('7,123456789')
+
+    fireEvent.change(dailyHours, { target: { value: '7,5' } })
+    putResult = {
+      ...settings,
+      defaults: { ...settings.defaults, chainStartFromPreviousEnd: false },
+      targets: { dailyHours: 7.5 },
+    }
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Settings saved.', 'success'))
+    expect(dailyHours).toHaveValue('7,5')
+    expect(screen.getByRole('switch', { name: 'Start = end of the previous entry' })).not.toBeChecked()
+    expect(screen.getByTestId('save-settings')).toBeDisabled()
+    expect(putBodies[0]).toMatchObject({ targets: { dailyHours: 7.5 } })
+    const putCall = mockApiCall.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?changedKeys=targets.dailyHours')
+  })
+
+  it('reformats an untouched decimal and preserves a pending edit when the locale changes', async () => {
+    settings = { ...settings, targets: { dailyHours: 7.5 } }
+    const view = renderPage()
+    expect(await screen.findByLabelText('Daily hours target')).toHaveValue('7.5')
+
+    const graceDays = screen.getByLabelText('Access grace period after an assignment ends')
+    fireEvent.change(graceDays, { target: { value: '21' } })
+    mockLocale = 'pl'
+    view.rerender(<TimeTrackingSettingsPage />)
+
+    await waitFor(() => expect(screen.getByLabelText('Daily hours target')).toHaveValue('7,5'))
+    expect(screen.getByLabelText('Access grace period after an assignment ends')).toHaveValue('21')
+    fireEvent.click(screen.getByTestId('save-settings'))
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Settings saved.', 'success'))
+    const putCall = mockApiCall.mock.calls.find(([, init]) => init?.method === 'PUT')
+    expect(String(putCall?.[0])).toBe('/api/staff/timesheets/settings?changedKeys=access.assignmentGraceDays')
+  })
+
+  it('preserves edits made after the submitted draft while the save is in flight', async () => {
+    renderPage()
+    const dailyHours = await screen.findByLabelText('Daily hours target')
+    const graceDays = screen.getByLabelText('Access grace period after an assignment ends')
+    let releasePut: () => void = () => undefined
+    putGate = new Promise<void>((resolve) => { releasePut = resolve })
+
+    fireEvent.change(dailyHours, { target: { value: '7.5' } })
+    fireEvent.click(screen.getByTestId('save-settings'))
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    fireEvent.change(graceDays, { target: { value: '21' } })
+    await act(async () => { releasePut() })
+
+    await waitFor(() => expect(mockFlash).toHaveBeenCalledWith('Settings saved.', 'success'))
+    expect(graceDays).toHaveValue('21')
+    expect(screen.getByTestId('save-settings')).toBeEnabled()
   })
 
   it('does not send a save when the tenant changes before the request goes out', async () => {
@@ -473,6 +611,22 @@ describe('time tracking settings page', () => {
     )
   })
 
+  it('reports the queued count without a progress bar when the progress module is disabled', async () => {
+    reapplyResponse = { ok: true, progressJobId: null, candidateCount: 1284 }
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByTestId('reapply-rounding'))
+
+    await waitFor(() =>
+      expect(mockFlash).toHaveBeenCalledWith(
+        'Recalculating rounded time on 1284 entries in the background.',
+        'success',
+      ),
+    )
+    expect(mockFlash).not.toHaveBeenCalledWith('There is nothing to recalculate.', 'info')
+  })
+
   it('degrades to a stated message when the impact preview fails', async () => {
     mockApiCall.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input)
@@ -507,5 +661,62 @@ describe('time tracking settings page', () => {
     expect(screen.getByTestId('reapply-rounding')).toBeDisabled()
     expect(screen.getByLabelText('Daily hours target')).toBeDisabled()
     expect(screen.getByTestId('save-settings')).toBeDisabled()
+  })
+
+  it('shows no tab strip while no module contributes a tab', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+  })
+
+  it('renders the general form outside any tab panel while no module contributes a tab', async () => {
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
+    expect(screen.getByTestId('save-settings')).toBeInTheDocument()
+  })
+
+  it('opens a contributed tab from the tab param and keeps the Save bar on the Time tracking tab', async () => {
+    installTabWidgets([supportTabWidget])
+    mockSearch = 'tab=support'
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('support-tab')).toHaveTextContent('SUP'))
+    expect(screen.getByRole('tab', { name: 'Support' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByTestId('save-settings')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Time tracking' }))
+    expect(mockRouterReplace).toHaveBeenCalledWith('/backend/staff/time-tracking/settings')
+  })
+
+  it('falls back to the Time tracking tab for an unknown tab param', async () => {
+    installTabWidgets([supportTabWidget])
+    mockSearch = 'tab=nope'
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+    expect(screen.getByRole('tab', { name: 'Time tracking' })).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('does not write back a prefix the Support tab changed while other edits are pending', async () => {
+    installTabWidgets([supportTabWidget])
+
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('rounding-examples')).toBeInTheDocument())
+
+    fireEvent.change(screen.getByLabelText('Daily hours target'), { target: { value: '7' } })
+    act(() => {
+      lastTabContext().onSettingsSaved({ ...settings, support: { referencePrefix: 'HELP' } })
+    })
+    expect(lastTabContext().settings.support?.referencePrefix).toBe('HELP')
+
+    fireEvent.click(screen.getByTestId('save-settings'))
+
+    await waitFor(() => expect(putBodies).toHaveLength(1))
+    expect(putBodies[0]).toMatchObject({ targets: { dailyHours: 7 }, support: { referencePrefix: 'HELP' } })
   })
 })

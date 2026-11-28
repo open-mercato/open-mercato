@@ -100,7 +100,7 @@ Definition → startWorkflow() → Instance → executeWorkflow() loop
 | `UPDATE_ENTITY` | Mutate an entity via the command bus. `CommandBus.execute` does not declare a signal; a write that has already begun cannot be cancelled on timeout. |
 | `EMIT_EVENT` | Emit a domain event to the event bus. `eventBus.emitEvent` does not declare a signal; an emit that has already begun cannot be cancelled on timeout. |
 | `EXECUTE_FUNCTION` | Run a registered custom function. Functions receive `(args, context, signal?: AbortSignal)` — the third arg is additive; existing two-arg functions are unaffected. |
-| `WAIT` | Delay execution for a configured duration |
+| `WAIT` | Delay execution for a configured duration. A sync WAIT over `MAX_INLINE_WAIT_MS` (60 s) that ENDS its transition is queued like an async one (`executeActivities` `queueLongInlineWaits`, opted into by the transition handler only — the AUTOMATED-step caller does not park on a queued result). An in-process WAIT never hands `setTimeout` more than `MAX_TIMER_DELAY_MS` (2^31−1 ms): Node would fire it after 1 ms. |
 | `SET_VARIABLE` | Write values into workflow context at dot paths (assignments land at top-level context, not namespaced under the activity) |
 
 ## Context Backbone (contextSchema · ledger · picker · samples · test step)
@@ -224,6 +224,33 @@ as it always did (guarded by a regression test in `lib/__tests__/error-routing.t
 - **`workflows.task.detail:context`** (`lib/work-inbox/navigation.ts`) is the task-detail injection
   spot — FROZEN once mounted. It exists because this page can only walk a `formSchema` generically;
   the module that owns a proposal renders it in its own vocabulary (the §7.6 draft card).
+
+## Task Completion Guards (issue #7178)
+
+- **`lib/task-completion-guards.ts` is the ONE veto seam for finishing a task.** Host modules call
+  `registerTaskCompletionGuards([{ moduleId, guards }])` from their `di.ts` (merge-by-module, stored on
+  `globalThis` like the work-inbox sources); the module namespace is also in DI as `taskCompletionGuards`.
+- **Enforced inside `completeUserTask`**, after lookup/ownership/form/decision and the closed-run
+  refusal (`WORKFLOW_NOT_ACTIVE` wins over a veto) and BEFORE any mutation,
+  so the complete route, the `workflows.tasks.complete` command and in-process callers share one check.
+  A veto throws `TaskCompletionBlockedError` (`code` = the guard's code, `status` 409); the routes and the
+  command answer `resolveTaskCompletionBlockedBody(error.block)` — the same body with `error` in the
+  caller's locale — the command as `CrudHttpError(409, body)`.
+- **The guard target is read inside the task's scope.** `loadTaskCompletionGuardTarget` filters the
+  instance, step instance and definition by the task's tenant + organization; a new caller of
+  `loadTaskDecisionContext` MUST pass the task's `scope`, and a definition read that feeds guard
+  selectors MUST use `findDefinitionForInstance(em, instance, scope)` so the predicate is on the query.
+  `completeUserTask` reads the instance in that same scope, so a foreign reference refuses with
+  `INSTANCE_NOT_FOUND` instead of skipping its guards.
+- **Mirrored in `canComplete`.** The task detail route evaluates the same guards in `preview` mode on a
+  never-flushed `em.fork()`, ONLY when visibility already allows completion, and feeds the veto into
+  `resolveTaskAffordances` (`actBlockedReason: 'completion-guard'` + `completionGuard`). The portal
+  detail/complete routes apply the same preview and 409 mapping — a new task surface MUST too.
+- **Fail closed** (`COMPLETION_GUARD_FAILED` on a throw — also reported via `reportError` as
+  `workflows.task_completion_guard_failed` — `TASK_COMPLETION_BLOCKED` on a code-less veto);
+  **zero cost** when nothing is registered — the handler loads nothing extra. MUST NOT bypass this by
+  completing a `UserTask` row directly (`closeAgentDispositionTask` is the documented non-advancing
+  exception). Spec: `.ai/specs/2026-10-11-workflows-task-completion-guards.md`.
 
 ## Node Outcome Rows (the canvas footer — fidelity gap #4)
 
@@ -934,7 +961,7 @@ Treat a regression here as a broken feature, not a nit.
 | Variable | Effect | Default |
 |----------|--------|---------|
 | `OM_WORKFLOWS_ALLOW_PRIVATE_URLS` | When `1`/`true`/`yes`, bypasses the SSRF guard in `CALL_WEBHOOK` so workflow authors can hit `localhost`, RFC1918, and `.internal` targets. For dev only — MUST remain unset in production. | unset (guard enforced) |
-| `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` | Hard cap on WAIT_FOR_CONDITION poll re-enqueues; reaching it forces `CONDITION_TIMED_OUT` so a never-satisfiable predicate cannot saturate the queue. | `1000` |
+| `OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS` | Floor of the cap on WAIT_FOR_CONDITION poll re-enqueues; reaching the cap forces `CONDITION_TIMED_OUT` so a never-satisfiable predicate cannot saturate the queue. Each waiter's cap is raised to the polls its own timeout needs (`resolveConditionAttemptCap`: `timeoutMs / pollIntervalMs + 1`), so a long timeout is never cut short by the floor. | `1000` |
 | `OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST` | Comma-separated non-secret process env keys allowed for `{{env.*}}` interpolation in workflow activity config. `APP_URL` is always allowed. Never include secrets. | unset (`APP_URL` only) |
 
 ## DI Services
@@ -947,6 +974,7 @@ Treat a regression here as a broken feature, not a nit.
 | `activityExecutor` | Execute or enqueue activities (called by transition handler) |
 | `conditionHandler` | Evaluate and wake WAIT_FOR_CONDITION waiters (`evaluateWaitCondition` from the queue backstop, `wakeConditionWaiters` from a context write) |
 | `eventLogger` | Log workflow events for audit trail |
+| `taskCompletionGuards` | Register / evaluate host vetoes on user-task completion (`lib/task-completion-guards.ts`) |
 
 ## Adding a New Activity Type
 

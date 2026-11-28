@@ -1,3 +1,5 @@
+import { validateAdapterCapabilities } from '@open-mercato/core/modules/communication_channels/lib/adapter-compat'
+import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
@@ -7,10 +9,14 @@ import {
 import { getGmailChannelAdapter } from './lib/adapter'
 import { channelGmailHealthCheck } from './lib/health'
 
-export function register(container: AppContainer): void {
-  if (!hasChannelAdapter('gmail')) {
-    registerChannelAdapter(getGmailChannelAdapter())
-  }
+function registerWithActivation(container: AppContainer, activate: (callback: () => void, validate?: () => void) => void) {
+  activate(() => {
+    if (!hasChannelAdapter('gmail')) {
+      registerChannelAdapter(getGmailChannelAdapter())
+    }
+  }, () => {
+    if (!hasChannelAdapter('gmail')) validateAdapterCapabilities(getGmailChannelAdapter())
+  })
   container.register({
     channelGmailAdapter: asValue(getGmailChannelAdapter()),
     // Registered under the exact service name declared in `integration.ts`
@@ -19,3 +25,11 @@ export function register(container: AppContainer): void {
     channelGmailHealthCheck: asValue(channelGmailHealthCheck),
   })
 }
+
+export function register(container: AppContainer): void {
+  registerWithActivation(container, (activate) => activate())
+}
+
+defineProcessDiRegistrar((container: AppContainer) => {
+  registerWithActivation(container, (activate, validate) => registerProcessActivation(container, activate, validate))
+}, { legacy: register })

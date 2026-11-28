@@ -560,7 +560,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
         try {
           const data = await readApiResultOrThrow<{
             items?: Array<Record<string, unknown>>
-          }>(`/api/customers/dictionaries/${category.kind}`, { cache: 'no-store' })
+          }>(`/api/customers/dictionaries/${category.kind}?labels=base`, { cache: 'no-store' })
           const entries = Array.isArray(data?.items)
             ? data.items
                 .map(makeDraftEntry)
@@ -1293,7 +1293,7 @@ export function ManageTagsDialog({ open, onClose }: ManageTagsDialogProps) {
                 <span className="text-xs text-muted-foreground">
                   {t(
                     'customers.tags.manage.tenantNotice',
-                    'Changes apply to the entire tenant \u00b7 visible immediately',
+                    'Changes apply to the entire tenant and are visible immediately.',
                   )}
                 </span>
               </div>

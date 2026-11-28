@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CompanyPeopleSection, type CompanyPersonSummary } from '../CompanyPeopleSection'
 
@@ -36,19 +36,17 @@ jest.mock('../CreatePersonDialog', () => ({
   }) => (open ? <div>Add new person</div> : null),
 }))
 
-jest.mock('../PersonCard', () => ({
-  PersonCard: ({
-    person,
-    onUnlink,
-  }: {
-    person: CompanyPersonSummary
-    onUnlink: (personId: string) => void
-  }) => (
-    <div>
-      <span>{person.displayName}</span>
-      <button type="button" onClick={() => onUnlink(person.id)}>Unlink</button>
-    </div>
-  ),
+const mockNoInjectedDataWidgets = { widgets: [], isLoading: false, error: null }
+
+jest.mock('@open-mercato/ui/backend/injection/useInjectionDataWidgets', () => ({
+  useInjectionDataWidgets: () => mockNoInjectedDataWidgets,
+}))
+
+jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
+  getInjectionRegistryVersion: () => 0,
+  subscribeToInjectionRegistryChanges: () => () => {},
+  loadInjectionWidgetsForSpot: jest.fn(async () => []),
+  loadInjectionDataWidgetsForSpot: jest.fn(async () => []),
 }))
 
 jest.mock('../DecisionMakersFooter', () => ({
@@ -102,9 +100,197 @@ describe('CompanyPeopleSection', () => {
 
   async function waitForInitialPeopleLoad() {
     await waitFor(() => {
-      expect(screen.queryByText(/Loading people/)).not.toBeInTheDocument()
+      expect(screen.queryByText(/Loading data/)).not.toBeInTheDocument()
     })
   }
+
+  async function openRowActions(personName: string) {
+    const row = (await screen.findByRole('link', { name: personName })).closest('tr') as HTMLElement
+    fireEvent.click(within(row).getByRole('button', { name: 'Open actions' }))
+  }
+
+  function columnHeaderLabels() {
+    return screen.getAllByRole('columnheader').map((header) => header.textContent)
+  }
+
+  function renderSectionWithPeople(people: CompanyPersonSummary[]) {
+    mockCompanyPeopleApi({ linkedPeople: people })
+    return renderWithProviders(
+      <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={people}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+      />,
+    )
+  }
+
+  function peopleUrls() {
+    return readApiResultOrThrowMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.startsWith('/api/customers/companies/company-123/people'))
+  }
+
+  describe('column collapse with the container width', () => {
+    const OriginalResizeObserver = globalThis.ResizeObserver
+    let resizeCallbacks: ResizeObserverCallback[] = []
+
+    beforeEach(() => {
+      resizeCallbacks = []
+      globalThis.ResizeObserver = class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallbacks.push(callback)
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      } as unknown as typeof ResizeObserver
+    })
+
+    afterEach(() => {
+      globalThis.ResizeObserver = OriginalResizeObserver
+    })
+
+    function resizeContainer(width: number) {
+      act(() => {
+        const entries = [{ contentRect: { width } }] as unknown as ResizeObserverEntry[]
+        resizeCallbacks.forEach((callback) => callback(entries, {} as ResizeObserver))
+      })
+    }
+
+    it('keeps only the name below 576px and adds columns from the right as the card widens', async () => {
+      renderSectionWithPeople([
+        { id: 'person-1', displayName: 'Ada Lovelace', primaryEmail: 'ada@example.com' },
+      ])
+      await screen.findByRole('link', { name: 'Ada Lovelace' })
+
+      resizeContainer(480)
+      expect(columnHeaderLabels()).toEqual(['Name', 'Actions'])
+      expect(screen.queryByRole('link', { name: 'ada@example.com' })).not.toBeInTheDocument()
+
+      resizeContainer(576)
+      expect(columnHeaderLabels()).toEqual(['Name', 'Email', 'Linked', 'Actions'])
+      expect(screen.getByRole('link', { name: 'ada@example.com' })).toBeInTheDocument()
+
+      resizeContainer(768)
+      expect(columnHeaderLabels()).toEqual(['Name', 'Email', 'Phone', 'Linked', 'Actions'])
+
+      resizeContainer(896)
+      expect(columnHeaderLabels()).toEqual(['Name', 'Email', 'Phone', 'Lifecycle stage', 'Linked', 'Actions'])
+
+      resizeContainer(1024)
+      expect(columnHeaderLabels()).toEqual(['Name', 'Email', 'Phone', 'Lifecycle stage', 'Source', 'Linked', 'Actions'])
+    })
+  })
+
+  it('sends the search query to the people endpoint, back on page 1', async () => {
+    renderSectionWithPeople([{ id: 'person-1', displayName: 'Ada Lovelace' }])
+    await screen.findByRole('link', { name: 'Ada Lovelace' })
+
+    fireEvent.change(screen.getByPlaceholderText('Search by name, role, email...'), {
+      target: { value: 'ada' },
+    })
+
+    await waitFor(() => {
+      expect(peopleUrls().at(-1)).toContain('search=ada')
+    }, { timeout: 3000 })
+    expect(peopleUrls().at(-1)).toContain('page=1')
+  })
+
+  it('pages through the server results from the table footer, and only when there is a next page', async () => {
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      const page = Number(new URL(url, 'http://localhost').searchParams.get('page') ?? '1')
+      return {
+        items: [{ id: `person-${page}`, displayName: `Person ${page}` }],
+        page,
+        total: 21,
+        totalPages: 2,
+      }
+    })
+
+    renderWithProviders(
+      <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={[]}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+      />,
+    )
+
+    await screen.findByRole('link', { name: 'Person 1' })
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+
+    expect(await screen.findByRole('link', { name: 'Person 2' })).toBeInTheDocument()
+    expect(peopleUrls().at(-1)).toContain('page=2')
+    expect(peopleUrls().at(-1)).toContain('pageSize=20')
+  })
+
+  it('keeps keyboard focus on the star button when toggling it', async () => {
+    renderSectionWithPeople([{ id: 'person-1', displayName: 'Ada Lovelace' }])
+    await screen.findByRole('link', { name: 'Ada Lovelace' })
+
+    const starButton = screen.getByRole('button', { name: 'Star' })
+    starButton.focus()
+    fireEvent.click(starButton)
+
+    expect(await screen.findByRole('button', { name: 'Remove star' })).toBe(starButton)
+    expect(starButton).toHaveFocus()
+  })
+
+  it('shows no pager for a single page of people', async () => {
+    renderSectionWithPeople([{ id: 'person-1', displayName: 'Ada Lovelace' }])
+    await screen.findByRole('link', { name: 'Ada Lovelace' })
+
+    expect(screen.queryByRole('button', { name: 'Next page' })).not.toBeInTheDocument()
+  })
+
+  it('offers open and unlink from the row menu without making the row itself a link', async () => {
+    renderSectionWithPeople([{ id: 'person-1', displayName: 'Ada Lovelace', primaryEmail: 'ada@example.com' }])
+
+    const nameLink = await screen.findByRole('link', { name: 'Ada Lovelace' })
+    fireEvent.click(nameLink.closest('td') as HTMLElement)
+    expect(pushMock).not.toHaveBeenCalled()
+
+    await openRowActions('Ada Lovelace')
+    expect(await screen.findByRole('menuitem', { name: 'Open person' })).toHaveAttribute('href', '/backend/customers/people-v2/person-1')
+    expect(screen.getByRole('menuitem', { name: 'Unlink' })).toBeInTheDocument()
+  })
+
+  it('reloads with the recent sort from a Linked header the default zone 2 width shows', async () => {
+    mockCompanyPeopleApi({ linkedPeople: [{ id: 'person-1', displayName: 'Ada Lovelace' }] })
+
+    renderWithProviders(
+      <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={[]}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+      />,
+    )
+
+    const linkedHeader = await screen.findByRole('button', { name: 'Linked' })
+    expect(linkedHeader.closest('th')).toHaveAttribute('aria-sort', 'none')
+    expect(readApiResultOrThrowMock.mock.calls.map(([url]) => String(url)).join()).not.toContain('sort=recent')
+
+    fireEvent.click(linkedHeader)
+
+    await waitFor(() => {
+      const peopleUrls = readApiResultOrThrowMock.mock.calls.map(([url]) => String(url))
+      expect(peopleUrls.at(-1)).toContain('/api/customers/companies/company-123/people')
+      expect(peopleUrls.at(-1)).toContain('sort=recent')
+    })
+    const sortedHeader = await screen.findByRole('button', { name: 'Linked' })
+    await waitFor(() => expect(sortedHeader.closest('th')).toHaveAttribute('aria-sort', 'descending'))
+    expect(screen.getByRole('button', { name: 'Name' }).closest('th')).toHaveAttribute('aria-sort', 'none')
+
+    const readsAfterSort = peopleUrls().length
+    fireEvent.click(sortedHeader)
+    await waitFor(() => expect(sortedHeader.closest('th')).toHaveAttribute('aria-sort', 'descending'))
+    expect(peopleUrls()).toHaveLength(readsAfterSort)
+  })
 
   it('opens the inline create dialog from the empty state', async () => {
     renderWithProviders(
@@ -519,12 +705,11 @@ describe('CompanyPeopleSection', () => {
       />,
     )
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Unlink' })).toBeInTheDocument()
-    })
+    await openRowActions('Grace Hopper')
+    const unlinkItem = await screen.findByRole('menuitem', { name: 'Unlink' })
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Unlink' }))
+      fireEvent.click(unlinkItem)
     })
 
     expect(runGuardedMutation).toHaveBeenCalled()
@@ -534,7 +719,7 @@ describe('CompanyPeopleSection', () => {
       expect.any(Object),
     )
     await waitFor(() => {
-      expect(screen.queryByRole('button', { name: 'Unlink' })).toBeNull()
+      expect(screen.queryByRole('link', { name: 'Grace Hopper' })).toBeNull()
     })
   })
 
@@ -635,7 +820,7 @@ describe('CompanyPeopleSection', () => {
     expect(await screen.findByText('Grace Hopper')).toBeInTheDocument()
   })
 
-  it('shows the people search controls by default when linked people exist', () => {
+  it('shows the search box and sortable headers by default when linked people exist', async () => {
     mockCompanyPeopleApi({
       linkedPeople: [
         {
@@ -663,8 +848,10 @@ describe('CompanyPeopleSection', () => {
     )
 
     expect(screen.getByPlaceholderText('Search by name, role, email...')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Filters' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox')).toBeInTheDocument()
+    const nameHeader = await screen.findByRole('columnheader', { name: 'Name' })
+    await waitFor(() => expect(nameHeader).toHaveAttribute('aria-sort', 'ascending'))
+    expect(screen.getByRole('button', { name: 'Linked' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /search and sort/i })).not.toBeInTheDocument()
   })
 
   // Live refresh for a detach performed in ANOTHER session. A link-backed detach broadcasts

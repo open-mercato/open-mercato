@@ -4,6 +4,7 @@ import { StaffTeamMember, StaffTimeProject } from '../../../../data/entities'
 
 const tenantA = '11111111-1111-4111-8111-111111111111'
 const tenantB = '99999999-9999-4999-8999-999999999999'
+const selectedOrganizationId = '55555555-5555-4555-8555-555555555555'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
 const projectId = '44444444-4444-4444-8444-444444444444'
@@ -42,7 +43,7 @@ const findOneWithDecryption = jest.fn(
   },
 )
 
-const emitStaffEvent = jest.fn(async () => {})
+const emitStaffEvent = jest.fn(async (_event: string, _payload: unknown) => {})
 
 const cacheStore = new Map<string, unknown>()
 let cacheAvailable = true
@@ -53,6 +54,15 @@ const cache = {
   }),
 }
 
+const getGrantedFeatures = jest.fn(async () => grantedFeatures)
+const userHasAllFeatures = jest.fn(async (_userId: string, required: string[]) =>
+  required.every((feature) => grantedFeatures.some((grant) =>
+    grant === '*' || grant === feature || (grant.endsWith('.*') && feature.startsWith(grant.slice(0, -1))),
+  )),
+)
+const createForFeature = jest.fn(async () => [])
+let scopeValue: { tenantId: string | null; selectedId: string | null; selectionRejected?: boolean } | null = null
+
 let grantedFeatures: string[] = ['staff.timesheets.view']
 
 const em = { fork: () => em }
@@ -62,15 +72,8 @@ const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'rbacService') return {
-      getGrantedFeatures: async () => grantedFeatures,
-      // Same grants, asked the way the code now asks — a test that grants a
-      // feature must still grant it once the check goes through the service.
-      userHasAllFeatures: async (_u: string, required: string[]) =>
-        required.every((feature: string) =>
-          (grantedFeatures ?? []).some((grant: string) =>
-            grant === '*' || grant === feature || (grant.endsWith('.*') && feature.startsWith(grant.slice(0, -1))),
-          ),
-        ),
+      getGrantedFeatures,
+      userHasAllFeatures,
     }
     if (name === 'cache') {
       if (!cacheAvailable) throw new Error('[internal] cache not registered')
@@ -95,6 +98,14 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => authValue),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn(async () => scopeValue ?? { tenantId: authValue?.tenantId, selectedId: authValue?.orgId }),
+}))
+
+jest.mock('@open-mercato/core/modules/notifications/lib/notificationService', () => ({
+  resolveNotificationService: () => ({ createForFeature }),
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({
     translate: (key: string, fallback?: string) => fallback ?? key,
@@ -109,8 +120,10 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('../../../../events', () => ({
-  emitStaffEvent: (...args: unknown[]) => emitStaffEvent(...(args as [])),
+  emitStaffEvent: (...args: unknown[]) => emitStaffEvent(...(args as [string, unknown])),
 }))
+
+import notifyAccessRequest from '../../../../subscribers/time-project-access-requested-notification'
 
 import { POST, metadata, buildAccessRequestDedupeKey, ACCESS_REQUEST_DEDUPE_WINDOW_MS } from '../route'
 
@@ -131,6 +144,10 @@ describe('staff timesheets access-requests route', () => {
     container.resolve.mockClear()
     findOneWithDecryption.mockClear()
     cacheAvailable = true
+    scopeValue = null
+    getGrantedFeatures.mockClear()
+    userHasAllFeatures.mockClear()
+    createForFeature.mockClear()
     grantedFeatures = ['staff.timesheets.view']
     authValue = { tenantId: tenantA, sub: userId, orgId: organizationId, email: 'tomasz@example.test' }
     projectRows = [
@@ -167,6 +184,69 @@ describe('staff timesheets access-requests route', () => {
         timeProjectName: 'Fintechly Portal',
       }),
     )
+  })
+
+  it('uses selected scope for authorization, guards, project, dedupe and manager notification', async () => {
+    const selectedScope = { tenantId: tenantA, organizationId: selectedOrganizationId }
+    scopeValue = { tenantId: tenantA, selectedId: selectedOrganizationId }
+    projectRows = [{ ...selectedScope, id: projectId, name: 'Selected project', deletedAt: null }]
+    memberRows = [{ ...selectedScope, userId, displayName: 'Selected requester', deletedAt: null }]
+    const validate = jest.fn(async () => ({ ok: true }))
+    registerMutationGuards([{
+      moduleId: 'test',
+      guards: [{ id: 'test.selected-scope', targetEntity: '*', operations: ['create'], validate }],
+    }])
+
+    const response = await POST(postRequest({ timeProjectId: projectId }))
+
+    expect(response.status).toBe(200)
+    expect(userHasAllFeatures).toHaveBeenCalledWith(userId, ['staff.timesheets.view'], selectedScope)
+    expect(getGrantedFeatures).toHaveBeenCalledWith(userId, selectedScope)
+    expect(validate).toHaveBeenCalledWith(expect.objectContaining(selectedScope))
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      expect.anything(), StaffTimeProject, expect.objectContaining(selectedScope), expect.anything(), selectedScope,
+    )
+    expect(cache.set).toHaveBeenCalledWith(
+      buildAccessRequestDedupeKey({ ...selectedScope, requesterUserId: userId, timeProjectId: projectId }),
+      expect.anything(),
+      { ttl: ACCESS_REQUEST_DEDUPE_WINDOW_MS },
+    )
+    expect(emitStaffEvent).toHaveBeenCalledWith(
+      'staff.timesheets.project_access.requested',
+      expect.objectContaining({ ...selectedScope, timeProjectId: projectId, requesterName: 'Selected requester' }),
+    )
+    const payload = emitStaffEvent.mock.calls[0][1] as Parameters<typeof notifyAccessRequest>[0]
+    await notifyAccessRequest(payload, { resolve: <Value,>() => ({}) as Value })
+    expect(createForFeature).toHaveBeenCalledTimes(1)
+    expect(createForFeature).toHaveBeenCalledWith(
+      expect.objectContaining({ restrictRecipientsToOrganization: true }), selectedScope,
+    )
+  })
+
+  it.each([
+    { tenantId: tenantA, selectedId: organizationId, selectionRejected: true },
+    { tenantId: tenantA, selectedId: null },
+    { tenantId: null, selectedId: organizationId },
+  ])('rejects unusable selected write scope before project lookup or emission: %j', async (scope) => {
+    scopeValue = scope
+
+    const response = await POST(postRequest({ timeProjectId: projectId }))
+
+    expect(response.status).toBe(400)
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(emitStaffEvent).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+  })
+
+  it('rejects a feature denial before guards and emission in selected scope', async () => {
+    scopeValue = { tenantId: tenantA, selectedId: selectedOrganizationId }
+    grantedFeatures = []
+
+    const response = await POST(postRequest({ timeProjectId: projectId }))
+
+    expect(response.status).toBe(403)
+    expect(findOneWithDecryption).not.toHaveBeenCalled()
+    expect(emitStaffEvent).not.toHaveBeenCalled()
   })
 
   it('emits a general request when no project is supplied', async () => {

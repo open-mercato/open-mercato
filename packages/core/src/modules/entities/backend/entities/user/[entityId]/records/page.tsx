@@ -84,7 +84,6 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
   const [pageSize, setPageSize] = React.useState(50)
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<Record<string, any>>({})
-  const [columns, setColumns] = React.useState<ColumnDef<any>[]>([])
   const [rawData, setRawData] = React.useState<any[]>([])
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
@@ -102,10 +101,30 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     contextId: deleteMutationContextId,
     blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
   })
-  const { data: cfDefs = [] } = useCustomFieldDefs(entityId, {
+  const { data: customFieldDefs } = useCustomFieldDefs(entityId, {
     enabled: Boolean(entityId),
     keyExtras: [scopeVersion],
   })
+  const cfDefs = React.useMemo(() => customFieldDefs ?? [], [customFieldDefs])
+  const columns = React.useMemo<ColumnDef<any>[]>(() => {
+    const visibleDefs = filterCustomFieldDefs(cfDefs, 'list') as any
+    const maxVisible = 10
+    const cols: ColumnDef<any>[] = visibleDefs.map((d: any, idx: number) => ({
+      accessorKey: d.key,
+      header: d.label || d.key,
+      meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
+      cell: ({ getValue }: { getValue: () => unknown }) => {
+        const v = getValue() as any
+        if (d.kind === 'relation') {
+          return <RelationCell fieldKey={d.key} value={v} fallbackText={normalizeCell(v)} />
+        }
+        return <span className="inline-block max-w-60 truncate align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
+      },
+    }))
+    const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
+    if (!hasIdCol) cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
+    return cols
+  }, [cfDefs])
   const relationDefinitions = React.useMemo(
     () => filterCustomFieldDefs(cfDefs, 'list').filter(
       (definition): definition is CustomFieldDefDto => definition.kind === 'relation',
@@ -188,28 +207,6 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     return () => { cancelled = true }
   }, [entityId, page, pageSize, sorting, filterValues, scopeVersion, search, searchableFields])
 
-  // Build columns from custom field definitions only (no data round-trip)
-  React.useEffect(() => {
-    const visibleDefs = filterCustomFieldDefs(cfDefs, 'list') as any
-    const maxVisible = 10
-    const cols: ColumnDef<any>[] = visibleDefs.map((d: any, idx: number) => ({
-      accessorKey: d.key,
-      header: d.label || d.key,
-      meta: { priority: idx < 4 ? 1 : idx < 6 ? 2 : idx < 8 ? 3 : idx < maxVisible ? 4 : 5 },
-      cell: ({ getValue }: { getValue: () => unknown }) => {
-        const v = getValue() as any
-        if (d.kind === 'relation') {
-          return <RelationCell fieldKey={d.key} value={v} fallbackText={normalizeCell(v)} />
-        }
-        return <span className="inline-block max-w-60 truncate align-top" title={normalizeCell(v)}>{normalizeCell(v)}</span>
-      },
-    }))
-    // Ensure hidden 'id' column exists for sorting/state
-    const hasIdCol = cols.some((c) => (c as any).accessorKey === 'id' || (c as any).id === 'id')
-    if (!hasIdCol) cols.unshift({ accessorKey: 'id', header: 'ID', meta: { hidden: true, priority: 6 } } as any)
-    setColumns(cols)
-  }, [cfDefs])
-
   // Search is server-side (see fetch effect); render the fetched page as-is so
   // pagination totals and exports stay consistent with the active search (#3229).
   const data = rawData
@@ -283,13 +280,13 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
     <>
       <Button asChild variant="outline" size="sm">
         <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}`}>
-          Edit Entity Definition
+          {t('entities.userEntities.records.actions.editDefinition', 'Edit Entity Definition')}
         </Link>
       </Button>
       {hasAnyFormFields && (
         <Button asChild>
           <Link href={`/backend/entities/user/${encodeURIComponent(entityId)}/records/create`}>
-            Create
+            {t('entities.userEntities.records.form.submitCreate', 'Create')}
           </Link>
         </Button>
       )}
@@ -303,54 +300,48 @@ function RecordsPageInner({ params }: { params: { entityId?: string } }) {
 
   return (
     <Page>
-      <PageBody>
-        <ContextHelp bulb title="API: Manage Records via cURL" className="mb-4">
+      <PageBody className="[&_h1]:wrap-anywhere">
+        <ContextHelp bulb title={t('entities.userEntities.records.apiHelp.title')} className="mb-4">
           <p className="mb-2">
-            Interact with this custom entity via the backend API using cURL. Use API keys for machine-to-machine access—mint one from the{' '}
+            {t('entities.userEntities.records.apiHelp.intro')}{' '}
             <a className="underline" target="_blank" rel="noreferrer" href="https://docs.openmercato.com/user-guide/api-keys">
-              Managing API keys guide
-            </a>{' '}
-            or the{' '}
+              {t('entities.userEntities.records.apiHelp.guide')}
+            </a>
+            {' · '}
             <a className="underline" target="_blank" rel="noreferrer" href="https://docs.openmercato.com/cli/api-keys">
-              API keys CLI documentation
-            </a>{' '}
-            before running these calls.
+              {t('entities.userEntities.records.apiHelp.cli')}
+            </a>
           </p>
           <div className="space-y-2">
             <div>
-              <div className="font-medium mb-1">1) Configure environment variables</div>
+              <div className="font-medium mb-1">{t('entities.userEntities.records.apiHelp.environment')}</div>
               <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`export BASE_URL="http://localhost:3000/api"
 export API_KEY="<paste API key secret here>"           # scoped with entities.features
 export ENTITY_ID="${entityId}"
 export RECORD_ID="<record uuid>"`}</code></pre>
               <p className="text-muted-foreground mt-1">
-                Need a new key? Follow the{' '}
-                <a className="underline" target="_blank" rel="noreferrer" href="https://docs.openmercato.com/user-guide/api-keys">
-                  Managing API keys
-                </a>{' '}
-                walkthrough or mint one via{' '}
+                {t('entities.userEntities.records.apiHelp.keyHelp')}{' '}
                 <a className="underline" target="_blank" rel="noreferrer" href="https://docs.openmercato.com/cli/api-keys">
                   mercato api_keys add
-                </a>
-                .
+                </a>.
               </p>
             </div>
 
             <div>
-              <div className="font-medium mb-1">2) List records</div>
+              <div className="font-medium mb-1">{t('entities.userEntities.records.apiHelp.list')}</div>
               <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -H "X-Api-Key: $API_KEY" \
   "$BASE_URL/entities/records?entityId=$ENTITY_ID" | jq`}</code></pre>
             </div>
 
             <div>
-              <div className="font-medium mb-1">3) Read a single record (by id)</div>
+              <div className="font-medium mb-1">{t('entities.userEntities.records.apiHelp.read')}</div>
               <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -H "X-Api-Key: $API_KEY" \
   "$BASE_URL/entities/records?entityId=$ENTITY_ID&id=$RECORD_ID" | jq`}</code></pre>
-              <p className="text-muted-foreground mt-1">Note: Response is a list; filter by <code>id</code> to get a single item.</p>
+              <p className="text-muted-foreground mt-1">{t('entities.userEntities.records.apiHelp.readNote')}</p>
             </div>
 
             <div>
-              <div className="font-medium mb-1">4) Create a record</div>
+              <div className="font-medium mb-1">{t('entities.userEntities.records.apiHelp.create')}</div>
               <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -X POST \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
@@ -362,11 +353,11 @@ export RECORD_ID="<record uuid>"`}</code></pre>
     }
   }" \
   "$BASE_URL/entities/records" | jq`}</code></pre>
-              <p className="text-muted-foreground mt-1">For custom entities, send field keys without the <code>cf_</code> prefix. The API normalizes this server-side.</p>
+              <p className="text-muted-foreground mt-1">{t('entities.userEntities.records.apiHelp.createNote')}</p>
             </div>
 
             <div>
-              <div className="font-medium mb-1">5) Update a record</div>
+              <div className="font-medium mb-1">{t('entities.userEntities.records.apiHelp.update')}</div>
               <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -X PUT \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
@@ -381,18 +372,18 @@ export RECORD_ID="<record uuid>"`}</code></pre>
             </div>
 
             <div>
-              <div className="font-medium mb-1">6) Delete a record</div>
+              <div className="font-medium mb-1">{t('entities.userEntities.records.apiHelp.delete')}</div>
               <pre className="bg-muted p-3 rounded text-xs overflow-auto"><code>{`curl -s -X DELETE \
   -H "X-Api-Key: $API_KEY" \
   "$BASE_URL/entities/records?entityId=$ENTITY_ID&recordId=$RECORD_ID" | jq`}</code></pre>
             </div>
 
             <div className="text-muted-foreground">
-              Security notes:
+              {t('entities.userEntities.records.apiHelp.security')}
               <ul className="list-disc pl-5 mt-1 space-y-1">
-                <li>All endpoints require a valid API key. Keys inherit tenant, organization, and feature scope.</li>
-                <li>Rotate keys regularly and delete unused ones in the admin UI.</li>
-                <li>Store the secret in a secure vault; anyone with the header can act within the key&apos;s permissions.</li>
+                <li>{t('entities.userEntities.records.apiHelp.scope')}</li>
+                <li>{t('entities.userEntities.records.apiHelp.rotate')}</li>
+                <li>{t('entities.userEntities.records.apiHelp.protect')}</li>
               </ul>
             </div>
           </div>
@@ -400,7 +391,7 @@ export RECORD_ID="<record uuid>"`}</code></pre>
         <RelationDisplaysProvider displaysByField={relationDisplaysByField}>
           <DataTable
             stickyActionsColumn
-          title={`Records: ${entityId}`}
+          title={t('entities.userEntities.records.title', 'Records: {{entityId}}', { entityId })}
           titleHeadingLevel={1}
             entityId={entityId}
             actions={actions}

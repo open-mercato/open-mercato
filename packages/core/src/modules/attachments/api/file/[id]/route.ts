@@ -1,10 +1,14 @@
+import { resolveAttachmentPartition } from '../../../lib/partitionScope'
+import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
+import { assertAttachmentStoragePartitionExists } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
+import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../../../lib/access-runner'
+import { attachmentAccessErrorResponse } from '../../../lib/access-errors'
 import { NextRequest, NextResponse } from "next/server";
 import type { OpenApiRouteDoc } from "@open-mercato/shared/lib/openapi";
 import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
 import {
   Attachment,
-  AttachmentPartition,
 } from "@open-mercato/core/modules/attachments/data/entities";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { checkAttachmentAccess, isSuperAdminAuth } from "@open-mercato/core/modules/attachments/lib/access";
@@ -16,12 +20,27 @@ import {
 } from "@open-mercato/core/modules/attachments/lib/security";
 import { StorageDriverFactory } from '../../../lib/drivers';
 import { resolveAttachmentRequestScope } from '@open-mercato/core/modules/attachments/lib/requestScope';
+import { createLogger } from '@open-mercato/shared/lib/logger';
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime';
+
+const logger = createLogger('attachments').child({ component: 'file' });
+
+const MISSING_STORAGE_OBJECT_CODES = new Set(['ENOENT', 'NoSuchKey', 'NotFound']);
+
+function readStorageErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object') return null;
+  const candidate = error as { code?: unknown; Code?: unknown; name?: unknown };
+  const values = [candidate.code, candidate.Code, candidate.name].filter(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
+  return values.find((value) => MISSING_STORAGE_OBJECT_CODES.has(value)) ?? values[0] ?? null;
+}
 
 export const metadata = {
   GET: { requireAuth: false },
 };
 
-export async function GET(
+async function readAttachmentFile(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
@@ -59,9 +78,8 @@ export async function GET(
       { status: 404 },
     );
   }
-  const partition = await em.findOne(AttachmentPartition, {
-    code: attachment.partitionCode,
-  });
+  const partition = await resolveAttachmentPartition(em, attachment.partitionCode, attachment);
+  assertAttachmentStoragePartitionExists(Boolean(partition))
   if (!partition) {
     return NextResponse.json(
       { error: "Partition misconfigured" },
@@ -69,11 +87,14 @@ export async function GET(
     );
   }
 
-  const access = checkAttachmentAccess(scopedAuth, attachment, partition);
-  if (!access.ok) {
-    const message = access.status === 401 ? "Unauthorized" : "Forbidden";
-    return NextResponse.json({ error: message }, { status: access.status });
-  }
+  const url = new URL(req.url);
+  const forceDownload = url.searchParams.get("download") === "1";
+  const renderInline = !forceDownload && canRenderInlineAttachment(attachment.mimeType);
+  const access = await evaluateAttachmentAccess({
+    auth: scopedAuth, attachment, partition, action: renderInline ? 'render' : 'read',
+    context: createAttachmentAccessContext(container),
+  });
+  if (!access.ok) return attachmentAccessErrorResponse(access);
 
   const driver = await storageDriverFactory.resolveForPartition(attachment.partitionCode, {
     tenantId: attachment.tenantId ?? '',
@@ -83,15 +104,34 @@ export async function GET(
   try {
     const result = await driver.read(attachment.partitionCode, attachment.storagePath);
     buffer = result.buffer;
-  } catch {
-    return NextResponse.json({ error: "File not available" }, { status: 404 });
+  } catch (error) {
+    const errorCode = readStorageErrorCode(error);
+    const logContext = {
+      attachmentId: attachment.id,
+      partitionCode: attachment.partitionCode,
+      storagePath: attachment.storagePath,
+      storageDriver: driver.key,
+      errorCode,
+      err: error,
+    };
+    if (errorCode && MISSING_STORAGE_OBJECT_CODES.has(errorCode)) {
+      logger.warn('Attachment file missing from storage', logContext);
+      getTelemetryRuntime()?.reportError(error, { module: 'attachments', code: 'attachments.storage_file_missing' });
+      return NextResponse.json(
+        { error: "File not available", code: "STORAGE_FILE_MISSING" },
+        { status: 404 },
+      );
+    }
+    logger.error('Attachment storage read failed', logContext);
+    getTelemetryRuntime()?.reportError(error, { module: 'attachments', code: 'attachments.storage_read_failed' });
+    return NextResponse.json(
+      { error: "File not available", code: "STORAGE_READ_FAILED" },
+      { status: 500 },
+    );
   }
 
-  const url = new URL(req.url);
-  const forceDownload = url.searchParams.get("download") === "1";
-  const renderInline = !forceDownload && canRenderInlineAttachment(attachment.mimeType);
   const headers: Record<string, string> = {
-    "Cache-Control": partition.isPublic
+    "Cache-Control": access.protected ? "private, no-store" : checkAttachmentAccess(null, attachment, partition).ok
       ? "public, max-age=86400"
       : "private, max-age=60",
     "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -113,6 +153,8 @@ export async function GET(
   return new NextResponse(responseBody, { status: 200, headers });
 }
 
+export const GET = withAttachmentStorageErrors(readAttachmentFile)
+
 export const openApi: OpenApiRouteDoc = {
   tag: attachmentsTag,
   summary: "Download attachment file",
@@ -129,6 +171,7 @@ export const openApi: OpenApiRouteDoc = {
         },
       ],
       errors: [
+        { status: 503, description: 'Attachment storage configuration rejected by policy', schema: attachmentErrorSchema },
         {
           status: 400,
           description: "Missing attachment ID",
@@ -152,9 +195,10 @@ export const openApi: OpenApiRouteDoc = {
         },
         {
           status: 500,
-          description: "Partition misconfigured",
+          description: "Partition misconfigured or storage read failed",
           schema: attachmentErrorSchema,
         },
+        { status: 504, description: 'Owner authorization timed out', schema: attachmentErrorSchema },
       ],
     },
   },

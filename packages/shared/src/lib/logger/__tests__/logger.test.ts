@@ -567,6 +567,8 @@ describe('structured logging facade', () => {
       const [firstLine, ...stackLines] = chunks[0].split('\n')
       expect(firstLine).toContain('ERROR [err-ns] Handler error event=x.y.z')
       expect(stackLines.join('\n')).toContain('pretty kaboom')
+      expect(stackLines[0]).toBe('    Error: pretty kaboom')
+      expect(stackLines.filter(Boolean).every((stackLine) => stackLine.startsWith('    '))).toBe(true)
     })
 
     it('gates each method by the effective level', () => {

@@ -9,6 +9,12 @@ import * as React from 'react'
 import { render, waitFor } from '@testing-library/react'
 import { ActivitiesSection } from '../ActivitiesSection'
 
+let mockCanDeleteActivity = true
+
+jest.mock('../hooks/useActivityDeleteAccess', () => ({
+  useActivityDeleteAccess: () => () => mockCanDeleteActivity,
+}))
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => fallback ?? key,
 }))

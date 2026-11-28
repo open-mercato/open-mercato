@@ -64,6 +64,13 @@
   "portal.login.submit": "Zaloguj się",
   "portal.login.submitting": "Logowanie…",
   "portal.login.title": "Logowanie",
+  "portal.magicLink.backToLogin": "Wróć do logowania",
+  "portal.magicLink.description": "Kontynuuj, aby zalogować się do portalu linkiem z wiadomości e-mail.",
+  "portal.magicLink.error.generic": "Logowanie nie powiodło się. Spróbuj ponownie.",
+  "portal.magicLink.error.invalidToken": "Ten link do logowania jest nieprawidłowy lub wygasł. Poproś o nowy.",
+  "portal.magicLink.error.missingToken": "Link do logowania jest nieprawidłowy lub niekompletny.",
+  "portal.magicLink.submit": "Zaloguj się",
+  "portal.magicLink.title": "Zaloguj się linkiem",
   "portal.nav.account": "Konto",
   "portal.nav.dashboard": "Panel",
   "portal.nav.home": "Portal",
@@ -121,6 +128,7 @@
   "portal.signup.error.email.invalid": "Podaj prawidłowy adres e-mail.",
   "portal.signup.error.generic": "Rejestracja nie powiodła się. Spróbuj ponownie.",
   "portal.signup.error.password.minLength": "Hasło musi mieć co najmniej 8 znaków.",
+  "portal.signup.error.rateLimited": "Zbyt wiele prób rejestracji. Odczekaj kilka minut i spróbuj ponownie.",
   "portal.signup.hasAccount": "Masz już konto?",
   "portal.signup.loginLink": "Zaloguj się",
   "portal.signup.password": "Hasło",
@@ -137,8 +145,9 @@
   "portal.verify.error.backToLogin": "Wróć do logowania",
   "portal.verify.error.generic": "Weryfikacja adresu e-mail nie powiodła się. Spróbuj ponownie.",
   "portal.verify.error.invalidToken": "Brakuje tokenu weryfikacyjnego.",
+  "portal.verify.submit": "Zweryfikuj adres e-mail i ustaw hasło",
   "portal.verify.success.description": "Twój adres e-mail został zweryfikowany. Możesz teraz zalogować się do portalu.",
   "portal.verify.success.loginLink": "Zaloguj się",
   "portal.verify.success.title": "Adres e-mail zweryfikowany",
-  "portal.verify.title": "Weryfikowanie adresu e-mail"
+  "portal.verify.title": "Zweryfikuj adres e-mail"
 }

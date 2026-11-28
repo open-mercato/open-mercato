@@ -64,6 +64,13 @@
   "portal.login.submit": "로그인",
   "portal.login.submitting": "로그인 중…",
   "portal.login.title": "로그인",
+  "portal.magicLink.backToLogin": "로그인으로 돌아가기",
+  "portal.magicLink.description": "이메일의 링크로 포털에 로그인하려면 계속하세요.",
+  "portal.magicLink.error.generic": "로그인에 실패했습니다. 다시 시도하세요.",
+  "portal.magicLink.error.invalidToken": "이 로그인 링크가 유효하지 않거나 만료되었습니다. 새 링크를 요청하세요.",
+  "portal.magicLink.error.missingToken": "로그인 링크가 유효하지 않거나 불완전합니다.",
+  "portal.magicLink.submit": "로그인",
+  "portal.magicLink.title": "링크로 로그인",
   "portal.nav.account": "계정",
   "portal.nav.dashboard": "대시보드",
   "portal.nav.home": "포털",
@@ -121,6 +128,7 @@
   "portal.signup.error.email.invalid": "올바른 이메일 주소를 입력해 주세요.",
   "portal.signup.error.generic": "가입에 실패했습니다. 다시 시도해 주세요.",
   "portal.signup.error.password.minLength": "비밀번호는 8자 이상이어야 합니다.",
+  "portal.signup.error.rateLimited": "가입 시도가 너무 많습니다. 몇 분 후에 다시 시도해 주세요.",
   "portal.signup.hasAccount": "이미 계정이 있으신가요?",
   "portal.signup.loginLink": "로그인",
   "portal.signup.password": "비밀번호",
@@ -137,8 +145,9 @@
   "portal.verify.error.backToLogin": "로그인으로 돌아가기",
   "portal.verify.error.generic": "이메일 인증에 실패했습니다. 다시 시도해 주세요.",
   "portal.verify.error.invalidToken": "인증 토큰이 없습니다.",
+  "portal.verify.submit": "이메일 인증 및 비밀번호 설정",
   "portal.verify.success.description": "이메일 인증이 완료되었습니다. 이제 포털에 로그인할 수 있습니다.",
   "portal.verify.success.loginLink": "로그인",
   "portal.verify.success.title": "이메일 인증 완료",
-  "portal.verify.title": "이메일 인증 중"
+  "portal.verify.title": "이메일 인증"
 }

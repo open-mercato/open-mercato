@@ -1,5 +1,5 @@
 /** @jest-environment node */
-import { mergeAdvancedFilterTree, mergeAdvancedFiltersFromQuery } from '../advanced-filter-integration'
+import { mergeAdvancedFilters, mergeAdvancedFilterTree, mergeAdvancedFiltersFromQuery } from '../advanced-filter-integration'
 import type { AdvancedFilterTree, FilterRule, FilterGroup } from '../../query/advanced-filter-tree'
 import { createEmptyTree } from '../../query/advanced-filter-tree'
 
@@ -109,5 +109,127 @@ describe('mergeAdvancedFiltersFromQuery', () => {
 
   it('returns route filters unchanged when no advanced filter present', () => {
     expect(mergeAdvancedFiltersFromQuery({ kind: 'person' }, { page: '1' })).toEqual({ kind: 'person' })
+  })
+})
+
+describe('mergeAdvancedFilters v2 tree URLs', () => {
+  const v2Query = {
+    'filter[v]': '2',
+    'filter[root][combinator]': 'and',
+    'filter[root][children][0][type]': 'rule',
+    'filter[root][children][0][field]': 'display_name',
+    'filter[root][children][0][op]': 'contains',
+    'filter[root][children][0][value]': 'Daniel',
+  }
+
+  it('AND-combines a v2 tree with route filters', () => {
+    expect(mergeAdvancedFilters({ kind: 'person' }, v2Query)).toEqual({
+      $and: [
+        { kind: 'person' },
+        { display_name: { $ilike: '%Daniel%' } },
+      ],
+    })
+  })
+
+  it.each([{}, { kind: 'person' }])(
+    'reuses the v2 predicate when the route already merged it with %j',
+    (routeFilters) => {
+      const merged = mergeAdvancedFiltersFromQuery(routeFilters, v2Query)
+
+      expect(mergeAdvancedFilters(merged, v2Query)).toBe(merged)
+    },
+  )
+
+  it('still intersects a route OR that contains the requested predicate', () => {
+    const predicate = { display_name: { $ilike: '%Daniel%' } }
+    const routeFilters = { $or: [predicate, { kind: 'person' }] }
+
+    expect(mergeAdvancedFilters(routeFilters, v2Query)).toEqual({
+      $and: [routeFilters, predicate],
+    })
+  })
+
+  it('keeps route filters unchanged when the v2 tree has no usable rules', () => {
+    const routeFilters = { kind: 'person' }
+    expect(mergeAdvancedFilters(routeFilters, {
+      'filter[v]': '2',
+      'filter[root][combinator]': 'and',
+    })).toBe(routeFilters)
+  })
+})
+
+describe('mergeAdvancedFilters security intersection', () => {
+  const query = {
+    'filter[conditions][0][field]': 'member_id',
+    'filter[conditions][0][op]': 'is_not_empty',
+  }
+
+  it('keeps route filters unchanged when client filters are absent or unusable', () => {
+    const routeFilters = { member_id: 'member-1' }
+    expect(mergeAdvancedFilters(routeFilters, {})).toBe(routeFilters)
+    expect(mergeAdvancedFilters(routeFilters, {
+      'filter[conditions][0][field]': 'member_id',
+      'filter[conditions][0][op]': 'is',
+      'filter[conditions][0][value]': '',
+    })).toBe(routeFilters)
+  })
+
+  it('keeps client-only filters working when route filters are empty', () => {
+    expect(mergeAdvancedFilters({}, query)).toEqual({ member_id: { $exists: true } })
+  })
+
+  it('preserves same-field server predicates without mutating either input', () => {
+    const routeFilters = Object.freeze({ member_id: Object.freeze({ $eq: 'member-1' }) })
+    const clientQuery = Object.freeze({ ...query })
+    expect(mergeAdvancedFilters(routeFilters, clientQuery)).toEqual({
+      $and: [routeFilters, { member_id: { $exists: true } }],
+    })
+    expect(routeFilters.member_id).toEqual({ $eq: 'member-1' })
+    expect(clientQuery).toEqual(query)
+  })
+
+  it('AND-combines direct scope and both overlapping OR groups', () => {
+    const routeFilters = {
+      tenant_id: 'tenant-1',
+      $or: [{ member_id: 'member-1' }, { member_id: 'member-2' }],
+    }
+    expect(mergeAdvancedFilters(routeFilters, {
+      ...query,
+      'filter[logic]': 'or',
+      'filter[conditions][1][field]': 'member_id',
+      'filter[conditions][1][op]': 'is',
+      'filter[conditions][1][value]': 'outsider',
+    })).toEqual({
+      $and: [routeFilters, {
+        $or: [{ member_id: { $exists: true } }, { member_id: { $eq: 'outsider' } }],
+      }],
+    })
+  })
+
+  it('keeps a v2 OR tree inside its own $and element next to the route scope', () => {
+    const routeFilters = { member_id: 'member-1' }
+    expect(mergeAdvancedFilters(routeFilters, {
+      'filter[v]': '2',
+      'filter[root][combinator]': 'or',
+      'filter[root][children][0][type]': 'rule',
+      'filter[root][children][0][field]': 'member_id',
+      'filter[root][children][0][op]': 'is',
+      'filter[root][children][0][value]': 'outsider',
+      'filter[root][children][1][type]': 'rule',
+      'filter[root][children][1][field]': 'title',
+      'filter[root][children][1][op]': 'contains',
+      'filter[root][children][1][value]': 'A',
+    })).toEqual({
+      $and: [routeFilters, {
+        $or: [{ member_id: { $eq: 'outsider' } }, { title: { $ilike: '%A%' } }],
+      }],
+    })
+  })
+
+  it('preserves a nested route AND when client conditions target the same field', () => {
+    const routeFilters = { $and: [{ member_id: 'member-1' }, { id: { $in: ['allowed'] } }] }
+    expect(mergeAdvancedFilters(routeFilters, query)).toEqual({
+      $and: [routeFilters, { member_id: { $exists: true } }],
+    })
   })
 })

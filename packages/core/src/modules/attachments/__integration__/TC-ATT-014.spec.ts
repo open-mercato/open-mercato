@@ -12,8 +12,8 @@ const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
  * Source: GitHub issue #2488 (attachments integration coverage)
  * Surface: /api/attachments/file/{id} (GET)
  *
- * The file route stamps `Cache-Control: public, max-age=86400` for public-partition
- * files and `private, max-age=60` for private ones, always sets a sandboxed CSP and
+ * The file route stamps `Cache-Control: private, max-age=60` for scoped files
+ * in either public or private partitions, always sets a sandboxed CSP and
  * nosniff, and serves viewable images inline. A file lands in the public `productsMedia`
  * partition by uploading with the catalog product entityId (default routing); explicit
  * public-partition overrides are rejected by the upload route.
@@ -93,7 +93,7 @@ test.describe('TC-ATT-014: Attachment file route headers and access', () => {
 
       const publicResponse = await fetchFile(publicImageId, true)
       expect(publicResponse.status(), 'authenticated public file read should be 200').toBe(200)
-      expect(publicResponse.headers()['cache-control']).toBe('public, max-age=86400')
+      expect(publicResponse.headers()['cache-control']).toBe('private, max-age=60')
       expect(publicResponse.headers()['content-security-policy'] ?? '').toContain('sandbox')
 
       // Unauthenticated reads of tenant-scoped rows are gated with 401 on both partitions.

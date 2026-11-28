@@ -1,3 +1,12 @@
+export function formatDealDuplicateTitle(title: string, formatTitle: (title: string) => string): string {
+  const formatted = formatTitle(title)
+  const excess = formatted.length - 200
+  if (excess <= 0) return formatted
+  let shortened = title.slice(0, Math.max(0, title.length - excess)).trimEnd()
+  if (/[\uD800-\uDBFF]$/.test(shortened)) shortened = shortened.slice(0, -1)
+  return formatTitle(shortened)
+}
+
 export type DealDuplicateSource = {
   pipelineId?: string | null
   pipelineStageId?: string | null

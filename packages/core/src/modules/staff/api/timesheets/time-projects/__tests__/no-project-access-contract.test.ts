@@ -44,6 +44,6 @@ describe('no project access discriminator', () => {
     const source = readFileSync(file, 'utf8')
     expect(source).toContain("from '")
     expect(source).toMatch(/import \{ NoProjectAccess \} from '.*time-tracking-ui\/NoProjectAccess'/)
-    expect(source).toMatch(/<NoProjectAccess timeProjectId=\{projectId\} \/>/)
+    expect(source).toMatch(/<NoProjectAccess timeProjectId=\{projectId\} resolvedScope=\{resolvedScope\} \/>/)
   })
 })

@@ -31,6 +31,7 @@ import {
   DEFAULT_MAX_CONDITION_ATTEMPTS,
   evaluateWaitCondition,
   readWaitForConditionConfig,
+  resolveConditionAttemptCap,
   resolveMaxConditionAttempts,
   wakeConditionWaiters,
 } from '../condition-handler'
@@ -232,6 +233,33 @@ describe('WAIT_FOR_CONDITION', () => {
 
       process.env.OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS = 'not-a-number'
       expect(resolveMaxConditionAttempts()).toBe(DEFAULT_MAX_CONDITION_ATTEMPTS)
+    })
+  })
+
+  describe('resolveConditionAttemptCap', () => {
+    const original = process.env.OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS
+
+    afterEach(() => {
+      if (original === undefined) delete process.env.OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS
+      else process.env.OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS = original
+    })
+
+    test('keeps the configured cap when the timeout needs fewer polls', () => {
+      delete process.env.OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS
+      expect(resolveConditionAttemptCap({ timeoutMs: 30 * 60_000, pollIntervalMs: 30_000 })).toBe(
+        DEFAULT_MAX_CONDITION_ATTEMPTS
+      )
+    })
+
+    test('raises the cap to the polls a 90-day timeout needs', () => {
+      delete process.env.OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS
+      const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000
+      expect(resolveConditionAttemptCap({ timeoutMs: ninetyDaysMs, pollIntervalMs: 3_600_000 })).toBe(2161)
+    })
+
+    test('falls back to the configured cap for a non-positive interval', () => {
+      process.env.OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS = '7'
+      expect(resolveConditionAttemptCap({ timeoutMs: 60_000, pollIntervalMs: 0 })).toBe(7)
     })
   })
 
@@ -492,7 +520,7 @@ describe('WAIT_FOR_CONDITION', () => {
         primeLookups(
           makeInstance({ status: 'PAUSED', context: { payment: { status: 'pending' } } } as any),
           makeStepInstance(),
-          makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT30M', onTimeout: 'CONTINUE' })
+          makeDefinition({ condition: paymentCapturedCondition, timeout: 'PT1M', onTimeout: 'CONTINUE' })
         )
 
         const result = await evaluateWaitCondition(mockEm, mockContainer, {
@@ -516,6 +544,27 @@ describe('WAIT_FOR_CONDITION', () => {
       } finally {
         delete process.env.OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS
       }
+    })
+
+    test('keeps polling a 90-day wait past the default attempt cap', async () => {
+      delete process.env.OM_WORKFLOWS_MAX_CONDITION_ATTEMPTS
+      primeLookups(
+        makeInstance({ status: 'PAUSED', context: { payment: { status: 'pending' } } } as any),
+        makeStepInstance(),
+        makeDefinition({ condition: paymentCapturedCondition, timeout: 'P90D', pollIntervalMs: 3_600_000 })
+      )
+
+      const result = await evaluateWaitCondition(mockEm, mockContainer, {
+        instanceId,
+        stepInstanceId,
+        deadlineAt: futureDeadline(),
+        attempt: 1500,
+        tenantId,
+        organizationId,
+      })
+
+      expect(result.outcome).toBe('pending')
+      expect(mockEnqueueConditionCheckJob).toHaveBeenCalledWith(expect.objectContaining({ attempt: 1501 }))
     })
 
     test('is a no-op when the event-driven path already resumed the instance', async () => {

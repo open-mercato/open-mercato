@@ -1,3 +1,4 @@
+import { createCacheService, runWithCacheTenant } from '@open-mercato/cache'
 import { createModuleConfigService } from '../module-config-service'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
@@ -15,6 +16,9 @@ type Row = {
 function matches(row: Row, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, value]) => {
     const current = (row as Record<string, unknown>)[key]
+    if (value && typeof value === 'object' && '$in' in (value as Record<string, unknown>)) {
+      return (value as { $in: unknown[] }).$in.includes(current)
+    }
     return value === null ? current === null || current === undefined : current === value
   })
 }
@@ -22,9 +26,16 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
 function createFakeEm() {
   const rows: Row[] = []
   let seq = 0
+  const findCalls: Array<Record<string, unknown>> = []
+  const findOneCalls: Array<Record<string, unknown>> = []
   const repo = {
     async findOne(where: Record<string, unknown>): Promise<Row | null> {
+      findOneCalls.push(where)
       return rows.find((row) => matches(row, where)) ?? null
+    },
+    async find(where: Record<string, unknown>): Promise<Row[]> {
+      findCalls.push(where)
+      return rows.filter((row) => matches(row, where))
     },
     create(data: Partial<Row>): Row {
       const now = new Date()
@@ -42,6 +53,8 @@ function createFakeEm() {
   }
   return {
     rows,
+    findCalls,
+    findOneCalls,
     em: {
       getRepository: () => repo,
       persist: (entity: Row) => {
@@ -71,9 +84,10 @@ function createFakeCache() {
   }
 }
 
-function createContainer() {
-  const { em, rows } = createFakeEm()
-  const { cache, keys } = createFakeCache()
+function createContainer(cacheOverride?: unknown) {
+  const { em, rows, findCalls, findOneCalls } = createFakeEm()
+  const { cache: fakeCache, keys } = createFakeCache()
+  const cache = cacheOverride ?? fakeCache
   const container = {
     resolve: (token: string) => {
       if (token === 'em') return em
@@ -81,7 +95,7 @@ function createContainer() {
       throw new Error(`unknown token ${token}`)
     },
   } as unknown as AppContainer
-  return { container, rows, cacheKeys: keys }
+  return { container, rows, cacheKeys: keys, findCalls, findOneCalls }
 }
 
 const TENANT_A = '11111111-1111-1111-1111-111111111111'
@@ -141,8 +155,8 @@ describe('ModuleConfigService tenant scoping', () => {
     await service.getRecord('vector', 'embedding_config')
     await service.setValue('vector', 'embedding_config', { provider: 'tenant-a' }, { tenantId: TENANT_A })
 
-    expect(cacheKeys()).toContain('module-config:v2:vector:embedding_config:global')
-    expect(cacheKeys()).toContain(`module-config:v2:vector:embedding_config:${TENANT_A}`)
+    expect(cacheKeys()).toContain('module-config:v3:vector:embedding_config:global')
+    expect(cacheKeys()).toContain(`module-config:v3:vector:embedding_config:${TENANT_A}`)
   })
 
   it('restoreDefaults seeds only the global row', async () => {
@@ -153,5 +167,149 @@ describe('ModuleConfigService tenant scoping', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0].tenantId).toBeNull()
     expect(await service.getValue('vector', 'embedding_config')).toEqual({ provider: 'default' })
+  })
+})
+
+describe('ModuleConfigService cache scope', () => {
+  function createTenantAwareContainer() {
+    const cache = createCacheService({ strategy: 'memory' })
+    const setup = createContainer(cache)
+    return { ...setup, cache, service: createModuleConfigService(setup.container) }
+  }
+
+  it('lets a reader in the global cache scope see a write made in a tenant scope', async () => {
+    const { service } = createTenantAwareContainer()
+
+    await runWithCacheTenant(null, () =>
+      service.getRecord('agent_orchestrator', 'otel_export', { tenantId: TENANT_A }),
+    )
+    await runWithCacheTenant(TENANT_A, () =>
+      service.setValue('agent_orchestrator', 'otel_export', { enabled: true }, { tenantId: TENANT_A }),
+    )
+
+    const fromWorker = await runWithCacheTenant(null, () =>
+      service.getValue('agent_orchestrator', 'otel_export', { scope: { tenantId: TENANT_A } }),
+    )
+    expect(fromWorker).toEqual({ enabled: true })
+  })
+
+  it('lets a reader in a tenant scope see a write made in the global scope', async () => {
+    const { service } = createTenantAwareContainer()
+
+    await service.setValue('agent_orchestrator', 'otel_export', { enabled: true }, { tenantId: TENANT_A })
+    await runWithCacheTenant(TENANT_A, () =>
+      service.getRecord('agent_orchestrator', 'otel_export', { tenantId: TENANT_A }),
+    )
+    await runWithCacheTenant(null, () =>
+      service.setValue('agent_orchestrator', 'otel_export', { enabled: false }, { tenantId: TENANT_A }),
+    )
+
+    const fromRoute = await runWithCacheTenant(TENANT_A, () =>
+      service.getValue('agent_orchestrator', 'otel_export', { scope: { tenantId: TENANT_A } }),
+    )
+    expect(fromRoute).toEqual({ enabled: false })
+  })
+
+  it('refreshes tenant reads that fell back to the global row when the global row changes', async () => {
+    const { service } = createTenantAwareContainer()
+
+    await service.setValue('agent_orchestrator', 'trace_policy', { level: 'metadata' })
+    const inherited = await runWithCacheTenant(TENANT_A, () =>
+      service.getRecord('agent_orchestrator', 'trace_policy', { tenantId: TENANT_A }),
+    )
+    expect(inherited?.source).toBe('instance')
+
+    await runWithCacheTenant(TENANT_B, () => service.setValue('agent_orchestrator', 'trace_policy', { level: 'full' }))
+
+    const refreshed = await runWithCacheTenant(TENANT_A, () =>
+      service.getValue('agent_orchestrator', 'trace_policy', { scope: { tenantId: TENANT_A } }),
+    )
+    expect(refreshed).toEqual({ level: 'full' })
+  })
+
+  it('invalidation reaches entries cached from both the tenant and the global scope', async () => {
+    const { service, rows, cache } = createTenantAwareContainer()
+
+    await service.setValue('agent_orchestrator', 'otel_export', { enabled: true }, { tenantId: TENANT_A })
+    await service.setValue('agent_orchestrator', 'trace_policy', { level: 'metadata' })
+    await runWithCacheTenant(null, () =>
+      service.getRecord('agent_orchestrator', 'otel_export', { tenantId: TENANT_A }),
+    )
+    await runWithCacheTenant(TENANT_A, () =>
+      service.getRecord('agent_orchestrator', 'otel_export', { tenantId: TENANT_A }),
+    )
+
+    for (const row of rows) row.valueJson = { changed: row.name }
+
+    await runWithCacheTenant(null, () => service.invalidate('agent_orchestrator', 'otel_export', { tenantId: TENANT_A }))
+    expect(
+      await runWithCacheTenant(TENANT_A, () =>
+        service.getValue('agent_orchestrator', 'otel_export', { scope: { tenantId: TENANT_A } }),
+      ),
+    ).toEqual({ changed: 'otel_export' })
+
+    await runWithCacheTenant(TENANT_A, () => service.invalidate('agent_orchestrator', undefined, { tenantId: TENANT_A }))
+    expect(await runWithCacheTenant(null, () => service.getValue('agent_orchestrator', 'trace_policy'))).toEqual({
+      changed: 'trace_policy',
+    })
+    expect(await runWithCacheTenant(null, () => cache.keys())).toEqual(
+      expect.arrayContaining(['module-config:v3:agent_orchestrator:trace_policy:global']),
+    )
+  })
+})
+
+describe('ModuleConfigService.getRecords', () => {
+  const NAMES = ['rounding.unitMinutes', 'rounding.direction', 'targets.dailyHours', 'warnings.overlap', 'warnings.runningTimer']
+
+  it('issues at most two SELECTs for a cold-cache batch read, instead of one per name', async () => {
+    const { container, findCalls, findOneCalls } = createContainer()
+    const service = createModuleConfigService(container)
+    await service.setValue('staff.time_tracking', 'targets.dailyHours', 6, { tenantId: TENANT_A })
+
+    const records = await service.getRecords!('staff.time_tracking', NAMES, { tenantId: TENANT_A })
+
+    expect(records['targets.dailyHours']?.value).toBe(6)
+    expect(records['rounding.unitMinutes']).toBeNull()
+    // One batched `find` for the tenant scope and one for the instance fallback,
+    // not one `getRecord`-equivalent round trip (up to two SELECTs each) per name.
+    expect(findCalls).toHaveLength(2)
+    expect(findOneCalls).toHaveLength(1) // the setValue seed above, not the read
+  })
+
+  it('reads the same records as one getRecord call per name', async () => {
+    const { container } = createContainer()
+    const service = createModuleConfigService(container)
+    await service.setValue('staff.time_tracking', 'targets.dailyHours', 6, { tenantId: TENANT_A })
+    await service.setValue('staff.time_tracking', 'rounding.unitMinutes', 15)
+
+    const batched = await service.getRecords!('staff.time_tracking', NAMES, { tenantId: TENANT_A })
+    const sequential: Record<string, unknown> = {}
+    for (const name of NAMES) sequential[name] = await service.getRecord('staff.time_tracking', name, { tenantId: TENANT_A })
+
+    for (const name of NAMES) {
+      expect(batched[name]?.value ?? null).toEqual((sequential[name] as { value?: unknown } | null)?.value ?? null)
+    }
+  })
+
+  it('isolates a batch read between tenants and the global row', async () => {
+    const { container } = createContainer()
+    const service = createModuleConfigService(container)
+    await service.setValue('staff.time_tracking', 'targets.dailyHours', 6, { tenantId: TENANT_A })
+    await service.setValue('staff.time_tracking', 'targets.dailyHours', 9, { tenantId: TENANT_B })
+
+    const tenantA = await service.getRecords!('staff.time_tracking', ['targets.dailyHours'], { tenantId: TENANT_A })
+    const tenantB = await service.getRecords!('staff.time_tracking', ['targets.dailyHours'], { tenantId: TENANT_B })
+
+    expect(tenantA['targets.dailyHours']?.value).toBe(6)
+    expect(tenantB['targets.dailyHours']?.value).toBe(9)
+  })
+
+  it('returns an empty record for an empty name list without touching the database', async () => {
+    const { container, findCalls, findOneCalls } = createContainer()
+    const service = createModuleConfigService(container)
+
+    expect(await service.getRecords!('staff.time_tracking', [])).toEqual({})
+    expect(findCalls).toHaveLength(0)
+    expect(findOneCalls).toHaveLength(0)
   })
 })

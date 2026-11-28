@@ -19,6 +19,7 @@ export const PROGRESS_FEATURES = {
   create: 'progress.create',
   update: 'progress.update',
   cancel: 'progress.cancel',
+  manage: 'progress.manage',
 } as const
 
 /** Shape returned by `GET /api/progress/jobs` list items (`api/jobs/route.ts` → `toRow`). */

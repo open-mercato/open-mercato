@@ -35,6 +35,15 @@ export const features = [
     dependsOn: ['agent_orchestrator.trace.view'],
   },
   {
+    // Gates reading captured prompt and response content in traces and changing
+    // the trace capture policy. Default-OFF: held by admin/superadmin through
+    // the module wildcard, deliberately NOT in any narrower defaultRoleFeatures.
+    id: 'agent_orchestrator.trace.view_content',
+    title: 'View captured agent trace content and manage trace capture',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.trace.view'],
+  },
+  {
     id: 'agent_orchestrator.eval.manage',
     title: 'Manage evaluation cases and assertions',
     module: 'agent_orchestrator',

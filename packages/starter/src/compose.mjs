@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { detectDockerRuntime, parseComposePsOutput } from './infra-preflight.mjs'
 import { resolveSpawnCommand } from './spawn.mjs'
 
 export const INFRA_COMPOSE_FILE = path.join('starters', 'docker', 'compose.infra.yml')
@@ -49,45 +50,16 @@ export function runCompose(repoRoot, extraArgs, { composeFile, stdio = 'inherit'
   return result
 }
 
-export function detectDocker() {
-  const cli = spawnSync('docker', ['--version'], { stdio: 'ignore' })
-  if (cli.error || cli.status !== 0) {
-    return { ok: false, reason: 'docker CLI not found' }
-  }
-  const composePlugin = spawnSync('docker', ['compose', 'version'], { stdio: 'ignore' })
-  if (composePlugin.error || composePlugin.status !== 0) {
-    return { ok: false, reason: 'docker compose v2 plugin not found' }
-  }
-  const engine = spawnSync('docker', ['info', '--format', '{{.ServerVersion}}'], { stdio: 'ignore' })
-  if (engine.error || engine.status !== 0) {
-    return { ok: false, reason: 'docker engine not running' }
-  }
-  return { ok: true }
+// Thin adapter over the shared preflight: `reason` stays the human-readable
+// string doctor prints; `code` distinguishes missing CLI / missing compose /
+// stopped or unreachable daemon for callers that explain the fix.
+export function detectDocker({ probe } = {}) {
+  const runtime = detectDockerRuntime(probe ? { probe } : {})
+  if (runtime.ok) return { ok: true, code: runtime.code }
+  return { ok: false, code: runtime.code, reason: runtime.detail }
 }
 
-// `compose ps --format json` prints NDJSON on compose >= 2.21 and a JSON array
-// on older releases — tolerate both.
-export function parseComposePsOutput(raw) {
-  const trimmed = String(raw ?? '').trim()
-  if (!trimmed) return []
-  if (trimmed.startsWith('[')) {
-    try {
-      return JSON.parse(trimmed)
-    } catch {
-      return []
-    }
-  }
-  const entries = []
-  for (const line of trimmed.split('\n')) {
-    if (!line.trim()) continue
-    try {
-      entries.push(JSON.parse(line))
-    } catch {
-      // Ignore non-JSON noise lines.
-    }
-  }
-  return entries
-}
+export { parseComposePsOutput }
 
 export function summarizeServiceStates(entries) {
   const states = {}
@@ -141,4 +113,58 @@ export function runStreamingSync(command, commandArgs, { cwd, env } = {}) {
     throw new Error(`${command} could not be executed: ${result.error.message}`)
   }
   return result.status ?? 1
+}
+
+// Windows shell shims spawn a process tree; killing only cmd.exe leaves
+// builds running. POSIX captured children have their own process group.
+export function stopStreamingChild(child, signal, { platform = process.platform, grouped = true, spawnSyncImpl = spawnSync, killImpl = process.kill } = {}) {
+  if (platform === 'win32' && child.pid) {
+    const result = spawnSyncImpl('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+    if (!result.error && result.status === 0) return
+  } else if (grouped && child.pid) {
+    try { killImpl(-child.pid, signal); return } catch { /* child may already have exited */ }
+  }
+  child.kill(signal)
+}
+
+// Async output capture keeps the setup log toggle responsive during long
+// installs/builds. With no sink, preserve inherited stdio (CI / verbose).
+export function runStreaming(command, commandArgs, { cwd, env, logs, exitOnSignal = true, spawnImpl = spawn } = {}) {
+  const resolved = resolveSpawnCommand(command, commandArgs)
+  return new Promise((resolve, reject) => {
+    const child = spawnImpl(resolved.command, resolved.args, {
+      cwd: cwd ?? process.cwd(),
+      env: env ?? process.env,
+      stdio: logs ? [logs.interactive ? 'ignore' : 'inherit', 'pipe', 'pipe'] : 'inherit',
+      // Give piped children their own group so Ctrl+C reaches yarn's workers
+      // as well as yarn itself. Windows does not support POSIX group signals.
+      detached: Boolean(logs) && process.platform !== 'win32',
+      ...resolved.spawnOptions,
+    })
+    let signalCode
+    let shutdownTimer
+    const interrupt = (signal) => {
+      signalCode = signal === 'SIGINT' ? 130 : 143
+      logs?.stop()
+      stopStreamingChild(child, signal, { grouped: Boolean(logs) })
+      if (exitOnSignal) process.exit(signalCode)
+      shutdownTimer = setTimeout(() => stopStreamingChild(child, 'SIGKILL', { grouped: Boolean(logs) }), 5000)
+      shutdownTimer.unref()
+    }
+    const onSigint = () => interrupt('SIGINT')
+    const onSigterm = () => interrupt('SIGTERM')
+    process.once('SIGINT', onSigint)
+    process.once('SIGTERM', onSigterm)
+    const cleanup = () => {
+      clearTimeout(shutdownTimer)
+      process.removeListener('SIGINT', onSigint)
+      process.removeListener('SIGTERM', onSigterm)
+    }
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk) => logs?.raw(chunk))
+    child.stderr?.on('data', (chunk) => logs?.raw(chunk))
+    child.once('error', (error) => { cleanup(); reject(new Error(`${command} could not be executed: ${error.message}`)) })
+    child.once('close', (code) => { cleanup(); resolve(signalCode ?? code ?? 1) })
+  })
 }

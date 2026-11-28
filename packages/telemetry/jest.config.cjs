@@ -6,6 +6,9 @@ module.exports = {
   testEnvironment: 'node',
   watchman: false,
   rootDir: '.',
+  moduleNameMapper: {
+    '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
+  },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json'],
   transform: {
     '^.+\\.(t|j)sx?$': [
@@ -20,7 +23,7 @@ module.exports = {
     ],
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(@mikro-orm|kysely)/)',
+    'node_modules/(?!(sanitize-html|htmlparser2|domhandler|domutils|dom-serializer|domelementtype|entities|@mikro-orm|kysely)/)',
   ],
   testMatch: ['<rootDir>/src/**/__tests__/**/*.test.(ts|tsx)'],
   passWithNoTests: true,

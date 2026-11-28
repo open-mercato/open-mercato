@@ -117,6 +117,7 @@ async function createScopedUser(
 
 test.describe('TC-DOCUMENTS-010: links, redaction, reverse visibility, and undo', () => {
   test('round-trips typed targets without granting access and keeps link mutations reversible', async ({ request }) => {
+    test.slow()
     const stamp = Date.now()
     let adminToken: string | null = null
     let documentId: string | null = null

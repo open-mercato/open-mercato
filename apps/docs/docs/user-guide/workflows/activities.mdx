@@ -153,7 +153,7 @@ Access response data in subsequent steps: `{{activities.create-order.output.id}}
 
 ### EMIT_EVENT
 
-Publish domain events to trigger other workflows or update application state.
+Publish events that a module has opted into workflow emission. Use an authorized command for state changes.
 
 **Configuration:**
 
@@ -163,7 +163,7 @@ Publish domain events to trigger other workflows or update application state.
   "activityName": "Emit Order Placed Event",
   "activityType": "EMIT_EVENT",
   "config": {
-    "eventName": "order.placed",
+    "eventName": "order.created",
     "payload": {
       "orderId": "{{context.orderId}}",
       "customerId": "{{context.customerId}}",
@@ -175,12 +175,12 @@ Publish domain events to trigger other workflows or update application state.
 ```
 
 **Parameters:**
-- `eventName`: Event name (required, convention: `module.entity.action`)
+- `eventName`: Exact event ID from a module declaration with `workflowEmittable: true` (required)
 - `payload`: Event data (any JSON object)
 
-The engine adds a `_workflow` block (instance id, workflow id, tenant, organization) to every
-payload it publishes. A configuration without `eventName` fails the activity with
-`EMIT_EVENT requires "eventName" field`.
+The engine sets `tenantId` and `organizationId` from the running instance, removes any
+authored `organizationIds`, and adds the instance and workflow IDs in `_workflow`.
+The activity fails if the event is missing or unavailable for workflow emission.
 
 ### UPDATE_ENTITY
 
@@ -346,6 +346,12 @@ Pause the workflow for a relative duration or until an absolute moment.
 Provide `duration` or `until` — a WAIT activity with neither is rejected when the definition is
 saved. Prefer `"async": true` so the delay is scheduled on the queue instead of blocking the
 worker.
+
+A synchronous WAIT longer than one minute that is the **last** activity of its transition is
+scheduled on the queue automatically, exactly as if it were marked async, so a wait of weeks or
+months (for example `"P90D"`) holds the run for its full length. A synchronous WAIT longer than
+~24.8 days that is followed by other activities is refused with an error rather than resolving
+early — move it to the end of the transition, mark it async, or use a `WAIT_FOR_TIMER` step.
 
 ## Execution Modes
 

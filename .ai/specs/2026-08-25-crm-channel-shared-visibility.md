@@ -230,6 +230,7 @@ The interaction command boundary also enforces this privacy policy for updates, 
 
 | Date | Change |
 |---|---|
+| 2026-11-07 | #8888: viewer-independent next-interaction projections omit explicitly private email subjects even for an owner or temporarily shared conversation/channel. Authorized interaction reads retain their subjects. Historical projections and replayed names are repaired; see [`2026-11-07-private-next-interaction-projections.md`](2026-11-07-private-next-interaction-projections.md) for rollout and validation limits. |
 | 2026-10-25 | Close #7850 at the canonical interaction mutation boundary: check original-row privacy before writes and replay, preserve team-shared content editing, and require the author for author/type/visibility changes. Add command regression coverage and `TC-CRM-EMAIL-VISIBILITY-005` API coverage. |
 | 2026-10-25 | Resolved the main merge while retaining private interaction state, label history and index events, and conversation shares together. Combined command regressions cover repeated undo and rollback without audit metadata exposure. |
 | 2026-10-13 | Fixed #7314: scoped Person deletion and create undo remove active and revoked conversation shares; delete undo restores their complete state from its private payload. Added command regressions and `TC-CRM-EMAIL-SHARE-UNDO-001` API coverage. No schema or visibility-policy change. |

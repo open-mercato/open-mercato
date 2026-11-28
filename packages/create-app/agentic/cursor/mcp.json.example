@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to .cursor/mcp.json and set MCP_API_KEY (printed by yarn initialize)",
+  "_comment": "Copy to .cursor/mcp.json and set MCP_API_KEY (printed by yarn initialize). om-modules is the public read-only module catalog and needs no key.",
   "mcpServers": {
     "open-mercato": {
       "command": "yarn",
@@ -8,6 +8,9 @@
         "APP_URL": "http://localhost:3000",
         "MCP_API_KEY": "${MCP_API_KEY}"
       }
+    },
+    "om-modules": {
+      "url": "https://om-modules.openmercato.workers.dev/mcp"
     }
   }
 }

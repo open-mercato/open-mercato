@@ -68,6 +68,7 @@ type ExampleLine = {
   comment?: string
   productHandle?: string
   variantSku?: string
+  custom?: boolean
 }
 
 type ExampleAdjustment = {
@@ -182,6 +183,7 @@ const QUOTE_SEEDS: ExampleQuote[] = [
     lines: [
       {
         name: 'Remote onboarding package',
+        custom: true,
         description: 'Kick-off, workflow design, and training for distributed teams.',
         quantity: 1,
         unitPriceNet: 180,
@@ -189,6 +191,7 @@ const QUOTE_SEEDS: ExampleQuote[] = [
       },
       {
         name: 'Implementation workshop (4h)',
+        custom: true,
         description: 'Hands-on configuration session with stakeholders.',
         quantity: 1,
         unitPriceNet: 320,
@@ -312,7 +315,7 @@ const QUOTE_SEEDS: ExampleQuote[] = [
         quantity: 4,
         unitPriceNet: 95,
         taxRate: 0,
-        variantSku: 'SERV-HAIR-60',
+        variantSku: 'SERV-HAIR-60-SENIOR',
         quantityUnit: 'hour',
         comment: 'Styling sessions during opening week.',
       },
@@ -354,6 +357,7 @@ const ORDER_SEEDS: ExampleOrder[] = [
     lines: [
       {
         name: 'Modular desk system',
+        custom: true,
         quantity: 1,
         unitPriceNet: 640,
         taxRate: 10,
@@ -361,6 +365,7 @@ const ORDER_SEEDS: ExampleOrder[] = [
       },
       {
         name: 'Acoustic panel set',
+        custom: true,
         quantity: 3,
         unitPriceNet: 85,
         taxRate: 10,
@@ -487,6 +492,7 @@ const ORDER_SEEDS: ExampleOrder[] = [
     lines: [
       {
         name: 'On-site enablement',
+        custom: true,
         quantity: 1,
         unitPriceNet: 280,
         taxRate: 0,
@@ -494,6 +500,7 @@ const ORDER_SEEDS: ExampleOrder[] = [
       },
       {
         name: 'Support retainer (Q3)',
+        custom: true,
         quantity: 1,
         unitPriceNet: 180,
         taxRate: 0,
@@ -680,7 +687,7 @@ const ORDER_SEEDS: ExampleOrder[] = [
         quantity: 6,
         unitPriceNet: 95,
         taxRate: 0,
-        variantSku: 'SERV-HAIR-60',
+        variantSku: 'SERV-HAIR-60-SENIOR',
         quantityUnit: 'hour',
         comment: 'Block book stylists for staggered sessions.',
       },
@@ -840,6 +847,32 @@ function buildCatalogSnapshot(
         }
       : null,
   }
+}
+
+const CUSTOM_LINE_METADATA = { customLine: true, lineMode: 'custom' } as const
+
+export function isMissingCatalogMatch(
+  line: Pick<ExampleLine, 'kind' | 'custom'>,
+  catalogRef: { productId: string | null }
+): boolean {
+  if (line.custom) return false
+  if ((line.kind ?? 'product') !== 'product') return false
+  return !catalogRef.productId
+}
+
+export function listExampleCatalogReferences(): Array<{ document: string; line: string; variantSku?: string; productHandle?: string; custom: boolean }> {
+  const collect = (document: string, lines: ExampleLine[]) =>
+    lines.map((line) => ({
+      document,
+      line: line.name,
+      variantSku: line.variantSku,
+      productHandle: line.productHandle,
+      custom: line.custom === true,
+    }))
+  return [
+    ...QUOTE_SEEDS.flatMap((seed) => collect(seed.quoteNumber, seed.lines)),
+    ...ORDER_SEEDS.flatMap((seed) => collect(seed.orderNumber, seed.lines)),
+  ]
 }
 
 function resolveCatalogLine(
@@ -1294,7 +1327,7 @@ export async function seedSalesExamples(
 
     const lineSnapshots = seed.lines.map((line) => {
       const catalogRef = resolveCatalogLine(line, catalogLookups)
-      if ((line.kind ?? 'product') === 'product' && !catalogRef.productId) {
+      if (isMissingCatalogMatch(line, catalogRef)) {
         logger.warn('sales.examples missing catalog match for quote line', { line: line.name ?? line.variantSku ?? line.productHandle ?? 'unknown' })
       }
       const unitPriceNet = line.unitPriceNet ?? catalogRef.unitPriceNet ?? 0
@@ -1303,6 +1336,7 @@ export async function seedSalesExamples(
       const metadata: Record<string, unknown> = {}
       if (catalogRef.productThumbnail) metadata.productThumbnail = catalogRef.productThumbnail
       if (catalogRef.variantThumbnail) metadata.variantThumbnail = catalogRef.variantThumbnail
+      if (line.custom) Object.assign(metadata, CUSTOM_LINE_METADATA)
       return {
         id: randomUUID(),
         kind: line.kind ?? 'product',
@@ -1423,7 +1457,7 @@ export async function seedSalesExamples(
         productId: source.productId ?? null,
         productVariantId: source.productVariantId ?? null,
         catalogSnapshot: source.catalogSnapshot ? toSnapshot(source.catalogSnapshot) : null,
-        metadata: null,
+        metadata: source.metadata ? toSnapshot(source.metadata) : null,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -1512,7 +1546,7 @@ export async function seedSalesExamples(
 
     const lineSnapshots = seed.lines.map((line) => {
       const catalogRef = resolveCatalogLine(line, catalogLookups)
-      if ((line.kind ?? 'product') === 'product' && !catalogRef.productId) {
+      if (isMissingCatalogMatch(line, catalogRef)) {
         logger.warn('sales.examples missing catalog match for order line', { line: line.name ?? line.variantSku ?? line.productHandle ?? 'unknown' })
       }
       const unitPriceNet = line.unitPriceNet ?? catalogRef.unitPriceNet ?? 0
@@ -1521,6 +1555,7 @@ export async function seedSalesExamples(
       const metadata: Record<string, unknown> = {}
       if (catalogRef.productThumbnail) metadata.productThumbnail = catalogRef.productThumbnail
       if (catalogRef.variantThumbnail) metadata.variantThumbnail = catalogRef.variantThumbnail
+      if (line.custom) Object.assign(metadata, CUSTOM_LINE_METADATA)
       return {
         id: randomUUID(),
         kind: line.kind ?? 'product',
@@ -1654,7 +1689,7 @@ export async function seedSalesExamples(
         productId: source.productId ?? null,
         productVariantId: source.productVariantId ?? null,
         catalogSnapshot: source.catalogSnapshot ? toSnapshot(source.catalogSnapshot) : null,
-        metadata: null,
+        metadata: source.metadata ? toSnapshot(source.metadata) : null,
         createdAt: new Date(),
         updatedAt: new Date(),
       })

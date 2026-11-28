@@ -98,4 +98,40 @@ describe('buildApnsNotification — golden payloads', () => {
     })
     expect(headers).toEqual({ 'apns-priority': 5, 'apns-topic': TOPIC })
   })
+
+  it('image option sets mutable-content and carries the image url beside aps', () => {
+    const envelope = payload({ options: { image: 'https://example.com/pic.png' } })
+    const { headers, aps } = build(envelope)
+    expect(aps).toEqual({
+      type: 'orders.shipped',
+      notificationId: 'n1',
+      imageUrl: 'https://example.com/pic.png',
+      aps: {
+        alert: { title: 'Order shipped', body: 'Your order #42 is on its way' },
+        sound: 'default',
+        'mutable-content': 1,
+      },
+    })
+    expect(headers).toEqual({ 'apns-priority': 10, 'apns-topic': TOPIC })
+    expect(envelope.data).toEqual({ type: 'orders.shipped', notificationId: 'n1' })
+  })
+
+  it('image option wins over a data key of the same name', () => {
+    const { aps } = build(
+      payload({
+        data: { type: 'orders.shipped', imageUrl: 'https://example.com/old.png' },
+        options: { image: 'https://example.com/pic.png' },
+      }),
+    )
+    expect(aps.imageUrl).toBe('https://example.com/pic.png')
+  })
+
+  it('silent notification ignores the image option', () => {
+    const { aps } = build(payload({ silent: true, options: { image: 'https://example.com/pic.png' } }))
+    expect(aps).toEqual({
+      type: 'orders.shipped',
+      notificationId: 'n1',
+      aps: { 'content-available': 1 },
+    })
+  })
 })

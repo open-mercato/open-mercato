@@ -34,8 +34,8 @@ const mockAttachment = {
   storagePath: 'stored/file.txt',
   fileName: 'file.txt',
   fileSize: 4,
-  tenantId: 'tenant-1',
-  organizationId: 'org-1',
+  tenantId: 'tenant-1' as string | null,
+  organizationId: 'org-1' as string | null,
 }
 
 const mockPartition = {
@@ -44,7 +44,17 @@ const mockPartition = {
 }
 
 const mockStorageRead = jest.fn(async () => ({ buffer: Buffer.from('data') }))
-const mockResolveForPartition = jest.fn(async () => ({ read: mockStorageRead }))
+const mockResolveForPartition = jest.fn(async () => ({ key: 'local', read: mockStorageRead }))
+
+const mockLogger = { warn: jest.fn(), error: jest.fn(), info: jest.fn(), debug: jest.fn(), child: (): unknown => mockLogger }
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => mockLogger,
+}))
+
+const mockReportError = jest.fn()
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
 
 const mockEm = {
   findOne: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
@@ -85,6 +95,69 @@ describe('attachments file route', () => {
         organizationId: auth?.orgId ?? null,
       }),
     )
+  })
+
+  it.each([
+    { name: 'scoped public', tenantId: 'tenant-1', organizationId: 'org-1', isPublic: true, anonymous: false, expected: 'private, max-age=60' },
+    { name: 'scoped private', tenantId: 'tenant-1', organizationId: 'org-1', isPublic: false, anonymous: false, expected: 'private, max-age=60' },
+    { name: 'global public anonymous', tenantId: null, organizationId: null, isPublic: true, anonymous: true, expected: 'public, max-age=86400' },
+    { name: 'global public authenticated', tenantId: null, organizationId: null, isPublic: true, anonymous: false, expected: 'public, max-age=86400' },
+    { name: 'global private', tenantId: null, organizationId: null, isPublic: false, anonymous: false, expected: 'private, max-age=60' },
+    { name: 'tenant-only public', tenantId: 'tenant-1', organizationId: null, isPublic: true, anonymous: false, expected: 'private, max-age=60' },
+    { name: 'organization-only public', tenantId: null, organizationId: 'org-1', isPublic: true, anonymous: false, expected: 'private, max-age=60' },
+  ])('sets safe caching for $name bytes', async ({ tenantId, organizationId, isPublic, anonymous, expected }) => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server') as { getAuthFromRequest: jest.Mock }
+    getAuthFromRequest.mockResolvedValueOnce(anonymous ? null : { isSuperAdmin: true })
+    mockEm.findOne
+      .mockResolvedValueOnce({ ...mockAttachment, tenantId, organizationId })
+      .mockResolvedValueOnce({ ...mockPartition, isPublic })
+
+    const response = await GET(
+      new Request('http://localhost/api/attachments/file/att-1') as Parameters<FileRoute['GET']>[0],
+      { params: Promise.resolve({ id: 'att-1' }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe(expected)
+    expect(await response.text()).toBe('data')
+  })
+
+  it('keeps same-scope public bytes private', async () => {
+    mockEm.findOne
+      .mockResolvedValueOnce(mockAttachment)
+      .mockResolvedValueOnce({ ...mockPartition, isPublic: true })
+
+    const response = await GET(
+      new Request('http://localhost/api/attachments/file/att-1') as Parameters<FileRoute['GET']>[0],
+      { params: Promise.resolve({ id: 'att-1' }) },
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('private, max-age=60')
+  })
+
+  it.each([
+    { name: 'anonymous scoped public', auth: null, tenantId: 'tenant-1', organizationId: 'org-1', isPublic: true, status: 401 },
+    { name: 'anonymous global private', auth: null, tenantId: null, organizationId: null, isPublic: false, status: 401 },
+    { name: 'wrong organization public', auth: { tenantId: 'tenant-1', orgId: 'other-org' }, tenantId: 'tenant-1', organizationId: 'org-1', isPublic: true, status: 403 },
+    { name: 'wrong tenant public', auth: { tenantId: 'other-tenant', orgId: 'org-1' }, tenantId: 'tenant-1', organizationId: 'org-1', isPublic: true, status: 403 },
+    { name: 'partial scope public', auth: { tenantId: 'tenant-1', orgId: 'org-1' }, tenantId: 'tenant-1', organizationId: null, isPublic: true, status: 403 },
+  ])('denies $name before reading bytes', async ({ auth, tenantId, organizationId, isPublic, status }) => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server') as { getAuthFromRequest: jest.Mock }
+    getAuthFromRequest.mockResolvedValueOnce(auth)
+    mockEm.findOne
+      .mockResolvedValueOnce({ ...mockAttachment, tenantId, organizationId })
+      .mockResolvedValueOnce({ ...mockPartition, isPublic })
+
+    const response = await GET(
+      new Request('http://localhost/api/attachments/file/att-1') as Parameters<FileRoute['GET']>[0],
+      { params: Promise.resolve({ id: 'att-1' }) },
+    )
+
+    expect(response.status).toBe(status)
+    expect(response.headers.get('Cache-Control') ?? '').not.toContain('public')
+    expect(mockResolveForPartition).not.toHaveBeenCalled()
+    expect(mockStorageRead).not.toHaveBeenCalled()
   })
 
   it('serves a same-scope private attachment', async () => {
@@ -195,5 +268,63 @@ describe('attachments file route', () => {
     expect(response.status).toBe(200)
     expect(mockEm.findOne.mock.calls[0][1]).toEqual({ id: 'att-1' })
     expect(mockStorageRead).toHaveBeenCalledWith('privateAttachments', 'stored/file.txt')
+  })
+  describe('storage read failures (#6994)', () => {
+    const requestFile = () =>
+      GET(
+        new Request('http://localhost/api/attachments/file/att-1') as Parameters<FileRoute['GET']>[0],
+        { params: Promise.resolve({ id: 'att-1' }) },
+      )
+
+    it('returns 404 STORAGE_FILE_MISSING and logs the cause when the local file is gone', async () => {
+      const missing = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' })
+      mockStorageRead.mockRejectedValueOnce(missing)
+
+      const response = await requestFile()
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toEqual({ error: 'File not available', code: 'STORAGE_FILE_MISSING' })
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        'Attachment file missing from storage',
+        expect.objectContaining({
+          attachmentId: 'att-1',
+          partitionCode: 'privateAttachments',
+          storagePath: 'stored/file.txt',
+          storageDriver: 'local',
+          errorCode: 'ENOENT',
+        }),
+      )
+      expect(mockReportError).toHaveBeenCalledWith(
+        missing,
+        expect.objectContaining({ module: 'attachments', code: 'attachments.storage_file_missing' }),
+      )
+    })
+
+    it('treats an S3 NoSuchKey error as a missing file', async () => {
+      mockStorageRead.mockRejectedValueOnce(Object.assign(new Error('The specified key does not exist.'), { name: 'NoSuchKey' }))
+
+      const response = await requestFile()
+
+      expect(response.status).toBe(404)
+      expect(await response.json()).toMatchObject({ code: 'STORAGE_FILE_MISSING' })
+    })
+
+    it('returns 500 STORAGE_READ_FAILED, logs and reports any other read error', async () => {
+      const failure = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
+      mockStorageRead.mockRejectedValueOnce(failure)
+
+      const response = await requestFile()
+
+      expect(response.status).toBe(500)
+      expect(await response.json()).toEqual({ error: 'File not available', code: 'STORAGE_READ_FAILED' })
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Attachment storage read failed',
+        expect.objectContaining({ attachmentId: 'att-1', storageDriver: 'local', errorCode: 'EACCES', err: failure }),
+      )
+      expect(mockReportError).toHaveBeenCalledWith(
+        failure,
+        expect.objectContaining({ module: 'attachments', code: 'attachments.storage_read_failed' }),
+      )
+    })
   })
 })

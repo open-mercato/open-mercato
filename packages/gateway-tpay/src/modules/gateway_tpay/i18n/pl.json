@@ -1,4 +1,16 @@
 {
+  "gateway_tpay.credentials.clientId.helpText": "Panel Akceptanta Tpay → Integracje → API. Utwórz klucz API i skopiuj jego identyfikator klienta (Client ID).",
+  "gateway_tpay.credentials.clientId.label": "Identyfikator klienta",
+  "gateway_tpay.credentials.clientSecret.helpText": "Panel Akceptanta Tpay → Integracje → API. Skopiuj sekret (Secret) tego samego klucza API, z którego pochodzi identyfikator klienta.",
+  "gateway_tpay.credentials.clientSecret.label": "Sekret klienta",
+  "gateway_tpay.credentials.environment.helpText": "Wybierz środowisko testowe dla danych z panelu testowego Tpay, a produkcyjne dla danych produkcyjnych.",
+  "gateway_tpay.credentials.environment.label": "Środowisko",
+  "gateway_tpay.credentials.environment.options.production": "Produkcyjne",
+  "gateway_tpay.credentials.environment.options.sandbox": "Testowe",
+  "gateway_tpay.credentials.notificationSecurityCode.helpText": "Wymagany do powiadomień o płatnościach: Panel Akceptanta Tpay → Ustawienia → Powiadomienia → Bezpieczeństwo. Sesje płatnicze działają bez niego, ale powiadomienia Tpay są odrzucane, dopóki kod nie zostanie ustawiony.",
+  "gateway_tpay.credentials.notificationSecurityCode.label": "Kod zabezpieczający powiadomienia",
+  "gateway_tpay.credentials.notificationUrl.helpText": "Publiczny adres endpointu /api/payment_gateways/webhook/tpay: HTTPS na porcie 443 (środowisko testowe dopuszcza też HTTP i port 8080), bez danych uwierzytelniających, parametrów zapytania ani fragmentu. Pozostaw puste, jeśli adres powiadomień jest już skonfigurowany w Panelu Akceptanta Tpay.",
+  "gateway_tpay.credentials.notificationUrl.label": "Adres URL powiadomień",
   "gateway_tpay.description": "Przyjmuj hostowane płatności w PLN, BLIK, kartą i przelewem bankowym przez Tpay.",
   "gateway_tpay.description.fallback": "Płatność przez Tpay",
   "gateway_tpay.errors.currencyNotSupported": "Tpay obsługuje wyłącznie płatności w PLN.",
@@ -11,6 +23,7 @@
   "gateway_tpay.feature.configure": "Konfiguracja ustawień Tpay",
   "gateway_tpay.feature.view": "Podgląd konfiguracji Tpay",
   "gateway_tpay.health.healthy": "Połączenie z Tpay działa poprawnie.",
+  "gateway_tpay.health.notificationsDisabled": "Połączenie z Tpay działa, ale powiadomienia o płatnościach są odrzucane, dopóki nie zostanie ustawiony kod zabezpieczający powiadomień.",
   "gateway_tpay.health.unhealthy": "Nie udało się połączyć z Tpay. Sprawdź dane uwierzytelniające.",
   "gateway_tpay.title": "Tpay"
 }

@@ -39,6 +39,13 @@ function createPool(options: {
 }
 
 describe('pgvector extension availability', () => {
+  it('refuses to resize a shared vector table from the runtime driver', async () => {
+    const calls: QueryCall[] = []
+    const driver = createPgVectorDriver({ pool: createPool({ calls }), dimension: 1536 })
+    await expect(driver.recreateWithDimension!(768)).rejects.toThrow('operator-managed migration')
+    expect(calls.every(({ text }) => !/DROP TABLE/.test(text))).toBe(true)
+  })
+
   it('reports the driver unhealthy when the extension cannot be installed', async () => {
     const calls: QueryCall[] = []
     const driver = createPgVectorDriver({ pool: createPool({ calls }) })
@@ -156,3 +163,12 @@ describe('vector strategy availability', () => {
     expect(driver.upsert).not.toHaveBeenCalled()
   })
 })
+
+jest.mock('@open-mercato/core/modules/query_index/lib/search-scope', () => ({
+  buildQueryIndexSearchScopePredicate: () => jest.requireActual('kysely').sql`true`,
+  filterQueryIndexSearchRecords: async (_database: unknown, _scope: unknown, records: unknown[]) => records,
+  resolveQueryIndexSearchScope: async () => ({
+    blockedEntityTypes: [],
+    tenantGlobalEntityTypes: jest.requireActual('@open-mercato/core/modules/query_index/lib/tenant-global').listTenantGlobalEntityTypes(),
+  }),
+}))

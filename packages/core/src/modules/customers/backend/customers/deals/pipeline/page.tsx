@@ -46,6 +46,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail/AccessDeniedMessage'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
@@ -53,12 +54,13 @@ import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { useBackendChrome, useCurrentOrganization } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { hasAllFeatures, hasFeature } from '@open-mercato/shared/security/features'
 import type { FilterOptionTone } from '@open-mercato/shared/lib/query/advanced-filter'
 import { ViewTabsRow, VIEW_TABS_ROW_COMPONENT_ID, type ViewTabsRowProps } from './components/ViewTabsRow'
 import { LANE_WIDTH_CLASS } from './components/constants'
 import { useCurrencyDictionary } from '../../../../components/detail/hooks/useCurrencyDictionary'
-import { buildDealDuplicatePayload } from '../../../../lib/duplicateDeal'
+import { buildDealDuplicatePayload, formatDealDuplicateTitle } from '../../../../lib/duplicateDeal'
 import { FilterBarRow, type KanbanFilterChip } from './components/FilterBarRow'
 import { Lane, type LaneStage } from './components/Lane'
 import { LaneCurrencyBreakdown } from './components/LaneCurrencyBreakdown'
@@ -87,6 +89,8 @@ import { BulkActionsBar } from './components/BulkActionsBar'
 import { useRegisteredComponent } from '@open-mercato/ui/backend/injection/useRegisteredComponent'
 import { ChangeStageDialog } from './components/ChangeStageDialog'
 import { ChangeOwnerDialog } from './components/ChangeOwnerDialog'
+import { getKanbanPermissionMessage, localizeKanbanPermissionError } from './requestError'
+import { metadata as dealDetailMetadata } from '../[id]/page.meta'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import {
   readVersionedPreference,
@@ -99,7 +103,7 @@ import {
   type AssignableStaffMember,
 } from '../../../../components/detail/assignableStaff'
 
-type PipelineRecord = { id: string; name: string; isDefault: boolean }
+type PipelineRecord = { id: string; name: string; isDefault: boolean; stageProbabilitiesEnabled?: boolean }
 
 type StageAggregateRow = {
   stageId: string
@@ -137,6 +141,7 @@ type PipelineStageRecord = {
   label: string
   order: number
   pipelineId: string
+  defaultProbability?: number | null
   // `color` is sourced from the `customer_dictionary_entries` row that backs each stage
   // (kind = 'pipeline_stage'). After the 2026-05-19 hex→tone migration this stores a
   // canonical tone identifier ('success', 'warning', etc.) rather than a hex string.
@@ -415,6 +420,17 @@ function sortDeals(deals: DealCardData[], option: SortOption): DealCardData[] {
 
 export default function DealsKanbanPage(): React.ReactElement {
   const t = useT()
+  const { payload } = useBackendChrome()
+  const features = payload?.grantedFeatures
+  const canManageDeals = hasFeature(features, 'customers.deals.manage')
+  const canOpenDeal = hasAllFeatures(features, dealDetailMetadata.requireFeatures)
+  const canManagePipelines = hasFeature(features, 'customers.pipelines.manage')
+  const canManageInteractions = hasFeature(features, 'customers.interactions.manage')
+  const canViewPeople = hasFeature(features, 'customers.people.view')
+  const canViewCompanies = hasFeature(features, 'customers.companies.view')
+  const canViewAssignableStaff = hasFeature(features, 'customers.roles.view')
+    && (hasFeature(features, 'customers.roles.manage') || hasFeature(features, 'customers.activities.manage'))
+  const canChangeOwner = canManageDeals && canViewAssignableStaff
   // Resolved through the component registry so downstream apps can replace,
   // wrap, or props-transform the quick-add dialog without forking this page.
   const QuickDealDialog = useRegisteredComponent<QuickDealDialogProps>(
@@ -504,16 +520,17 @@ export default function DealsKanbanPage(): React.ReactElement {
   const staffQuery = useQuery<AssignableStaffMember[]>({
     queryKey: ['customers', 'deals', 'kanban', 'staff', `scope:${scopeVersion}`, activeOrgId],
     staleTime: 300_000,
+    enabled: canViewAssignableStaff,
     queryFn: async () => fetchAssignableStaffMembers('', { pageSize: 100, activeOrgId }),
   })
 
   const ownerNamesById = React.useMemo(() => {
     const map = new Map<string, string>()
-    for (const member of staffQuery.data ?? []) {
+    for (const member of canViewAssignableStaff ? staffQuery.data ?? [] : []) {
       if (member.userId && member.displayName) map.set(member.userId, member.displayName)
     }
     return map
-  }, [staffQuery.data])
+  }, [canViewAssignableStaff, staffQuery.data])
 
   const currentUserId = useCurrentUserId()
   const currentUserLabel = React.useMemo(() => {
@@ -564,11 +581,12 @@ export default function DealsKanbanPage(): React.ReactElement {
   // of truth (it backs `LaneAggregateProp.baseCurrencyCode` already); we used to hardcode
   // `['PLN','EUR','USD','GBP']` in the dialog which excluded any tenant operating in CZK,
   // SEK, HUF, BRL, etc. from quick-add.
-  const currencyDictionary = useCurrencyDictionary()
+  const currencyDictionary = useCurrencyDictionary(canManageDeals && canViewPeople)
 
   const companiesQuery = useQuery<QuickDealCompanyOption[]>({
     queryKey: ['customers', 'companies', 'kanban-quick-deal', `scope:${scopeVersion}`],
     staleTime: 300_000,
+    enabled: canManageDeals && canViewCompanies,
     queryFn: async () => {
       const call = await apiCall<{ items?: Array<{ id?: unknown; display_name?: unknown }> }>(
         '/api/customers/companies?page=1&pageSize=100&sortField=display_name&sortDir=asc',
@@ -613,11 +631,6 @@ export default function DealsKanbanPage(): React.ReactElement {
   // fetched on demand and appended here, so the cached page-1 cards stay in place (no full lane refetch).
   const [extraCardsByStage, setExtraCardsByStage] = React.useState<Record<string, DealApiRecord[]>>({})
   const [loadingMoreByStage, setLoadingMoreByStage] = React.useState<Record<string, boolean>>({})
-  // Reset extra-cards + loading state when any filter changes
-  React.useEffect(() => {
-    setExtraCardsByStage({})
-    setLoadingMoreByStage({})
-  }, [selectedPipelineId, search, statusFilters, ownerFilters, peopleFilters, companyFilters, closeDateFilter, currencyFilter])
 
   // Filter signature shared by every per-lane query so all lanes invalidate together when filters change
   const filterSignature = React.useMemo(
@@ -636,7 +649,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   )
 
   // Aggregate query — gives accurate per-stage counts + totals (in base currency) across the entire pipeline,
-  // not just the loaded slice. Drives both lane headers and pagination decisions.
+  // not just the loaded slice. Drives lane headers and currency breakdowns.
   const aggregateQuery = useQuery<StageAggregateResponse | null>({
     queryKey: [
       'customers',
@@ -711,28 +724,40 @@ export default function DealsKanbanPage(): React.ReactElement {
     return mapped ?? { sortField: 'updatedAt' as const, sortDir: 'desc' as const }
   }, [sortBy])
 
+  const laneQueryKey = React.useMemo(
+    () => [
+      'customers',
+      'deals',
+      'kanban-lane',
+      `scope:${scopeVersion}`,
+      `organization:${activeOrgId ?? 'none'}`,
+      `pipeline:${filterSignature.pipelineId ?? 'none'}`,
+      `search:${filterSignature.search}`,
+      `status:${filterSignature.status}`,
+      `owners:${filterSignature.owners}`,
+      `people:${filterSignature.people}`,
+      `companies:${filterSignature.companies}`,
+      `close:${filterSignature.closeFrom}-${filterSignature.closeTo}`,
+      `sort:${apiSort.sortField}:${apiSort.sortDir}`,
+      `currency:${filterSignature.currency}`,
+    ],
+    [scopeVersion, activeOrgId, filterSignature, apiSort],
+  )
+  const paginationGeneration = React.useRef(0)
+
+  React.useEffect(() => {
+    paginationGeneration.current += 1
+    setExtraCardsByStage({})
+    setLoadingMoreByStage({})
+    return () => {
+      paginationGeneration.current += 1
+    }
+  }, [laneQueryKey])
+
   const laneQueries = useQueries({
     queries: lanes.map((stage) => {
       return {
-        queryKey: [
-          'customers',
-          'deals',
-          'kanban-lane',
-          `scope:${scopeVersion}`,
-          `pipeline:${filterSignature.pipelineId ?? 'none'}`,
-          `search:${filterSignature.search}`,
-          `status:${filterSignature.status}`,
-          `owners:${filterSignature.owners}`,
-          `people:${filterSignature.people}`,
-          `companies:${filterSignature.companies}`,
-          `close:${filterSignature.closeFrom}-${filterSignature.closeTo}`,
-          // Sort affects which 25 deals come back on page 1, so it MUST be in the key —
-          // otherwise switching from "Value (high to low)" to "Close (soonest)" reuses
-          // the old (wrong-sort) cache and silently keeps the wrong slice on screen.
-          `sort:${apiSort.sortField}:${apiSort.sortDir}`,
-          `currency:${filterSignature.currency}`,
-          `stage:${stage.id}`,
-        ],
+        queryKey: [...laneQueryKey, `stage:${stage.id}`],
         enabled: !!selectedPipelineId,
         staleTime: 30_000,
         queryFn: async () => {
@@ -900,6 +925,7 @@ export default function DealsKanbanPage(): React.ReactElement {
       // Page 1 = first 25 (initial useQueries fetch). Subsequent pages come from extraCardsByStage.
       const already = extraCardsByStage[stageId]?.length ?? 0
       const nextPage = Math.floor((LANE_PAGE_SIZE + already) / LANE_PAGE_SIZE) + 1
+      const requestGeneration = paginationGeneration.current
       setLoadingMoreByStage((prev) => ({ ...prev, [stageId]: true }))
       try {
         const params = new URLSearchParams()
@@ -922,18 +948,20 @@ export default function DealsKanbanPage(): React.ReactElement {
         const call = await apiCall<{ items?: DealApiRecord[] }>(
           `/api/customers/deals?${params.toString()}`,
         )
-        if (!call.ok) return
+        if (requestGeneration !== paginationGeneration.current || !call.ok) return
         const items = Array.isArray(call.result?.items) ? (call.result!.items as DealApiRecord[]) : []
         setExtraCardsByStage((prev) => ({
           ...prev,
           [stageId]: [...(prev[stageId] ?? []), ...items],
         }))
       } finally {
-        setLoadingMoreByStage((prev) => {
-          const next = { ...prev }
-          delete next[stageId]
-          return next
-        })
+        if (requestGeneration === paginationGeneration.current) {
+          setLoadingMoreByStage((prev) => {
+            const next = { ...prev }
+            delete next[stageId]
+            return next
+          })
+        }
       }
     },
     [
@@ -947,16 +975,20 @@ export default function DealsKanbanPage(): React.ReactElement {
       companyFilters,
       closeDateFilter.from,
       closeDateFilter.to,
+      currencyFilter,
       apiSort,
+      laneQueryKey,
     ],
   )
 
   // Page chrome loading/error indicators derived from per-lane queries
   const isInitialLoading =
-    !!selectedPipelineId && lanes.length === 0
+    pipelinesQuery.isLoading || (selectedPipelineId && lanes.length === 0
       ? stagesQuery.isLoading
-      : laneQueries.some((laneQuery) => laneQuery.isLoading && !laneQuery.data)
-  const firstError: unknown = laneQueries.find((laneQuery) => laneQuery.isError)?.error ?? null
+      : laneQueries.some((laneQuery) => laneQuery.isLoading && !laneQuery.data))
+  const firstError: unknown = pipelinesQuery.error ?? stagesQuery.error
+    ?? laneQueries.find((laneQuery) => laneQuery.isError)?.error ?? null
+  const permissionMessage = getKanbanPermissionMessage(firstError, t)
 
   // Centralized invalidation so writes refresh per-lane card queries, the aggregate, and drop stale extras
   const invalidateKanbanData = React.useCallback(() => {
@@ -1181,14 +1213,10 @@ export default function DealsKanbanPage(): React.ReactElement {
           setExtraCardsByStage(extraSnapshot)
           // A stale move surfaces the unified conflict bar — skip the generic flash.
           if (surfaceRecordConflict(error, t)) return
-          const message =
-            error instanceof Error && error.message
+          const message = getKanbanPermissionMessage(error, t)
+            ?? (error instanceof Error && error.message
               ? error.message
-              : translateWithFallback(
-                  t,
-                  'customers.deals.pipeline.moveError',
-                  'Failed to update deal stage.',
-                )
+              : translateWithFallback(t, 'customers.deals.pipeline.moveError', 'Failed to update deal stage.'))
           flash(message, 'error')
         })
         .finally(() => {
@@ -1330,14 +1358,10 @@ export default function DealsKanbanPage(): React.ReactElement {
           queryClient.setQueryData(key, data)
         }
         setExtraCardsByStage(extraSnapshot)
-        const message =
-          error instanceof Error && error.message
+        const message = getKanbanPermissionMessage(error, t)
+          ?? (error instanceof Error && error.message
             ? error.message
-            : translateWithFallback(
-                t,
-                'customers.deals.kanban.bulk.changeStage.error',
-                'Failed to start bulk stage update.',
-              )
+            : translateWithFallback(t, 'customers.deals.kanban.bulk.changeStage.error', 'Failed to start bulk stage update.'))
         flash(message, 'error')
       } finally {
         setIsBulkMutating(false)
@@ -1624,6 +1648,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   const handleDragEnd = React.useCallback(
     (event: DragEndEvent) => {
       setActiveDragDealId(null)
+      if (!canManageDeals) return
       const dealId = typeof event.active.id === 'string' ? event.active.id : null
       if (!dealId) return
       const overId = event.over?.id
@@ -1649,7 +1674,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         moveDealToStage(dealId, targetStageId)
       }
     },
-    [bulkMoveDealsToStage, moveDealToStage, selectedDealIds, stageIdByDealId],
+    [bulkMoveDealsToStage, canManageDeals, moveDealToStage, selectedDealIds, stageIdByDealId],
   )
 
   const bulkDragActive = React.useMemo(
@@ -1824,14 +1849,10 @@ export default function DealsKanbanPage(): React.ReactElement {
         invalidateKanbanData()
       } catch (error) {
         if (surfaceRecordConflict(error, t)) { invalidateKanbanData(); return }
-        const message =
-          error instanceof Error && error.message
+        const message = getKanbanPermissionMessage(error, t)
+          ?? (error instanceof Error && error.message
             ? error.message
-            : translateWithFallback(
-                t,
-                'customers.deals.kanban.menu.error.status',
-                'Failed to update deal status.',
-              )
+            : translateWithFallback(t, 'customers.deals.kanban.menu.error.status', 'Failed to update deal status.'))
         flash(message, 'error')
       } finally {
         setPendingDealId(null)
@@ -1894,14 +1915,10 @@ export default function DealsKanbanPage(): React.ReactElement {
           invalidateKanbanData()
           return
         }
-        const message =
-          error instanceof Error && error.message
+        const message = getKanbanPermissionMessage(error, t)
+          ?? (error instanceof Error && error.message
             ? error.message
-            : translateWithFallback(
-                t,
-                'customers.deals.kanban.menu.delete.error',
-                'Failed to delete deal.',
-              )
+            : translateWithFallback(t, 'customers.deals.kanban.menu.delete.error', 'Failed to delete deal.'))
         flash(message, 'error')
       } finally {
         setPendingDealId(null)
@@ -2029,14 +2046,10 @@ export default function DealsKanbanPage(): React.ReactElement {
         }
         invalidateKanbanData()
       } catch (error) {
-        const message =
-          error instanceof Error && error.message
+        const message = getKanbanPermissionMessage(error, t)
+          ?? (error instanceof Error && error.message
             ? error.message
-            : translateWithFallback(
-                t,
-                'customers.deals.kanban.bulk.changeStage.error',
-                'Failed to start bulk stage update.',
-              )
+            : translateWithFallback(t, 'customers.deals.kanban.bulk.changeStage.error', 'Failed to start bulk stage update.'))
         flash(message, 'error')
       } finally {
         setIsBulkMutating(false)
@@ -2105,14 +2118,10 @@ export default function DealsKanbanPage(): React.ReactElement {
         }
         invalidateKanbanData()
       } catch (error) {
-        const message =
-          error instanceof Error && error.message
+        const message = getKanbanPermissionMessage(error, t)
+          ?? (error instanceof Error && error.message
             ? error.message
-            : translateWithFallback(
-                t,
-                'customers.deals.kanban.bulk.changeOwner.error',
-                'Failed to start bulk owner update.',
-              )
+            : translateWithFallback(t, 'customers.deals.kanban.bulk.changeOwner.error', 'Failed to start bulk owner update.'))
         flash(message, 'error')
       } finally {
         setIsBulkMutating(false)
@@ -2178,6 +2187,8 @@ export default function DealsKanbanPage(): React.ReactElement {
               'customers.deals.kanban.menu.delete.error',
               'Failed to delete deal.',
             ),
+          }).catch((error: unknown) => {
+            throw localizeKanbanPermissionError(error, t)
           })
         },
         {
@@ -2258,11 +2269,13 @@ export default function DealsKanbanPage(): React.ReactElement {
             expectedCloseAt: deal.expectedCloseAt,
             ownerUserId: deal.owner?.userId,
           },
-          translateWithFallback(
-            t,
-            'customers.deals.kanban.menu.duplicate.titleSuffix',
-            '{title} (copy)',
-            { title: deal.title },
+          formatDealDuplicateTitle(deal.title, (title) =>
+            translateWithFallback(
+              t,
+              'customers.deals.kanban.menu.duplicate.titleSuffix',
+              '{title} (copy)',
+              { title },
+            ),
           ),
         )
 
@@ -2301,14 +2314,10 @@ export default function DealsKanbanPage(): React.ReactElement {
         )
         invalidateKanbanData()
       } catch (error) {
-        const message =
-          error instanceof Error && error.message
+        const message = getKanbanPermissionMessage(error, t)
+          ?? (error instanceof Error && error.message
             ? error.message
-            : translateWithFallback(
-                t,
-                'customers.deals.kanban.menu.duplicate.error',
-                'Failed to duplicate deal.',
-              )
+            : translateWithFallback(t, 'customers.deals.kanban.menu.duplicate.error', 'Failed to duplicate deal.'))
         flash(message, 'error')
       } finally {
         setPendingDealId(null)
@@ -2325,49 +2334,60 @@ export default function DealsKanbanPage(): React.ReactElement {
   )
 
   const buildMenuItems = React.useCallback(
-    (deal: DealCardData): RowActionItem[] => [
-      {
-        id: 'open',
-        label: translateWithFallback(t, 'customers.deals.kanban.menu.open', 'Open deal'),
-        onSelect: () => handleOpenDetail(deal.id),
-      },
-      {
-        id: 'edit',
-        label: translateWithFallback(t, 'customers.deals.kanban.menu.edit', 'Edit'),
-        onSelect: () => handleOpenDetail(deal.id),
-      },
-      {
-        id: 'duplicate',
-        label: translateWithFallback(t, 'customers.deals.kanban.menu.duplicate', 'Duplicate'),
-        onSelect: () => void duplicateDeal(deal),
-      },
-      {
-        id: 'move-stage',
-        label: translateWithFallback(t, 'customers.deals.kanban.menu.moveStage', 'Move stage…'),
-        onSelect: () =>
-          setSingleMoveStageContext({
-            dealId: deal.id,
-            currentStageId: stageIdByDealId.get(deal.id) ?? null,
-          }),
-      },
-      {
-        id: 'mark-won',
-        label: translateWithFallback(t, 'customers.deals.kanban.menu.markWon', 'Mark as Won'),
-        onSelect: () => void updateDealStatus(deal.id, 'win'),
-      },
-      {
-        id: 'mark-lost',
-        label: translateWithFallback(t, 'customers.deals.kanban.menu.markLost', 'Mark as Lost'),
-        onSelect: () => void updateDealStatus(deal.id, 'lost'),
-      },
-      {
-        id: 'delete',
-        label: translateWithFallback(t, 'customers.deals.kanban.menu.delete', 'Delete'),
-        destructive: true,
-        onSelect: () => void deleteDeal(deal.id, deal.title),
-      },
-    ],
+    (deal: DealCardData): RowActionItem[] => {
+      const actions: RowActionItem[] = []
+      if (canOpenDeal) {
+        actions.push({
+          id: 'open',
+          label: translateWithFallback(t, 'customers.deals.kanban.menu.open', 'Open deal'),
+          onSelect: () => handleOpenDetail(deal.id),
+        })
+      }
+      if (!canManageDeals) return actions
+      if (canOpenDeal) {
+        actions.push({
+          id: 'edit',
+          label: translateWithFallback(t, 'customers.deals.kanban.menu.edit', 'Edit'),
+          onSelect: () => handleOpenDetail(deal.id),
+        })
+      }
+      actions.push(
+        {
+          id: 'duplicate',
+          label: translateWithFallback(t, 'customers.deals.kanban.menu.duplicate', 'Duplicate'),
+          onSelect: () => void duplicateDeal(deal),
+        },
+        {
+          id: 'move-stage',
+          label: translateWithFallback(t, 'customers.deals.kanban.menu.moveStage', 'Move stage…'),
+          onSelect: () =>
+            setSingleMoveStageContext({
+              dealId: deal.id,
+              currentStageId: stageIdByDealId.get(deal.id) ?? null,
+            }),
+        },
+        {
+          id: 'mark-won',
+          label: translateWithFallback(t, 'customers.deals.kanban.menu.markWon', 'Mark as Won'),
+          onSelect: () => void updateDealStatus(deal.id, 'win'),
+        },
+        {
+          id: 'mark-lost',
+          label: translateWithFallback(t, 'customers.deals.kanban.menu.markLost', 'Mark as Lost'),
+          onSelect: () => void updateDealStatus(deal.id, 'lost'),
+        },
+        {
+          id: 'delete',
+          label: translateWithFallback(t, 'customers.deals.kanban.menu.delete', 'Delete'),
+          destructive: true,
+          onSelect: () => void deleteDeal(deal.id, deal.title),
+        },
+      )
+      return actions
+    },
     [
+      canManageDeals,
+      canOpenDeal,
       deleteDeal,
       duplicateDeal,
       handleOpenDetail,
@@ -2495,7 +2515,7 @@ export default function DealsKanbanPage(): React.ReactElement {
 
   const leadingChipsNode = (
     <>
-      <StatusFilterPopover values={statusFilters} onApply={setStatusFilters} />
+      <StatusFilterPopover values={statusFilters} onApply={setStatusFilters} canReadDictionary={canViewPeople} />
       <PipelineFilterPopover
         pipelines={pipelineFilterOptions}
         selectedPipelineId={selectedPipelineId}
@@ -2516,28 +2536,28 @@ export default function DealsKanbanPage(): React.ReactElement {
           onApply={setCurrencyFilter}
         />
       ) : null}
-      <EntityFilterPopover
+      {canViewAssignableStaff ? <EntityFilterPopover
         label={translateWithFallback(t, 'customers.deals.kanban.filter.owner', 'Owner')}
         anyLabel={translateWithFallback(t, 'customers.deals.kanban.filter.all', 'All')}
         values={ownerFilters}
         onApply={setOwnerFilters}
         loadOptions={loadOwnerOptions}
         labelById={ownerLabels}
-      />
-      <EntityFilterPopover
+      /> : null}
+      {canViewPeople ? <EntityFilterPopover
         label={translateWithFallback(t, 'customers.deals.kanban.filter.people', 'People')}
         values={peopleFilters}
         onApply={setPeopleFilters}
         loadOptions={loadPeopleOptions}
         labelById={peopleLabels}
-      />
-      <EntityFilterPopover
+      /> : null}
+      {canViewCompanies ? <EntityFilterPopover
         label={translateWithFallback(t, 'customers.deals.kanban.filter.companies', 'Companies')}
         values={companyFilters}
         onApply={setCompanyFilters}
         loadOptions={loadCompanyOptions}
         labelById={companyLabels}
-      />
+      /> : null}
       <CloseDateFilterPopover value={closeDateFilter} onApply={setCloseDateFilter} />
     </>
   )
@@ -2548,6 +2568,12 @@ export default function DealsKanbanPage(): React.ReactElement {
     if (!selectedPipelineId) return null
     return pipelinesQuery.data?.find((pipeline) => pipeline.id === selectedPipelineId) ?? null
   }, [pipelinesQuery.data, selectedPipelineId])
+
+  const quickDealDefaultProbability = React.useMemo(() => {
+    if (!activePipeline?.stageProbabilitiesEnabled || !quickDealContext) return undefined
+    const stage = stagesQuery.data?.find((candidate) => candidate.id === quickDealContext.pipelineStageId)
+    return typeof stage?.defaultProbability === 'number' ? stage.defaultProbability : undefined
+  }, [activePipeline, quickDealContext, stagesQuery.data])
 
   const dragHint = translateWithFallback(
     t,
@@ -2620,7 +2646,6 @@ export default function DealsKanbanPage(): React.ReactElement {
                   </span>
                   {boardSummary.baseCurrencyCode && boardSummary.totalInBaseCurrency > 0 ? (
                     <>
-                      <span aria-hidden="true">·</span>
                       <span className="flex items-baseline gap-1 font-semibold text-foreground">
                         {boardSummary.convertedAll ? null : (
                           <span className="text-muted-foreground" aria-hidden="true">
@@ -2695,7 +2720,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 <SlidersHorizontal className="size-4" aria-hidden="true" />
                 {translateWithFallback(t, 'customers.deals.kanban.cta.customize', 'Customize view')}
               </Button>
-              <Button
+              {canManagePipelines ? <Button
                 variant="outline"
                 type="button"
                 onClick={handleAddStage}
@@ -2703,13 +2728,13 @@ export default function DealsKanbanPage(): React.ReactElement {
               >
                 <Plus className="size-4" aria-hidden="true" />
                 {translateWithFallback(t, 'customers.deals.kanban.cta.newStage', 'New stage')}
-              </Button>
-              <Button asChild>
+              </Button> : null}
+              {canManageDeals ? <Button asChild>
                 <Link href="/backend/customers/deals/create?returnTo=/backend/customers/deals/pipeline">
                   <Plus className="size-4" aria-hidden="true" />
                   {translateWithFallback(t, 'customers.deals.kanban.cta.newDeal', 'New deal')}
                 </Link>
-              </Button>
+              </Button> : null}
             </div>
           </div>
 
@@ -2744,20 +2769,12 @@ export default function DealsKanbanPage(): React.ReactElement {
           onChipClick={handleChipClick}
         />
 
-        {!selectedPipelineId ? (
-          <EmptyState
-            icon={<Workflow className="size-8" aria-hidden="true" />}
-            title={translateWithFallback(
-              t,
-              'customers.deals.pipeline.noPipeline',
-              'No pipeline selected. Create a pipeline in settings.',
-            )}
-            className="h-[50vh] w-full"
-          />
-        ) : isInitialLoading ? (
+        {isInitialLoading ? (
           <div className="flex h-[50vh] items-center justify-center">
             <Spinner />
           </div>
+        ) : permissionMessage ? (
+          <AccessDeniedMessage label={permissionMessage} />
         ) : firstError ? (
           <div className="max-w-xl">
             <Alert status="error">
@@ -2773,12 +2790,22 @@ export default function DealsKanbanPage(): React.ReactElement {
               </AlertDescription>
             </Alert>
           </div>
+        ) : !selectedPipelineId ? (
+          <EmptyState
+            icon={<Workflow className="size-8" aria-hidden="true" />}
+            title={translateWithFallback(
+              t,
+              'customers.deals.pipeline.noPipeline',
+              'No pipeline selected. Create a pipeline in settings.',
+            )}
+            className="h-[50vh] w-full"
+          />
         ) : (
           <DndContext
             sensors={sensors}
             collisionDetection={collisionDetection}
             measuring={measuringConfig}
-            onDragStart={handleDragStart}
+            onDragStart={canManageDeals ? handleDragStart : undefined}
             onDragEnd={handleDragEnd}
             onDragCancel={handleDragCancel}
           >
@@ -2841,7 +2868,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                 />
               ) : (
                 <>
-                  {lanes.map((stage) => {
+                  {lanes.map((stage, stageIndex) => {
                     const laneDeals = sortedDealsByStage.get(stage.id) ?? EMPTY_DEAL_ARRAY
                     return (
                       <Lane
@@ -2849,15 +2876,17 @@ export default function DealsKanbanPage(): React.ReactElement {
                         stage={stage}
                         deals={laneDeals}
                         aggregate={aggregateByStage.get(stage.id) ?? null}
+                        paginationTotal={laneQueries[stageIndex]?.data?.total ?? 0}
                         selectedDealIds={selectedDealIds}
                         buildMenuItems={buildMenuItems}
                         activeDragDealId={activeDragDealId}
+                        canDrag={canManageDeals}
                         isLoadingMore={!!loadingMoreByStage[stage.id]}
                         width={laneWidths[stage.id] ?? null}
                         onToggleSelect={handleToggleSelect}
-                        onComposeActivity={handleComposeActivity}
-                        onOpenDetail={handleOpenDetail}
-                        onQuickAddClick={handleQuickAdd}
+                        onComposeActivity={canManageInteractions ? handleComposeActivity : undefined}
+                        onOpenDetail={canOpenDeal ? handleOpenDetail : undefined}
+                        onQuickAddClick={canManageDeals ? handleQuickAdd : undefined}
                         onLoadMore={handleLoadMoreInLane}
                         onResize={handleLaneResize}
                         onResetWidth={handleResetLaneWidth}
@@ -2871,7 +2900,7 @@ export default function DealsKanbanPage(): React.ReactElement {
                     at the end of the stage row that operators have used to map onto from
                     Trello/Asana muscle memory.
                   */}
-                  <AddStageLane onClick={handleAddStage} />
+                  {canManagePipelines ? <AddStageLane onClick={handleAddStage} /> : null}
                 </>
               )}
             </div>
@@ -2961,20 +2990,21 @@ export default function DealsKanbanPage(): React.ReactElement {
         {selectedPipelineId && !isInitialLoading ? (
           <div className="flex flex-col gap-1 border-t border-border pt-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <span>{footerCount}</span>
-            <span>{dragHint}</span>
+            {canManageDeals ? <span>{dragHint}</span> : null}
             {pendingDealId ? <Spinner className="size-3" /> : null}
           </div>
         ) : null}
       </PageBody>
 
       <QuickDealDialog
-        open={!!quickDealContext}
+        open={canManageDeals && !!quickDealContext}
         context={quickDealContext}
         onClose={() => setQuickDealContext(null)}
         onCreated={handleDialogCreated}
         currentUserId={currentUserId || undefined}
         currentUserLabel={currentUserLabel}
-        companies={companiesQuery.data ?? []}
+        companies={canViewCompanies ? companiesQuery.data ?? [] : []}
+        defaultProbability={quickDealDefaultProbability}
         currencies={
           currencyDictionary.data
             ? currencyDictionary.data.entries.map((entry) => ({
@@ -2988,26 +3018,27 @@ export default function DealsKanbanPage(): React.ReactElement {
         }
       />
       <AddStageDialog
-        open={!!addStageContext}
+        open={canManagePipelines && !!addStageContext}
         context={addStageContext}
         onClose={() => setAddStageContext(null)}
         onCreated={handleDialogCreated}
       />
       <CustomizeViewDialog
         open={customizeOpen}
+        canManagePipelines={canManagePipelines}
         resizedLanesCount={Object.keys(laneWidths).length}
         onClose={() => setCustomizeOpen(false)}
         onResetToDefault={handleResetView}
         onResetColumnWidths={handleResetAllLaneWidths}
       />
       <ActivityComposerDialog
-        open={!!activityContext}
+        open={canManageInteractions && !!activityContext}
         context={activityContext}
         onClose={() => setActivityContext(null)}
         onCreated={handleDialogCreated}
       />
       <ChangeStageDialog
-        open={changeStageOpen}
+        open={canManageDeals && changeStageOpen}
         selectedCount={bulkSelectionSummary.count}
         pipelineName={activePipelineName}
         stages={stageOptions}
@@ -3016,7 +3047,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         onConfirm={(stageId) => void handleBulkChangeStage(stageId)}
       />
       <ChangeStageDialog
-        open={!!singleMoveStageContext}
+        open={canManageDeals && !!singleMoveStageContext}
         selectedCount={1}
         pipelineName={activePipelineName}
         stages={stageOptions}
@@ -3030,7 +3061,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         }}
       />
       <ChangeOwnerDialog
-        open={changeOwnerOpen}
+        open={canChangeOwner && changeOwnerOpen}
         selectedCount={bulkSelectionSummary.count}
         isSubmitting={isBulkMutating}
         onClose={() => setChangeOwnerOpen(false)}
@@ -3039,10 +3070,10 @@ export default function DealsKanbanPage(): React.ReactElement {
       <BulkActionsBar
         count={bulkSelectionSummary.count}
         totalLabel={bulkSelectionSummary.totalLabel}
-        onChangeStage={() => setChangeStageOpen(true)}
-        onChangeOwner={() => setChangeOwnerOpen(true)}
+        onChangeStage={canManageDeals ? () => setChangeStageOpen(true) : undefined}
+        onChangeOwner={canChangeOwner ? () => setChangeOwnerOpen(true) : undefined}
         onExportCsv={handleBulkExport}
-        onDelete={() => void handleBulkDelete()}
+        onDelete={canManageDeals ? () => void handleBulkDelete() : undefined}
         onClear={handleBulkClear}
       />
       {ConfirmDialogElement}

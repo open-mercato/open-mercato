@@ -56,6 +56,50 @@ describe('validateValuesAgainstDefs', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('compares eq/ne by numeric value on integer and float fields', () => {
+    const defs = [
+      { key: 'qty', kind: 'integer', configJson: { validation: [ { rule: 'eq', param: '5', message: 'qty must be 5' } ] } },
+      { key: 'ratio', kind: 'float', configJson: { validation: [ { rule: 'ne', param: '0.5', message: 'ratio must not be 0.5' } ] } },
+    ]
+    let r = validateValuesAgainstDefs({ qty: 5, ratio: 0.25 }, defs)
+    expect(r.ok).toBe(true)
+    r = validateValuesAgainstDefs({ qty: 4 }, defs)
+    expect(r.fieldErrors['cf_qty']).toBe('qty must be 5')
+    r = validateValuesAgainstDefs({ ratio: 0.5 }, defs)
+    expect(r.fieldErrors['cf_ratio']).toBe('ratio must not be 0.5')
+
+    const numericParamDefs = [
+      { key: 'qty', kind: 'integer', configJson: { validation: [ { rule: 'ne', param: 5, message: 'qty must not be 5' } ] } },
+    ]
+    r = validateValuesAgainstDefs({ qty: '5' }, numericParamDefs)
+    expect(r.fieldErrors['cf_qty']).toBe('qty must not be 5')
+    r = validateValuesAgainstDefs({ qty: '6' }, numericParamDefs)
+    expect(r.ok).toBe(true)
+  })
+
+  it('normalizes numeric strings and skips blank values for eq/ne on numeric fields', () => {
+    const defs = [
+      { key: 'qty', kind: 'integer', configJson: { validation: [ { rule: 'eq', param: ' 5.0 ', message: 'qty must be 5' } ] } },
+    ]
+    expect(validateValuesAgainstDefs({ qty: 5 }, defs).ok).toBe(true)
+    expect(validateValuesAgainstDefs({ qty: '5' }, defs).ok).toBe(true)
+    expect(validateValuesAgainstDefs({ qty: '' }, defs).ok).toBe(true)
+    expect(validateValuesAgainstDefs({ qty: null }, defs).ok).toBe(true)
+
+    const nonNumericParamDefs = [
+      { key: 'qty', kind: 'integer', configJson: { validation: [ { rule: 'eq', param: 'five', message: 'qty must be five' } ] } },
+    ]
+    expect(validateValuesAgainstDefs({ qty: 5 }, nonNumericParamDefs).fieldErrors['cf_qty']).toBe('qty must be five')
+  })
+
+  it('keeps eq/ne strict on non-numeric fields', () => {
+    const defs = [
+      { key: 'code', kind: 'text', configJson: { validation: [ { rule: 'eq', param: '05', message: 'code must be 05' } ] } },
+    ]
+    expect(validateValuesAgainstDefs({ code: '05' }, defs).ok).toBe(true)
+    expect(validateValuesAgainstDefs({ code: '5' }, defs).fieldErrors['cf_code']).toBe('code must be 05')
+  })
+
   it('applies value rules per-element for multi-value (array) fields', () => {
     const defs = [
       { key: 'labels', kind: 'text', configJson: { validation: [ { rule: 'regex', param: '^[a-z0-9_-]+$', message: 'Labels must be slug-like' } ] } },

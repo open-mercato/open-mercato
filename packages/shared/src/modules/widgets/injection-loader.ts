@@ -11,6 +11,7 @@ import type {
   InjectionWidgetPlacement,
 } from './injection'
 import { createLogger } from '../../lib/logger'
+import { extensionSpotChildId } from './extension-points'
 import {
   applyInjectionWidgetOverridesToEntries,
   applyInjectionWidgetOverridesToTables,
@@ -54,10 +55,12 @@ let _coreInjectionWidgetEntries: ModuleInjectionWidgetEntry[] | null = null
 let _coreInjectionTables: Array<{ moduleId: string; table: ModuleInjectionTable }> | null = null
 let _enabledModuleIds: ReadonlySet<string> | null = null
 let _injectionRegistryVersion = 0
+let _injectionRegistryError: string | null = null
 const GLOBAL_INJECTION_WIDGETS_KEY = '__openMercatoCoreInjectionWidgetEntries__'
 const GLOBAL_INJECTION_TABLES_KEY = '__openMercatoCoreInjectionTables__'
 const GLOBAL_ENABLED_MODULE_IDS_KEY = '__openMercatoEnabledModuleIds__'
 const GLOBAL_INJECTION_REGISTRY_VERSION_KEY = '__openMercatoCoreInjectionRegistryVersion__'
+const GLOBAL_INJECTION_REGISTRY_ERROR_KEY = '__openMercatoCoreInjectionRegistryError__'
 const INJECTION_REGISTRY_CHANGED_EVENT = '__openMercatoInjectionRegistryChanged__'
 
 function readGlobalInjectionWidgets(): ModuleInjectionWidgetEntry[] | null {
@@ -130,7 +133,7 @@ function writeGlobalInjectionRegistryVersion(version: number) {
 }
 
 function notifyInjectionRegistryChanged() {
-  _injectionRegistryVersion += 1
+  _injectionRegistryVersion = (readGlobalInjectionRegistryVersion() ?? _injectionRegistryVersion) + 1
   writeGlobalInjectionRegistryVersion(_injectionRegistryVersion)
   invalidateInjectionWidgetCache()
 
@@ -243,6 +246,35 @@ export function getInjectionRegistryVersion(): number {
   const globalVersion = readGlobalInjectionRegistryVersion()
   if (globalVersion !== null) return globalVersion
   return _injectionRegistryVersion
+}
+
+/** @internal */
+export function getInjectionRegistryError(): string | null {
+  try {
+    const value = (globalThis as Record<string, unknown>)[GLOBAL_INJECTION_REGISTRY_ERROR_KEY]
+    if (value === null || typeof value === 'string') return value
+  } catch {
+    return _injectionRegistryError
+  }
+  return _injectionRegistryError
+}
+
+/** @internal */
+export function setInjectionRegistryError(error: string | null): void {
+  _injectionRegistryError = error === null ? null : error || '[internal] Injection registry registration failed'
+  try {
+    ;(globalThis as Record<string, unknown>)[GLOBAL_INJECTION_REGISTRY_ERROR_KEY] = _injectionRegistryError
+  } catch {
+    notifyInjectionRegistryChanged()
+    return
+  }
+  notifyInjectionRegistryChanged()
+}
+
+/** @internal */
+export function isInjectionRegistryReady(): boolean {
+  return (readGlobalInjectionWidgets() ?? _coreInjectionWidgetEntries) !== null
+    && (readGlobalInjectionTables() ?? _coreInjectionTables) !== null
 }
 
 const injectionRegistryChangeSubscribers = new Set<() => void>()
@@ -585,25 +617,28 @@ function warnSkippedWidget(metadataId: string, missingModules: string[]) {
   }
 }
 
-async function getResolvedEntriesForSpot(spotId: InjectionSpotId): Promise<TableEntry[]> {
+type ResolvedTableEntry = TableEntry & { requiresProjectionKind: boolean }
+
+async function getResolvedEntriesForSpot(spotId: InjectionSpotId, formRoot?: InjectionSpotId): Promise<ResolvedTableEntry[]> {
   const table = await loadInjectionTable()
-  const exactEntries = table.get(spotId) ?? []
-  const wildcardEntries: TableEntry[] = []
+  const exactEntries = (table.get(spotId) ?? []).map((entry) => ({ ...entry, requiresProjectionKind: true }))
+  const wildcardEntries: ResolvedTableEntry[] = []
+  const formSpots = formRoot && [formRoot, extensionSpotChildId(formRoot, 'header'), extensionSpotChildId(formRoot, 'fields')]
 
   for (const [candidateSpotId, candidateEntries] of table.entries()) {
     if (candidateSpotId === spotId) continue
     if (!candidateSpotId.includes('*')) continue
     if (!matchWildcardPattern(spotId, candidateSpotId)) continue
-    wildcardEntries.push(...candidateEntries)
+    const requiresProjectionKind = !formSpots || !formSpots.every((projection) => matchWildcardPattern(projection, candidateSpotId))
+    wildcardEntries.push(...candidateEntries.map((entry) => ({ ...entry, requiresProjectionKind })))
   }
 
-  const dedupedEntries = new Map<string, TableEntry>()
+  const dedupedEntries = new Map<string, ResolvedTableEntry>()
   for (const entry of [...exactEntries, ...wildcardEntries]) {
     const cacheKey = `${entry.moduleId}:${entry.widgetId}`
     const previous = dedupedEntries.get(cacheKey)
-    if (!previous || (entry.priority ?? 0) > (previous.priority ?? 0)) {
-      dedupedEntries.set(cacheKey, entry)
-    }
+    const winner = !previous || (entry.priority ?? 0) > (previous.priority ?? 0) ? entry : previous
+    dedupedEntries.set(cacheKey, { ...winner, requiresProjectionKind: entry.requiresProjectionKind || previous?.requiresProjectionKind === true })
   }
 
   return Array.from(dedupedEntries.values()).sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
@@ -680,4 +715,34 @@ export async function loadInjectionDataWidgetsForSpot(spotId: InjectionSpotId): 
     widgets.push({ ...widget, placement: combinedPlacement })
   }
   return widgets
+}
+
+/** Read explicitly bound widget dependencies without the fail-soft rendering fallback. */
+export async function loadConfiguredFormWidgetsForSpot(
+  spotId: InjectionSpotId,
+  kind: 'render' | 'data',
+  formRoot?: InjectionSpotId,
+): Promise<(LoadedInjectionWidget | LoadedInjectionDataWidget)[]> {
+  const slots = await getResolvedEntriesForSpot(spotId, formRoot)
+  if (!slots.length) return []
+  const entries = await loadWidgetEntries()
+  const hinted = new Map<string, WidgetEntry>()
+  for (const entry of entries) {
+    if (entry.widgetId && !hinted.has(entry.widgetId)) hinted.set(entry.widgetId, entry)
+  }
+  const enabled = getEnabledModuleIdsForInjection()
+  const widgets = await Promise.all(slots.map(async ({ widgetId, requiresProjectionKind }) => {
+    const entry = hinted.get(widgetId)
+    const widget = entry
+      ? { ...await loadEntry(entry), moduleId: entry.moduleId, key: entry.key }
+      : await loadWidgetLookupIndex().then((index) => index.widgetsById.get(widgetId) ?? index.dataWidgetsById.get(widgetId))
+    if (!widget || widget.metadata.id !== widgetId) throw new Error('[internal] Invalid configured form widget binding')
+    if (widget.metadata.enabled === false || !applyRequiredModuleGate(widget, enabled)) return null
+    if ((kind === 'render') !== isLoadedInjectionWidget(widget)) {
+      if (!requiresProjectionKind) return null
+      throw new Error('[internal] Invalid configured form widget kind')
+    }
+    return widget
+  }))
+  return widgets.filter((widget) => widget !== null)
 }

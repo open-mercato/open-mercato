@@ -2,7 +2,9 @@
 
 import {
   evaluateLowStock,
+  isBalanceLocationReservable,
   isLotEligible,
+  isReservableLocationType,
   resolveReservationStrategyFromProfile,
   sortBucketsForStrategy,
   type InventoryStrategyBucket,
@@ -101,6 +103,21 @@ describe('wms inventory policy helpers', () => {
     expect(isLotEligible({ status: 'quarantine', expiresAt: null }, now)).toBe(false)
     expect(isLotEligible({ status: 'expired', expiresAt: null }, now)).toBe(false)
     expect(isLotEligible({ status: 'available', expiresAt: new Date('2026-06-01T00:00:00.000Z') }, now)).toBe(false)
+  })
+
+  it('treats staging and dock location types as non-reservable', () => {
+    expect(isReservableLocationType('bin')).toBe(true)
+    expect(isReservableLocationType('slot')).toBe(true)
+    expect(isReservableLocationType('staging')).toBe(false)
+    expect(isReservableLocationType('dock')).toBe(false)
+    expect(isReservableLocationType(null)).toBe(true)
+    expect(isReservableLocationType(undefined)).toBe(true)
+
+    expect(isBalanceLocationReservable({ location: { id: 'loc-1', type: 'bin' } })).toBe(true)
+    expect(isBalanceLocationReservable({ location: { id: 'loc-2', type: 'staging' } })).toBe(false)
+    expect(isBalanceLocationReservable({ location: { id: 'loc-3', type: 'dock' } })).toBe(false)
+    expect(isBalanceLocationReservable({ location: 'loc-string-only' })).toBe(true)
+    expect(isBalanceLocationReservable({})).toBe(true)
   })
 
   it('evaluates low-stock threshold state across reorder and safety bands', () => {

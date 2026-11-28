@@ -49,6 +49,10 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/__tests__/di-classic-proxy.test.ts',
+        scans: 'module DI registrations across packages, host apps and the create-app template — CLASSIC factories require PROXY for destructuring',
+      },
+      {
         path: 'src/__tests__/explicit-sort-comparators.test.ts',
         scans: 'every packages/*/src root plus scripts/ — sort calls without an explicit comparator (#3620)',
       },
@@ -63,6 +67,10 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/modules/auth/__tests__/acl-feature-catalog.i18n.test.ts',
         scans: 'every packages/* and apps/mercato module acl.ts — localized ACL feature catalog coverage and English title drift (#5500)',
+      },
+      {
+        path: 'src/modules/entities/lib/__tests__/entityAcl.firstPartyCoverage.test.ts',
+        scans: 'first-party entity and ACL declarations across packages and apps — relation target permissions (#9106)',
       },
       {
         path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
@@ -124,6 +132,18 @@ export const REPO_WIDE_GUARDS = [
     jestConfig: 'jest.config.cjs',
     tests: [
       {
+        path: 'src/lib/__tests__/init-secrets.test.ts',
+        scans: 'starters/docker and packages/create-app/template full-app Compose defaults — production bootstrap credential safety (#7809)',
+      },
+      {
+        path: 'src/__tests__/documented-queue-subcommands.test.ts',
+        scans: 'apps/docs/docs/**/*.mdx — documented queue subcommands resolve through the real CLI dispatcher (#8511)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/attachment-access.test.ts',
+        scans: 'packages/core attachments generator plugin — installed-package and monorepo owner-policy discovery/bootstrap (#6726)',
+      },
+      {
         path: 'src/lib/generators/__tests__/module-subset.test.ts',
         scans: 'live Catalog and Entities dependency metadata across packages/core and all three module-generator variants — standalone dependency closure (#6517)',
       },
@@ -142,6 +162,10 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/lib/generators/__tests__/module-facts.extension-hosts.test.ts',
         scans: 'live packages/core/src/modules sources — generated custom-field declarations (#4534)',
+      },
+      {
+        path: 'src/lib/generators/__tests__/module-extension-activations.test.ts',
+        scans: 'live packages/core/src/modules/sales sources — shipped extension activation extraction and response-enricher host bindings (#7784)',
       },
       {
         path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
@@ -166,6 +190,10 @@ export const REPO_WIDE_GUARDS = [
       {
         path: 'src/lib/generators/__tests__/module-facts.local-reference.test.ts',
         scans: 'live apps/mercato/src/modules/example sources — local-reference fact discovery, projection and source fingerprints (#4991)',
+      },
+      {
+        path: 'src/lib/scaffold/__tests__/scaffold-ds-contract.test.ts',
+        scans: 'repo-root ESLint DS config and packages/eslint-plugin-ds — design-system compliance of generated CLI scaffold pages',
       },
     ],
   },
@@ -301,8 +329,24 @@ export const REPO_WIDE_GUARDS = [
  */
 export const CROSS_PACKAGE_EXCEPTIONS = [
   {
+    path: 'apps/mercato/src/components/__tests__/DemoFeedbackWidget.test.tsx',
+    reason: 'Reads onboarding locale dictionaries as fixture data for the app widget; it does not audit onboarding source. The app-owned Jest suite runs when this component changes, and onboarding owns dictionary validation.',
+  },
+  {
+    path: 'packages/cli/src/lib/__tests__/module-search.test.ts',
+    reason: 'Reads only package-local catalog fixtures and per-test mkdtemp app roots; packages/core and apps/mercato literals construct temporary resolver layouts, never audit repository sources.',
+  },
+  {
     path: 'packages/cli/src/lib/generators/__tests__/agent-files-extension.test.ts',
     reason: 'Reads nothing outside packages/cli — every `packages/...` literal is joined against a per-test mkdtemp fixture root, never the repo.',
+  },
+  {
+    path: 'packages/create-app/src/lib/ci-flag.test.ts',
+    reason: 'Reads nothing outside packages/create-app — process.cwd() is a per-test mkdtemp directory it scaffolds into, and its scripts/.github paths are inside that scaffold. Also already unfiltered via the create-app parity step (#3779).',
+  },
+  {
+    path: 'packages/create-app/src/lib/application-csp.test.ts',
+    reason: 'Already unfiltered — the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). It executes both app/template Next configs and proxies through node:test, so it does not belong in the Jest-based guard runner.',
   },
   {
     path: 'packages/create-app/src/lib/apply-starter-preset.test.ts',
@@ -359,6 +403,10 @@ export const CROSS_PACKAGE_EXCEPTIONS = [
   {
     path: 'packages/create-app/src/lib/module-activation-fixtures.test.ts',
     reason: 'Already unfiltered — the same create-app parity step (#3779) runs the whole create-mercato-app suite. It also drives the real scaffolder and generator suite against a generated app, so it costs minutes rather than the seconds this runner budgets for the common PR path.',
+  },
+  {
+    path: 'packages/create-app/src/lib/templates/templates.test.ts',
+    reason: 'Already unfiltered: the "Check create-app template parity" CI step runs the whole create-mercato-app suite (#3779). `process.cwd()` only saves the directory `main` is run from; it reads nothing outside packages/create-app.',
   },
   {
     path: 'packages/ui/src/backend/__tests__/FieldDefinitionsEditor.test.tsx',

@@ -61,7 +61,7 @@ export function PeriodSelector({
   )
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="flex min-w-0 flex-wrap items-center gap-3">
       <SegmentedControl
         value={periodKind}
         onValueChange={(value) => {
@@ -78,27 +78,40 @@ export function PeriodSelector({
         ))}
       </SegmentedControl>
 
-      <div className="flex items-center gap-1">
+      <div className="flex min-w-0 max-w-full items-center gap-1">
         <IconButton
           type="button"
           variant="outline"
           size="sm"
           aria-label={t('staff.time_tracking.timesheet.period.previous', 'Previous period')}
           onClick={() => onAnchorDateChange(shiftPeriodAnchor(periodKind, anchorDate, -1))}
+          className="shrink-0"
         >
           <ChevronLeft className="size-4" aria-hidden="true" />
         </IconButton>
-        <span className="min-w-48 whitespace-nowrap px-1 text-center text-sm font-semibold">{label}</span>
+        <span
+          className="min-w-0 flex-1 truncate px-1 text-center text-sm font-semibold sm:min-w-48 sm:flex-none"
+          title={label}
+        >
+          {label}
+        </span>
         <IconButton
           type="button"
           variant="outline"
           size="sm"
           aria-label={t('staff.time_tracking.timesheet.period.next', 'Next period')}
           onClick={() => onAnchorDateChange(shiftPeriodAnchor(periodKind, anchorDate, 1))}
+          className="shrink-0"
         >
           <ChevronRight className="size-4" aria-hidden="true" />
         </IconButton>
-        <Button type="button" variant="ghost" size="sm" onClick={() => onAnchorDateChange(todayIso())}>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="shrink-0"
+          onClick={() => onAnchorDateChange(todayIso())}
+        >
           {t('staff.time_tracking.timesheet.period.today', 'Today')}
         </Button>
       </div>

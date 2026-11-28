@@ -1,3 +1,5 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { EudrPlot } from '../data/entities'
 import { GEOJSON_TYPES } from '../data/validators'
 
 export const COMPLETENESS_DIMENSIONS = ['origin_country', 'geolocation', 'quantity', 'harvest_period', 'producer', 'documents'] as const
@@ -76,6 +78,21 @@ export function computeCompleteness(input: CompletenessInput, context: Completen
 
 export function computeSubmissionCompleteness(input: CompletenessInput, context?: CompletenessContext): CompletenessResult {
   return computeCompleteness(input, context)
+}
+
+export async function countActivePlots(
+  em: EntityManager,
+  submission: { plotIds?: string[] | null; tenantId: string; organizationId: string },
+): Promise<number> {
+  const plotIds = Array.from(new Set(Array.isArray(submission.plotIds) ? submission.plotIds : []))
+  if (plotIds.length === 0) return 0
+  return em.count(EudrPlot, {
+    id: { $in: plotIds },
+    tenantId: submission.tenantId,
+    organizationId: submission.organizationId,
+    deletedAt: null,
+    isActive: true,
+  })
 }
 
 export const HARVEST_CUTOFF_DATE = new Date('2020-12-31T23:59:59.999Z')

@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/shared/lib/auth/organizationScope'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { defaultExportFilename, serializeExport, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
@@ -16,6 +18,7 @@ import {
 } from '@open-mercato/core/modules/audit_logs/lib/projections'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import { resolveCanonicalAuthSubject } from '@open-mercato/core/modules/audit_logs/lib/actorSubject'
+import { redactActionLogEntries } from '@open-mercato/core/modules/audit_logs/lib/actionLogRedaction'
 import { loadAuditLogDisplayMaps } from '../../display'
 import { requireResolvedTenantScope } from '../../readScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -122,6 +125,12 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const { organizationId: defaultOrganizationId, scope } = await resolveFeatureCheckContext({ container, auth, request: req })
+  try {
+    resolveSingleOrganizationIdOrDeny(scope, auth)
+  } catch (err) {
+    if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+    throw err
+  }
   const rbac = container.resolve('rbacService') as RbacService
   const actionLogs = container.resolve('actionLogService') as ActionLogService
   const em = container.resolve('em') as EntityManager
@@ -193,16 +202,26 @@ export async function GET(req: Request) {
     }
     throw err
   }
-  const entries = entriesResult.items
+  // Redaction is a generic extension point an optional module (e.g. `customers`)
+  // registers into (#8887, #8978) — this route never statically imports or names
+  // that module (see `packages/core/AGENTS.md` § Cross-Module Coupling and
+  // `audit_logs/lib/actionLogRedaction.ts`).
+  const entries = await redactActionLogEntries(
+    container,
+    em,
+    { tenantId: auth.tenantId ?? '', organizationId: organizationId ?? null },
+    auth.sub,
+    entriesResult.items,
+  )
 
   const { translate } = await resolveTranslations()
   const displayMaps = await loadAuditLogDisplayMaps(em, {
-    userIds: entries.map((entry: any) => entry.actorUserId).filter((value: any): value is string => Boolean(value)),
-    tenantIds: entries.map((entry: any) => entry.tenantId).filter((value: any): value is string => Boolean(value)),
-    organizationIds: entries.map((entry: any) => entry.organizationId).filter((value: any): value is string => Boolean(value)),
+    userIds: entries.map((entry) => entry.actorUserId).filter((value): value is string => Boolean(value)),
+    tenantIds: entries.map((entry) => entry.tenantId).filter((value): value is string => Boolean(value)),
+    organizationIds: entries.map((entry) => entry.organizationId).filter((value): value is string => Boolean(value)),
   }, { translate })
 
-  const rows = entries.flatMap((entry: any) => {
+  const rows = entries.flatMap((entry) => {
     const actionType = deriveActionLogActionType(entry)
     const actionLabel = actionType === 'system'
       ? entry.actionLabel ?? 'System'
@@ -275,7 +294,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid filter values', schema: errorSchema },
         { status: 401, description: 'Authentication required', schema: errorSchema },
-        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin', schema: errorSchema },
+        { status: 403, description: 'Caller has no resolved tenant scope and is not a superadmin, or its organization scope is explicitly empty', schema: errorSchema },
       ],
     },
   },

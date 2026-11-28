@@ -8,7 +8,6 @@ import { htmlToPlainText } from '@open-mercato/shared/lib/html/htmlToPlainText'
 import { emitCommunicationChannelsEvent } from '../events'
 import { resolveContact } from '../lib/contact-resolver'
 import type { ChannelAdapterRegistry } from '../lib/registry'
-import type { NormalizedInboundMessage } from '../lib/adapter'
 import { matchThread, type ThreadMatch } from '../lib/thread-matcher'
 import {
   ChannelThreadMapping,
@@ -213,7 +212,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         subject: m.subject ?? null,
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
-        lastMessageAt: m.timestamp ?? new Date(),
+        lastMessageAt: m.timestamp,
         assignedUserId: channel.userId ?? null,
       })
       em.persist(conversation)
@@ -262,33 +261,47 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
     // back to the existing `ChannelThreadMapping`-by-conversation-id lookup
     // (which also returns null on first-ever inbound, in which case the
     // compose command opens a new thread).
+    //
+    // The matcher is specified for email (SPEC B): its token/JWZ/subject
+    // strategies only check that a resolved thread is mapped to the
+    // *receiving channel*, never to the *sending provider conversation*. A
+    // provider whose conversation identity is already authoritative on
+    // inbound (Discord's `externalConversationId` is the Discord channel/
+    // thread id — see `normalize-inbound.ts`) must not run it: a message
+    // posted in one conversation that merely contains another conversation's
+    // thread token (visible in an ordinary bot reply footer) would otherwise
+    // graft that conversation onto the token's thread. Gate on the adapter's
+    // `recipientFormat` — `'provider-native'` is exactly the contract flag
+    // for "conversation identity comes from the provider, not an email
+    // address" (see `ChannelCapabilities.recipientFormat` in `lib/adapter.ts`).
     const metaForMatcher = (m.channelMetadata ?? {}) as Record<string, unknown>
     let threadMatch: ThreadMatch | null = null
-    try {
-      threadMatch = await matchThread(
-        {
-          channelId: input.channelId,
-          tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? null,
-          messageId: extractStringFromMeta(metaForMatcher, 'messageId') ?? m.externalMessageId,
-          inReplyTo:
-            m.replyToExternalId ?? extractStringFromMeta(metaForMatcher, 'inReplyTo'),
-          references: extractStringArrayFromMeta(metaForMatcher, 'references'),
-          subject: m.subject ?? '',
-          fromAddress:
-            extractStringFromMeta(metaForMatcher, 'from') ?? m.senderIdentifier,
-          toAddresses: extractStringArrayFromMeta(metaForMatcher, 'to'),
-          ccAddresses: extractStringArrayFromMeta(metaForMatcher, 'cc'),
-          bodyPlain: m.bodyFormat === 'html' ? null : m.body ?? null,
-          bodyHtml: m.bodyFormat === 'html' ? m.body ?? null : null,
-          receivedAt: m.timestamp ?? new Date(),
-        },
-        { em },
-      )
-    } catch (matcherErr) {
-      // Matcher failure must not block ingest — fall back to the existing
-      // conversation-based thread mapping so the message still lands.
-      logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
+    if (adapter.capabilities.recipientFormat !== 'provider-native') {
+      try {
+        threadMatch = await matchThread(
+          {
+            channelId: input.channelId,
+            tenantId: input.scope.tenantId,
+            organizationId: input.scope.organizationId ?? null,
+            messageId: extractStringFromMeta(metaForMatcher, 'messageId') ?? m.externalMessageId,
+            inReplyTo:
+              m.replyToExternalId ?? extractStringFromMeta(metaForMatcher, 'inReplyTo'),
+            references: extractStringArrayFromMeta(metaForMatcher, 'references'),
+            subject: m.subject ?? '',
+            fromAddress:
+              extractStringFromMeta(metaForMatcher, 'from') ?? m.senderIdentifier,
+            toAddresses: extractStringArrayFromMeta(metaForMatcher, 'to'),
+            ccAddresses: extractStringArrayFromMeta(metaForMatcher, 'cc'),
+            bodyPlain: m.bodyFormat === 'html' ? null : m.body ?? null,
+            bodyHtml: m.bodyFormat === 'html' ? m.body ?? null : null,
+          },
+          { em },
+        )
+      } catch (matcherErr) {
+        // Matcher failure must not block ingest — fall back to the existing
+        // conversation-based thread mapping so the message still lands.
+        logger.warn('thread matcher failed, falling back to conversation mapping', { err: matcherErr })
+      }
     }
 
     // (4) Contact resolution (best-effort, advisory).
@@ -422,8 +435,8 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       // mail, not when this worker ran. Otherwise a history import lands every
       // message on the import minute and the inbox (sorted on `sent_at`) shows
       // a 90-day mailbox as one block in import order. Adapters without a
-      // timestamp fall through to compose's own `new Date()`.
-      sentAt: m.timestamp ?? undefined,
+      // timestamp retain an explicitly unknown occurrence time.
+      sentAt: m.timestamp,
       // Stable dedup key so a retried ingest (after a transient failure between
       // compose and the ExternalMessage anchor insert) reuses the message
       // composed by the first attempt instead of duplicating it. Mirrors the
@@ -490,7 +503,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
       direction: 'inbound',
       senderIdentifier: m.senderIdentifier,
       senderDisplayName: m.senderDisplayName ?? null,
-      providerTimestamp: m.timestamp,
+      providerTimestamp: m.providerTimestamp ?? null,
       tenantId: input.scope.tenantId,
       organizationId: input.scope.organizationId ?? null,
     })
@@ -588,7 +601,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
         // this worker ran. Carried here so no consumer has to read the
         // ExternalMessage row across the module boundary. ISO string because a
         // persistent event is serialized onto the queue; null when the adapter
-        // supplied no timestamp, which leaves the consumer's own fallback.
+        // supplied no provider-native timestamp.
         providerTimestamp:
           externalMessage.providerTimestamp instanceof Date
             ? externalMessage.providerTimestamp.toISOString()

@@ -212,6 +212,21 @@ export type InjectionWidgetPlacement = {
    * - 'stack' → render inline (default)
    */
   kind?: 'tab' | 'group' | 'stack'
+  /**
+   * Ordering hint, higher first, default 0. Mirrors the entry-level `priority`
+   * declared in an injection table and is populated by the injection loader.
+   *
+   * On `kind: 'tab'` spots the host orders the contributed tab against its own
+   * built-in tabs, which sit at 0: a positive priority places the tab before
+   * them, a negative one after. Entries sharing a priority keep declaration
+   * order.
+   */
+  priority?: number
+  /**
+   * Optional lucide icon name (`'list-checks'`, `'ListChecks'` or `'lucide:list-checks'`)
+   * shown next to the label by hosts that render the widget as a tab.
+   */
+  icon?: string
 }
 
 /**
@@ -246,6 +261,14 @@ export type InjectionWidgetModule<TContext = unknown, TData = unknown> = {
   eventHandlers?: WidgetInjectionEventHandlers<TContext, TData>
 }
 
+export type InjectionEventParticipant<TContext = unknown, TData = unknown> = {
+  widgetId: string
+  moduleId: string
+  key: string
+  module: Pick<InjectionWidgetModule<TContext, TData>, 'metadata' | 'eventHandlers'>
+  placement?: InjectionWidgetPlacement & { priority?: number }
+}
+
 export type InjectionColumnDefinition = {
   id: string
   /**
@@ -269,6 +292,8 @@ export type InjectionRowActionDefinition = {
   icon?: string
   onSelect: (row: unknown, context: unknown) => void
   placement?: InjectionPlacement
+  /** Hides the action for rows it does not apply to; omitted means the action shows on every row. */
+  isVisible?: (row: unknown) => boolean
 }
 
 export type InjectionBulkActionDefinition = {

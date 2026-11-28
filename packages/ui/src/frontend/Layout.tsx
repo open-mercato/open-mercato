@@ -7,7 +7,7 @@ export function FrontendLayout({ header, footer, children }: { header?: React.Re
       <FlashMessages />
       {header ? <div className="border-b bg-background/80">{header}</div> : null}
       <div className="flex-1 min-h-0">{children}</div>
-      {footer ? <div className="border-t bg-background/80">{footer}</div> : null}
+      {footer ? <div className="border-t bg-background/80 empty:hidden">{footer}</div> : null}
     </div>
   )
 }

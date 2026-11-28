@@ -164,7 +164,7 @@ describe('mercato telemetry init', () => {
 
     const pkg = JSON.parse(read('package.json'))
     expect(pkg.dependencies['@open-mercato/telemetry']).toBe('1.2.3')
-    expect(pkg.optionalDependencies['bullmq-otel']).toBe('^1.3.1')
+    expect(pkg.optionalDependencies['bullmq-otel']).toBe('^2.0.1')
 
     expect(read('.env.example')).toContain('TELEMETRY_BACKEND')
     expect(read('.env.example')).toContain('OTEL_EXPORTER_OTLP_ENDPOINT')

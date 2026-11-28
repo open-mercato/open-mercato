@@ -13,10 +13,14 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
  * hosts already publishes.
  *
  * Wired today:
- *   - `detail:customers.person:footer`
- *   - `detail:customers.company:footer`
- *   - `detail:customers.deal:footer`
+ *   - `detail:customers.person:tabs`
+ *   - `detail:customers.company:tabs`
+ *   - `detail:customers.deal:tabs`
  *   - `sales.document.detail.order:tabs`
+ *
+ * The three CRM pages mount it as a tab of their related-content workspace
+ * (#7488): the earlier `:footer` placement stacked it as a detached card under
+ * the whole detail layout. The footer spots stay available to other modules.
  *
  * **The order detail page deliberately keeps TWO different widgets.** The
  * specialized `order-approval` widget stays in the `:details` column: it
@@ -28,6 +32,16 @@ import type { ModuleInjectionTable } from '@open-mercato/shared/modules/widgets/
  * spot instead, where it lists every open item about the order — including work
  * that is not an approval — without competing with the inline control.
  */
+const crmPendingWorkTab = {
+  widgetId: 'workflows.injection.pending-work',
+  kind: 'tab',
+  groupId: 'pending-work',
+  groupLabel: 'workflows.pendingWork.title',
+  icon: 'list-checks',
+  // Negative: after the host's built-in tabs (#8020 ordering contract).
+  priority: -10,
+} as const
+
 export const injectionTable: ModuleInjectionTable = {
   // Inject the order approval widget into the sales order detail page
   'sales.document.detail.order:details': [
@@ -48,24 +62,9 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 40,
     },
   ],
-  'detail:customers.person:footer': [
-    {
-      widgetId: 'workflows.injection.pending-work',
-      priority: 90,
-    },
-  ],
-  'detail:customers.company:footer': [
-    {
-      widgetId: 'workflows.injection.pending-work',
-      priority: 90,
-    },
-  ],
-  'detail:customers.deal:footer': [
-    {
-      widgetId: 'workflows.injection.pending-work',
-      priority: 90,
-    },
-  ],
+  'detail:customers.person:tabs': [crmPendingWorkTab],
+  'detail:customers.company:tabs': [crmPendingWorkTab],
+  'detail:customers.deal:tabs': [crmPendingWorkTab],
 }
 
 export default injectionTable

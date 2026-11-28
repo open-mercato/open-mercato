@@ -8,6 +8,8 @@ export type TenantSetupScope = {
 
 export type TenantSetupContext = TenantSetupScope & {
   em: EntityManager
+  container?: AwilixContainer
+  enabledModuleIds?: ReadonlySet<string>
 }
 
 export type InitSetupContext = TenantSetupContext & {
@@ -28,13 +30,43 @@ export type DefaultCustomerRoleFeatures = {
   [roleSlug: string]: string[] | undefined
 }
 
+export type InstanceConfigDefaultEntry = {
+  /** Configuration key name within the owning module's namespace. */
+  name: string
+  /** Finite JSON-serializable default value restored at instance scope. */
+  value: unknown
+  /**
+   * Optional legacy storage namespace reserved strictly for compatibility exceptions
+   * validated by Configs (currently only `vector` for `search`'s `auto_index_enabled`).
+   */
+  legacyStorageNamespace?: string
+}
+
+export type InstanceConfigDefaultsProvider = () => readonly InstanceConfigDefaultEntry[]
+
 export type ModuleSetupConfig = {
+  /**
+   * Synchronous server-only provider returning instance-level module configuration defaults
+   * restored by `yarn mercato configs restore-defaults` before tenant setup.
+   * Providers may read environment policy at invocation time and must run without an
+   * EntityManager, tenant, credentials, or network I/O.
+   */
+  instanceConfigDefaults?: InstanceConfigDefaultsProvider
+
   /**
    * Called inside setupInitialTenant() right after the tenant/org is created.
    * For lightweight structural defaults: settings rows, numbering sequences, configs.
    * Must be idempotent. Always runs (not gated by --no-examples).
    */
   onTenantCreated?: (ctx: TenantSetupContext) => Promise<void>
+
+  /**
+   * Called after an organization is created in an existing tenant.
+   * For organization-scoped structural defaults that must exist for every
+   * organization, including organizations added after `mercato init`.
+   * Must be idempotent. Runs from a persistent organization-created subscriber.
+   */
+  onOrganizationCreated?: (ctx: InitSetupContext) => Promise<void>
 
   /**
    * Called during `mercato init` after tenant exists.

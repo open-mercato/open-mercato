@@ -4,9 +4,14 @@ import { renderHook, waitFor } from '@testing-library/react'
 
 const loadInjectionWidgetsForSpotMock = jest.fn()
 const apiCallMock = jest.fn()
+const registryListeners = new Set<() => void>()
 
 jest.mock('@open-mercato/shared/modules/widgets/injection-loader', () => ({
   loadInjectionWidgetsForSpot: (...args: unknown[]) => loadInjectionWidgetsForSpotMock(...args),
+  subscribeToInjectionRegistryChanges: (listener: () => void) => {
+    registryListeners.add(listener)
+    return () => registryListeners.delete(listener)
+  },
 }))
 
 jest.mock('../../../backend/utils/apiCall', () => ({
@@ -113,5 +118,19 @@ describe('usePortalDashboardWidgets — feature gating (Phase 1 regression)', ()
 
     await waitFor(() => expect(result.current.isLoading).toBe(false))
     expect(result.current.widgets.map((w) => w.widgetId)).toEqual(['real'])
+  })
+
+  it('reloads once the injection registry registers after the first load', async () => {
+    loadInjectionWidgetsForSpotMock.mockResolvedValueOnce([])
+    loadInjectionWidgetsForSpotMock.mockResolvedValueOnce([widget('late')])
+
+    const { result } = renderHook(() => usePortalDashboardWidgets('portal:dashboard:sections' as any))
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.widgets).toEqual([])
+    React.act(() => {
+      for (const listener of registryListeners) listener()
+    })
+    await waitFor(() => expect(result.current.widgets.map((w) => w.widgetId)).toEqual(['late']))
   })
 })

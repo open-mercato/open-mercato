@@ -2,8 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { Phone, Mail, Building2, Trash2, Pencil } from 'lucide-react'
-import { cn } from '@open-mercato/shared/lib/utils'
+import { Trash2, Pencil } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -31,6 +30,7 @@ type PersonDetailHeaderProps = {
   onDelete: () => Promise<void>
   isDirty: boolean
   isSaving: boolean
+  actions?: React.ReactNode
   /** Callback to focus a specific field in the Zone 1 CrudForm by field name. */
   onFocusField?: (fieldName: string) => void
   /**
@@ -43,39 +43,28 @@ type PersonDetailHeaderProps = {
   onDataReload?: () => void
 }
 
-function DictionaryBadge({ value, map, categoryIcon, className }: { value: string; map: CustomerDictionaryMap | undefined; categoryIcon?: React.ReactNode; className?: string }) {
+function HeaderFact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-sm text-foreground">{children}</dd>
+    </div>
+  )
+}
+
+function DictionaryBadge({ value, map }: { value: string; map: CustomerDictionaryMap | undefined }) {
   const entry = map?.[value]
-  const color = entry?.color ?? null
   const icon = entry?.icon ?? null
   const label = entry?.label ?? formatFallbackLabel(value)
-  const colorStyle: React.CSSProperties | undefined = color
-    ? { color, borderColor: color, backgroundColor: `${color}1A` }
-    : undefined
   return (
-    <Badge
-      variant="outline"
-      className={cn(
-        'rounded-sm gap-1.5 text-xs font-medium',
-        className,
-      )}
-      style={colorStyle}
-    >
-      {icon ? renderDictionaryIcon(icon, 'size-2.5') : categoryIcon ?? null}
+    <Badge variant="secondary" leadingIcon={icon ? renderDictionaryIcon(icon, 'size-3') : undefined}>
       {label}
     </Badge>
   )
 }
 
-/** Renders a tag badge with color-based text/border/background from TagSummary.color. */
 function TagBadge({ tag }: { tag: TagSummary }) {
-  const colorStyle: React.CSSProperties | undefined = tag.color
-    ? { color: tag.color, borderColor: tag.color, backgroundColor: `${tag.color}1A` }
-    : undefined
-  return (
-    <Badge variant="outline" className="rounded-sm gap-1.5 text-xs font-medium" style={colorStyle}>
-      {tag.label}
-    </Badge>
-  )
+  return <Badge variant="outline">{tag.label}</Badge>
 }
 
 export function PersonDetailHeader({
@@ -86,6 +75,7 @@ export function PersonDetailHeader({
   onDelete,
   isDirty,
   isSaving,
+  actions,
   onFocusField,
   onOpenCompaniesTab,
   onDataReload,
@@ -106,15 +96,13 @@ export function PersonDetailHeader({
         : []
     return items
   }, [data.companies, data.company, data.isPrimary])
-  const visibleCompanies = React.useMemo(() => linkedCompanies.slice(0, 3), [linkedCompanies])
-  const hiddenCompaniesCount = Math.max(0, linkedCompanies.length - visibleCompanies.length)
+  const hiddenCompaniesCount = Math.max(0, linkedCompanies.length - 1)
   const visibleTags = React.useMemo(() => data.tags.slice(0, 6), [data.tags])
   const hiddenTagsCount = Math.max(0, data.tags.length - visibleTags.length)
   const primaryCompany = linkedCompanies.find((entry) => entry.isPrimary) ?? linkedCompanies[0] ?? null
   const companyName = primaryCompany?.displayName ?? null
   const companyId = primaryCompany?.id ?? profile?.companyEntityId ?? null
 
-  // Fetch dictionary maps for colored badge rendering (scoped to person's organization)
   const personOrgId = person.organizationId ?? null
   const { data: statusDict } = useCustomerDictionary('statuses', 0, personOrgId)
   const { data: lifecycleDict } = useCustomerDictionary('lifecycle-stages', 0, personOrgId)
@@ -123,129 +111,81 @@ export function PersonDetailHeader({
   const { data: renewalQuarterDict } = useCustomerDictionary('renewal-quarters', 0, personOrgId)
 
   return (
-    <div className="rounded-lg border bg-card px-6 py-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-5">
-        {/* Avatar */}
-        <Avatar label={displayName} size="xl" variant="monochrome" />
-
-        {/* Person info */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h1 className="truncate text-2xl font-bold text-foreground">{displayName}</h1>
-            {data.isPrimary && (
-              <span className="shrink-0 rounded-sm bg-status-warning-bg px-1.5 py-0.5 text-overline font-bold text-status-warning-text">
-                {t('customers.people.detail.header.primary', 'PRIMARY')}
-              </span>
-            )}
-          </div>
-
-          {/* Subtitle: job title + company link */}
-          {(jobTitle || companyName) && (
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              {jobTitle}
-              {jobTitle && companyName && ` ${t('customers.people.detail.header.at', 'at')} `}
-              {companyName && companyId && (
-                <Link href={`/backend/customers/companies-v2/${companyId}`} className="text-primary hover:underline">
-                  {companyName}
-                </Link>
-              )}
-              {companyName && !companyId && companyName}
-            </p>
-          )}
-
-          {/* Contact row */}
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-5 gap-y-1 text-sm text-muted-foreground">
-            {person.primaryPhone && (
-              <span className="inline-flex items-center gap-1.5">
-                <Phone className="size-3.5" />
-                <a href={`tel:${person.primaryPhone}`} className="hover:text-foreground">{person.primaryPhone}</a>
-              </span>
-            )}
-            {person.primaryEmail && (
-              <span className="inline-flex items-center gap-1.5">
-                <Mail className="size-3.5" />
-                <a href={`mailto:${person.primaryEmail}`} className="hover:text-foreground">{person.primaryEmail}</a>
-              </span>
-            )}
-          </div>
-
-          {/* Company chips (annotation 1a) */}
-          {linkedCompanies.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-sm">
-              <span className="text-muted-foreground">
-                <Building2 className="mr-1 inline size-3.5" />
-                {t('customers.people.detail.header.companies', 'Companies')} ({linkedCompanies.length}):
-              </span>
-              {visibleCompanies.map((company) => (
-                <Link
-                  key={company.id}
-                  href={`/backend/customers/companies-v2/${company.id}`}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 rounded-sm border px-2 py-0.5 text-xs font-semibold transition-colors hover:bg-status-info-bg',
-                    company.isPrimary
-                      ? 'border-status-info-border bg-status-info-bg text-status-info-text'
-                      : 'border-border bg-background text-foreground',
-                  )}
-                >
-                  <Building2 className="size-3" />
-                  {company.displayName}
-                  {company.isPrimary ? (
-                    <span className="rounded-sm bg-status-info-icon px-1 py-px text-overline font-bold text-white">
-                      {t('customers.people.detail.header.primary', 'PRIMARY')}
-                    </span>
-                  ) : null}
-                </Link>
-              ))}
-              {hiddenCompaniesCount > 0 ? (
-                <Badge variant="outline" className="rounded-sm text-xs font-semibold">
-                  +{hiddenCompaniesCount} {t('customers.people.detail.header.more', 'more')}
+    <div className="rounded-lg border bg-card p-6">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex min-w-0 gap-5">
+          <Avatar label={displayName} size="lg" variant="monochrome" />
+          <div className="min-w-0 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="min-w-0 truncate text-2xl font-normal leading-tight text-foreground">{displayName}</h1>
+              {data.isPrimary ? (
+                <Badge variant="info" size={16}>
+                  {t('customers.people.detail.header.primary', 'PRIMARY')}
                 </Badge>
               ) : null}
             </div>
-          )}
 
-          {/* Status badges + inline tags + manage tags */}
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            {person.status && (
-              <DictionaryBadge value={person.status} map={statusDict?.map} />
-            )}
-            {person.lifecycleStage && (
-              <DictionaryBadge value={person.lifecycleStage} map={lifecycleDict?.map} />
-            )}
-            {person.source && (
-              <DictionaryBadge value={person.source} map={sourceDict?.map} />
-            )}
-            {person.temperature && (
-              <DictionaryBadge value={person.temperature} map={temperatureDict?.map} />
-            )}
-            {person.renewalQuarter && (
-              <DictionaryBadge value={person.renewalQuarter} map={renewalQuarterDict?.map} />
-            )}
-            {/* Inline tag pills */}
-            {visibleTags.map((tag) => (
-              <TagBadge key={tag.id ?? tag.label} tag={tag} />
-            ))}
-            {hiddenTagsCount > 0 ? (
-              <Badge variant="outline" className="rounded-sm gap-1.5 text-xs font-medium">
-                +{hiddenTagsCount} {t('customers.people.detail.header.more', 'more')}
-              </Badge>
-            ) : null}
-            {/* Manage tags — opens dialog directly */}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-auto rounded-sm px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-              onClick={() => setManageTagsOpen(true)}
-            >
-              <Pencil className="mr-1 size-3" />
-              {t('customers.people.detail.actions.manageTags', 'Edit tags')}
-            </Button>
+            <dl className="flex flex-wrap gap-x-10 gap-y-3">
+              {jobTitle ? (
+                <HeaderFact label={t('customers.people.detail.facts.jobTitle', 'Job title')}>{jobTitle}</HeaderFact>
+              ) : null}
+              {companyName ? (
+                <HeaderFact label={t('customers.people.detail.facts.company', 'Company')}>
+                  {companyId ? (
+                    <Link href={`/backend/customers/companies-v2/${companyId}`} className="hover:underline">
+                      {companyName}
+                    </Link>
+                  ) : (
+                    companyName
+                  )}
+                  {hiddenCompaniesCount > 0 ? (
+                    <span className="text-muted-foreground"> +{hiddenCompaniesCount}</span>
+                  ) : null}
+                </HeaderFact>
+              ) : null}
+              {person.primaryPhone ? (
+                <HeaderFact label={t('customers.people.detail.facts.phone', 'Phone')}>
+                  <a href={`tel:${person.primaryPhone}`} className="hover:underline">{person.primaryPhone}</a>
+                </HeaderFact>
+              ) : null}
+              {person.primaryEmail ? (
+                <HeaderFact label={t('customers.people.detail.facts.email', 'Email')}>
+                  <a href={`mailto:${person.primaryEmail}`} className="hover:underline">{person.primaryEmail}</a>
+                </HeaderFact>
+              ) : null}
+            </dl>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {person.status ? <DictionaryBadge value={person.status} map={statusDict?.map} /> : null}
+              {person.lifecycleStage ? <DictionaryBadge value={person.lifecycleStage} map={lifecycleDict?.map} /> : null}
+              {person.source ? <DictionaryBadge value={person.source} map={sourceDict?.map} /> : null}
+              {person.temperature ? <DictionaryBadge value={person.temperature} map={temperatureDict?.map} /> : null}
+              {person.renewalQuarter ? <DictionaryBadge value={person.renewalQuarter} map={renewalQuarterDict?.map} /> : null}
+              {visibleTags.map((tag) => (
+                <TagBadge key={tag.id ?? tag.label} tag={tag} />
+              ))}
+              {hiddenTagsCount > 0 ? (
+                <Badge variant="outline">
+                  +{hiddenTagsCount} {t('customers.people.detail.header.more', 'more')}
+                </Badge>
+              ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setManageTagsOpen(true)}
+              >
+                <Pencil className="size-3.5" />
+                {t('customers.people.detail.actions.manageTags', 'Edit tags')}
+              </Button>
+            </div>
           </div>
         </div>
 
         {/* Right side: actions */}
         <div className="flex w-full shrink-0 items-center justify-start gap-2 sm:w-auto sm:justify-end">
+          {actions}
           <SendObjectMessageDialog
             object={{
               entityModule: 'customers',
@@ -304,7 +244,6 @@ export function PersonDetailHeader({
           tags: data.tags,
         }}
         onSaved={() => {
-          // Invalidate dictionary caches so header badges pick up fresh colors
           void invalidateCustomerDictionary(queryClient, 'statuses')
           void invalidateCustomerDictionary(queryClient, 'lifecycle-stages')
           void invalidateCustomerDictionary(queryClient, 'sources')

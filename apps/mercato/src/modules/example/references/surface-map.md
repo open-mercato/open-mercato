@@ -23,7 +23,7 @@ Rule owners named per row own the *normative* rule. This module owns only *one c
 |---|---|---|---|
 | `module.metadata` | `ModuleInfo` export; everything else is found by file convention | [`../index.ts`](../index.ts) | readable |
 | `module.acl-features` | Feature ids with `dependsOn` chains | [`../acl.ts`](../acl.ts) | readable |
-| `module.setup-role-features` | `ModuleSetupConfig` default role grants, plus all three seeding hooks used for the job only each one can do — `onTenantCreated` (no container: pure-`em` custom-entity install), `seedDefaults` (container: scoped reference records via `dataEngine`, deterministic upserting ids), `seedExamples` (skipped by `--no-examples`: demo Todos through the shared CLI seeder) | [`../setup.ts`](../setup.ts), [`../lib/exampleSeeds.ts`](../lib/exampleSeeds.ts) | readable |
+| `module.setup-role-features` | `ModuleSetupConfig` default role grants, plus four lifecycle hooks used for the job only each one can do — `onTenantCreated` (no container: pure-`em` custom-entity install), `onOrganizationCreated` (container: new-organization structural schedule), `seedDefaults` (container: scoped reference records via `dataEngine`, deterministic upserting ids), `seedExamples` (skipped by `--no-examples`: demo Todos through the shared CLI seeder) | [`../setup.ts`](../setup.ts), [`../lib/exampleSeeds.ts`](../lib/exampleSeeds.ts) | readable |
 | `module.di-registration` | `register(container)` doing both halves of module DI: the module's own scoped Awilix service (`asFunction(...).scoped()`) into *this* container, and gateway / carrier / webhook adapters into module-external registries | [`../di.ts`](../di.ts), [`../lib/todoSummaryService.ts`](../lib/todoSummaryService.ts) | readable |
 | `module.cli-command` | Module CLI entrypoint, custom-entity install, idempotent seeding | [`../cli.ts`](../cli.ts) | readable |
 | `module.i18n-catalogs` | Per-module locale catalogs for `useT()` / `resolveTranslations()` | [`../i18n/en.json`](../i18n/en.json), [`../i18n/de.json`](../i18n/de.json), [`../i18n/es.json`](../i18n/es.json), [`../i18n/pl.json`](../i18n/pl.json) | readable |
@@ -77,9 +77,11 @@ An encrypted column changes what search can do with it, and the two files below 
 |---|---|---|---|
 | `search.module-config` | `SearchModuleConfig` for one entity: `buildSource` + `checksumSource`, `formatResult`, `resolveUrl`, per-entity `aclFeatures`, and a `fieldPolicy` that whitelists only plaintext columns as `searchable` and puts the encrypted column in `excluded` | [`../search.ts`](../search.ts) | readable |
 | `search.vector-config` | `VectorModuleConfig` for the Todo entity with deterministic plaintext source/checksum builders, translated presentation, a deep link, and encrypted notes excluded from embeddings | [`../vector.ts`](../vector.ts) | readable |
-| `search.encrypted-column-list-filter` | Text search over an encrypted column resolved from the hashed `search_tokens` index and narrowed to ids, instead of an `$ilike` that would compare a plaintext pattern against ciphertext; `matched: false` is read fail-closed | [`../api/todos/route.ts`](../api/todos/route.ts) | readable |
+| `search.encrypted-column-list-filter` | QueryEngine `$ilike` over an encrypted column, rewritten to scoped hashed `search_tokens` after the index is populated | [`../api/todos/route.ts`](../api/todos/route.ts) | readable |
 
-The encrypted `notes` column is therefore: **not exported to CSV**, **not projected on grid pages** (the query engine decrypts per row, so a 50-row page would pay 50 decryptions nobody renders), and **searchable through a plain `$ilike`** that the query engine rewrites into a hashed `search_tokens` lookup — the indexer runs `decryptIndexDocForSearch` before tokenizing, so `fieldPolicy` excluding the field costs no reachability. On **sorting**, be precise about what the module does and does not do: `notes` is absent from `sortFieldMap`, but that is documentation rather than enforcement — the CRUD factory falls through to the raw field name for an unmapped sort field, so `?sortField=notes` still reaches the engine, which recognises the column as encrypted and routes it to a decrypt-then-sort-in-memory path that is correct but row-capped. Blocking it would need an explicit sort allowlist.
+### Encrypted-column list filtering
+
+The encrypted `notes` column is therefore: **not exported to CSV**, **not projected on grid pages** (the query engine decrypts per row, so a 50-row page would pay 50 decryptions nobody renders), and **searchable through a plain `$ilike`** that the query engine rewrites into a hashed `search_tokens` lookup — the indexer runs `decryptIndexDocForSearch` before tokenizing. This requires populated tokens for the entity, field and records in the caller’s tenant/organization scope, enabled search and a tokenizable term; `fieldPolicy` exclusion does not disable that token writer. Adding `search.ts` alone does not populate missing tokens. A `no-search-tokens` log or development `meta.ciphertextSearchWarnings` diagnostic means an empty 200 may be an index failure. Contract: `@open-mercato/shared/AGENTS.md` → Search Tokens. On **sorting**, `sortFieldMap` is the allowlist: the CRUD factory ignores any requested `sortField` that is not a key of the map and falls back to the default sort. `notes` is absent from it, so `?sortField=notes` never reaches the engine's decrypt-then-sort-in-memory path, which would be correct but row-capped.
 
 Evidence: `__tests__/encryption-search-contract.test.ts`, `api/__tests__/todos.encrypted-search.test.ts`.
 
@@ -157,6 +159,29 @@ What that leaves is the canonical public-surface job: URL canonicalization. Serv
 Evidence: `__integration__/TC-EXAMPLE-001-todo-label-edit.spec.ts`, `widgets/dashboard/__tests__/config.test.ts`, `__tests__/backend-middleware.test.ts`, `__tests__/frontend-middleware.test.ts`.
 
 Rule owners: `om-backend-ui-design`, `om-system-extension` (page middleware).
+
+## CrudForm section policies
+
+| Capability | Demonstrates | Source | Status |
+|---|---|---|---|
+| `example.crud-form-extensions.c1` | Preserve the required title from the locked record while saving the accepted editable fields. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-update.client.ts`](../todo-showcase-update.client.ts) | readable |
+| `example.crud-form-extensions.c2` | Declare a server default for the required leaf on create. Edit still reads the stored title. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-create.client.ts`](../todo-showcase-create.client.ts) | readable |
+| `example.crud-form-extensions.c3` | A configured host blocks mutation while a required leaf lacks accepted coverage. The executable negative example is QA-only. | [`../form-sections.ts`](../form-sections.ts), [`crud-form-extensions/required-coverage.md`](crud-form-extensions/required-coverage.md) | readable |
+| `example.crud-form-extensions.c4` | Replace the browser renderer with a literal loader whose accepted projection still emits the required completion value. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-status.client.ts`](../todo-showcase-status.client.ts), [`crud-form-extensions/status-primitives.reference.ts`](crud-form-extensions/status-primitives.reference.ts) | readable |
+| `example.crud-form-extensions.c5` | Relabel priority, omit notes without clearing the stored leaf, and return scoped priority rule errors for the exact field. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-sections.client.ts`](../todo-showcase-sections.client.ts) | readable |
+| `example.crud-form-extensions.c6` | Tie an added season selector to the exact scoped native definition set and preserve explicit clears. | [`../form-sections.ts`](../form-sections.ts), [`../todo-showcase-sections.client.ts`](../todo-showcase-sections.client.ts) | readable |
+| `example.crud-form-extensions.c7` | Persist and read back a scoped brand, use its independent optimistic version, and roll back together with the host. | [`../form-sections.ts`](../form-sections.ts), [`../data/entities.ts`](../data/entities.ts), [`../components/TodoShowcaseForm.tsx`](../components/TodoShowcaseForm.tsx) | readable |
+| `example.crud-form-extensions.c8` | Keep the committed record and surface the safe extension warning when the optional observer fails. | [`../form-sections.ts`](../form-sections.ts), [`../components/TodoShowcaseForm.tsx`](../components/TodoShowcaseForm.tsx) | readable |
+| `example.crud-form-extensions.c9` | Declare transactional outbox intent, read-only pre-validation, fenced retries, and a scoped status and Retry UI with a local provider. | [`../form-sections.ts`](../form-sections.ts), [`../lib/exampleExternalErp.ts`](../lib/exampleExternalErp.ts), [`../components/TodoShowcaseSync.tsx`](../components/TodoShowcaseSync.tsx) | readable |
+| `example.crud-form-extensions.c10` | Use a literal section selector in modules.ts to disable only the observer on the edit variant. | [`../form-sections.ts`](../form-sections.ts), [`module-overrides.reference.ts`](module-overrides.reference.ts) | readable |
+| `example.crud-form-extensions.c11` | Refuse unknown extension fields, stale fingerprints, and inconsistent protected resource binding before changing the record. | [`../form-sections.ts`](../form-sections.ts), [`../api/todos/route.ts`](../api/todos/route.ts), [`../lib/todoShowcaseClient.ts`](../lib/todoShowcaseClient.ts) | readable |
+| `example.crud-form-extensions.c12` | The default variant keeps its existing CRUD routes and headers with no section-policy resolution. | [`../form-sections.ts`](../form-sections.ts), [`../components/TodoForm.tsx`](../components/TodoForm.tsx), [`../backend/todos/create/page.tsx`](../backend/todos/create/page.tsx), [`../backend/todos/[id]/edit/page.tsx`](../backend/todos/[id]/edit/page.tsx) | readable |
+
+Repository-only evidence is listed per row in the JSON. The uncovered-required-field fixture lives under `.ai/qa/fixtures/crudform-section-policy/`. The example guide shows how to cover a required field correctly.
+
+For a hand-written status replacement, pair the contribution and its lazy runtime with a finite host alternative. Put `statusAlternative.contributionId` in that alternative's `contributionIds` and use its ownership and required-leaf facts for `is_done`. Keep the host's derived update route, original authorization and parent version check. Add `statusCapability` to the `crudFormSectionCapabilities` of the scoped server guard that supplies the write authority. The active wrapper already compiles this pairing for both operations.
+
+Rule owner: `om-system-extension`.
 
 ## Unified module extension system (UMES)
 
@@ -262,11 +287,13 @@ These files stay in the tree because the module is also the platform's QA surfac
 
 The following files are present in the tree but are **not** capability rows and must never be read as references: the UMES showcase pages (`backend/umes-*/page.tsx`, `backend/mutation-lifecycle/page.tsx`, `backend/payments/page.tsx`, `backend/products/page.tsx`, `backend/blog/[id]/page.tsx`) — note that `backend/component-overrides/page.tsx` is **not** in this list; it is part of the `umes.component-replacement` row as that override's host — and the demo injection widgets `widgets/injection/portal-stats`, `widgets/injection/portal-recent-activity`, `widgets/injection/catalog-seo-report`, `widgets/injection/crud-validation`, `widgets/injection/crud-validation-addon`, and `widgets/injection/sales-todos`. They fail gate 3 (raw `text-emerald-*` / `bg-amber-*` / `bg-green-500` / `bg-red-500` status colors), gate 5 (hard-coded JSX text and `title`/`placeholder`/`aria-label` literals), and in the sales case gate 4 (`record?: any`, `(item as any)`).
 
+`TC-EXAMPLE-004-encryption.spec.ts` runs this filter against a real database: it waits for scoped tokens after API writes, then checks own-scope matches and cross-organization exclusion. Run it on an initialized disposable database.
+
 ## Outstanding notes on `readable` rows
 
 Recorded so the gate stays honest; none of these demote the row.
 
-**Proven by unit tests only**: `module.acl-features`, `search.encrypted-column-list-filter`, `api.option-source-routes`, `commands.undo-redo`, `ui.dashboard-widget`, and `overrides.compileable-reference`. None of these six has a dedicated integration spec; their `integrationTestPaths` entries are repository evidence, not a runtime-coverage claim.
+**Proven by unit tests only**: `module.acl-features`, `api.option-source-routes`, `commands.undo-redo`, `ui.dashboard-widget`, and `overrides.compileable-reference`. None of these five has a dedicated integration spec; their `integrationTestPaths` entries are repository evidence, not a runtime-coverage claim.
 
 - `commands/todos.ts`, `api/interceptors.ts`, `lib/mock-*-adapter.ts` — several internal `throw new Error('...')` assertions are missing the `[internal]` prefix required by the i18n hardcoded-string convention.
 - `commands/interceptors.ts`, `subscribers/audit-delete.ts` — raw `console.log` behind an eslint disable instead of the `createLogger` facade (advisory `yarn logger:check-console`).

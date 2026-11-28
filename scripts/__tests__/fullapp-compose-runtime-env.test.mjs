@@ -51,3 +51,39 @@ for (const relPath of COMPOSE_FILES) {
     }
   })
 }
+
+for (const relPath of ['starters/docker/compose.fullapp.dev.yml', 'docker-compose.fullapp.dev.yml']) {
+  test(`${relPath} leaves MCP to the dedicated mcp service`, () => {
+    const content = fs.readFileSync(path.resolve(ROOT, relPath), 'utf8')
+    const appStart = content.indexOf('\n  app:')
+    const appEnd = content.indexOf('\n  documents-collab:', appStart)
+    assert.notStrictEqual(appStart, -1, `${relPath} must define the app service`)
+    assert.notStrictEqual(appEnd, -1, `${relPath} must define documents-collab after app`)
+    const appService = content.slice(appStart, appEnd)
+
+    assert.match(content, /\n  mcp:\n/, `${relPath} must keep the dedicated mcp service`)
+    assert.match(appService, /mcp_shared:\/run\/mcp-shared:ro/, `${relPath} mounts the MCP key volume read-only into app`)
+    assert.match(
+      appService,
+      /^\s+OM_DEV_WITH_MCP:\s+"0"$/m,
+      `${relPath} must stop yarn dev from starting a second MCP runtime that writes into the read-only key volume`,
+    )
+  })
+}
+
+for (const relPath of [
+  ...COMPOSE_FILES,
+  'docker-compose.fullapp.dev.yml',
+  'packages/create-app/template/docker-compose.fullapp.dev.yml',
+  'starters/docker/compose.fullapp.yml',
+  'starters/docker/compose.fullapp.dev.yml',
+]) {
+  test(`${relPath} forwards the same mutation mode to the app and MCP services with a blank default`, () => {
+    const content = fs.readFileSync(path.resolve(ROOT, relPath), 'utf8')
+    for (const serviceName of ['app', 'mcp']) {
+      const service = content.split(new RegExp(`^  ${serviceName}:\\n`, 'm'))[1]?.split(/^(?:  \w[\w-]*|\w[\w-]*):/m)[0]
+      assert.ok(service, `${relPath} must define the ${serviceName} service`)
+      assert.match(service, /^      OM_MCP_MUTATION_MODE: \$\{OM_MCP_MUTATION_MODE:-\}$/m, `${relPath} must forward the mode to ${serviceName}`)
+    }
+  })
+}

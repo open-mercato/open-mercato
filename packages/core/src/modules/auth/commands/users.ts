@@ -49,7 +49,7 @@ import { resolveNotificationService } from '@open-mercato/core/modules/notificat
 import notificationTypes from '@open-mercato/core/modules/auth/notifications'
 import { buildPasswordSchema } from '@open-mercato/shared/lib/auth/passwordPolicy'
 import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
-import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { sendStaffCredentialEmail } from '@open-mercato/core/modules/auth/lib/sendStaffCredentialEmail'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteToken'
 import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
@@ -77,6 +77,7 @@ import {
   requireTransactionalReplayEntityManager,
 } from '@open-mercato/core/modules/auth/lib/commandReplay'
 import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { PROFILE_PASSWORD_PROOF, type ProfilePasswordProof } from '@open-mercato/core/modules/auth/lib/profilePasswordProof'
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
 const USER_REDO_LOG = Symbol('auth.users.redoLog')
@@ -253,7 +254,11 @@ async function notifyRoleChanges(
     if (assignedRoles.length) {
       const assignedType = notificationTypes.find((type) => type.type === 'auth.role.assigned')
       if (assignedType) {
-        const notificationInput = buildNotificationFromType(assignedType, {
+        const notificationInput = buildNotificationFromType({
+          ...assignedType,
+          bodyKey: 'auth.notifications.role.assigned.bodyWithRoles',
+        }, {
+          bodyVariables: { roles: assignedRoles.join(', ') },
           recipientUserId: String(user.id),
           sourceEntityType: 'auth:user',
           sourceEntityId: String(user.id),
@@ -265,7 +270,11 @@ async function notifyRoleChanges(
     if (revokedRoles.length) {
       const revokedType = notificationTypes.find((type) => type.type === 'auth.role.revoked')
       if (revokedType) {
-        const notificationInput = buildNotificationFromType(revokedType, {
+        const notificationInput = buildNotificationFromType({
+          ...revokedType,
+          bodyKey: 'auth.notifications.role.revoked.bodyWithRoles',
+        }, {
+          bodyVariables: { roles: revokedRoles.join(', ') },
           recipientUserId: String(user.id),
           sourceEntityType: 'auth:user',
           sourceEntityId: String(user.id),
@@ -339,32 +348,35 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
     }
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    let user: User
-    try {
-      user = await de.createOrmEntity({
-        entity: User,
-        data: {
-          email: parsed.email,
-          name: parsed.name,
-          emailHash,
-          passwordHash,
-          isConfirmed: true,
-          organizationId: parsed.organizationId,
-          tenantId,
-        },
-      })
-    } catch (error) {
-      if (isUniqueViolation(error)) await throwDuplicateEmailError()
-      throw error
-    }
-
+    let user!: User
     let assignedRoles: string[] = []
-    if (Array.isArray(parsed.roles) && parsed.roles.length) {
-      await withAtomicFlush(em, [
-        async () => syncUserRoles(em, user, parsed.roles ?? [], tenantId),
-      ], { transaction: true, label: 'auth.users.create.roles' })
-      assignedRoles = await loadUserRoleNames(em, String(user.id))
-    }
+    await withAtomicFlush(em, [
+      async () => {
+        try {
+          user = await de.createOrmEntity({
+            entity: User,
+            data: {
+              email: parsed.email,
+              name: parsed.name,
+              emailHash,
+              passwordHash,
+              isConfirmed: true,
+              organizationId: parsed.organizationId,
+              tenantId,
+            },
+          })
+        } catch (error) {
+          if (isUniqueViolation(error)) await throwDuplicateEmailError()
+          throw error
+        }
+      },
+      async () => {
+        if (Array.isArray(parsed.roles) && parsed.roles.length) {
+          await syncUserRoles(em, user, parsed.roles, tenantId)
+          assignedRoles = await loadUserRoleNames(em, String(user.id))
+        }
+      },
+    ], { transaction: true, label: 'auth.users.create' })
 
     await setCustomFieldsIfAny({
       dataEngine: de,
@@ -646,7 +658,7 @@ async function sendInviteToUser(
 
   let emailSent = true
   try {
-    await sendEmail({
+    await sendStaffCredentialEmail(em, String(user.id), {
       to: user.email,
       subject,
       react: InviteUserEmail({ inviteUrl, copy }),
@@ -764,6 +776,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     if (actorTenantScope) updateWhere.tenantId = actorTenantScope
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const profileProof = (ctx as CommandRuntimeContext & { [PROFILE_PASSWORD_PROOF]?: ProfilePasswordProof })[PROFILE_PASSWORD_PROOF]
     let user!: User
 
     await withAtomicFlush(em, [
@@ -805,6 +818,22 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           protectedRoleIds,
         )
 
+        const current = profileProof || parsed.email !== undefined
+          ? await findOneWithDecryption(
+            em, User, updateWhere as FilterQuery<User>,
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            { tenantId: userTenantId, organizationId: existing.organizationId ?? null },
+          )
+          : null
+        if (profileProof && (profileProof.userId !== parsed.id || !current || current.passwordHash !== profileProof.passwordHash)) {
+          const { translate } = await resolveTranslations()
+          const message = translate('auth.profile.form.errors.currentPasswordInvalid', 'Current password is incorrect.')
+          throw new CrudHttpError(400, {
+            error: message,
+            issues: [{ path: ['currentPassword'], message }],
+          })
+        }
+
         // Email is unique per-tenant, not globally (see Migration20260610120000:
         // users_tenant_email_hash_uniq) — a matching email in another tenant must not block
         // the update or leak cross-tenant account existence (#2934). `targetTenantId` is the
@@ -825,6 +854,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           if (duplicate) await throwDuplicateEmailError()
         }
 
+        const emailChanged = parsed.email !== undefined && current?.email !== parsed.email
         try {
           const updated = await de.updateOrmEntity({
             entity: User,
@@ -854,8 +884,11 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         }
         if (!user) throw new CrudHttpError(404, { error: 'User not found' })
 
-        if (hashed || parsed.isConfirmed === false) {
+        if (hashed || emailChanged || parsed.isConfirmed === false) {
           await em.nativeDelete(Session, { user: parsed.id })
+        }
+        if (emailChanged) {
+          await em.nativeDelete(PasswordReset, { user: parsed.id, usedAt: null })
         }
 
         if (Array.isArray(parsed.roles)) {
@@ -1027,11 +1060,15 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           requireReplayProtectedRoleIds(em, currentTenantId),
         )
 
+        const emailChanged = 'email' in replayInput && current?.email !== before.email
         updated = await de.updateOrmEntity({
           entity: User,
           where: { id: userId, deletedAt: null } as FilterQuery<User>,
           apply: (entity) => {
-            if ('email' in replayInput) entity.email = before.email
+            if ('email' in replayInput) {
+              entity.email = before.email
+              entity.emailHash = computeEmailHash(before.email)
+            }
             if ('organizationId' in replayInput) {
               entity.organizationId = before.organizationId ?? null
               entity.tenantId = before.tenantId ?? null
@@ -1040,6 +1077,10 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
             if ('isConfirmed' in replayInput) entity.isConfirmed = before.isConfirmed
           },
         })
+        if (updated && emailChanged) {
+          await em.nativeDelete(Session, { user: userId })
+          await em.nativeDelete(PasswordReset, { user: userId, usedAt: null })
+        }
 
         if (updated && Array.isArray(replayInput.roles)) {
           await syncUserRoles(em, updated, before.roles, before.tenantId)
@@ -1640,6 +1681,11 @@ async function resolveRole(
   return findOneWithDecryption(em, Role, { name: value, tenantId: normalizedTenantId }, {}, { tenantId: normalizedTenantId, organizationId: null })
 }
 
+function throwRolesNotFound(values: string[]): never {
+  const labels = values.map((n) => `"${n}"`).join(', ')
+  throw new CrudHttpError(400, { error: `Role(s) not found: ${labels}` })
+}
+
 async function syncUserRoles(
   em: EntityManager,
   user: User,
@@ -1652,6 +1698,7 @@ async function syncUserRoles(
   const normalizedTenantId = normalizeTenantId(tenantId ?? null) ?? null
 
   const resolvedRoles: Role[] = []
+  const resolvedValues = new Map<string, string>()
   const missingRoles: string[] = []
   for (const value of unique) {
     const role = await resolveRole(em, value, normalizedTenantId)
@@ -1659,13 +1706,11 @@ async function syncUserRoles(
       missingRoles.push(value)
     } else {
       resolvedRoles.push(role)
+      resolvedValues.set(String(role.id), value)
     }
   }
 
-  if (missingRoles.length) {
-    const labels = missingRoles.map((n) => `"${n}"`).join(', ')
-    throw new CrudHttpError(400, { error: `Role(s) not found: ${labels}` })
-  }
+  if (missingRoles.length) throwRolesNotFound(missingRoles)
 
   const discoveredLinks = await findWithDecryption(
     em,
@@ -1684,10 +1729,29 @@ async function syncUserRoles(
       roleIds: [...desiredIds, ...discoveredRoleIds],
     })
   }
+  if (desiredIds.size) {
+    const lockedRoles = await findWithDecryption(
+      em,
+      Role,
+      { id: { $in: [...desiredIds] } } as FilterQuery<Role>,
+      { refresh: true },
+      { tenantId: null, organizationId: null },
+    )
+    const validRoleIds = new Set(
+      lockedRoles
+        .filter((role) => role.deletedAt == null)
+        .filter((role) => normalizedTenantId === null || normalizeTenantId(role.tenantId ?? null) === normalizedTenantId)
+        .map((role) => String(role.id)),
+    )
+    const driftedRoleIds = [...desiredIds].filter((roleId) => !validRoleIds.has(roleId))
+    if (driftedRoleIds.length) {
+      throwRolesNotFound(driftedRoleIds.map((roleId) => resolvedValues.get(roleId) ?? roleId))
+    }
+  }
   const currentLinks = await findWithDecryption(
     em,
     UserRole,
-    { user },
+    { user, deletedAt: null, role: { deletedAt: null } } as FilterQuery<UserRole>,
     { lockMode: LockMode.PESSIMISTIC_WRITE, orderBy: { id: 'ASC' }, refresh: true },
     { tenantId: null, organizationId: null },
   )
@@ -1717,7 +1781,11 @@ async function loadUserRoleNames(em: EntityManager, userId: string): Promise<str
   const links = await findWithDecryption(
     em,
     UserRole,
-    { user: userId as unknown as User },
+    {
+      user: userId as unknown as User,
+      deletedAt: null,
+      role: { deletedAt: null },
+    } as FilterQuery<UserRole>,
     { populate: ['role'] },
     { tenantId: null, organizationId: null },
   )
@@ -1764,7 +1832,7 @@ function captureUserSnapshots(
 }
 
 async function loadUserAclSnapshots(em: EntityManager, userId: string): Promise<UserAclSnapshot[]> {
-  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User }, {}, { tenantId: null, organizationId: null })
+  const list = await findWithDecryption(em, UserAcl, { user: userId as unknown as User, deletedAt: null }, {}, { tenantId: null, organizationId: null })
   return list.map((acl) => ({
     tenantId: String(acl.tenantId),
     features: Array.isArray(acl.featuresJson) ? [...acl.featuresJson] : null,

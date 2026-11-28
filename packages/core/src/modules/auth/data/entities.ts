@@ -221,6 +221,8 @@ export class UserRole {
   deletedAt?: Date | null
 }
 
+export type SessionSsoProvenance = { configId: string; configUpdatedAt: number }
+
 @Entity({ tableName: 'sessions' })
 export class Session {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -237,6 +239,9 @@ export class Session {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+
+  @Property({ name: 'sso_provenance', type: 'json', nullable: true })
+  ssoProvenance?: SessionSsoProvenance | null
 
   @Property({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt?: Date
@@ -271,6 +276,11 @@ export class PasswordReset {
 
 // RBAC: Role-level ACL
 @Entity({ tableName: 'role_acls' })
+// Uniqueness is enforced by a partial unique index (`role_acls_active_unique_idx`)
+// on `(role_id, tenant_id)` scoped to live rows (`WHERE deleted_at IS NULL`) and
+// owned by raw SQL in Migration20260828120000_auth. A `@Unique` decorator can't
+// express a partial index, so the entity intentionally omits it — the migration
+// is the source of truth.
 export class RoleAcl {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -309,6 +319,13 @@ export class RoleAcl {
 
 // RBAC: Per-user ACL override
 @Entity({ tableName: 'user_acls' })
+// Uniqueness is enforced by a partial unique index (`user_acls_active_unique_idx`)
+// on `(user_id, tenant_id)` scoped to live rows (`WHERE deleted_at IS NULL`) and
+// owned by raw SQL in Migration20260828120000_auth. A `@Unique` decorator can't
+// express a partial index, so the entity intentionally omits it — the migration
+// is the source of truth. This row REPLACES the user's role ACLs rather than
+// merging with them (see RbacService.loadAcl), so a second live row for the same
+// scope would silently decide the whole feature set.
 export class UserAcl {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

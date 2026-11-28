@@ -11,6 +11,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { getWorkflowListPageBounds } from '../../data/pagination'
 
 type WorkflowEvent = {
   id: string
@@ -41,7 +42,7 @@ export default function WorkflowEventsPage() {
   const [page, setPage] = React.useState(1)
   const [pageSize] = React.useState(50)
   const [total, setTotal] = React.useState(0)
-  const [totalPages, setTotalPages] = React.useState(1)
+  const { lastAccessiblePage, reachableTotal, totalPages } = getWorkflowListPageBounds(total, pageSize)
   const [totalIsCapped, setTotalIsCapped] = React.useState(false)
   const t = useT()
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
@@ -72,7 +73,6 @@ export default function WorkflowEventsPage() {
       const response = result.result
       if (response) {
         setTotal(response.total || 0)
-        setTotalPages(response.totalPages || 1)
         setTotalIsCapped(response?.totalIsCapped === true)
       }
 
@@ -288,7 +288,14 @@ export default function WorkflowEventsPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           isLoading={isLoading}
-          pagination={{ page, pageSize, total, totalPages, totalIsCapped, onPageChange: setPage }}
+          pagination={{
+            page,
+            pageSize,
+            total: reachableTotal,
+            totalPages,
+            totalIsCapped: totalIsCapped && page < lastAccessiblePage,
+            onPageChange: (nextPage) => setPage(Math.min(nextPage, lastAccessiblePage)),
+          }}
           actions={
             <Button
               variant="outline"

@@ -1,7 +1,9 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash, compare } from 'bcryptjs'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '../data/entities'
 import { createKmsService, resolveEncryptionMode } from '@open-mercato/shared/lib/encryption/kms'
 import { encryptWithAesGcm, decryptWithAesGcm, looksLikeEncryptedPayload } from '@open-mercato/shared/lib/encryption/aes'
@@ -107,6 +109,7 @@ export type CreateApiKeyInput = {
   roles?: string[]
   expiresAt?: Date | null
   createdBy?: string | null
+  sessionUserId?: string | null
 }
 
 export type ApiKeyWithSecret = {
@@ -154,6 +157,7 @@ export async function createApiKey(
       keyPrefix: prefix,
       rolesJson: roleIds,
       createdBy: input.createdBy ?? null,
+      sessionUserId: input.sessionUserId ?? null,
       expiresAt: input.expiresAt ?? null,
       createdAt: new Date(),
     })
@@ -228,6 +232,17 @@ export function generateSessionToken(): string {
 }
 
 /**
+ * Hash a session token for storage/lookup (#2254). The session token is a bearer credential —
+ * it unlocks the decrypted API key secret and the user's ACL on the MCP server — so, mirroring
+ * `customer_accounts`' `hashToken`, only its hash is ever persisted. 128 bits of entropy from
+ * `generateSessionToken` is sufficient for a plain SHA-256 (no bcrypt cost needed, and a slow
+ * hash would just add latency to every MCP tool call that resolves a session).
+ */
+export function hashSessionToken(sessionToken: string): string {
+  return createHash('sha256').update(sessionToken).digest('hex')
+}
+
+/**
  * Create an ephemeral API key scoped to a chat session.
  * The key inherits the user's roles and expires after ttlMinutes (default 30).
  * The API key secret is encrypted and stored so it can be recovered for API calls.
@@ -244,12 +259,16 @@ export async function createSessionApiKey(
   // Encrypt the secret for later retrieval (used by MCP server for API calls)
   const encryptedSecret = await encryptSessionSecret(secret, input.tenantId ?? null)
 
+  // Hash before storage (#2254) — the row (and its `name` column, previously embedding the raw
+  // token for operator visibility) must never carry the live bearer credential in the clear.
+  const sessionTokenHash = hashSessionToken(input.sessionToken)
+
   const roleIds = Array.from(new Set(input.userRoles.filter(Boolean))).sort((left, right) => left.localeCompare(right))
   let record!: ApiKey
   await withAtomicFlush(em, [async () => {
     await lockRoleWriterAuthorizationState(em, roleIds)
     record = em.create(ApiKey, {
-      name: `__session_${input.sessionToken}__`,
+      name: `__session_${sessionTokenHash.slice(0, 12)}__`,
       description: 'Ephemeral session API key for AI chat',
       tenantId: input.tenantId ?? null,
       organizationId: input.organizationId ?? null,
@@ -257,7 +276,7 @@ export async function createSessionApiKey(
       keyPrefix: prefix,
       rolesJson: roleIds,
       createdBy: input.userId,
-      sessionToken: input.sessionToken,
+      sessionTokenHash,
       sessionUserId: input.userId,
       sessionSecretEncrypted: encryptedSecret,
       expiresAt,
@@ -283,10 +302,26 @@ export async function findApiKeyBySessionToken(
 ): Promise<ApiKey | null> {
   if (!sessionToken) return null
 
-  const record = await em.findOne(ApiKey, {
-    sessionToken,
-    deletedAt: null,
-  })
+  // Looked up by hash, never by the raw token (#2254).
+  const sessionTokenHash = hashSessionToken(sessionToken)
+  let record = await em.findOne(ApiKey, { sessionTokenHash, deletedAt: null })
+
+  if (!record) {
+    // Version-skew fallback (#7304): during a rolling deploy/rollback window the app and the
+    // separate MCP process can briefly run different code versions. A row minted by
+    // pre-#2254 code in that window carries only the plaintext token (sessionTokenHash is
+    // still null) — fall back to it so the session still resolves instead of answering a
+    // false SESSION_EXPIRED, then self-heal the row onto the hash immediately so this is the
+    // only lookup that ever sees the plaintext, and the window closes as soon as each
+    // outstanding legacy row is touched once.
+    const legacyRecord = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+    if (legacyRecord) {
+      legacyRecord.sessionTokenHash = sessionTokenHash
+      legacyRecord.sessionToken = null
+      await em.persist(legacyRecord).flush()
+      record = legacyRecord
+    }
+  }
 
   if (!record) return null
   if (record.expiresAt && record.expiresAt.getTime() < Date.now()) return null
@@ -358,7 +393,7 @@ export async function findApiKeyByOpencodeSessionId(
 
 /**
  * Find a session API key with its decrypted secret.
- * Returns null if not found, expired, deleted, or decryption fails.
+ * Returns null if the key, its live owner/scope, or its secret is unavailable.
  * This is used by the MCP server to recover the API key secret for making
  * authenticated API calls on behalf of the user.
  */
@@ -375,8 +410,27 @@ export async function findSessionApiKeyWithSecret(
     return null
   }
 
+  const ownerId = record.sessionUserId?.trim()
+  const tenantId = record.tenantId ?? null
+  if (!ownerId || !tenantId) return null
+  const scope = { tenantId, organizationId: record.organizationId ?? null }
+  const owner = await findOneWithDecryption(em, User, {
+    id: ownerId,
+    tenantId,
+    organizationId: scope.organizationId,
+    isConfirmed: true,
+    deletedAt: null,
+  }, { refresh: true }, scope)
+  if (!owner) return null
+  const tenant = await findOneWithDecryption(em, Tenant, {
+    id: tenantId,
+    isActive: true,
+    deletedAt: null,
+  }, { refresh: true }, scope)
+  if (!tenant) return null
+
   // Decrypt the secret
-  const secret = await decryptSessionSecret(record.sessionSecretEncrypted, record.tenantId ?? null)
+  const secret = await decryptSessionSecret(record.sessionSecretEncrypted, tenantId)
   if (!secret) {
     logger.warn('Failed to decrypt session secret', { apiKeyId: record.id })
     return null
@@ -392,14 +446,29 @@ export async function deleteSessionApiKey(
   em: EntityManager,
   sessionToken: string
 ): Promise<void> {
-  const candidate = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+  // Looked up and re-checked by hash, never by the raw token (#2254). Deliberately does not
+  // call findApiKeyBySessionToken: that helper also drops already-expired rows, but deleting
+  // an expired-but-not-yet-cleaned-up row must still work here.
+  const sessionTokenHash = hashSessionToken(sessionToken)
+  let candidate = await em.findOne(ApiKey, { sessionTokenHash, deletedAt: null })
+  if (!candidate) {
+    // Version-skew fallback (#7304): see findApiKeyBySessionToken for the full rationale — a
+    // row minted by pre-#2254 code during a deploy window is plaintext-only until touched.
+    const legacyCandidate = await em.findOne(ApiKey, { sessionToken, deletedAt: null })
+    if (legacyCandidate) {
+      legacyCandidate.sessionTokenHash = sessionTokenHash
+      legacyCandidate.sessionToken = null
+      await em.persist(legacyCandidate).flush()
+      candidate = legacyCandidate
+    }
+  }
   if (!candidate) return
   let deletedId: string | null = null
   await withAtomicFlush(em, [async () => {
     const records = await lockAuthorizationApiKeyRows(em, [String(candidate.id)])
     const record = records.find((entry) => (
       String(entry.id) === String(candidate.id)
-      && entry.sessionToken === sessionToken
+      && entry.sessionTokenHash === sessionTokenHash
       && !entry.deletedAt
     ))
     if (!record) return

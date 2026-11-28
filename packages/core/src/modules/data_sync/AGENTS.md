@@ -184,7 +184,8 @@ values through `normalizeRunParameters` against the *current* declaration:
 parameters you have since removed or re-scoped fall away, and a value that no
 longer satisfies its declaration fails the retry with a 422 instead of reaching
 the adapter. An adapter therefore never receives a set the run API would reject
-today — tighten a bound freely.
+today — tighten a bound freely. Retry also refuses with 409 `integrationDisabled`
+while the integration is disabled, like the run route.
 
 The integration detail page's schedule table also starts runs, but has no room
 for a parameter form: it submits the declared defaults and refuses the run when
@@ -238,9 +239,9 @@ and both belong to the adapter to state.
 Unless the caller passes `createProgressJob: false`, every run started through
 `startDataSyncRun` (`lib/start-run.ts`) — the run route, Retry, the scheduled
 worker and provider-owned routes — creates a `ProgressJob` that `ProgressTopBar`
-shows to every user with `progress.view`, with Cancel for anyone holding
-`progress.cancel`. An adapter may describe that
-job per entity type:
+shows to every user with `progress.view`; its Cancel works for the user who
+started the run (`progress.cancel`) or anyone holding `progress.manage`. An
+adapter may describe that job per entity type:
 
 ```typescript
 describeProgressJob: ({ entityType }) =>

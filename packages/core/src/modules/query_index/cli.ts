@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -21,7 +22,24 @@ import {
   mergeUpsertIndexBatchResults,
   type AnyRow,
 } from './lib/batch'
-import { reindexEntity, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import { createSearchTokenGateQueryEngine } from './lib/search-entity-policy'
+import { resolveCiphertextGuard } from './lib/search-tokens'
+import { reindexEntity, isTenantlessReindexTarget, DEFAULT_REINDEX_PARTITIONS } from './lib/reindexer'
+import type { ReindexJobResult } from './lib/reindexer'
+
+/**
+ * A refused sweep returns processed 0 / total 0, which the progress reporting below prints
+ * as `0 / 0 (0.00%)` - indistinguishable from a run that found nothing. Say why instead.
+ */
+function warnIfReindexRefused(entityType: string, result: ReindexJobResult): void {
+  if (!result.refused) return
+  const detail = result.refused === 'no-tenant-column'
+    ? 'the source table has no tenant_id column and the entity type is not declared tenant-global'
+    : result.refused === 'declared-global-but-org-scoped'
+      ? 'the entity type is declared tenant-global but its table carries an organization_id column'
+      : "the source table's columns could not be read, so no scope could be proven (usually transient)"
+  console.warn(`  -> ${entityType}: reindex REFUSED, nothing was indexed - ${detail}`)
+}
 import { purgeIndexScope } from './lib/purge'
 import { refreshCoverageSnapshot } from './lib/coverage'
 import { flattenSystemEntityIds } from '@open-mercato/shared/lib/entities/system-entities'
@@ -74,22 +92,7 @@ function createGroupedProgress(label: string, partitionTargets: number[]) {
 }
 
 function parseArgs(rest: string[]): ParsedArgs {
-  const args: ParsedArgs = {}
-  for (let i = 0; i < rest.length; i += 1) {
-    const part = rest[i]
-    if (!part?.startsWith('--')) continue
-    const [rawKey, rawValue] = part.slice(2).split('=')
-    if (!rawKey) continue
-    if (rawValue !== undefined) {
-      args[rawKey] = rawValue
-    } else if (i + 1 < rest.length && !rest[i + 1]!.startsWith('--')) {
-      args[rawKey] = rest[i + 1]!
-      i += 1
-    } else {
-      args[rawKey] = true
-    }
-  }
-  return args
+  return parseModuleCliOptions(rest, { skipEmptyKeys: true, consumeEmptyValues: true })
 }
 
 function stringOption(args: ParsedArgs, ...keys: string[]): string | undefined {
@@ -191,6 +194,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
 
   const encryption = resolveTenantEncryptionService(em as any)
   const dekKeyCache = new Map<string | null, string | null>()
+  const searchTokenGateQueryEngine = createSearchTokenGateQueryEngine(em)
 
   // Neither helper swallows failures: upsertIndexBatch treats a failed encrypt as a
   // failed row (writing the plaintext document instead would break encryption at rest)
@@ -213,14 +217,18 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     doc: Record<string, unknown>,
     scope: { organizationId: string | null; tenantId: string | null },
   ) => {
+    const tenantId = scope.tenantId ?? null
+    if (dekKeyCache.get(tenantId) === null) dekKeyCache.delete(tenantId)
     return await decryptIndexDocForSearch(
       targetEntity,
       doc,
-      { tenantId: scope.tenantId ?? null, organizationId: scope.organizationId ?? null },
+      { tenantId, organizationId: scope.organizationId ?? null },
       encryption,
       dekKeyCache,
     )
   }
+
+  const ciphertextGuard = () => resolveCiphertextGuard(encryption)
 
   const applyFilters = <QB extends { where: (...args: any[]) => QB }>(q: QB): QB => {
     let chain = q
@@ -246,7 +254,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
       .executeTakeFirst() as AnyRow | undefined
     if (!row) return { processed: 0, matched: 0 }
     const bar = createProgressBar(progressLabel ?? `Rebuilding ${entityType}`, 1)
-    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc })
+    const singleResult = await upsertIndexBatch(db, entityType, [row], { orgId: orgOverride, tenantId: tenantOverride }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine, ciphertextGuard })
     bar.update(singleResult.written)
     bar.complete()
     assertIndexBatchWritesLanded(entityType, singleResult)
@@ -288,7 +296,7 @@ async function rebuildEntityIndexes(options: RebuildExecutionOptions): Promise<R
     const chunkResult = await upsertIndexBatch(db, entityType, chunk as AnyRow[], {
       orgId: orgOverride,
       tenantId: tenantOverride,
-    }, { encryptDoc, decryptDoc })
+    }, { encryptDoc, decryptDoc, searchTokenGateQueryEngine, ciphertextGuard })
     mergeUpsertIndexBatchResults(writeTotals, chunkResult)
 
     processed += chunkResult.written
@@ -476,7 +484,7 @@ async function verifyAndRepairIndexCoverage(
         })
       }
     } else {
-      await reindexEntity(em, {
+      const repairResult = await reindexEntity(em, {
         entityType: options.entityType,
         tenantId: options.tenantId,
         organizationId: options.organizationId,
@@ -485,6 +493,7 @@ async function verifyAndRepairIndexCoverage(
         emitVectorizeEvents: false,
         resetCoverage: false,
       })
+      warnIfReindexRefused(options.entityType, repairResult)
     }
   } catch (error) {
     console.warn(
@@ -853,6 +862,7 @@ const reindex: ModuleCli = {
               if (progressBar) {
                 (progressBar as ProgressBarHandle).complete()
               }
+              warnIfReindexRefused(entity, partitionStats)
               if (!useBar && groupedProgress) {
                 groupedProgress.onProgress(part, { processed: partitionStats.processed, total: partitionStats.total })
               } else if (!useBar) {
@@ -931,6 +941,22 @@ const reindex: ModuleCli = {
           console.log(`[${idx + 1}/${entityIds.length}] Purging existing index rows for ${id}...`)
           await purgeIndexScope(baseEm, { entityType: id, organizationId: orgId, tenantId })
         }
+        if (tenantId != null && await isTenantlessReindexTarget(baseEm, id)) {
+          console.log(`[${idx + 1}/${entityIds.length}] Skipping ${id}: its table has no tenant_id column, so it is not tenant-scoped`)
+          await recordIndexerLog(
+            { em: baseEm },
+            {
+              source: 'query_index',
+              handler: 'cli:query_index.reindex',
+              message: `Reindex skipped for ${id}: not tenant-scoped`,
+              entityType: id,
+              tenantId,
+              organizationId: orgId ?? null,
+              details: { skipped: 'no-tenant-column' },
+            },
+          ).catch(() => undefined)
+          continue
+        }
         console.log(
           `[${idx + 1}/${entityIds.length}] Reindexing ${id}${force ? ' (forced)' : ''} in ${partitionTargets.length} partition(s)...`,
         )
@@ -999,6 +1025,7 @@ const reindex: ModuleCli = {
               if (progressBar) {
                 (progressBar as ProgressBarHandle).complete()
               }
+              warnIfReindexRefused(id, result)
               if (!useBar && groupedProgress) {
                 groupedProgress.onProgress(part, { processed: result.processed, total: result.total })
               } else if (!useBar) {
@@ -1115,7 +1142,7 @@ const purge: ModuleCli = {
         await bus.emitEvent(
           'query_index.purge',
           { entityType: entity, organizationId: orgId, tenantId },
-          { persistent: true },
+          { persistent: true, tenantId: tenantId ?? null, organizationId: orgId ?? null },
         )
         await recordIndexerLog(
           { em: em ?? undefined },
@@ -1138,7 +1165,7 @@ const purge: ModuleCli = {
         await bus.emitEvent(
           'query_index.purge',
           { entityType: id, organizationId: orgId, tenantId },
-          { persistent: true },
+          { persistent: true, tenantId: tenantId ?? null, organizationId: orgId ?? null },
         )
         await recordIndexerLog(
           { em: em ?? undefined },

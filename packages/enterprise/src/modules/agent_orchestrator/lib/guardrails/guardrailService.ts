@@ -20,6 +20,7 @@ import {
   type InjectionRiskResult,
 } from './promptInjection'
 import { checkGrounding } from './grounding'
+import { withRuntimeAuditWrite } from '../identity/agentWriteScope'
 
 /**
  * The versioned guardrail set that produced a verdict. Phase 1 stamps a constant
@@ -79,8 +80,16 @@ export type CheckInputArgs = {
    * The UNTRUSTED `document`/`retrieval` spans assembled by the Wave-2
    * ContextResolver. Screened in-memory for injected-instruction patterns; the raw
    * text NEVER reaches evidence. Trusted `entity` spans are not passed here.
+   * `input` spans (the agent's declared untrusted input fields) are screened in
+   * a separate `prompt_injection` check that applies each span's `injection` action.
    */
   untrustedSpans?: UntrustedSpan[]
+  /**
+   * The integrity set version declaring the agent's untrusted inputs. Pinned on
+   * the `prompt_injection` check that screens `input` spans; defaults to
+   * `GUARDRAIL_SET_VERSION`.
+   */
+  untrustedInputSetVersion?: string
 }
 
 /**
@@ -125,7 +134,9 @@ export class GuardrailService {
    * `kind:'moderation'`/`kind:'pii'` checks behind the same gate.)
    */
   async checkInput(args: CheckInputArgs): Promise<GuardrailVerdict> {
-    const spans = args.untrustedSpans ?? []
+    const allSpans = args.untrustedSpans ?? []
+    const spans = allSpans.filter((span) => span.sourceKind !== 'input')
+    const inputSpans = allSpans.filter((span) => span.sourceKind === 'input')
     const checks: GuardrailCheck[] = []
 
     if (spans.length > 0) {
@@ -141,6 +152,10 @@ export class GuardrailService {
       checks.push(check)
     }
 
+    if (inputSpans.length > 0) {
+      checks.push(this.checkUntrustedInputs(inputSpans, args.untrustedInputSetVersion ?? GUARDRAIL_SET_VERSION))
+    }
+
     const result = worstResult(checks)
     const blockedCheck = checks.find((check) => check.result === 'block')
     return guardrailVerdictSchema.parse({
@@ -148,6 +163,27 @@ export class GuardrailService {
       checks,
       ...(blockedCheck ? { blockedReason: { phase: 'input', kind: blockedCheck.kind } } : {}),
     })
+  }
+
+  /**
+   * Screens the agent's declared untrusted INPUT fields (spec
+   * `2026-10-21-output-integrity-guardrails` → Untrusted inputs). A span the
+   * detector flags takes its field's declared action (`warn` by default, or
+   * `block`); the check carries the worst action across spans. Evidence is
+   * pointer-only: field labels and paths, rule ids and counts, never the input.
+   */
+  private checkUntrustedInputs(inputSpans: UntrustedSpan[], guardrailSetVersion: string): GuardrailCheck {
+    const verdicts = inputSpans.map((span) => detectSpanInjection(span))
+    const actions = verdicts
+      .filter((verdict) => verdict.result !== 'pass')
+      .map((verdict): InjectionRiskResult => verdict.span.injection ?? 'warn')
+    const result: InjectionRiskResult = actions.includes('block') ? 'block' : actions.length > 0 ? 'warn' : 'pass'
+    return {
+      kind: 'prompt_injection',
+      result,
+      guardrailSetVersion,
+      ...(result !== 'pass' ? { evidence: { ...injectionEvidence(verdicts), sourceKind: 'input' } } : {}),
+    }
   }
 
   /**
@@ -270,7 +306,7 @@ export async function persistVerdict(
     })
     em.persist(row)
   }
-  await em.flush()
+  await withRuntimeAuditWrite(() => em.flush())
 
   for (const check of args.verdict.checks) {
     if (check.result === 'pass') continue

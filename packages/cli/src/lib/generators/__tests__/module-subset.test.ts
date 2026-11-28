@@ -426,7 +426,7 @@ describe('generateModuleRegistry with module subsets', () => {
             methods: [
               "GET"
             ],
-            load: async () => import("@open-mercato/core/modules/orders/api/orders/route")
+            load: async (): ReturnType<ApiRouteManifestEntry['load']> => import("@open-mercato/core/modules/orders/api/orders/route")
           }
         ];
 
@@ -1389,6 +1389,38 @@ export default async function handle(): Promise<void> {}
     expect(output).toContain('cli: CLI_configs')
     expect(output).toContain('features:')
     expect(output).toContain('id: "configs"')
+  })
+
+  it('keeps the lightweight dev supervisor manifest for a compiled standalone scheduler CLI', async () => {
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'scheduler', 'index.js'),
+      "export const metadata = { name: 'Scheduler' }\n",
+    )
+    touchFile(
+      path.join(tmpDir, 'node_modules', 'pkg', 'dist', 'modules', 'scheduler', 'cli.js'),
+      [
+        'const listCommand = { command: "list", run: async () => {} };',
+        'const startCommand = {',
+        '  command: "start",',
+        '  run: async () => {}',
+        '};',
+        'var cli_default = [listCommand, startCommand];',
+        'export {',
+        '  cli_default as default',
+        '};',
+        '',
+      ].join('\n'),
+    )
+
+    const resolver = createStandaloneMockResolver(tmpDir, [{ id: 'scheduler', from: '@open-mercato/core' }])
+    const result = await generateModuleRegistryCli({ resolver, quiet: true })
+
+    expect(result.errors).toEqual([])
+    const manifestPath = path.join(tmpDir, '.mercato', 'generated', 'dev-supervisor.generated.json')
+    expect(JSON.parse(fs.readFileSync(manifestPath, 'utf8'))).toMatchObject({
+      schedulerStartStatus: 'ok',
+      requiresFullBootstrap: false,
+    })
   })
 
   it('preserves standalone CLI convention files when discovery uses a src mirror', async () => {

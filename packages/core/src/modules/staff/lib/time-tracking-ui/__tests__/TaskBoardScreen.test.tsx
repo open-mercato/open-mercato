@@ -6,6 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import { registerCoreInjectionWidgets, registerCoreInjectionTables } from '@open-mercato/shared/modules/widgets/injection-loader'
 import { TaskBoardScreen } from '../TaskBoardScreen'
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111'
@@ -223,6 +224,8 @@ async function applyAssignedToMe() {
 }
 
 beforeEach(() => {
+  registerCoreInjectionWidgets([])
+  registerCoreInjectionTables([])
   jest.clearAllMocks()
   window.localStorage.clear()
   taskRows = [
@@ -377,8 +380,10 @@ describe('TaskBoardScreen', () => {
     })
 
     const table = await screen.findByTestId('board-task-list')
-    expect(table.querySelector(`[data-task-row="${PARENT_TASK_ID}"]`)).not.toBeNull()
-    expect(table.querySelector(`[data-task-row="${OTHER_TASK_ID}"]`)).not.toBeNull()
+    await waitFor(() => {
+      expect(table.querySelector(`[data-task-row="${PARENT_TASK_ID}"]`)).not.toBeNull()
+      expect(table.querySelector(`[data-task-row="${OTHER_TASK_ID}"]`)).not.toBeNull()
+    })
     expect(container.querySelector(`[data-task-card="${PARENT_TASK_ID}"]`)).toBeNull()
   })
 })

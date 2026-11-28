@@ -1,8 +1,11 @@
 /** @jest-environment node */
 
 import {
+  averageAmountExact,
   computeDelta,
   convertSumsToBase,
+  dominantCurrencyAmount,
+  sumsByCurrency,
   getPreviousQuarterWindow,
   getQuarterWindow,
   getTrailingMonths,
@@ -113,10 +116,64 @@ describe('dealsMetrics pure helpers', () => {
     expect(converted.convertedAll).toBe(false)
     expect(converted.missingRateCurrencies).toEqual(['GBP'])
 
+    expect(converted.totalExact).toBe('1110')
+
     const noBase = convertSumsToBase([{ currency: 'USD', total: 10 }], null, new Map() as never)
     expect(noBase.total).toBe(0)
+    expect(noBase.totalExact).toBe('0')
     expect(noBase.convertedAll).toBe(false)
     expect(noBase.missingRateCurrencies).toEqual(['USD'])
+  })
+
+  it('converts with exact decimal math, preferring totalExact and keeping the unrounded sum', () => {
+    const rates = new Map([
+      ['EUR/USD', { rates: [rate('1.123456789012345678')], fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', requestedDate: new Date(), actualDate: new Date() }],
+    ]) as never
+    const converted = convertSumsToBase(
+      [
+        { currency: 'USD', total: 0.1, totalExact: '0.1' },
+        { currency: 'USD', total: 0.2, totalExact: '0.2' },
+        { currency: 'EUR', total: 12345678901234.12, totalExact: '12345678901234.123456789' },
+      ],
+      'USD',
+      rates,
+    )
+    expect(converted.totalExact).toBe('13869836776558.252252399780481330763907942')
+    expect(converted.total).toBe(13869836776558)
+    expect(converted.convertedAll).toBe(true)
+  })
+
+  it('sums amounts per currency exactly in first-seen order, skipping entries without a currency', () => {
+    const sums = sumsByCurrency([
+      { currency: 'usd', amount: '0.1' },
+      { currency: 'EUR', amount: '5' },
+      { currency: ' USD ', amount: '0.2' },
+      { currency: null, amount: '100' },
+      { currency: '', amount: '100' },
+    ])
+    expect(sums).toEqual([
+      { currency: 'USD', total: 0.3, totalExact: '0.3' },
+      { currency: 'EUR', total: 5, totalExact: '5' },
+    ])
+  })
+
+  it('picks the dominant currency exactly, rounding only the display number', () => {
+    expect(
+      dominantCurrencyAmount([
+        { currency: 'BTC', amount: '0.123456789012345678' },
+        { currency: 'USD', amount: '900.5' },
+        { currency: 'USD', amount: '0.000000000000000001' },
+        { currency: 'EUR', amount: '100' },
+      ]),
+    ).toEqual({ value: 901, valueExact: '900.500000000000000001', currencyCode: 'USD' })
+    expect(dominantCurrencyAmount([])).toEqual({ value: 0, valueExact: '0', currencyCode: null })
+  })
+
+  it('averages exactly and rounds to the amount precision', () => {
+    expect(averageAmountExact('100', 3, 4)).toBe('33.3333')
+    expect(averageAmountExact('2', 3, 18)).toBe('0.666666666666666667')
+    expect(averageAmountExact('12345678901234.123456789', 1, 4)).toBe('12345678901234.1235')
+    expect(averageAmountExact('100', 0, 4)).toBe('0')
   })
 })
 
@@ -128,7 +185,7 @@ describe('customers deals summary route', () => {
     resolveBaseCurrencyMock.mockResolvedValue({ status: 'resolved', code: 'USD' })
     fetchStuckDealIdsMock.mockResolvedValue([])
     jest.useFakeTimers()
-    // Fix "today" inside Q1 2026 so quarter bucketing is deterministic.
+    // Fix "today" so the trailing-window bucketing is deterministic.
     jest.setSystemTime(new Date('2026-02-15T12:00:00Z'))
   })
 
@@ -186,6 +243,10 @@ describe('customers deals summary route', () => {
         { period: '2026-02', won: '3', lost: '1' },
         { period: '2026-01', won: '1', lost: '3' },
       ])
+      // 5b) pipeline inflow series (open deals created per trailing month)
+      .mockResolvedValueOnce([])
+      // 5c) won value series (deals won per trailing month)
+      .mockResolvedValueOnce([])
       // 6) overdue open deal ids
       .mockResolvedValueOnce([{ id: overdueDealId }])
       // 7) open-status intersection for the stuck ids (both seeded ids resolve as open here)
@@ -207,14 +268,15 @@ describe('customers deals summary route', () => {
 
     // Pipeline value: 1000 USD + 100*1.20 EUR = 1120 (GBP excluded).
     expect(body.pipelineValue.value).toBe(1120)
+    expect(body.pipelineValue.valueExact).toBe('1120')
     // Inflow delta: 600 vs 300 → +100% up.
     expect(body.pipelineValue.delta).toEqual({ value: 100, direction: 'up' })
     // Per-stage breakdown (qualification = 1000 + 120; proposal = GBP excluded → 0).
-    const stages = body.pipelineValue.stages as Array<{ stage: string | null; count: number; value: number }>
+    const stages = body.pipelineValue.stages as Array<{ stage: string | null; count: number; value: number; valueExact: string }>
     const qualification = stages.find((s) => s.stage === 'qualification')
     const proposal = stages.find((s) => s.stage === 'proposal')
-    expect(qualification).toEqual({ stage: 'qualification', count: 3, value: 1120 })
-    expect(proposal).toEqual({ stage: 'proposal', count: 1, value: 0 })
+    expect(qualification).toEqual({ stage: 'qualification', count: 3, value: 1120, valueExact: '1120' })
+    expect(proposal).toEqual({ stage: 'proposal', count: 1, value: 0, valueExact: '0' })
 
     // Active deals: total open count = 2 + 1 + 1 = 4; distinct owners = 2.
     expect(body.activeDeals.value).toBe(4)
@@ -232,6 +294,8 @@ describe('customers deals summary route', () => {
     expect(body.wonThisQuarter.value).toBe(800)
     expect(body.wonThisQuarter.dealsClosed).toBe(2)
     expect(body.wonThisQuarter.avgDeal).toBe(400)
+    expect(body.wonThisQuarter.valueExact).toBe('800')
+    expect(body.wonThisQuarter.avgDealExact).toBe('400')
     expect(body.wonThisQuarter.delta).toEqual({ value: 100, direction: 'up' })
 
     // Win rate: current 3/(3+1)=75%; previous 1/(1+1)=50%; deltaPp = +25 up.
@@ -247,12 +311,11 @@ describe('customers deals summary route', () => {
     expect(series.find((p) => p.period === '2026-01')).toEqual({ period: '2026-01', rate: 0.25 })
     expect(series.find((p) => p.period === '2025-11')).toEqual({ period: '2025-11', rate: 0 })
 
-    // Quarter window params were passed to the inflow query (current quarter start/end, UTC).
+    // Without `?range` the current calendar quarter (UTC) is compared with the previous one.
     const inflowCall = executeMock.mock.calls[1]
     const inflowValues = inflowCall[1] as string[]
     expect(inflowValues).toContain('2026-01-01T00:00:00.000Z')
     expect(inflowValues).toContain('2026-04-01T00:00:00.000Z')
-    // Previous quarter start present too.
     expect(inflowValues).toContain('2025-10-01T00:00:00.000Z')
   })
 
@@ -272,6 +335,10 @@ describe('customers deals summary route', () => {
       .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
       // 5) series
       .mockResolvedValueOnce([])
+      // 5b) pipeline inflow series (open deals created per trailing month)
+      .mockResolvedValueOnce([])
+      // 5c) won value series (deals won per trailing month)
+      .mockResolvedValueOnce([])
       // 6) overdue
       .mockResolvedValueOnce([])
 
@@ -283,11 +350,77 @@ describe('customers deals summary route', () => {
     expect(body.convertedAll).toBe(false)
     // Dominant currency total (USD 900, larger than EUR 100).
     expect((body.pipelineValue as { value: number }).value).toBe(900)
+    expect((body.pipelineValue as { valueExact: string }).valueExact).toBe('900')
     // getRates not consulted without a base currency.
     expect(getRatesMock).not.toHaveBeenCalled()
     // Win rate degrades to 0 with no closed deals.
     expect((body.winRate as { value: number }).value).toBe(0)
     expect((body.winRate as { direction: string }).direction).toBe('unchanged')
+  })
+
+  it('returns exact *Exact siblings beyond float precision while keeping the rounded KPI numbers', async () => {
+    getRatesMock.mockResolvedValue(
+      new Map([
+        ['EUR/USD', { rates: [rate('1.123456789012345678')], fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', requestedDate: new Date(), actualDate: new Date() }],
+      ]),
+    )
+    executeMock
+      .mockResolvedValueOnce([
+        { stage: 'qualification', currency: 'USD', total: '98765432109876.987654321', count: '1', owner_user_id: ownerA },
+        { stage: 'proposal', currency: 'EUR', total: '0.000000000000000001', count: '1', owner_user_id: ownerB },
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { currency: 'USD', current_total: '12345678901234.123456789012', current_count: '2', previous_total: '0', previous_count: '0' },
+        { currency: 'EUR', current_total: '10', current_count: '1', previous_total: '0', previous_count: '0' },
+      ])
+      .mockResolvedValueOnce([{ current_won: '3', current_lost: '0', previous_won: '0', previous_lost: '0' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      pipelineValue: { value: number; valueExact: string; stages: Array<{ stage: string; value: number; valueExact: string }> }
+      wonThisQuarter: { value: number; valueExact: string; avgDeal: number; avgDealExact: string; dealsClosed: number }
+    }
+
+    expect(body.pipelineValue.valueExact).toBe('98765432109876.987654321000000001123456789012345678')
+    expect(body.pipelineValue.value).toBe(98765432109877)
+    expect(body.pipelineValue.stages).toEqual([
+      { stage: 'qualification', count: 1, value: 98765432109877, valueExact: '98765432109876.987654321' },
+      { stage: 'proposal', count: 1, value: 0, valueExact: '0.000000000000000001123456789012345678' },
+    ])
+
+    expect(body.wonThisQuarter.valueExact).toBe('12345678901245.35802467913545678')
+    expect(body.wonThisQuarter.value).toBe(12345678901245)
+    expect(body.wonThisQuarter.dealsClosed).toBe(3)
+    expect(body.wonThisQuarter.avgDeal).toBe(4115226300415)
+    expect(body.wonThisQuarter.avgDealExact).toBe('4115226300415.1193')
+  })
+
+  it('keeps the dominant currency exact sum and its precision when no base currency is configured', async () => {
+    resolveBaseCurrencyMock.mockResolvedValueOnce({ status: 'missing' })
+    executeMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { currency: 'USD', current_total: '1.5', current_count: '1', previous_total: '0', previous_count: '0' },
+        { currency: 'EUR', current_total: '100.000000001', current_count: '2', previous_total: '0', previous_count: '0' },
+      ])
+      .mockResolvedValueOnce([{ current_won: '3', current_lost: '0', previous_won: '0', previous_lost: '0' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/summary'))
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      wonThisQuarter: { value: number; valueExact: string; avgDeal: number; avgDealExact: string }
+    }
+    expect(body.wonThisQuarter.value).toBe(100)
+    expect(body.wonThisQuarter.valueExact).toBe('100.000000001')
+    expect(body.wonThisQuarter.avgDeal).toBe(33)
+    expect(body.wonThisQuarter.avgDealExact).toBe('33.3333')
   })
 
   it('excludes terminal (non-open) stuck deals from need-attention via the open-status intersection', async () => {
@@ -309,6 +442,10 @@ describe('customers deals summary route', () => {
       .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
       // 5) series
       .mockResolvedValueOnce([])
+      // 5b) pipeline inflow series (open deals created per trailing month)
+      .mockResolvedValueOnce([])
+      // 5c) won value series (deals won per trailing month)
+      .mockResolvedValueOnce([])
       // 6) overdue (none)
       .mockResolvedValueOnce([])
       // 7) open-status intersection: only `openStuckId` is still open; `stuckDealId` is terminal → excluded
@@ -319,5 +456,139 @@ describe('customers deals summary route', () => {
     const body = (await response.json()) as { activeDeals: { needAttention: number } }
     // Only the open stuck deal counts; the terminal stuck deal is filtered out by the intersection.
     expect(body.activeDeals.needAttention).toBe(1)
+  })
+
+  describe('range parameter', () => {
+    type MonthlyRow = { period: string; currency: string | null; count: string; total: string }
+    type RangeBody = {
+      range: string
+      convertedAll: boolean
+      missingRateCurrencies: string[]
+      pipelineValue: { series: Array<{ period: string; value: number }> }
+      activeDeals: { series: Array<{ period: string; count: number }> }
+      wonThisQuarter: { value: number; series: Array<{ period: string; value: number }> }
+      winRate: { series: Array<{ period: string; rate: number }> }
+    }
+
+    const inflowSeriesRows: MonthlyRow[] = [
+      { period: '2026-02', currency: 'USD', count: '2', total: '1000' },
+      { period: '2026-02', currency: 'eur', count: '1', total: '100' },
+      { period: '2026-02', currency: 'GBP', count: '1', total: '50' },
+      { period: '2026-01', currency: 'EUR', count: '3', total: '200' },
+      { period: '2025-12', currency: 'USD', count: '1', total: '70' },
+      { period: '2025-04', currency: 'USD', count: '4', total: '400' },
+    ]
+    const wonSeriesRows: MonthlyRow[] = [
+      { period: '2026-02', currency: 'USD', count: '1', total: '500' },
+      { period: '2026-02', currency: 'EUR', count: '1', total: '50' },
+      { period: '2025-03', currency: 'USD', count: '1', total: '90' },
+    ]
+
+    async function requestSummary(query: string): Promise<RangeBody> {
+      getRatesMock.mockResolvedValue(
+        new Map([
+          ['EUR/USD', { rates: [rate('1.20')], fromCurrencyCode: 'EUR', toCurrencyCode: 'USD', requestedDate: new Date(), actualDate: new Date() }],
+        ]),
+      )
+      executeMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
+        .mockResolvedValueOnce([{ period: '2026-02', won: '1', lost: '1' }])
+        .mockResolvedValueOnce(inflowSeriesRows)
+        .mockResolvedValueOnce(wonSeriesRows)
+        .mockResolvedValueOnce([])
+      const response = await GET(new Request(`http://localhost/api/customers/deals/summary${query}`))
+      expect(response.status).toBe(200)
+      return (await response.json()) as RangeBody
+    }
+
+    function windowValues(callIndex: number): string[] {
+      return executeMock.mock.calls[callIndex][1] as string[]
+    }
+
+    it('keeps exact monthly series sums next to the display value', async () => {
+      getRatesMock.mockResolvedValue(new Map())
+      executeMock
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ current_won: '0', current_lost: '0', previous_won: '0', previous_lost: '0' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          { period: '2026-02', currency: 'USD', count: '2', total: '25.123456789012345678' },
+        ])
+        .mockResolvedValueOnce([
+          { period: '2026-02', currency: 'USD', count: '1', total: '0.000000000000000001' },
+        ])
+        .mockResolvedValueOnce([])
+      const response = await GET(new Request('http://localhost/api/customers/deals/summary?range=3m'))
+      const body = (await response.json()) as RangeBody
+
+      expect(body.pipelineValue.series[2]).toEqual({ period: '2026-02', value: 25, valueExact: '25.123456789012345678' })
+      expect(body.wonThisQuarter.series[2]).toEqual({ period: '2026-02', value: 0, valueExact: '0.000000000000000001' })
+    })
+
+    it('range=3m compares the trailing 3 months and buckets mixed currencies per month', async () => {
+      const body = await requestSummary('?range=3m')
+
+      expect(body.range).toBe('3m')
+      expect(body.pipelineValue.series).toEqual([
+        { period: '2025-12', value: 70, valueExact: '70' },
+        { period: '2026-01', value: 240, valueExact: '240' },
+        { period: '2026-02', value: 1120, valueExact: '1120' },
+      ])
+      expect(body.activeDeals.series).toEqual([
+        { period: '2025-12', count: 1 },
+        { period: '2026-01', count: 3 },
+        { period: '2026-02', count: 4 },
+      ])
+      expect(body.wonThisQuarter.series).toEqual([
+        { period: '2025-12', value: 0, valueExact: '0' },
+        { period: '2026-01', value: 0, valueExact: '0' },
+        { period: '2026-02', value: 560, valueExact: '560' },
+      ])
+      expect(body.winRate.series.map((point) => point.period)).toEqual(['2025-12', '2026-01', '2026-02'])
+      expect(body.convertedAll).toBe(false)
+      expect(body.missingRateCurrencies).toEqual(['GBP'])
+      expect(windowValues(1).slice(0, 2)).toEqual(['2025-12-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z'])
+      expect(windowValues(1).slice(4, 6)).toEqual(['2025-09-01T00:00:00.000Z', '2025-12-01T00:00:00.000Z'])
+      expect(windowValues(5).at(-1)).toBe('2025-12-01T00:00:00.000Z')
+    })
+
+    it('range=12m returns 12 monthly points over the trailing year', async () => {
+      const body = await requestSummary('?range=12m')
+
+      expect(body.range).toBe('12m')
+      expect(body.pipelineValue.series).toHaveLength(12)
+      expect(body.activeDeals.series).toHaveLength(12)
+      expect(body.wonThisQuarter.series).toHaveLength(12)
+      expect(body.winRate.series).toHaveLength(12)
+      expect(body.pipelineValue.series[0]).toEqual({ period: '2025-03', value: 0, valueExact: '0' })
+      expect(body.pipelineValue.series.find((point) => point.period === '2025-04')).toEqual({ period: '2025-04', value: 400, valueExact: '400' })
+      expect(body.wonThisQuarter.series[0]).toEqual({ period: '2025-03', value: 90, valueExact: '90' })
+      expect(body.wonThisQuarter.series[11]).toEqual({ period: '2026-02', value: 560, valueExact: '560' })
+      expect(windowValues(1).slice(0, 2)).toEqual(['2025-03-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z'])
+      expect(windowValues(1).slice(4, 6)).toEqual(['2024-03-01T00:00:00.000Z', '2025-03-01T00:00:00.000Z'])
+    })
+
+    it.each([
+      ['an absent value', ''],
+      ['an invalid value', '?range=bogus'],
+      ['an explicit quarter', '?range=quarter'],
+    ])('%s keeps the calendar quarter windows and the 6-month series', async (_label, query) => {
+      const body = await requestSummary(query)
+
+      expect(body.range).toBe('quarter')
+      expect(windowValues(1).slice(0, 2)).toEqual(['2026-01-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z'])
+      expect(windowValues(1).slice(4, 6)).toEqual(['2025-10-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'])
+      expect(windowValues(2).slice(0, 2)).toEqual(['2026-01-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z'])
+      expect(windowValues(3).slice(0, 2)).toEqual(['2026-01-01T00:00:00.000Z', '2026-04-01T00:00:00.000Z'])
+      expect(body.pipelineValue.series.map((point) => point.period)).toEqual(['2025-09', '2025-10', '2025-11', '2025-12', '2026-01', '2026-02'])
+      expect(body.pipelineValue.series[5]).toEqual({ period: '2026-02', value: 1120, valueExact: '1120' })
+      expect(body.wonThisQuarter.series[5]).toEqual({ period: '2026-02', value: 560, valueExact: '560' })
+      expect(body.winRate.series).toHaveLength(6)
+    })
   })
 })

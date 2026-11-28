@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext, resolveDictionaryActorId } from '@open-mercato/core/modules/dictionaries/api/context'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -47,6 +47,19 @@ export const metadata = {
 function isProtectedCurrencyDictionary(dictionary: Dictionary) {
   const key = dictionary.key?.trim().toLowerCase() ?? ''
   return key === 'currency' || key === 'currencies'
+}
+
+function getSystemDictionaryProtectionMessage(
+  dictionary: Dictionary,
+  translate: Awaited<ReturnType<typeof resolveDictionariesRouteContext>>['translate'],
+): string | null {
+  if (isProtectedCurrencyDictionary(dictionary)) {
+    return translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.')
+  }
+  if (dictionary.isSystem) {
+    return translate('dictionaries.errors.system_protected', 'System dictionary keys cannot be changed and system dictionaries cannot be disabled or deleted.')
+  }
+  return null
 }
 
 async function loadDictionary(
@@ -139,13 +152,10 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    if (isProtectedCurrencyDictionary(dictionary)) {
-      if (payload.key && payload.key.trim().toLowerCase() !== dictionary.key) {
-        throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
-      }
-      if (payload.isActive === false) {
-        throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
-      }
+    const protection = getSystemDictionaryProtectionMessage(dictionary, context.translate)
+    const changesKey = payload.key && payload.key.trim().toLowerCase() !== dictionary.key
+    if (protection && (changesKey || payload.isActive === false)) {
+      throw new CrudHttpError(400, { error: protection })
     }
 
     if (payload.key) {
@@ -191,7 +201,14 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     }
 
     dictionary.updatedAt = new Date()
-    await context.em.flush()
+    try {
+      await context.em.flush()
+    } catch (err) {
+      if (isUniqueViolation(err, 'dictionaries_scope_key_unique')) {
+        throw new CrudHttpError(409, { error: context.translate('dictionaries.errors.duplicate', 'A dictionary with this key already exists') })
+      }
+      throw err
+    }
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(context.container, {
@@ -260,8 +277,9 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
       return NextResponse.json(guardResult.body, { status: guardResult.status })
     }
 
-    if (isProtectedCurrencyDictionary(dictionary)) {
-      throw new CrudHttpError(400, { error: context.translate('dictionaries.errors.currency_protected', 'The currency dictionary cannot be modified or deleted.') })
+    const protection = getSystemDictionaryProtectionMessage(dictionary, context.translate)
+    if (protection) {
+      throw new CrudHttpError(400, { error: protection })
     }
 
     dictionary.isActive = false

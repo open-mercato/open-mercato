@@ -162,7 +162,8 @@ function assertNotSealedUnderAnotherKey(value: unknown, field: string): void {
     TenantDataEncryptionErrorCode.WRONG_KEY,
     `[internal] Field "${field}" already holds an encrypted payload that does not decrypt under the current tenant DEK. `
       + 'Encrypting it again would produce an unreadable nested envelope. '
-      + 'Complete the key rotation for this tenant (mercato entities rotate-encryption-key --old-key …) '
+      + 'Complete the key rotation for this tenant (set TENANT_DATA_ENCRYPTION_OLD_KEY, then run '
+      + 'mercato entities rotate-encryption-key) '
       + 'or restore the DEK that sealed it before writing this record again.',
   )
 }
@@ -263,8 +264,8 @@ export class TenantDataEncryptionService {
   private static globalDekCache = new Map<string, TenantDek>()
   private static globalInflightDeks = new Map<string, Promise<TenantDek | null>>()
   private readonly kms: KmsService
-  private readonly dekCache = TenantDataEncryptionService.globalDekCache
-  private readonly inflightDeks = TenantDataEncryptionService.globalInflightDeks
+  private readonly dekCache: Map<string, TenantDek>
+  private readonly inflightDeks: Map<string, Promise<TenantDek | null>>
   private readonly systemDefaultMaps: Map<string, ModuleEncryptionMap>
 
   constructor(
@@ -273,10 +274,14 @@ export class TenantDataEncryptionService {
       /** Accepted for compatibility; encryption policy is never cached across units of work. */
       cache?: CacheStrategy
       kms?: KmsService
+      /** Keep explicitly pinned providers separate from other process-local KMS caches. */
+      isolatedKeyCache?: boolean
       defaultEncryptionMaps?: readonly ModuleEncryptionMap[]
     }
   ) {
     this.kms = opts?.kms ?? createKmsService()
+    this.dekCache = opts?.isolatedKeyCache ? new Map() : TenantDataEncryptionService.globalDekCache
+    this.inflightDeks = opts?.isolatedKeyCache ? new Map() : TenantDataEncryptionService.globalInflightDeks
     this.systemDefaultMaps = new Map(
       (opts?.defaultEncryptionMaps ?? [])
         .filter((map) => map.keyScope === 'system')
@@ -519,6 +524,15 @@ export class TenantDataEncryptionService {
       options?.em,
     )
     return fields.map((rule) => rule.field)
+  }
+
+  async getLookupHashRules(
+    entityId: string,
+    tenantId: string | null,
+    organizationId: string | null,
+  ): Promise<Array<{ field: string; hashField: string }>> {
+    const { fields } = await this.resolvePolicy({ entityId, tenantId, organizationId })
+    return fields.flatMap(({ field, hashField }) => hashField ? [{ field, hashField }] : [])
   }
 
   private encryptFields(

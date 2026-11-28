@@ -72,11 +72,11 @@ export async function POST(request: Request) {
     const container = await createRequestContainer()
     const token = readCartToken(request)
 
-    const limited = await enforceCartRateLimit(container, request, 'mutate', token)
-    if (limited) return limited
-
     const resolved = await resolveRouteContextOrError(request, container)
     if (!resolved.ok) return resolved.response
+
+    const limited = await enforceCartRateLimit(container, request, 'mutate', token, resolved.routeContext.storeId)
+    if (limited) return limited
     if (!token) return notFoundCartResponse()
 
     const commandBus = container.resolve('commandBus') as CommandBus
@@ -201,7 +201,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 409, description: 'Optimistic-lock conflict, or the cart is a `proposal` cart' },
         { status: 422, description: 'Quantity rule violation, idempotency key mismatch, or an unpriceable product' },
         { status: 429, description: 'Rate limited' },
-        { status: 503, description: 'No store context resolvable for this request (§6a.1a)' },
+        { status: 503, description: 'No store context resolvable, or cart_busy after 15 seconds waiting for the line lock. The requested line add/bulk-add phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second, preserving Idempotency-Key.' },
       ],
     },
   },

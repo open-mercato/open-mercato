@@ -12,20 +12,30 @@ import {
   buildReferencesId,
   getOrCreateThreadToken,
 } from '../lib/thread-token'
-import { stringOrUndefined, stripBrackets } from '../lib/email-mime'
+import { parseReferences, referencesFromMeta, stringOrUndefined, stripBrackets } from '../lib/email-mime'
+import { validateOutboundRecipient } from '../lib/outbound-recipient'
 import { resolveOutboundReplyExternalId, stripCallerReplyTargeting } from '../lib/outbound-reply-ref'
+import {
+  OutboundAttachmentDeliveryError,
+  loadOutboundAttachments,
+  omitOutboundAttachments,
+  readStoredOutboundAttachments,
+} from '../lib/outbound-attachments'
+import { adoptProviderConversationRef, isOutboundConversationRef } from '../lib/outbound-conversation-ref'
+import { resolveOutboundRouting } from '../lib/outbound-routing'
 import type { ChannelAdapterRegistry } from '../lib/registry'
 import { isUniqueViolation } from '../lib/pg-errors'
 import { Message } from '../../messages/data/entities'
+import { SEND_AS_USER_SOURCE_ENTITY_TYPE } from '../../messages/lib/messageSourceEntityTypes'
 import {
-  ChannelThreadMapping,
-  CommunicationChannel,
   ExternalMessage,
   MessageChannelLink,
 } from '../data/entities'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const moduleLogger = createLogger('communication_channels').child({ component: 'deliver-outbound-message' })
+const MAX_EMAIL_REPLY_REFERENCES = 40
 
 /**
  * Sentinel — `Message.threadId` of an internal-only (no channel link) message
@@ -167,41 +177,14 @@ const deliverOutboundMessageCommand: CommandHandler<
       dscope,
     )
 
-    const mapping = await findOneWithDecryption(
-      em,
-      ChannelThreadMapping,
-      {
-        messageThreadId: message.threadId,
-        ...(link ? { externalConversationId: link.externalConversationId } : {}),
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-      },
-      undefined,
-      dscope,
-    )
-    if (!mapping) {
-      // Internal-only message — no channel delivery needed.
-      return NO_THREAD_MAPPING_RESULT
+    if (link && ['queued', 'sent', 'delivered', 'read'].includes(link.deliveryStatus)) {
+      return { status: 'already_delivered', messageId: message.id, channelLinkId: link.id }
     }
 
-    // (2) Channel + adapter.
-    const channel = await findOneWithDecryption(
-      em,
-      CommunicationChannel,
-      {
-        id: mapping.channelId,
-        tenantId: input.scope.tenantId,
-        organizationId: input.scope.organizationId ?? null,
-        deletedAt: null,
-      },
-      undefined,
-      dscope,
-    )
-    if (!channel) {
-      throw new Error(
-        `[internal] Channel ${mapping.channelId} not found for tenant ${input.scope.tenantId} (or has been deleted)`,
-      )
-    }
+    const routing = await resolveOutboundRouting(em, { message, link, scope: dscope })
+    if (!routing) return NO_THREAD_MAPPING_RESULT
+    const { mapping, channel } = routing
+
     if (!channel.isActive) {
       throw new Error(`[internal] Channel ${mapping.channelId} is inactive; refusing to deliver outbound`)
     }
@@ -215,22 +198,6 @@ const deliverOutboundMessageCommand: CommandHandler<
       )
     }
 
-    // (3) Idempotently upsert a 'pending' MessageChannelLink.
-    if (
-      link &&
-      (link.deliveryStatus === 'queued' ||
-        link.deliveryStatus === 'sent' ||
-        link.deliveryStatus === 'delivered' ||
-        link.deliveryStatus === 'read')
-    ) {
-      // Already sent (or accepted by the provider as 'queued') — short-circuit
-      // so a retried job does not re-invoke the adapter and double-send.
-      return {
-        status: 'already_delivered',
-        messageId: message.id,
-        channelLinkId: link.id,
-      }
-    }
     if (!link) {
       link = em.create(MessageChannelLink, {
         messageId: message.id,
@@ -400,17 +367,69 @@ const deliverOutboundMessageCommand: CommandHandler<
         ? 'html'
         : ((message.bodyFormat as 'text' | 'markdown' | 'html') ?? 'text')
 
-      // Pre-existing channelMetadata.references (string[]) so we can extend
-      // it with the synthetic thread-token id without disturbing other refs
-      // (e.g. the recipient's own reply chain).
-      const baseMetadata = (link.channelMetadata as Record<string, unknown> | undefined) ?? {}
-      const existingRefs = Array.isArray(baseMetadata.references)
-        ? (baseMetadata.references as unknown[]).filter(
-            (value): value is string => typeof value === 'string',
-          )
-        : []
-      let mergedReferences = existingRefs
-      if (threadToken && !outboundBody.includes(`[OM:${threadToken}]`)) {
+      let baseMetadata = link.channelMetadata ?? {}
+      const replyRecipient = message.externalEmail
+      if (
+        baseMetadata.to == null &&
+        channel.channelType === 'email' &&
+        message.sourceEntityType === SEND_AS_USER_SOURCE_ENTITY_TYPE &&
+        message.sourceEntityId === channel.id &&
+        message.parentMessageId &&
+        replyRecipient && validateOutboundRecipient(replyRecipient, null).ok
+      ) {
+        const parentLink = await findOneWithDecryption(
+          em,
+          MessageChannelLink,
+          {
+            messageId: message.parentMessageId,
+            externalConversationId: mapping.externalConversationId,
+            providerKey: channel.providerKey,
+            channelType: 'email',
+            direction: 'outbound',
+            ...dscope,
+          },
+          undefined,
+          dscope,
+        )
+        if (parentLink) {
+          const parentMetadata = parentLink.channelMetadata ?? {}
+          const { deliveryStatus } = parentLink
+          const parentInFlight = !parentLink.externalMessageId && (deliveryStatus === 'pending' || deliveryStatus === 'queued')
+          const parentProviderConversationId = stringOrUndefined(parentMetadata.providerConversationId)
+          const awaitingThreadRef = isOutboundConversationRef(mapping.externalThreadRef) &&
+            parentProviderConversationId && !isOutboundConversationRef(parentProviderConversationId)
+          if (parentInFlight || awaitingThreadRef) {
+            throw Object.assign(new Error('[internal] Waiting for the parent email to finish sending'), { transient: true })
+          }
+          if (deliveryStatus === 'failed' && !parentLink.externalMessageId) {
+            throw Object.assign(new Error('[internal] Parent email delivery failed'), { transient: parentMetadata.transient === true })
+          }
+          const inReplyTo = stripBrackets(stringOrUndefined(parentMetadata.messageId))
+          const references = new Set(parseReferences(referencesFromMeta(parentMetadata.references)))
+          if (inReplyTo) {
+            references.delete(inReplyTo)
+            references.add(inReplyTo)
+          }
+          baseMetadata = {
+            ...baseMetadata,
+            to: [replyRecipient],
+            subject: message.subject,
+            inReplyTo,
+            references: [...references].slice(-MAX_EMAIL_REPLY_REFERENCES),
+          }
+        }
+      }
+      let mergedReferences = referencesFromMeta(baseMetadata.references) ?? []
+      // The footer + References-id are the email-threading fallback for a
+      // recipient whose client strips RFC 5322 headers — meaningless for a
+      // provider-native conversation, where the hub already threads on the
+      // provider's own conversation id. Emitting it anyway would hand a
+      // real Discord/Slack/etc. user a visible, copyable thread marker they
+      // could paste into an unrelated conversation to graft it onto this
+      // one (the token/JWZ matcher is likewise gated off inbound for these
+      // providers in `ingest-inbound-message.ts`).
+      const isProviderNativeChannel = adapter.capabilities.recipientFormat === 'provider-native'
+      if (!isProviderNativeChannel && threadToken && !outboundBody.includes(`[OM:${threadToken}]`)) {
         // Append the body footer for the corresponding format. The hidden
         // HTML span is `display:none`; the plain-text trailer is a small
         // bracketed marker on its own line. Both survive most reply clients.
@@ -429,9 +448,29 @@ const deliverOutboundMessageCommand: CommandHandler<
           mergedReferences = [...mergedReferences, refId]
         }
       }
+      // Attachment bytes are read here, on every attempt, for the channel owner
+      // the send-as-user facade authorized; a file that is gone or no longer
+      // fits fails the delivery permanently rather than sending without it.
+      const storedAttachments = readStoredOutboundAttachments(baseMetadata)
+      if (storedAttachments.length && !channel.userId) {
+        throw new OutboundAttachmentDeliveryError('attachment_unavailable')
+      }
+      const attachments = storedAttachments.length
+        ? await loadOutboundAttachments({
+            container: ctx.container,
+            scope: {
+              userId: channel.userId as string,
+              tenantId: input.scope.tenantId,
+              organizationId: input.scope.organizationId ?? null,
+            },
+            stored: storedAttachments,
+            capabilities: adapter.capabilities,
+          })
+        : undefined
       const converted = await adapter.convertOutbound({
         body: outboundBody,
         bodyFormat: outboundBodyFormat,
+        ...(attachments ? { attachments } : {}),
         channelMetadata: {
           thread_id: mapping.externalThreadRef,
           // Reply targeting is hub-resolved only. `send-as-user` merges
@@ -441,7 +480,7 @@ const deliverOutboundMessageCommand: CommandHandler<
           // resolved a parent, and the uncontested case — no `parentMessageId`,
           // or a parent that does not resolve — is exactly the one a caller
           // controls.
-          ...stripCallerReplyTargeting(baseMetadata),
+          ...stripCallerReplyTargeting(omitOutboundAttachments(baseMetadata)),
           references: mergedReferences,
           ...(threadToken ? { omThreadToken: threadToken } : {}),
           ...(replyToExternalId ? { replyToExternalId } : {}),
@@ -502,6 +541,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         channel.status = 'connected'
       }
 
+      const providerConversationId = stringOrUndefined(sendResult.conversationId)
       link.deliveryStatus = sendResult.status === 'sent' ? 'sent' : 'queued'
       link.externalMessageId = externalMessageRowId
       link.channelMetadata = {
@@ -516,14 +556,61 @@ const deliverOutboundMessageCommand: CommandHandler<
         // (the RFC2822 id the recipient replies to) — fall back to that.
         // Store it bracket-stripped to match the inbound convention
         // (`normalizeMimeInbound` strips), so the JWZ matcher and sent-folder dedup —
-        // which compare against stripped ids — resolve it. `assembleRfc2822`
+        // which compare against stripped ids — resolve it. The MIME composer
         // re-applies brackets when this id is later used to build reply headers.
+        // A provider that rewrites the header on send (Gmail mints its own
+        // Message-ID) reports the id it actually sent in `sendResult.metadata.messageId`;
+        // that one wins, because it is the id the provider's copy and every reply carry.
         messageId: stripBrackets(
-          stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??
+          stringOrUndefined((sendResult.metadata as Record<string, unknown> | undefined)?.messageId) ??
+            stringOrUndefined((converted.metadata as Record<string, unknown> | undefined)?.messageId) ??
             sendResult.externalMessageId,
         ),
+        // The provider conversation this message was actually sent under. The
+        // shared conversation can be re-keyed to a different provider ref by a
+        // concurrent first send (see `adoptProviderConversationRef`), so the
+        // message keeps its own association here instead of relying on the
+        // conversation's ref.
+        ...(providerConversationId ? { providerConversationId } : {}),
       }
       await em.flush()
+
+      // A first send through `sendAsUser` sits in an `outbound:<thread>` placeholder
+      // conversation. Adopt the provider's own conversation id so the provider's copy
+      // of this message and the replies to it land in this conversation instead of
+      // opening a second one. Best-effort and after the success flush: the message is
+      // already sent, so a failure here must never turn into a retry (double send).
+      try {
+        const adoption = await adoptProviderConversationRef(em, {
+          mapping,
+          channelId: channel.id,
+          providerConversationRef: sendResult.conversationId,
+          scope: dscope,
+        })
+        if (adoption === 'conflict') {
+          moduleLogger.info('provider conversation id already belongs to another conversation, keeping the outbound placeholder', {
+            messageId: message.id,
+            channelId: channel.id,
+            conversationId: mapping.externalConversationId,
+            providerConversationId,
+          })
+        }
+      } catch (adoptErr) {
+        moduleLogger.warn('could not adopt the provider conversation id, keeping the outbound placeholder', {
+          messageId: message.id,
+          conversationId: mapping.externalConversationId,
+          err: adoptErr,
+        })
+        try {
+          getTelemetryRuntime()?.reportError(adoptErr, {
+            module: 'communication_channels',
+            code: 'communication_channels.provider_conversation_adoption_failed',
+            attributes: { messageId: message.id, channelId: channel.id },
+          })
+        } catch (telemetryErr) {
+          moduleLogger.warn('could not report a conversation adoption failure to telemetry', { err: telemetryErr })
+        }
+      }
 
       await emitCommunicationChannelsEvent(
         'communication_channels.message.sent',

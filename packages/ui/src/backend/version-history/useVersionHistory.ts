@@ -37,8 +37,9 @@ export function useVersionHistory(
   const wasEnabledRef = React.useRef(false)
   const activeResourceIdRef = React.useRef<string | null>(null)
   const fallbackTriedRef = React.useRef(false)
+  const serverOffsetRef = React.useRef(0)
 
-  const fetchEntries = React.useCallback(async (opts: { before?: string; reset?: boolean; resourceId?: string }) => {
+  const fetchEntries = React.useCallback(async (opts: { offset?: number; reset?: boolean; resourceId?: string }) => {
     if (!config) return
     const resourceId = opts.resourceId
       ?? activeResourceIdRef.current
@@ -51,7 +52,7 @@ export function useVersionHistory(
     })
     if (config.organizationId) params.set('organizationId', config.organizationId)
     if (config.includeRelated !== false) params.set('includeRelated', 'true')
-    if (opts.before) params.set('before', opts.before)
+    if (opts.offset) params.set('offset', String(opts.offset))
     setIsLoading(true)
     setError(null)
     let shouldFallback = false
@@ -64,19 +65,21 @@ export function useVersionHistory(
         return
       }
       const items = Array.isArray(call.result?.items) ? call.result!.items : []
-      const sorted = [...items].sort((a, b) => {
-        const aTs = Date.parse(a.createdAt)
-        const bTs = Date.parse(b.createdAt)
-        return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0)
-      })
+      serverOffsetRef.current = (opts.reset ? 0 : serverOffsetRef.current) + items.length
       setEntries((prev) => {
-        const next = opts.reset ? sorted : [...prev, ...sorted]
+        const next = opts.reset ? items : [...prev, ...items]
         const seen = new Set<string>()
-        return next.filter((entry) => {
-          if (seen.has(entry.id)) return false
-          seen.add(entry.id)
-          return true
-        })
+        return next
+          .filter((entry) => {
+            if (seen.has(entry.id)) return false
+            seen.add(entry.id)
+            return true
+          })
+          .sort((a, b) => {
+            const aTs = Date.parse(a.createdAt)
+            const bTs = Date.parse(b.createdAt)
+            return (Number.isFinite(bTs) ? bTs : 0) - (Number.isFinite(aTs) ? aTs : 0)
+          })
       })
       setHasMore(items.length === PAGE_SIZE)
       if (
@@ -122,10 +125,8 @@ export function useVersionHistory(
       return
     }
     if (!hasMore) return
-    const lastEntry = entries[entries.length - 1]
-    if (!lastEntry?.createdAt) return
     void fetchEntries({
-      before: lastEntry.createdAt,
+      offset: serverOffsetRef.current,
       resourceId: activeResourceIdRef.current ?? config.resourceId,
     })
   }, [config, entries, fetchEntries, hasMore, isLoading])

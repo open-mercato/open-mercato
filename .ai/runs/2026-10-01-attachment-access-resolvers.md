@@ -1,0 +1,94 @@
+# Attachment Access Resolvers
+
+Source doc: .ai/specs/2026-10-01-attachment-access-resolvers.md (design PR https://github.com/open-mercato/open-mercato/pull/6828; materialized for implementation, not duplicated in this branch)
+Issue: https://github.com/open-mercato/open-mercato/issues/6726
+Engine: om-auto-create-pr (steps: 9, --loop: no)
+Status: implementation complete; human waiver recorded 2026-10-29; independent re-review and new-head CI pending
+
+## Goal
+
+Let owning modules narrow host attachment access, using Documents as a real adopter, and preserve its protection when its resolver is disabled or unavailable.
+
+## Scope
+
+Add validated resolver discovery, baseline-first deny-wins evaluation, durable named-provider requirements, existing Documents data backfill, complete host/service enforcement and actual Documents ACL adoption. Preserve existing signatures, storage validation and unrelated owners. Do not change other module policies, add UI/dependencies, apply developer database migrations or merge/approve QA.
+
+## Implementation Plan
+
+### Phase 1: Contract and durable protection
+
+1.1 Add structural types, validated registry, matching/target normalization and generator plugin with deterministic discovery/bootstrap tests.
+1.2 Add requirements column, migration/snapshot, trusted union helper and partition synchronization; test disabled-provider backfill, legacy JSON and repeated/concurrent union.
+1.3 Add runner/live subject projection, immutable snapshots, isolated request caches, budgets and diagnostics; preserve baseline regressions.
+
+### Phase 2: Host and real adopter
+
+2.1 Enforce original/derived bytes and public read/link services before storage/cache, with protected cache headers.
+2.2 Enforce metadata visibility/count/facets and locked original/destination/delete authorization before writes, preserving guards/side effects.
+2.3 Register Documents using its real permission/capability/active-role services and test multiple owners, scope and revocation.
+
+### Phase 3: Validation and handoff
+
+3.1 Add self-contained live coverage for every host path and export rejection; capture real browser recipient/unshared evidence.
+3.2 Run configured ordered local gate, test:scripts, template/i18n checks and fix actionable failures.
+3.3 Review #6820 overlap and the implementation, publish upgrade/BC evidence, normalize labels and release the claim for CI/review handoff.
+
+## Risks and Constraints
+
+- Human maintainer @haxiorz explicitly approved the steps 1–3 Emergency Security Exception waiver and acknowledged the client/operator migration on 2026-10-29 ([recorded acknowledgment](https://github.com/open-mercato/open-mercato/pull/6829#issuecomment-6505350022)); this does not grant independent code-review or QA approval.
+- PR #6820 owns strict storage validation in overlapping handlers/public exports. Preserve wrappers and resolve-before-delete order during conflict review.
+- Library candidate scanning has exact authorized counts and bounded timeout; verify no hidden counts/tags/labels/content leak.
+- Runtime tooling is isolated managed ephemeral CLI, never developer/shared DB. Tests and same-worktree builds are sequential.
+- Full gate uses local runner. Known Homebrew create-app libuv issue may require a scoped bundled-Node rerun; bundled Node broad Jest has native V8 crashes and is not the default.
+- Installed shared review renderer/schema is absent. Post transparent nonapproving evidence and keep INCOMPLETE/draft where required; do not invent formal output or change automation.
+- Independent design review was performed by parent because fresh-agent capacity was unavailable; no nested agents.
+
+## Progress
+
+PR: #6829
+
+> Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
+
+### Phase 1: Contract and durable protection
+
+- [x] 1.1 Add types, registry, matching and generator discovery — b5e9c9f6b5
+- [x] 1.2 Persist and backfill required owner policies — 874011d963 (native migration SQL proof passed in Phase 3)
+- [x] 1.3 Implement fail-closed runner and subject projection — 242f277351
+
+### Phase 2: Host and real adopter
+
+- [x] 2.1 Enforce byte routes and public read/link services — 401610b0b8
+- [x] 2.2 Enforce metadata and atomic mutation authorization — a99e416a28
+- [x] 2.3 Adopt Documents permissions through the resolver — 84af89116e
+
+### Phase 3: Validation and handoff
+
+- [x] 3.1 Add live path coverage and browser evidence — 6c5b7a52f3; managed TC-ATT-016–023 passed 8/8, desktop/mobile shared-recipient and unshared-actor browser evidence passed
+- [x] 3.2 Complete configured validation and supplementary checks — cc96cbeeb8; local ordered gate with scoped core/create-app remediation, app build, test:scripts and template checks passed
+- [ ] 3.3 Review and publish evidence with release handoff — supporting source/fixture reviews complete and evidence published; formal review remains INCOMPLETE because installed renderer/schema is absent and required exact-head CI is pending. The human BC acknowledgment is now recorded above; historical independent QA is retained, with independent re-review and new-head CI still required.
+
+### Final verification checkpoint
+
+- Native TC-ATT-017–024 (the migration/backfill test was renumbered from 016 to 024 when develop took that id) cover migration/backfill, private/public bytes and derived images, exact authorized metadata pagination/facets, atomic mutations, live features/API keys/role membership, blocked generic exports and a real two-connection ownership race. Direct iteration: eight passed; independent fixture reviews resolved before publication.
+- Final managed CLI reused a cold/warm verified environment at test head 6c5b7a52f3146d1ac169ccf4cc7b434166c9bea5: eight tests passed in 18.6s, first attempt. The browser verified recipient preview/download with private,no-store and unshared empty metadata/404 at desktop and 390px. Temporary fixtures were removed and the owned environment stopped. Runtime secrets are excluded; the separate design spec is not duplicated here.
+- This final checkpoint updates only the run plan; production and test files match the verified head. PR comments/body own the full evidence and merge-overlap guidance. The claim is released for parent CI/review handoff; no automated approval is asserted.
+
+
+### Phase 4: October 25 review remediation
+
+- [x] 4.1 Reconcile current main without rewriting PR history � ecc9d4d35; preserve owner enforcement, ordered shared-object reference locks, deletion only after commit for the last reference, and main's 100-row record cap and descending tie-breaker. Keep main's TC-ATT-024/025; move the owner migration fixture to TC-ATT-026. Preserve both compatibility entries; the then-pending human waiver is now recorded above.
+- [x] 4.2 Repair stale mocks and verify the combined behavior � local runner, package Jest configuration: 38 attachment suites / 355 tests passed; focused deletion/list/storage-reference suites passed 56/56, including seven new composition regressions. The first broader sweep exposed six Windows drive-root expectation failures in two untouched storage suites; they were excluded from the successful bounded rerun, not reported as passing. Lessons catalog validation, harness JSON parsing and diff whitespace checks passed. Updated main after the sweep touched only currencies, customer_accounts, sales and record_locks; the tested attachment sources are identical.
+- [ ] 4.3 Human review and merge gates � named human maintainer Emergency Security Exception acknowledgment is recorded above. October 25 Kapsik89 QA evidence applies to its recorded local merge checkpoint and is retained; it is not new-head QA. Corrected-head CI remains separate and must be inspected after publication. Keep changes-requested until human reassessment; no automated security waiver, QA approval or merge is granted.
+
+
+### Phase 5: Corrected-head CI budget follow-up (historical; superseded by e9a494cae9)
+
+The cap increases and diagnostic wrapper below were reverted in e9a494cae9. Current caps and the canonical regression test match main; the compact compatibility document passes the unchanged contexts.
+
+- [x] 5.1 Fix the create-app compatibility context deficit � e526ee18b; measured unchanged exact source sets require 124909 / 111965 / 117359 / 124909 bytes for OMH-007/022/057/064. Set only their total caps to the smallest whole KiB values that fit: 124928 / 112640 / 117760 / 124928. OMH-030 already fits at 126948 / 126976. Initial caps, file counts, required/allowed/forbidden reads, rules and all other catalog fields remain unchanged.
+- [x] 5.2 Prove the narrow correction � existing budget assertions now run as per-case subtests; four cases fail before the owner edit and all six tests pass after it. The unmodified machine controller derives knowledge-contract (context-read/evaluator) and passes independent base-plus-test-only failure / corrected-head success with output hashes. All five affected deterministic cases pass in a fresh source-generated scaffold. No asset-sync downgrade or validator change was made.
+- [ ] 5.3 Remaining validation � full deterministic catalog is not complete in the minimal unpacked fixture because unrelated installed/template surfaces are absent; fresh packed-preset proof and the full certified live release lane are unavailable on Windows (official containment preflight rejects win32). These gates are disclosed and not waived. New-head CI remains required; the named human security-exception acknowledgment is now recorded above.
+
+- 2026-10-29: Reconcile main’s #7220 scoped-byte caching with owner-policy no-store responses; keep main’s TC-ATT-026 caching matrix and move the unchanged owner migration fixture to TC-ATT-027. Preserve both upgrade disclosures; the then-pending named human waiver is now recorded above.
+
+- 2026-10-29: Record @haxiorz’s explicit waiver and migration acknowledgment in the dated compatibility entry, spec and upgrade note. Required checks on `2a240edb69148e4db680782b9b21ca9f7875976a` passed ([CI](https://github.com/open-mercato/open-mercato/actions/runs/40910434035)); this documentation follow-up retains historical QA evidence and requires independent re-review plus new-head CI. No runtime changes, policy changes, cap increases, QA approval or merge.

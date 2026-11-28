@@ -5,7 +5,7 @@
  * Two constraints shape this and both are asserted here rather than described:
  *
  * 1. `onTenantCreated` receives an `EntityManager` and NO container, so a
- *    scheduler target can only be registered from `seedDefaults`.
+ *    scheduler target is registered from the two container-backed hooks.
  * 2. `SchedulerService.register` enforces a per-tenant active-schedule cap and
  *    rejects with a 422 once it is reached. Tenant initialization must not fail
  *    because an optional recovery tick could not be registered, so the failure has
@@ -38,13 +38,16 @@ const em = { name: 'em' } as unknown as EntityManager
 function createContainer(options: {
   withScheduler?: boolean
   register?: jest.Mock
+  credentials?: { resolve: jest.Mock; save: jest.Mock }
 } = {}) {
   const withScheduler = options.withScheduler !== false
   const register = options.register ?? jest.fn(async () => undefined)
   const container = {
-    hasRegistration: (token: string) => (token === 'schedulerService' ? withScheduler : true),
+    hasRegistration: (token: string) => token === 'schedulerService' ? withScheduler
+      : token === 'dataEngine' || (token === 'integrationCredentialsService' && !!options.credentials),
     resolve: (token: string) => {
       if (token === 'schedulerService') return { register }
+      if (token === 'integrationCredentialsService') return options.credentials
       if (token === 'dataEngine') return { createCustomEntityRecord: jest.fn(async () => ({ id: 'r' })) }
       throw new Error(`[internal] unexpected token ${token}`)
     },
@@ -177,4 +180,35 @@ describe('setup.seedDefaults', () => {
     await setup.seedDefaults!({ em, container, tenantId: TENANT_A, organizationId: ORG_A1 } as InitSetupContext)
     expect(register).toHaveBeenCalledTimes(1)
   })
+})
+
+describe('setup.onOrganizationCreated', () => {
+  it('registers only the new organization schedule', async () => {
+    const { container, register } = createContainer()
+
+    await setup.onOrganizationCreated!({
+      em,
+      container,
+      tenantId: TENANT_A,
+      organizationId: ORG_A1,
+    } as InitSetupContext)
+
+    expect(register).toHaveBeenCalledTimes(1)
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({
+      tenantId: TENANT_A,
+      organizationId: ORG_A1,
+      targetQueue: EXAMPLE_TODO_BULK_DISPATCH_QUEUE,
+    }))
+  })
+})
+
+it('provisions only a missing scoped offline ERP credential through the integration service', async () => {
+  const credentials = { resolve: jest.fn().mockResolvedValueOnce(null).mockResolvedValue({}), save: jest.fn() }
+  const { container } = createContainer({ credentials })
+  const scope = { tenantId: TENANT_A, organizationId: ORG_A1 }
+  await setup.seedDefaults!({ em, container, ...scope } as InitSetupContext)
+  await setup.seedDefaults!({ em, container, ...scope } as InitSetupContext)
+  expect(credentials.resolve).toHaveBeenCalledWith('example_todo_erp', scope)
+  expect(credentials.save).toHaveBeenCalledTimes(1)
+  expect(credentials.save).toHaveBeenCalledWith('example_todo_erp', {}, scope)
 })

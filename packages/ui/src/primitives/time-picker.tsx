@@ -588,6 +588,13 @@ export type TimePickerProps = {
   onOpenChange?: (open: boolean) => void
   popoverAlign?: 'start' | 'center' | 'end'
   popoverSide?: 'top' | 'right' | 'bottom' | 'left'
+  /**
+   * Render the popover in Radix modal mode. A picker opened from inside a modal Dialog needs
+   * this: the dialog's scroll lock blocks wheel and touch scrolling on portaled content that is
+   * not part of its own lock tree, so the slot list cannot be scrolled. Off by default, because
+   * modal mode adds a background scroll lock that a time field on a plain form page does not need.
+   */
+  popoverModal?: boolean
 
   className?: string
   disabled?: boolean
@@ -707,6 +714,21 @@ function TimePickerCard({
     [disabled, slotListRef],
   )
 
+  const selectedIndex = value ? slotList.indexOf(value) : -1
+
+  React.useLayoutEffect(() => {
+    const container = slotListRef.current
+    if (!container || selectedIndex === -1) return
+    const activeSlot = container.querySelectorAll<HTMLElement>('[data-slot="time-picker-slot"]')[selectedIndex]
+    if (!activeSlot) return
+    const slotTop = activeSlot.offsetTop
+    const slotHeight = activeSlot.offsetHeight
+    const isFullyVisible =
+      slotTop >= container.scrollTop && slotTop + slotHeight <= container.scrollTop + container.clientHeight
+    if (isFullyVisible) return
+    container.scrollTop = Math.max(0, slotTop - (container.clientHeight - slotHeight) / 2)
+  }, [selectedIndex, slotListRef])
+
   return (
     <div
       className={cn(
@@ -821,7 +843,7 @@ function TimePickerCard({
       ) : null}
 
       <div
-        className="flex flex-col gap-0.5 overflow-y-auto p-2"
+        className="relative flex flex-col gap-0.5 overflow-y-auto p-2"
         style={{ maxHeight }}
         ref={slotListRef}
         onKeyDown={handleSlotKeyDown}
@@ -935,6 +957,7 @@ export function TimePicker({
   onOpenChange,
   popoverAlign = 'start',
   popoverSide = 'bottom',
+  popoverModal = false,
   className,
   disabled = false,
   'aria-label': ariaLabel,
@@ -1049,7 +1072,7 @@ export function TimePicker({
   if (!trigger) return card
 
   return (
-    <Popover open={open} onOpenChange={setOpenWithSnapshot}>
+    <Popover open={open} onOpenChange={setOpenWithSnapshot} modal={popoverModal}>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
       <PopoverContent
         align={popoverAlign}

@@ -48,6 +48,8 @@ import {
   type ModuleOverrideTarget,
   type ModuleOverrideTargetDiagnostic,
 } from './module-override-targets'
+import { prepareCrudFormSectionRegistries, projectCrudFormSectionContributions, type CrudFormSectionContributionProjection } from './form-sections'
+import { resolveModuleFile } from './scanner'
 import { buildFactSourceLookup, type FactSourceLookup } from './module-fact-sources'
 import { appendLocalReferenceModuleSource } from './module-facts-discovery'
 
@@ -283,9 +285,17 @@ export interface ModuleFacts {
   factSources?: ModuleFactSourceEntry[]
   ownedContracts?: ModuleOwnedContracts
   factDiagnostics?: ModuleFactDiagnostic[]
+  formSectionContributions?: ModuleFormSectionContributionFact[]
   overrideTargets?: ModuleOverrideTarget[]
   overrideTargetDiagnostics?: ModuleOverrideTargetDiagnostic[]
   warnings: string[]
+}
+
+export type ModuleFormSectionContributionFact = {
+  id: string
+  key: string
+  operation: CrudFormSectionContributionProjection['operation']
+  source: ModuleFactSourceRef
 }
 
 export interface ExtractModuleFactsOptions {
@@ -313,6 +323,7 @@ export interface ExtractModuleFactsOptions {
   sourceKind?: ModuleFactProjectionSourceKind
   /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
   factsContractVersion?: 1 | 2
+  formSectionContributions?: readonly CrudFormSectionContributionProjection[]
 }
 
 /** A discovered module and the source directory its facts are extracted from. */
@@ -2339,6 +2350,10 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
       left.id.localeCompare(right.id),
   )
 
+  const formSectionContributions = options.factsContractVersion === 1 ? [] :
+    (options.formSectionContributions ?? []).map(({ id, key, operation, sourceFileName, exportName }) => ({
+      id, key, operation, source: { sourcePath: path.posix.join(sourceRoot, sourceFileName), exportName },
+    }))
   const facts: ModuleFacts = {
     module: moduleId,
     title,
@@ -2365,6 +2380,7 @@ export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFa
     extensionSurfaces,
     ...(provenance.factSources.length > 0 ? { factSources: provenance.factSources } : {}),
     ...(ownedContracts ? { ownedContracts } : {}),
+    ...(formSectionContributions.length ? { formSectionContributions } : {}),
     ...(factDiagnostics.length > 0 ? { factDiagnostics } : {}),
     warnings,
   }
@@ -2414,12 +2430,17 @@ export interface ModuleFactsJsonEntry {
   factSources?: ModuleFactSourceEntry[]
   ownedContracts?: ModuleOwnedContracts
   factDiagnostics?: ModuleFactDiagnostic[]
+  formSectionContributions?: ModuleFormSectionContributionFact[]
   overrideTargets?: ModuleOverrideTarget[]
   overrideTargetDiagnostics?: ModuleOverrideTargetDiagnostic[]
 }
 
 const EMPTY_SECTION_MARKER = '_none_'
 const MAX_ANCHORED_SECTION_BYTES = 32 * 1024
+// Room for what renderModuleFactsDirectory wraps around a section (title, back link,
+// end marker): a section must be split while its table alone still fits the cap.
+const ANCHORED_SECTION_WRAPPER_RESERVE_BYTES = 512
+const MAX_COMPACT_SECTION_BYTES = MAX_ANCHORED_SECTION_BYTES - ANCHORED_SECTION_WRAPPER_RESERVE_BYTES
 
 interface ModuleFactsRenderContext {
   sourceRoot: string
@@ -2454,7 +2475,7 @@ function renderGroupedTableSection(
     }
     for (const row of group.rows) {
       const candidateRows = [...currentRows, row]
-      if (Buffer.byteLength(renderChunk(candidateRows, chunks.length)) <= MAX_ANCHORED_SECTION_BYTES) {
+      if (Buffer.byteLength(renderChunk(candidateRows, chunks.length)) <= MAX_COMPACT_SECTION_BYTES) {
         currentRows = candidateRows
         continue
       }
@@ -2463,7 +2484,7 @@ function renderGroupedTableSection(
       }
       chunks.push(currentRows)
       currentRows = [row]
-      if (Buffer.byteLength(renderChunk(currentRows, chunks.length)) > MAX_ANCHORED_SECTION_BYTES) {
+      if (Buffer.byteLength(renderChunk(currentRows, chunks.length)) > MAX_COMPACT_SECTION_BYTES) {
         throw new Error(`[module-facts] ${sectionHeading} group "${group.title}" contains a row larger than the anchored read cap`)
       }
     }
@@ -2512,7 +2533,7 @@ function renderEventsSection(
   const rows = events.map((event) => {
     const transports = [event.clientBroadcast ? 'client' : null, event.portalBroadcast ? 'portal' : null]
       .filter((value): value is string => value !== null)
-    return `| ${event.id} | ${event.category ?? '—'} | ${event.entity ?? '—'} | ${transports.join(', ') || '—'} | ${renderLookedUpSource(lookup, 'event', event.id, context)} |`
+    return `| ${event.id} |${event.category ?? '—'}|${event.entity ?? '—'}|${transports.join(', ') || '—'}|${renderLookedUpSource(lookup, 'event', event.id, context)}|`
   })
   return [heading, '', header, divider, ...rows].join('\n')
 }
@@ -2696,7 +2717,7 @@ function renderExtensionHostsSection(
     `| ${host.id} | ${host.family} | ${host.capabilities.join(', ') || '—'} | ${renderExtensionHostContext(host)} | ${host.stability.toUpperCase()} | ${renderExtensionHostSource(host, context)} |`,
   )
   const compact = [...header, ...renderRows(boundHosts)].join('\n')
-  if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
+  if (Buffer.byteLength(compact) <= MAX_COMPACT_SECTION_BYTES) return compact
   const families = [...new Set(boundHosts.map((host) => host.family))]
   return renderGroupedTableSection(
     '## UMES hosts',
@@ -2849,7 +2870,7 @@ function renderOverrideTargetsSection(
     return `| ${target.domain} | ${path} | ${modes} | ${fact} | ${renderSourceRefLink(target.source, context)} |`
   })
   const compact = ['## Exact override targets', '', header, divider, ...renderRows(targets)].join('\n')
-  if (Buffer.byteLength(compact) <= MAX_ANCHORED_SECTION_BYTES) return compact
+  if (Buffer.byteLength(compact) <= MAX_COMPACT_SECTION_BYTES) return compact
   const domains = [...new Set(targets.map((target) => target.domain))]
   return renderGroupedTableSection(
     '## Exact override targets',
@@ -3155,6 +3176,7 @@ export function toModuleFactsJsonEntry(facts: ModuleFacts): ModuleFactsJsonEntry
     ...(facts.factDiagnostics && facts.factDiagnostics.length > 0
       ? { factDiagnostics: facts.factDiagnostics }
       : {}),
+    ...(facts.formSectionContributions?.length ? { formSectionContributions: facts.formSectionContributions } : {}),
     ...(facts.overrideTargets && facts.overrideTargets.length > 0
       ? { overrideTargets: facts.overrideTargets }
       : {}),
@@ -3380,6 +3402,19 @@ export interface LocalReferenceModuleFactsResult {
   unresolvedTargets: string[]
 }
 
+export function prepareReferenceFormSectionContributions(
+  reference: ModuleFactSource,
+): ReadonlyMap<string, readonly CrudFormSectionContributionProjection[]> {
+  const roots = { appBase: reference.moduleRoot, pkgBase: reference.moduleRoot }
+  const sourceRoot = reference.portableSourceRoot ?? toPortableSourceRoot(reference.moduleId, reference.from ?? null)
+  const imports = { appBase: sourceRoot, pkgBase: sourceRoot }
+  return projectCrudFormSectionContributions(prepareCrudFormSectionRegistries({
+    modules: [{ modId: reference.moduleId, roots, resolve: (relativePath) => resolveModuleFile(roots, imports, relativePath) }],
+    identities: [{ id: reference.moduleId }],
+    requiresByModule: new Map(),
+  }))
+}
+
 /**
  * Produces the reference projection of an app-local module from an explicitly activated,
  * disposable selection context: the local source is appended to the package sources and
@@ -3408,6 +3443,7 @@ export function extractLocalReferenceModuleFacts(
   const sources = appendLocalReferenceModuleSource(options.packageSources, reference)
   const activated = extractAllModuleFacts({
     sources,
+    formSectionContributions: prepareReferenceFormSectionContributions(reference),
     registryPath: options.registryPath ?? null,
     registrySource: options.registrySource ?? null,
     coreVersion: options.coreVersion ?? null,
@@ -3469,6 +3505,7 @@ export interface ExtractAllModuleFactsOptions {
    * so a disposable projection can publish the gap instead of silently dropping it.
    */
   unresolvedFirstPartyTargets?: 'throw' | 'collect'
+  formSectionContributions?: ReadonlyMap<string, readonly CrudFormSectionContributionProjection[]>
   /** Generated-facts compatibility projection. Omitted means the corrected v2 contract. */
   factsContractVersion?: 1 | 2
 }
@@ -3538,6 +3575,7 @@ function extractAllModuleFactsWithCache(options: ExtractAllModuleFactsOptions): 
       ...(source.portableSourceRoot ? { portableSourceRoot: source.portableSourceRoot } : {}),
       ...(source.sourceKind ? { sourceKind: source.sourceKind } : {}),
       factsContractVersion: options.factsContractVersion ?? 2,
+      formSectionContributions: options.formSectionContributions?.get(source.moduleId),
     })
     factsByModule[source.moduleId] = facts
     warnings.push(...facts.warnings)
@@ -3753,6 +3791,12 @@ const OVERRIDE_DOMAIN_COVERAGE: Readonly<Record<string, ModuleFactCoverageRow>> 
     value: 'nav',
     status: 'framework-only',
     note: 'nav.groupOrder is an app-level framework setting; no module target is ever emitted for it',
+  },
+  forms: {
+    value: 'forms',
+    status: 'emitted-example',
+    requiresGeneratedRegistry: true,
+    note: 'exact forms.sections targets projected from generated section contributions',
   },
 }
 

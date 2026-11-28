@@ -43,6 +43,7 @@ function harness(organizations: string[], persistedOrganizations: Array<{
     findOne: jest.fn(async () => ({ id: 'document-1', archivedAt: null })),
   }
   const rbacService = {
+    userHasAllFeatures: jest.fn(async () => false),
     invalidateUserCache: jest.fn(async () => {
       authorizationOrder.push('invalidate')
     }),
@@ -131,6 +132,21 @@ describe('Documents collaboration organization hierarchy', () => {
       USER_ID,
       container,
     )
+  })
+
+  it('preserves parent organization access with the real document recipient authorization', async () => {
+    const { container, em } = harness(
+      [PARENT_ORGANIZATION_ID],
+      [{ id: PARENT_ORGANIZATION_ID, descendantIds: [CHILD_ORGANIZATION_ID] }],
+    )
+    em.findOne.mockResolvedValue({
+      id: DOCUMENT_ID, ownerUserId: USER_ID, tenantId: TENANT_ID,
+      organizationId: CHILD_ORGANIZATION_ID, archivedAt: null, deletedAt: null,
+    })
+    const permissions = jest.requireActual<typeof import('../lib/permissions')>('../lib/permissions')
+    mockResolveUserAccess.mockImplementation(permissions.resolveUserAccess)
+
+    await expect(authorizeCollabContext(container, { ...context(), tier: 'owner' })).resolves.toBe(true)
   })
 
   it.each([

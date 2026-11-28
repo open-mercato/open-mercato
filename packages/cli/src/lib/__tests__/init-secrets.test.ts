@@ -1,4 +1,6 @@
-import { resolveInitDerivedSecrets } from '../init-secrets'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
+import { resolveInitDerivedSecrets, resolveInitSuperadminCredentials } from '../init-secrets'
 
 describe('resolveInitDerivedSecrets', () => {
   it("seeds the well-known 'secret' password in non-production when no env overrides are set", () => {
@@ -77,3 +79,85 @@ describe('resolveInitDerivedSecrets', () => {
   })
 })
 
+
+describe('production bootstrap superadmin credentials', () => {
+  const production = { NODE_ENV: 'production' }
+
+  it.each([undefined, '', '   ', 'secret', 'password', ' PASSWORD ', 'changeme', 'change-me', 'replace_me'])(
+    'rejects an absent or placeholder production password: %s', (password) => {
+      expect(() => resolveInitSuperadminCredentials([], {
+        ...production, OM_INIT_SUPERADMIN_PASSWORD: password,
+      })).toThrow('requires a unique superadmin password')
+    },
+  )
+
+  it.each(['--skip-password-policy', '--skip-password-policy=true', '--allow-weak-password', '--allow-weak-password=true'])(
+    'enforces production policy despite %s', (flag) => {
+      expect(() => resolveInitSuperadminCredentials([flag, '--password=weak'], production))
+        .toThrow('does not meet the configured password policy')
+      expect(resolveInitSuperadminCredentials([flag, '--password=Unique-Owner-937!'], production).skipPasswordPolicy).toBe(false)
+    },
+  )
+
+  it('uses the configured policy and never includes the password in errors', () => {
+    const password = 'Unique-Owner-937!'
+    expect(() => resolveInitSuperadminCredentials([`--password=${password}`], {
+      ...production, OM_PASSWORD_MIN_LENGTH: '40',
+    })).toThrow('does not meet the configured password policy')
+    try {
+      resolveInitSuperadminCredentials([`--password=${password}`], { ...production, OM_PASSWORD_MIN_LENGTH: '40' })
+    } catch (error) {
+      expect(String(error)).not.toContain(password)
+    }
+  })
+
+  it('rejects placeholders even with a relaxed policy', () => {
+    expect(() => resolveInitSuperadminCredentials([], {
+      ...production, OM_INIT_SUPERADMIN_PASSWORD: 'password', OM_PASSWORD_REQUIRE_DIGIT: 'false',
+      OM_PASSWORD_REQUIRE_UPPERCASE: 'false', OM_PASSWORD_REQUIRE_SPECIAL: 'false',
+    })).toThrow('requires a unique superadmin password')
+  })
+
+  it('prefers command arguments over environment overrides', () => {
+    expect(resolveInitSuperadminCredentials(['--email=owner@example.test', '--password=Unique-Owner-937!'], {
+      NODE_ENV: ' Production ', OM_INIT_SUPERADMIN_PASSWORD: 'password', OM_INIT_SUPERADMIN_EMAIL: 'other@example.test',
+    })).toEqual({ email: 'owner@example.test', password: 'Unique-Owner-937!', skipPasswordPolicy: false })
+  })
+
+  it('uses the CLI locale for operator-facing production diagnostics', () => {
+    expect(() => resolveInitSuperadminCredentials([], { ...production, LC_ALL: 'pl_PL.UTF-8' }))
+      .toThrow('Inicjalizacja produkcyjna wymaga')
+    expect(() => resolveInitSuperadminCredentials([], { ...production, LC_ALL: 'unknown' }))
+      .toThrow('Production initialization requires')
+  })
+
+  it('accepts a policy-compliant environment password', () => {
+    expect(resolveInitSuperadminCredentials([], {
+      ...production, OM_INIT_SUPERADMIN_PASSWORD: 'Unique-Owner-937!',
+    }).password).toBe('Unique-Owner-937!')
+  })
+
+  it.each([undefined, 'development', 'test', 'staging'])('preserves non-production defaults for %s', (nodeEnv) => {
+    expect(resolveInitSuperadminCredentials([], { NODE_ENV: nodeEnv })).toEqual({
+      email: 'superadmin@acme.com', password: 'secret', skipPasswordPolicy: true,
+    })
+    expect(resolveInitSuperadminCredentials([], { NODE_ENV: nodeEnv, OM_INIT_SUPERADMIN_PASSWORD: 'password' }).password).toBe('password')
+    expect(resolveInitSuperadminCredentials(['--skip-password-policy=false'], { NODE_ENV: nodeEnv }).skipPasswordPolicy).toBe(false)
+  })
+})
+
+describe('full-app Compose bootstrap defaults', () => {
+  it.each(['starters/docker/compose.fullapp.yml', 'packages/create-app/template/docker-compose.fullapp.yml'])(
+    '%s cannot bootstrap predictable production credentials', (composePath) => {
+      const compose = readFileSync(path.resolve(__dirname, '../../../../..', composePath), 'utf8')
+      const fallback = compose.match(/OM_INIT_SUPERADMIN_PASSWORD: \$\{OM_INIT_SUPERADMIN_PASSWORD:-(.*?)\}/)?.[1]
+      expect(fallback).toBeDefined()
+      expect(() => resolveInitSuperadminCredentials([], {
+        NODE_ENV: 'production', OM_INIT_SUPERADMIN_PASSWORD: fallback,
+      })).toThrow('requires a unique superadmin password')
+      expect(resolveInitSuperadminCredentials([], {
+        NODE_ENV: 'development', OM_INIT_SUPERADMIN_PASSWORD: fallback,
+      }).password).toBe(fallback)
+    },
+  )
+})

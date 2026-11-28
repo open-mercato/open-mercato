@@ -12,7 +12,7 @@ import {
   type StepSink,
 } from '@open-mercato/web-research'
 import { createModelFactory } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
-import type { WebSearchSettings } from './policy'
+import { hostnameOf, isHostAllowed, type WebSearchSettings } from './policy'
 
 /** Adapters that need a host capability the stored config cannot express. */
 const MODEL_ADAPTER_ID = 'model-native'
@@ -156,6 +156,8 @@ export function buildWebSearchEngine(options: BuildEngineOptions): BuiltEngine {
   })
 
   const cache = resolveCache(container, tenantId)
+  const restrictContentUrls =
+    settings.guardrails.allowDomains.length > 0 || settings.guardrails.denyDomains.length > 0
 
   // `lastResort` deliberately bypasses `enabled`, which would let a spent ceiling
   // be charged again on every short run — the exact case the ceiling exists for.
@@ -169,6 +171,14 @@ export function buildWebSearchEngine(options: BuildEngineOptions): BuiltEngine {
       policy,
       adapters,
       http,
+      ...(restrictContentUrls
+        ? {
+            isContentUrlAllowed: (url: string) => {
+              const host = hostnameOf(url)
+              return host !== null && isHostAllowed(host, settings.guardrails)
+            },
+          }
+        : {}),
       ...(cache ? { cache } : {}),
       ...(options.onStep ? { onStep: options.onStep } : {}),
     }),

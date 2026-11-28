@@ -263,6 +263,7 @@ Legacy tables:
 6. Error payloads must not reveal provider credentials or internal stack traces.
 7. Persistence/query layer uses ORM parameterized queries only; no dynamic SQL string interpolation for user input.
 8. External URLs surfaced in `_integrations.*.externalUrl` must be validated and encoded before rendering/navigation.
+9. New explicit interaction author/owner references must resolve to a non-deleted user in the interaction's tenant; a user's home organization may differ from the record's organization. Canonical commands enforce this before persistence, including compatibility activity writes. Unchanged references on update and authors carried from a matching stored legacy activity are historical references, not new assignments. Legacy promotion verifies the stored activity ID, parent, tenant, and organization before preserving its author; adapter source values alone do not grant this exception. Historical author reads and undo/redo restoration retain the tenant boundary but allow soft-deleted users so offboarding does not remove attribution or prevent replay. Author enrichment keys results by the authorized record's tenant, organization, and user ID; record-level organization authorization remains unchanged.
 
 ### Detail endpoint include tokens
 - Add `include=interactions`.
@@ -337,6 +338,14 @@ This spec follows the deprecation protocol for contract surfaces (API routes, re
 3. Keep adapter bridge for at least one minor release.
 4. Document migration in `RELEASE_NOTES.md`.
 5. Prepare follow-up removal spec for legacy surfaces in a later release.
+
+### Migration & Backward Compatibility — interaction users (#7531)
+
+Canonical interaction create/update and legacy activity adapters reject foreign-tenant or missing author/owner references, and new assignments to deleted users, with a generic `400` user-not-found response. Same-tenant users remain valid across home organizations, including an implicit actor working in another organization. Null and omitted update fields retain their clearing and preservation semantics. Create retains author normalization and superadmin delegation for valid references; an implicit actor outside the record's tenant is stored as a null author. Users without a tenant are not assignable interaction references. Snapshot restoration checks the referenced user's tenant and existence while permitting soft deletion after the original write. Unchanged update references and verified legacy promotion likewise allow soft deletion, while missing and foreign-tenant references remain invalid.
+
+Routes and response fields remain unchanged. Canonical lists, compatibility activity lists, and person/company details return null author names and emails for foreign-tenant or missing users, while retaining the reference UUID. Same-tenant authors remain readable across organizations and after soft deletion. No database migration runs. Clients must select live authors and owners from the interaction's tenant for new explicit assignments. Operators should audit foreign-tenant or missing references before replaying command history; soft-deleted same-tenant references do not require rewriting historical records. Record access remains subject to the acting user's existing organization and privacy guards.
+
+Regression coverage: `TC-CRM-7531-interaction-user-scope.spec.ts` exercises canonical and legacy writes across two tenants and multiple organizations, plus poisoned canonical/legacy rows on list and person/company detail reads. Focused command tests cover missing/deleted new assignments, same-tenant cross-organization delegation and implicit actors, null/omitted updates, historical offboarding through update/delete undo and create redo, and poisoned foreign-tenant snapshots. Command and HTTP regressions also exercise offboarded legacy promotion through canonical and compatibility edits/deletes, unchanged reference resubmission, rejected deleted-user assignments, and adapter-source spoofing. Mixed-scope and HTTP read tests cover same-tenant cross-organization and offboarded attribution alongside foreign-tenant isolation.
 
 ### Migration plan
 1. Create `customer_interactions`.
@@ -593,6 +602,12 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - **Fully compliant**: Approved for implementation planning.
 
 ## Changelog
+### 2026-10-29
+- Preserve verified historical authors during legacy activity promotion and unchanged update references, with focused command and HTTP regressions. New assignments still require live same-tenant users.
+
+### 2026-10-28
+- Scope interaction author/owner references to the record's tenant (#7531), preserving cross-organization attribution. New explicit assignments require live users; historical reads and snapshot restoration allow soft-deleted same-tenant users. Document invalid references and migration behavior.
+
 ### 2026-03-19
 - Clarified rollout behavior: dotted feature flags are canonical, underscore aliases remain readable for transition safety, and `customers.interactions.unified` stays off by default until `mercato customers interactions:backfill` is completed per tenant.
 - Clarified compatibility read behavior: legacy adapter GET routes may merge canonical adapter writes with legacy fallback while unified mode is disabled, but canonical interactions remain the only new write source.

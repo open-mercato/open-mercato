@@ -1,5 +1,12 @@
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  applyModuleOverridesFromEnabledModules,
+  resetModuleContractOverridesForTests,
+  resetModuleOverrideAppliersForTests,
+} from '@open-mercato/shared/modules/overrides'
+import { getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -149,6 +156,56 @@ describe('shared modules registry', () => {
         translations: { en: { fresh: 'Fresh' } },
       }),
     ])
+  })
+
+  describe('i18n-only registration with a setup override (#7243)', () => {
+    beforeEach(() => {
+      resetModuleContractOverridesForTests()
+      resetModuleOverrideAppliersForTests()
+    })
+
+    afterEach(() => {
+      resetModuleContractOverridesForTests()
+      resetModuleOverrideAppliersForTests()
+    })
+
+    it('merges translation stubs instead of replacing the runtime registry', () => {
+      applyModuleOverridesFromEnabledModules([
+        { id: 'auth', from: '@open-mercato/core', overrides: { setup: { defaultRoleFeatures: {} } } },
+      ])
+      const registry = loadRegistry()
+      registry.registerModules([
+        {
+          id: 'auth',
+          features: [{ id: 'auth.users.view', title: 'View users', module: 'auth' }],
+          setup: { defaultRoleFeatures: { admin: ['auth.users.view'] } },
+          translations: { en: { title: 'Auth' } },
+        } as Module,
+        {
+          id: 'notary',
+          features: [{ id: 'notary.cases.view', title: 'View cases', module: 'notary' }],
+        } as Module,
+      ])
+
+      registry.registerModules([
+        { id: 'auth', translations: { en: { title: 'Authentication' } } } as Module,
+      ])
+
+      expect(registry.getModules()).toEqual([
+        expect.objectContaining({
+          id: 'auth',
+          features: [expect.objectContaining({ id: 'auth.users.view' })],
+          setup: expect.objectContaining({ defaultRoleFeatures: {} }),
+          translations: { en: { title: 'Authentication' } },
+        }),
+        expect.objectContaining({
+          id: 'notary',
+          features: [expect.objectContaining({ id: 'notary.cases.view' })],
+        }),
+      ])
+      expect(getEnabledModuleIds()).toEqual(['auth', 'notary'])
+      expect(authorizeFeatures(['notary.cases.view'], { grantedFeatures: [], unrestricted: true })).toBe(true)
+    })
   })
 
   it('preserves translations when runtime modules register after locale shards', () => {

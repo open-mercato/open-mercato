@@ -41,6 +41,8 @@ export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub) return await unauthorized()
 
+  const { t } = await resolveTranslations()
+
   const hostSet = Boolean(process.env.MEILISEARCH_HOST?.trim())
   const apiKeySet = Boolean(process.env.MEILISEARCH_API_KEY?.trim())
   const configured = hostSet && apiKeySet
@@ -56,11 +58,11 @@ export async function GET(req: Request) {
     envVars: {
       MEILISEARCH_HOST: {
         set: hostSet,
-        hint: 'The URL of your Meilisearch server (e.g., http://localhost:7700)',
+        hint: t('search.settings.fulltext.hints.host', 'The URL of your Meilisearch server (e.g., http://localhost:7700)'),
       },
       MEILISEARCH_API_KEY: {
         set: apiKeySet,
-        hint: 'API key for authentication with Meilisearch',
+        hint: t('search.settings.fulltext.hints.apiKey', 'API key for authentication with Meilisearch'),
       },
     },
     optionalEnvVars: {
@@ -68,13 +70,13 @@ export async function GET(req: Request) {
         set: Boolean(indexPrefix),
         value: indexPrefix,
         default: 'om',
-        hint: 'Prefix for index names to namespace indexes per tenant',
+        hint: t('search.settings.fulltext.hints.indexPrefix', 'Prefix for index names to namespace indexes per tenant'),
       },
       SEARCH_EXCLUDE_ENCRYPTED_FIELDS: {
         set: Boolean(process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS),
         value: excludeEncrypted,
         default: false,
-        hint: 'Exclude encrypted fields from full-text indexing for security',
+        hint: t('search.settings.fulltext.hints.excludeEncrypted', 'Exclude encrypted fields from full-text indexing for security'),
       },
     },
   }

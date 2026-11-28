@@ -9,6 +9,16 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/commands/customFieldSnapshots'),
+  loadCustomFieldSnapshot: jest.fn(async () => ({})),
+}))
+
+jest.mock('../../lib/undo-guard', () => ({
+  ...jest.requireActual('../../lib/undo-guard'),
+  isUnchangedSince: jest.fn(() => true),
+}))
+
 type StatementRecord = {
   id: string
   organizationId: string
@@ -17,6 +27,7 @@ type StatementRecord = {
   referenceNumber: string | null
   referenceIssuedAt: Date | null
   deletedAt: Date | null
+  createdAt: Date
   updatedAt: Date
 }
 
@@ -50,6 +61,7 @@ type Harness = {
   ctx: CommandRuntimeContext
   em: {
     fork: jest.Mock
+    transactional: jest.Mock
     findOne: jest.Mock
     flush: jest.Mock
     getKysely: jest.Mock
@@ -81,6 +93,7 @@ function buildRecord(overrides: Partial<StatementRecord> = {}): StatementRecord 
     referenceNumber: null,
     referenceIssuedAt: null,
     deletedAt: null,
+    createdAt: new Date('2026-09-01T00:00:00.000Z'),
     updatedAt: new Date('2026-10-01T00:00:00.000Z'),
     ...overrides,
   }
@@ -95,11 +108,13 @@ function buildHarness(record: StatementRecord, downstreamTotal = 0): Harness {
   queryBuilder.executeTakeFirst = downstreamQuery
   const em = {
     fork: jest.fn(),
+    transactional: jest.fn(),
     findOne: jest.fn(async () => record),
     flush: jest.fn(async () => undefined),
     getKysely: jest.fn(() => queryBuilder),
   }
   em.fork.mockReturnValue(em)
+  em.transactional.mockImplementation(async (work: (tx: typeof em) => Promise<unknown>) => work(em))
   const dataEngine = {
     setCustomFields: jest.fn(async () => undefined),
     markOrmEntityChange: jest.fn(),

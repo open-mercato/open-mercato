@@ -1,14 +1,14 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { E } from '#generated/entities.ids.generated'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { crudFormExtensionSpotId } from '@open-mercato/shared/modules/widgets/extension-points'
 import { extensionPoints } from '@open-mercato/core/modules/customers/extension-points'
@@ -19,19 +19,22 @@ import {
   createCompanyFormSchema,
   type CompanyFormValues,
 } from '../../../../components/formConfig'
+import { resolveReturnTo } from '../../../../lib/returnTo'
 
+const LIST_HREF = '/backend/customers/companies'
 const COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 export default function CreateCompanyPage() {
   const t = useT()
-  const router = useRouter()
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const { organizationId } = useOrganizationScopeDetail()
 
   const formSchema = React.useMemo(() => createCompanyFormSchema(), [])
   const fields = React.useMemo(() => createCompanyFormFields(t), [t])
   const groups = React.useMemo(() => createCompanyFormGroups(t), [t])
-  const returnTo = searchParams.get('returnTo')
+  const requestedReturnTo = searchParams.get('returnTo')
+  const returnTo = requestedReturnTo === null ? null : resolveReturnTo(requestedReturnTo) ?? LIST_HREF
 
   return (
     <Page>
@@ -39,21 +42,23 @@ export default function CreateCompanyPage() {
         <CrudForm<CompanyFormValues>
           title={t('customers.companies.create.title')}
           titleHeadingLevel={1}
-          backHref={returnTo ?? '/backend/customers/companies'}
+          backHref={returnTo ?? LIST_HREF}
           fields={fields}
           groups={groups}
           initialValues={{ addresses: [] as CompanyFormValues['addresses'] }}
           injectionSpotId={extensionPoints.hosts.companyForm.spotId}
           legacyInjectionSpotId={COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID}
+          entityId="customers.company"
+          resourceKind="customers.company"
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           submitLabel={t('customers.companies.form.submit')}
-          cancelHref={returnTo ?? '/backend/customers/companies'}
+          cancelHref={returnTo ?? LIST_HREF}
           schema={formSchema}
           onSubmit={async (values) => {
             const addresses = Array.isArray(values.addresses) ? values.addresses : []
             let payload: Record<string, unknown>
             try {
-              payload = buildCompanyPayload(values, organizationId)
+              payload = buildCompanyPayload(values, organizationId, locale)
             } catch (err) {
               if (err instanceof Error) {
                 if (err.message === 'DISPLAY_NAME_REQUIRED') {
@@ -94,6 +99,8 @@ export default function CreateCompanyPage() {
                 }
                 const name = normalize(entry.name)
                 if (name !== undefined) body.name = name
+                const companyName = normalize(entry.companyName)
+                if (companyName !== undefined) body.companyName = companyName
                 const purpose = normalize(entry.purpose)
                 if (purpose !== undefined) body.purpose = purpose
                 const line2 = normalize(entry.addressLine2)
@@ -125,9 +132,11 @@ export default function CreateCompanyPage() {
             }
 
             flash(t('customers.companies.form.success'), 'success')
-            if (returnTo) router.push(returnTo)
-            else if (newId) router.push(`/backend/customers/companies-v2/${newId}`)
-            else router.push('/backend/customers/companies')
+            return newId ? { resourceId: newId } : undefined
+          }}
+          successRedirect={(_values, result) => {
+            const newId = result?.resourceId
+            return returnTo ?? (newId ? `/backend/customers/companies-v2/${newId}` : LIST_HREF)
           }}
         />
       </PageBody>

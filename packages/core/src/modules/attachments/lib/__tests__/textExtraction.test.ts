@@ -88,6 +88,46 @@ describe('extractAttachmentContent', () => {
     expect(getMammothMock().extractRawText).not.toHaveBeenCalled()
   })
 
+  it('strips U+0000 from plain text and keeps every other character', async () => {
+    const { extractAttachmentContent } = await import('../textExtraction')
+    const filePath = await writeTempFile('nul.txt', 'AB\u0000C\n\tzażółć\u0001 \u0000')
+    const result = await extractAttachmentContent({ filePath, mimeType: 'text/plain' })
+    expect(result).toBe('ABC\n\tzażółć\u0001')
+  })
+
+  it('returns null when plain text holds nothing but U+0000 and whitespace', async () => {
+    const { extractAttachmentContent } = await import('../textExtraction')
+    const filePath = await writeTempFile('only-nul.txt', ' \u0000\u0000\n')
+    const result = await extractAttachmentContent({ filePath, mimeType: 'text/plain' })
+    expect(result).toBeNull()
+  })
+
+  it('strips U+0000 from the PDF text layer', async () => {
+    const mockPage = {
+      getTextContent: jest.fn().mockResolvedValue({ items: [{ str: 'Ty\u0000pe3' }, { str: '\u0000font' }] }),
+      cleanup: jest.fn(),
+    }
+    getPdfMock().getDocument.mockReturnValue({
+      promise: Promise.resolve({ numPages: 1, getPage: jest.fn().mockResolvedValue(mockPage) }),
+      destroy: jest.fn().mockResolvedValue(undefined),
+    })
+    const filePath = await writeTempFile('nul.pdf', '%PDF-1.4 placeholder')
+    const { extractAttachmentContent } = await import('../textExtraction')
+    const result = await extractAttachmentContent({ filePath, mimeType: 'application/pdf' })
+    expect(result).toBe('Type3 font')
+  })
+
+  it('strips U+0000 from DOCX text', async () => {
+    getMammothMock().extractRawText.mockResolvedValue({ value: 'wo\u0000rd\u0000' })
+    const filePath = await writeTempFile('nul.docx', 'placeholder')
+    const { extractAttachmentContent } = await import('../textExtraction')
+    const result = await extractAttachmentContent({
+      filePath,
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    expect(result).toBe('word')
+  })
+
   it('extracts DOCX content via mammoth (pure-JS) — HUNT-PARSER-01 marker path', async () => {
     getMammothMock().extractRawText.mockResolvedValue({ value: 'HUNT-PARSER-01-MARKER extracted text' })
     const filePath = await writeTempFile('document.docx', 'placeholder')

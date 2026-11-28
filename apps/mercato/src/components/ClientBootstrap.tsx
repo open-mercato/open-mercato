@@ -2,6 +2,8 @@
 
 import * as React from 'react'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { setInjectionRegistryError } from '@open-mercato/shared/modules/widgets/injection-loader'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ModuleOverrideDomain } from '@open-mercato/shared/modules/overrides'
 
 const logger = createLogger('app').child({ component: 'ClientBootstrap' })
@@ -12,7 +14,7 @@ const logger = createLogger('app').child({ component: 'ClientBootstrap' })
 // a disabled widget reappears on hydration (#5152). Only the domains backing the
 // registries below are dispatched — the rest stay server-only, so a domain whose
 // applier never loads in the browser is not reported as unwired.
-export const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widgets', 'notifications']
+export const CLIENT_OVERRIDE_DOMAINS: readonly ModuleOverrideDomain[] = ['widgets', 'notifications', 'forms']
 
 let moduleOverridesPromise: Promise<void> | null = null
 
@@ -82,9 +84,39 @@ export function ensureModuleOverridesApplied(): Promise<void> {
   return promise
 }
 
+let formSectionsPromise: Promise<void> | null = null
+
+export function ensureCrudFormSectionRegistry(): Promise<void> {
+  if (formSectionsPromise) return formSectionsPromise
+  const promise = (async () => {
+    const runtime = await import('@open-mercato/shared/lib/crud/form-sections/client-registry')
+    try {
+      await ensureModuleOverridesApplied()
+      if (!moduleOverridesPromise) throw new Error('[internal] CrudForm section overrides did not load')
+      const generated = await import('@/.mercato/generated/crud-form-section-runtime.generated')
+      runtime.registerCrudFormSectionClientRegistry({
+        hostFacts: generated.crudFormSectionClientHostFacts,
+        runtimeEntries: generated.crudFormSectionRuntimeEntries,
+        versionedSinks: generated.crudFormSectionClientVersionedSinks,
+        contributedOverrides: generated.crudFormSectionContributedOverrides,
+      })
+    } catch (error) {
+      runtime.failCrudFormSectionClientRegistry()
+      throw error
+    }
+  })().catch((error) => {
+    formSectionsPromise = null
+    getTelemetryRuntime()?.reportError(error, { module: 'client_bootstrap', code: 'client_bootstrap.form_sections_failed' })
+    logger.error('Failed to register client CrudForm section descriptors', { err: error })
+  })
+  formSectionsPromise = promise
+  return promise
+}
+
 /** @__internal Test-only hook — forget that the dispatch already ran. */
 export function resetModuleOverridesAppliedForTests(): void {
   moduleOverridesPromise = null
+  formSectionsPromise = null
 }
 
 export type ClientBootstrapProfile =
@@ -155,6 +187,10 @@ export function groupsForProfile(profile: ClientBootstrapProfile): ClientRegistr
       return ['translations', 'injection']
     case 'checkout':
       return ['translations', 'injection', 'payments']
+    case 'login':
+      // The login form hosts the `auth.login:form` injection spot for alternative
+      // sign-in providers, which renders empty without the injection registry.
+      return ['translations', 'injection']
     case 'message':
       return ['messages']
     default:
@@ -201,6 +237,7 @@ async function loadRegistryGroup(group: ClientRegistryGroup): Promise<void> {
         coreRegistry.registerCoreInjectionWidgets(widgets.injectionWidgetEntries)
         coreRegistry.registerCoreInjectionTables(tables.injectionTables, widgets.injectionWidgetEntries)
         coreRegistry.registerEnabledModuleIds(enabledModules.enabledModuleIds)
+        setInjectionRegistryError(null)
         break
       }
       case 'dashboard': {
@@ -229,6 +266,10 @@ async function loadRegistryGroup(group: ClientRegistryGroup): Promise<void> {
     loadedGroups.add(group)
   })().catch((err) => {
     groupPromises.delete(group)
+    if (group === 'injection' || (group === 'translations' && !loadedGroups.has('injection'))) {
+      setInjectionRegistryError(err instanceof Error ? err.message : String(err))
+    }
+    getTelemetryRuntime()?.reportError(err, { module: 'client_bootstrap', code: 'client_bootstrap.registry_failed', attributes: { group } })
     logger.error('Failed to register client registry group; next render will retry', { group, err })
     throw err
   })
@@ -267,6 +308,10 @@ export function ClientBootstrapProvider({
 }) {
   const promise = bootstrapProfile(profile)
   const hasRegistryGroups = groupsForProfile(profile).length > 0
+
+  React.useEffect(() => {
+    if (profile.startsWith('backend')) void ensureCrudFormSectionRegistry()
+  }, [profile])
 
   React.useEffect(() => {
     if (!hasRegistryGroups) return

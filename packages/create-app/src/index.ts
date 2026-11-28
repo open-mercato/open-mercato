@@ -1,34 +1,54 @@
 import { createInterface } from 'node:readline'
 import { spawnSync } from 'node:child_process'
 import { basename, dirname, join, resolve } from 'node:path'
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync, copyFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import pc from 'picocolors'
 import {
   downloadReadyAppSnapshot,
+  ensureGeneratedCssPlaceholder,
   extractTarballSnapshot,
   resolveReadyAppSource,
   type ReadyAppSource,
   validateImportedReadyAppSnapshot,
   validateSlug,
 } from './lib/ready-apps.js'
-import { applyStarterPreset } from './lib/apply-starter-preset.js'
+import { applyStarterPreset, resolvePreset } from './lib/apply-starter-preset.js'
+import { runCatalogStep, type CatalogStepOptions, type CatalogStepResult } from './lib/catalog/catalog-step.js'
+import { parseModulesFlag } from './lib/catalog/selection.js'
 import { DEFAULT_PRESET_ID, VALID_PRESET_IDS } from './lib/starter-presets.js'
+import { resolveTemplatesUrl } from './lib/templates/fetch-templates.js'
+import { printTemplateImportNextSteps, type TemplateNextStepsInput } from './lib/templates/finalize.js'
+import { parseTemplateArg } from './lib/templates/resolve-template.js'
+import { scaffoldFromTemplate } from './lib/templates/template-step.js'
+import type { TemplateArg } from './lib/templates/types.js'
+import { WITHOUT_DOCKER_GUIDE_URL, isDockerCliAvailable, missingDockerNotice } from './lib/docker-availability.js'
 import { runAgenticSetup, parseAgentsValue } from './setup/wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const packageJson = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf-8'))
 const PACKAGE_VERSION: string = packageJson.version
 const TEMPLATE_DIR = join(__dirname, '..', 'template')
+const CI_PROVIDERS = ['github', 'none'] as const
+const CI_DOCS_URL = 'https://docs.openmercato.com/customization/standalone-app#continuous-integration'
 
-interface Options {
+export type CiProvider = (typeof CI_PROVIDERS)[number]
+
+export interface Options {
   app?: string
   appUrl?: string
+  /** --template <slug | owner/repo>[#ref]: create the app from an app template. */
+  template?: string
+  keepName: boolean
   preset?: string
   registry?: string
   initGit?: boolean
   agents?: string
+  ci?: string
   experimentalHooksValidator?: boolean
+  modules?: string
+  /** true: --module-picker, false: --no-module-picker, undefined: decided by shouldOfferModulePicker. */
+  modulePicker?: boolean
   skipAgenticSetup: boolean
   verdaccio: boolean
   help: boolean
@@ -41,8 +61,8 @@ type AgentSelection =
   | { mode: 'tools'; tools: string[] }
   | { mode: 'interactive' }
 
-function showHelp(): void {
-  console.log(`
+export function helpText(): string {
+  return `
 ${pc.bold('create-mercato-app')} - Create a new Open Mercato application
 
 ${pc.bold('Usage:')}
@@ -54,14 +74,28 @@ ${pc.bold('Arguments:')}
 ${pc.bold('Options:')}
   --app <name>       Bootstrap an official ready app from open-mercato/ready-app-<name>
   --app-url <url>    Bootstrap a ready app from a GitHub repository URL
+  --template <slug | owner/repo>[#ref]
+                     Create the app from an app template: a slug listed at
+                     https://modules.openmercato.com/templates or any GitHub repo
+                     (set GITHUB_TOKEN for a private one). Prints owner/repo@sha
+                     and whether that commit is verified before the download
+  --keep-name        With --template, keep the template's package.json name
   --preset <id>      Starter preset: classic, empty, crm, or wms (omit to choose interactively)
   --init-git         Initialize a local Git repository after scaffolding
   --no-init-git      Do not prompt for or initialize a local Git repository
   --agents <list>    Set up agent tooling non-interactively (skips the wizard):
                      comma-separated claude-code,codex,cursor,github-copilot — or 'all' / 'none'
+  --ci <provider>    CI workflows to scaffold: github (default) or none
   --experimental-hooks-validator
                      Install experimental gate-evidence/typecheck validator hooks
   --skip-agentic-setup  Skip the agentic setup wizard (alias for --agents none)
+  --modules <list>   Plan modules from the Open Mercato Modules catalog (comma-separated
+                     module ids, npm names or <npm name>:<module id>, verified on this
+                     version); writes .mercato/catalog-selection.json and prints their
+                     install commands
+  --module-picker    Pick catalog modules interactively (needs a terminal). Offered by
+                     default in a terminal when neither --preset nor --modules is given
+  --no-module-picker Do not offer the catalog module picker
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
   --help, -h         Show help
@@ -78,11 +112,20 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --agents codex --experimental-hooks-validator
   npx create-mercato-app my-store --agents all
   npx create-mercato-app my-store --agents none
-  npx create-mercato-app my-prm --app prm
+  npx create-mercato-app my-store --ci none
+  npx create-mercato-app my-store --preset crm --modules gateway_stripe
+  npx create-mercato-app my-store --module-picker
+  npx create-mercato-app my-store --no-module-picker
+  npx create-mercato-app my-crm --template crm
+  npx create-mercato-app my-portal --template some-agency/b2b-portal#v1.0.0
   npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
   npx create-mercato-app my-store --registry http://localhost:4873
-`)
+`
+}
+
+function showHelp(): void {
+  console.log(helpText())
 }
 
 function showVersion(): void {
@@ -98,15 +141,20 @@ function requireOptionValue(args: string[], index: number, flag: string): string
   return value
 }
 
-function parseArgs(args: string[]): { appName: string | null; options: Options } {
+export function parseArgs(args: string[]): { appName: string | null; options: Options } {
   const options: Options = {
     app: undefined,
     appUrl: undefined,
+    template: undefined,
+    keepName: false,
     preset: undefined,
     registry: undefined,
     initGit: undefined,
     agents: undefined,
+    ci: undefined,
     experimentalHooksValidator: undefined,
+    modules: undefined,
+    modulePicker: undefined,
     skipAgenticSetup: false,
     verdaccio: false,
     help: false,
@@ -124,8 +172,18 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
     } else if (arg === '--agents') {
       options.agents = requireOptionValue(args, index, arg)
       index += 1
+    } else if (arg === '--ci') {
+      options.ci = requireOptionValue(args, index, arg)
+      index += 1
     } else if (arg === '--experimental-hooks-validator') {
       options.experimentalHooksValidator = true
+    } else if (arg === '--modules') {
+      options.modules = requireOptionValue(args, index, arg)
+      index += 1
+    } else if (arg === '--module-picker') {
+      options.modulePicker = true
+    } else if (arg === '--no-module-picker') {
+      options.modulePicker = false
     } else if (arg === '--skip-agentic-setup') {
       options.skipAgenticSetup = true
     } else if (arg === '--init-git') {
@@ -143,6 +201,11 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
     } else if (arg === '--app-url') {
       options.appUrl = requireOptionValue(args, index, arg)
       index += 1
+    } else if (arg === '--template') {
+      options.template = requireOptionValue(args, index, arg)
+      index += 1
+    } else if (arg === '--keep-name') {
+      options.keepName = true
     } else if (arg === '--preset') {
       options.preset = requireOptionValue(args, index, arg)
       index += 1
@@ -202,12 +265,12 @@ async function promptForStarterPreset(ask: Ask): Promise<string> {
   }
 }
 
-async function resolveStarterPresetId(options: Options, readyAppSource: ReadyAppSource | null): Promise<string> {
+async function resolveStarterPresetId(options: Options, importsApp: boolean): Promise<string> {
   if (options.preset) {
     if (!VALID_PRESET_IDS.includes(options.preset)) {
       throw new Error(`Unknown preset "${options.preset}". Valid presets: ${VALID_PRESET_IDS.join(', ')}`)
     }
-    if (options.preset !== DEFAULT_PRESET_ID && readyAppSource) {
+    if (options.preset !== DEFAULT_PRESET_ID && importsApp) {
       throw new Error(
         `--preset ${options.preset} cannot be combined with --app or --app-url. Presets apply only to the built-in template.`,
       )
@@ -216,7 +279,7 @@ async function resolveStarterPresetId(options: Options, readyAppSource: ReadyApp
     return options.preset
   }
 
-  if (readyAppSource) return DEFAULT_PRESET_ID
+  if (importsApp) return DEFAULT_PRESET_ID
 
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     console.log(pc.dim(`No starter preset selected; using ${DEFAULT_PRESET_ID}.`))
@@ -375,9 +438,28 @@ const FILE_RENAMES: Record<string, string> = {
   gitattributes: '.gitattributes',
 }
 
+// `yarn pack` always drops `.github` directories, so the template stores the
+// workflow files under `github/` and the scaffolder restores the dot name.
+const TEMPLATE_ROOT_RENAMES: Record<string, string> = {
+  github: '.github',
+}
+
 const SKIP_DIRS = new Set(['__tests__', '__integration__'])
 
-function copyDirRecursive(src: string, dest: string, placeholders: Record<string, string>): void {
+export function applyTemplatePlaceholders(content: string, placeholders: Record<string, string>): string {
+  let rendered = content
+  for (const [key, value] of Object.entries(placeholders)) {
+    rendered = rendered.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
+  }
+  return rendered
+}
+
+function copyDirRecursive(
+  src: string,
+  dest: string,
+  placeholders: Record<string, string>,
+  isTemplateRoot = false,
+): void {
   if (!existsSync(dest)) {
     mkdirSync(dest, { recursive: true })
   }
@@ -386,7 +468,7 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
 
   for (const entry of entries) {
     const srcPath = join(src, entry)
-    const destName = FILE_RENAMES[entry] ?? entry
+    const destName = (isTemplateRoot ? TEMPLATE_ROOT_RENAMES[entry] : undefined) ?? FILE_RENAMES[entry] ?? entry
     let destPath = join(dest, destName)
     const stat = statSync(srcPath)
 
@@ -396,26 +478,10 @@ function copyDirRecursive(src: string, dest: string, placeholders: Record<string
     } else if (entry.endsWith('.template')) {
       const finalName = entry.replace('.template', '')
       destPath = join(dest, finalName)
-      let content = readFileSync(srcPath, 'utf-8')
-
-      for (const [key, value] of Object.entries(placeholders)) {
-        content = content.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), value)
-      }
-
-      writeFileSync(destPath, content)
+      writeFileSync(destPath, applyTemplatePlaceholders(readFileSync(srcPath, 'utf-8'), placeholders))
     } else {
       copyFileSync(srcPath, destPath)
     }
-  }
-}
-
-function ensureGeneratedCssPlaceholder(targetDir: string): void {
-  const generatedDir = join(targetDir, '.mercato', 'generated')
-  const placeholderPath = join(generatedDir, 'module-package-sources.css')
-
-  mkdirSync(generatedDir, { recursive: true })
-  if (!existsSync(placeholderPath)) {
-    writeFileSync(placeholderPath, '')
   }
 }
 
@@ -427,7 +493,7 @@ async function scaffoldTemplateApp(
     throw new Error(`Template directory not found at ${TEMPLATE_DIR}`)
   }
 
-  copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders)
+  copyDirRecursive(TEMPLATE_DIR, targetDir, placeholders, true)
   ensureGeneratedCssPlaceholder(targetDir)
 }
 
@@ -443,9 +509,53 @@ async function scaffoldImportedReadyApp(targetDir: string, source: ReadyAppSourc
   const download = await downloadReadyAppSnapshot(source, PACKAGE_VERSION)
   console.log(pc.dim(`Fetching ready app snapshot from ${download.owner}/${download.repo}@${download.ref}`))
 
-  await extractTarballSnapshot(download.archive, targetDir)
-  validateImportedReadyAppSnapshot(targetDir)
-  ensureGeneratedCssPlaceholder(targetDir)
+  try {
+    await extractTarballSnapshot(download.archive.path, targetDir, {
+      afterExtract: (dir) => {
+        validateImportedReadyAppSnapshot(dir)
+        ensureGeneratedCssPlaceholder(dir)
+      },
+    })
+  } finally {
+    download.archive.dispose()
+  }
+}
+
+/**
+ * Checks the flags that cannot be combined with --template and parses its value, all before any network call.
+ * Returns null without --template, where --keep-name is a usage error.
+ */
+export function resolveTemplateFlags(options: Options): TemplateArg | null {
+  if (options.template === undefined) {
+    if (options.keepName) {
+      throw new Error('--keep-name works only with --template.')
+    }
+    return null
+  }
+
+  if (options.app !== undefined || options.appUrl !== undefined) {
+    throw new Error('Options --template, --app and --app-url are mutually exclusive. Use only one source flag.')
+  }
+  if (options.modules !== undefined || options.modulePicker === true) {
+    throw new Error('--modules and --module-picker are not supported with --template. App templates keep their own module set.')
+  }
+  if (options.preset !== undefined && options.preset !== DEFAULT_PRESET_ID) {
+    throw new Error(
+      `--preset ${options.preset} cannot be combined with --template. Presets apply only to the built-in scaffold.`,
+    )
+  }
+  if (options.agents !== undefined) {
+    throw new Error(
+      '--agents is not supported with --template. App templates manage their own agentic tooling; run `yarn mercato agentic:init` inside the app instead.',
+    )
+  }
+  if (options.experimentalHooksValidator) {
+    throw new Error(
+      '--experimental-hooks-validator is not supported with --template. Run `yarn mercato agentic:init --experimental-hooks-validator` inside the app instead.',
+    )
+  }
+
+  return parseTemplateArg(options.template)
 }
 
 // Combine --agents (validated) and --skip-agentic-setup into a single intent.
@@ -463,6 +573,37 @@ function resolveAgentSelection(options: Options): AgentSelection {
     throw new Error('--skip-agentic-setup cannot be combined with --agents <tools>. Use --agents none to skip.')
   }
   return { mode: 'tools', tools: parsed.tools }
+}
+
+export function resolveCiProvider(ciOption: string | undefined, isReadyApp: boolean): CiProvider {
+  if (isReadyApp) {
+    if (ciOption !== undefined) {
+      throw new Error(
+        '--ci is not supported with --app/--app-url. Imported ready apps are copied as raw source snapshots; add CI files inside the app instead.',
+      )
+    }
+    return 'none'
+  }
+  if (ciOption === undefined) return 'github'
+  const provider = CI_PROVIDERS.find((candidate) => candidate === ciOption)
+  if (!provider) {
+    throw new Error(`Unknown --ci value "${ciOption}". Valid values: ${CI_PROVIDERS.join(', ')}.`)
+  }
+  return provider
+}
+
+function removeCiWorkflows(targetDir: string): void {
+  const githubDir = join(targetDir, '.github')
+  rmSync(join(githubDir, 'workflows'), { recursive: true, force: true })
+  if (existsSync(githubDir) && readdirSync(githubDir).length === 0) {
+    rmSync(githubDir, { recursive: true, force: true })
+  }
+}
+
+function listCiWorkflows(targetDir: string): string[] {
+  const workflowsDir = join(targetDir, '.github', 'workflows')
+  if (!existsSync(workflowsDir)) return []
+  return readdirSync(workflowsDir).sort((left, right) => left.localeCompare(right))
 }
 
 async function maybeRunAgenticSetup(
@@ -492,34 +633,91 @@ async function maybeRunAgenticSetup(
   }
 }
 
-function printTemplateNextSteps(appName: string, agenticConfigured: boolean): void {
+function printCiWorkflowSummary(targetDir: string): void {
+  const workflows = listCiWorkflows(targetDir)
+  if (workflows.length === 0) return
+
+  console.log(pc.green('Continuous integration:'))
+  console.log(pc.dim(`  # GitHub Actions workflows: ${workflows.map((name) => `.github/workflows/${name}`).join(', ')}`))
+  console.log(pc.dim(`  # Set the OM_CI_RUNS_ON repository variable to change the runner: ${CI_DOCS_URL}`))
+  console.log('')
+}
+
+export function printCatalogNextSteps(catalogCommands: string[], commandWarnings: Record<string, string> = {}): void {
+  if (catalogCommands.length === 0) return
+  console.log(pc.green('Modules you planned from the catalog:'))
+  console.log(pc.dim('  # After yarn install, in this order (each command runs yarn generate for you):'))
+  for (const command of catalogCommands) {
+    const warning = Object.hasOwn(commandWarnings, command) ? commandWarnings[command] : undefined
+    if (warning) console.log(pc.yellow(`  # Warning: ${warning}`))
+    console.log(pc.cyan(`  ${command}`))
+  }
+  console.log(pc.dim('  # Then yarn db:migrate. The plan is saved in .mercato/catalog-selection.json'))
+  console.log('')
+}
+
+export type CatalogPlan = Pick<CatalogStepResult, 'commands' | 'commandWarnings'>
+
+export type CatalogStepRunner = (options: CatalogStepOptions) => Promise<CatalogStepResult>
+
+function printTemplateNextSteps(
+  appName: string,
+  targetDir: string,
+  agenticConfigured: boolean,
+  catalogPlan: CatalogPlan = { commands: [], commandWarnings: {} },
+  dockerAvailable: boolean = isDockerCliAvailable(),
+): void {
+  if (!dockerAvailable) {
+    const [title, ...details] = missingDockerNotice()
+    console.log(pc.yellow(`⚠️  ${title}`))
+    for (const line of details) console.log(pc.yellow(line))
+    console.log('')
+  }
   console.log('Next steps:')
   console.log('')
   console.log(pc.cyan(`  cd ${appName}`))
-  console.log(pc.dim('  # Make sure Yarn 4.1x is installed before running the setup command, and install all the dependencies with:'))
-  console.log(pc.cyan('  yarn'))
-  console.log('')
-  console.log(pc.green('Suggested quick start:'))
   console.log(pc.cyan('  yarn setup'))
-  console.log(pc.dim('  # Copies .env.example to .env if needed, installs deps, migrates, initializes, and starts dev'))
-  console.log(pc.dim('  # If you need a clean reset first: yarn setup --reinstall'))
-  console.log(pc.dim('  # Alias: yarn setup:reinstall'))
+  console.log(pc.dim('  # Reuses the services in .env when they answer and verify; otherwise starts Docker Compose services'))
+  console.log(pc.dim('  # (on free ports when the configured ones belong to something else). Then installs, migrates, initializes'))
+  console.log(pc.dim('  # and starts dev. Needs Node 24 and Yarn 4 (corepack enable); Docker unless you run PostgreSQL yourself.'))
   console.log('')
-  console.log('Manual alternative:')
+  console.log('Choose services explicitly:')
+  console.log(pc.cyan('  yarn setup --infra'))
+  console.log(pc.dim('  # Start pinned Docker Compose services on configured loopback ports.'))
+  console.log(pc.cyan('  yarn setup --random-ports'))
+  console.log(pc.dim('  # Docker Compose on free ports; saves matching ports and service URLs to .env.'))
+  console.log(pc.cyan('  yarn setup --ephemeral'))
+  console.log(pc.dim('  # Testcontainers on allocated ports; stops services and restores config when setup/dev exits.'))
+  console.log(pc.cyan('  yarn setup --no-infra'))
+  console.log(pc.dim('  # Use the services configured in .env; makes no Docker calls. Alias: --reuse-services.'))
+  console.log(pc.dim('  # Remote DB writes require --allow-remote-database=host:port/database.'))
+  console.log('')
+  console.log('Using your own PostgreSQL, Redis and Meilisearch instead of Docker:')
   console.log(pc.cyan('  cp .env.example .env'))
-  console.log(pc.dim('  # Edit .env with your database credentials'))
-  console.log(pc.cyan('  yarn install'))
-  console.log(pc.cyan('  yarn generate'))
-  console.log(pc.cyan('  yarn db:migrate'))
-  console.log(pc.cyan('  yarn initialize'))
-  console.log(pc.cyan('  yarn dev'))
+  console.log(pc.dim('  # Point DATABASE_URL (and Redis/Meilisearch settings) at your services, then:'))
+  console.log(pc.cyan('  yarn setup --no-infra'))
+  console.log(pc.dim('  # Makes no Docker calls and keeps your URLs'))
+  console.log(pc.dim(`  # Step by step: ${WITHOUT_DOCKER_GUIDE_URL}`))
   console.log('')
-  console.log('Docker alternatives:')
+  console.log('If setup fails, configure .env for your intended services, then run manually:')
+  console.log(pc.cyan('  yarn install && yarn generate && yarn db:migrate && yarn initialize --skip-if-initialized'))
+  console.log(pc.cyan('  yarn dev --no-infra'))
+  console.log('')
+  console.log('Later:')
+  console.log(pc.cyan('  yarn dev'))
+  console.log(pc.dim('  # Start the app again (yarn infra:up first if the containers are stopped)'))
+  console.log(pc.cyan('  yarn infra:down'))
+  console.log(pc.dim('  # Stop the containers; data is kept'))
+  console.log(pc.dim('  # Clean database reset (deletes local data): yarn setup --reinstall'))
+  console.log('')
+  printCatalogNextSteps(catalogPlan.commands, catalogPlan.commandWarnings)
+  console.log('Full Docker stack (app in a container too):')
   console.log(pc.dim('  # Before Docker: cp .env.example .env && yarn install'))
-  console.log(pc.dim('  # Docker expects your local app env and dependencies to be prepared first'))
   console.log(pc.cyan('  # Dev (recommended on Windows): docker compose -f docker-compose.fullapp.dev.yml up --build'))
   console.log(pc.cyan('  # Production-style: docker compose -f docker-compose.fullapp.yml up --build'))
   console.log('')
+
+  printCiWorkflowSummary(targetDir)
 
   if (agenticConfigured) {
     console.log(pc.green('Agent pipeline:'))
@@ -543,9 +741,14 @@ function printImportedReadyAppNextSteps(appName: string): void {
   console.log('')
 }
 
-function printGitHubSyncInstructions(gitResult: GitInitializationResult): void {
+function printGitHubSyncInstructions(gitResult: GitInitializationResult, isTemplateApp: boolean): void {
   console.log('Optional GitHub publish:')
   console.log('')
+
+  if (isTemplateApp) {
+    console.log(pc.dim('  # Creates yarn.lock; commit it, because CI installs with --immutable:'))
+    console.log(pc.cyan('  yarn install'))
+  }
 
   if (gitResult.status === 'skipped' || gitResult.status === 'failed') {
     console.log(pc.cyan('  git init -b main'))
@@ -560,6 +763,62 @@ function printGitHubSyncInstructions(gitResult: GitInitializationResult): void {
   console.log(pc.cyan('  git push -u origin main'))
   console.log(pc.dim('  # You can also publish from the standalone dev splash after `yarn dev`.'))
   console.log('')
+}
+
+/**
+ * Whether the catalog module picker runs: --module-picker and --no-module-picker decide when given; otherwise it is
+ * offered in an interactive terminal to an app built from the template without --preset or --modules, so a user who
+ * did not choose a starter set on the command line also sees the verified catalog modules (Enter adds none).
+ */
+export function shouldOfferModulePicker(
+  options: Pick<Options, 'modulePicker' | 'preset' | 'modules' | 'template'>,
+  readyAppSource: ReadyAppSource | null,
+  interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY),
+): boolean {
+  // An app template keeps its own module set; resolveTemplateFlags refuses --module-picker with it.
+  if (options.template !== undefined) return false
+  if (options.modulePicker !== undefined) return options.modulePicker
+  return interactive && !readyAppSource && options.preset === undefined && options.modules === undefined
+}
+
+/** Runs the catalog step only for --modules or the picker; without either the catalog is never fetched. */
+export async function maybeRunCatalogStep(
+  targetDir: string,
+  presetId: string,
+  requested: string[] | null,
+  picker: boolean,
+  run: CatalogStepRunner = runCatalogStep,
+): Promise<CatalogPlan> {
+  if (requested === null && !picker) return { commands: [], commandWarnings: {} }
+  const preset = resolvePreset(presetId)
+  const presetModuleIds = preset.isClassic ? null : preset.modules.map((entry) => entry.id)
+  const interactive = picker && Boolean(process.stdin.isTTY && process.stdout.isTTY)
+  // Opened on the first question, not before the catalog fetch: a readline puts the terminal in raw mode, where
+  // Ctrl+C during the fetch would close it instead of stopping the run.
+  const terminal: { rl: ReturnType<typeof createInterface> | null } = { rl: null }
+  const ask = interactive
+    ? (question: string) => {
+        const rl = (terminal.rl ??= createInterface({ input: process.stdin, output: process.stdout }))
+        return new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
+      }
+    : null
+
+  try {
+    const result = await run({
+      targetDir,
+      version: PACKAGE_VERSION,
+      requested,
+      picker,
+      presetModuleIds,
+      presetModules: preset.isClassic ? null : preset.modules,
+      ask,
+      log: (line) => console.log(line),
+      warn: (line) => console.log(pc.yellow(line)),
+    })
+    return { commands: result.commands, commandWarnings: result.commandWarnings }
+  } finally {
+    terminal.rl?.close()
+  }
 }
 
 export async function main(argv = process.argv.slice(2)): Promise<void> {
@@ -591,7 +850,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     throw new Error(`Directory "${appName}" already exists`)
   }
 
+  const templateArg = resolveTemplateFlags(options)
+  const templatesUrl = templateArg ? resolveTemplatesUrl() : null
   const readyAppSource = resolveReadyAppSource(options, PACKAGE_VERSION)
+  const importsApp = readyAppSource !== null || templateArg !== null
 
   if (options.agents !== undefined && readyAppSource) {
     throw new Error(
@@ -604,11 +866,19 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     )
   }
 
+  if ((options.modules !== undefined || options.modulePicker === true) && readyAppSource) {
+    throw new Error(
+      '--modules and --module-picker are not supported with --app/--app-url. Imported ready apps keep their own module set.',
+    )
+  }
+  const requestedCatalogModules = options.modules !== undefined ? parseModulesFlag(options.modules) : null
+
   // Resolve (and validate) the agentic selection up front so a bad --agents
   // value fails before any scaffolding work happens.
   const agentSelection = resolveAgentSelection(options)
+  const ciProvider = resolveCiProvider(options.ci, Boolean(readyAppSource))
 
-  const presetId = await resolveStarterPresetId(options, readyAppSource)
+  const presetId = await resolveStarterPresetId(options, importsApp)
 
   const registryConfig = options.verdaccio
     ? buildRegistryConfig('http://localhost:4873')
@@ -626,20 +896,39 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     REGISTRY_CONFIG: registryConfig,
   }
 
-  if (readyAppSource) {
+  let templateResult: TemplateNextStepsInput | null = null
+  if (templateArg && templatesUrl) {
+    if (options.registry !== undefined || options.verdaccio) {
+      console.log(pc.yellow(
+        '--registry and --verdaccio do not apply to app templates. The app keeps the registry settings of its own .yarnrc.yml.',
+      ))
+      console.log('')
+    }
+    templateResult = await scaffoldFromTemplate(targetDir, templateArg, {
+      appName,
+      keepName: options.keepName,
+      indexUrl: templatesUrl,
+      packageVersion: PACKAGE_VERSION,
+    })
+  } else if (readyAppSource) {
     console.log(pc.dim(`Ready app source: ${describeReadyAppSource(readyAppSource)}`))
     console.log('')
     await scaffoldImportedReadyApp(targetDir, readyAppSource)
   } else {
     await scaffoldTemplateApp(targetDir, placeholders)
     applyStarterPreset(presetId, targetDir)
+    if (ciProvider === 'none') removeCiWorkflows(targetDir)
   }
+
+  const catalogPlan: CatalogPlan = importsApp
+    ? { commands: [], commandWarnings: {} }
+    : await maybeRunCatalogStep(targetDir, presetId, requestedCatalogModules, shouldOfferModulePicker(options, readyAppSource))
 
   console.log(pc.green('Success!') + ` Created ${pc.bold(appName)}`)
   console.log('')
 
   let agenticConfigured = false
-  if (!readyAppSource) {
+  if (!importsApp) {
     agenticConfigured = await maybeRunAgenticSetup(
       targetDir,
       agentSelection,
@@ -649,12 +938,14 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   const gitResult = await maybeInitializeGitRepository(targetDir, options)
 
-  if (readyAppSource) {
+  if (templateResult) {
+    printTemplateImportNextSteps(templateResult)
+  } else if (importsApp) {
     printImportedReadyAppNextSteps(appName)
   } else {
-    printTemplateNextSteps(appName, agenticConfigured)
+    printTemplateNextSteps(appName, targetDir, agenticConfigured, catalogPlan)
   }
-  printGitHubSyncInstructions(gitResult)
+  printGitHubSyncInstructions(gitResult, !readyAppSource)
 
   console.log(pc.dim('For more information, visit https://github.com/open-mercato/open-mercato'))
   console.log('')

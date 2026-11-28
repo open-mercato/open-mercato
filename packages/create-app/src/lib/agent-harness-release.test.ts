@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { buildRegistryConfig } from '../index.ts'
 
 const releaseScript = fileURLToPath(new URL('../../agentic/shared/scripts/run-agent-harness-release.mjs', import.meta.url))
 const releaseSchema = fileURLToPath(new URL('../../agentic/shared/ai/harness/release-result.schema.json', import.meta.url))
@@ -438,8 +439,16 @@ test('automatic target preparation rejects local environment, auth-store, creden
   }
 })
 
+function generatedScaffoldYarnConfig(registry?: string): string {
+  const template = fs.readFileSync(new URL('../../template/.yarnrc.yml.template', import.meta.url), 'utf8')
+  return template.replace('{{REGISTRY_CONFIG}}', registry ? buildRegistryConfig(registry) : '')
+}
+
 test('automatic target preparation accepts generated and Yarn-migrated credential-free config', { skip: process.platform === 'win32' }, () => {
   const safeConfigs = [
+    generatedScaffoldYarnConfig(),
+    generatedScaffoldYarnConfig('http://localhost:4873'),
+    generatedScaffoldYarnConfig('https://registry.example.com/npm'),
     `nodeLinker: node-modules
 unsafeHttpWhitelist:
   - "localhost"
@@ -512,7 +521,18 @@ unsafeHttpWhitelist:
 })
 
 test('automatic target preparation rejects auth-bearing or non-generated Yarn config', { skip: process.platform === 'win32' }, () => {
+  const generated = generatedScaffoldYarnConfig('http://localhost:4873')
   const unsafeConfigs = [
+    generated.replace('npmMinimalAgeGate: 5d', 'npmMinimalAgeGate: 1d'),
+    generated.replace('  - "@open-mercato/*"', '  - "@open-mercato/*"\n  - "**"'),
+    generated.replace('  - "@open-mercato/*"', '  - "@other/*"'),
+    generated.replace('  - "host.docker.internal"', '  - "host.docker.internal"\n  - "another.example.com"'),
+    generated.replace('npmScopes:', 'npmRegistryServer: "https://registry.example.com"\nnpmScopes:'),
+    generated.replace('  open-mercato:', '  other:'),
+    generated.replace('    npmMinimalAgeGate: 0', '    npmAuthToken: "fixture-token"\n    npmMinimalAgeGate: 0'),
+    generated.replace('nodeLinker: node-modules', 'nodeLinker: node-modules\n# fixture-secret'),
+    generatedScaffoldYarnConfig('https://fixture:fixture@registry.example.com'),
+    generatedScaffoldYarnConfig('https://registry.example.com?token=fixture'),
     `nodeLinker: node-modules
 npmScopes:
   open-mercato:
@@ -608,7 +628,7 @@ test('externally prepared targets reject regular nested dependency trees before 
 
 test('every target validation command runs and failures retain actionable sanitized diagnostics', { skip: !targetSandboxAvailable }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-')))
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 console.error('called ' + process.argv[2])
 if (process.argv[2] === 'lint') { console.error('lint rule failed in ' + process.cwd()); process.exit(7) }
@@ -634,7 +654,7 @@ test('target validation hides host secrets and denies out-of-root reads and writ
   const secret = path.join(outside, 'secret.txt')
   const escapedWrite = path.join(outside, 'escaped.txt')
   fs.writeFileSync(secret, 'do-not-read')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 if (process.env.FAKE_PROVIDER_SECRET) process.exit(21)
@@ -662,7 +682,7 @@ test('target validation runs in an isolated copy and rejects ordinary source or 
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-source-write-')))
   fs.mkdirSync(path.join(target, 'src'))
   fs.writeFileSync(path.join(target, 'src', 'existing.ts'), 'export const original = true\n')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.mkdirSync('.mercato', { recursive: true })
@@ -687,7 +707,7 @@ fs.writeFileSync('package.json', '{"scripts":{"build":"true"}}\\n')
 
 test('target validation permits only explicit generated and build outputs inside its isolated copy', { skip: !targetSandboxAvailable }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-outputs-')))
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 const command = process.argv[2]
@@ -726,7 +746,7 @@ if (command === 'build') {
 
 test('target validation rejects an escaping symlink even inside a declared build output', { skip: !targetSandboxAvailable }, () => {
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-output-link-')))
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.mkdirSync('.mercato/next', { recursive: true })
@@ -751,7 +771,7 @@ test('foundation validation accepts an exact generated env copy without mutating
   fs.mkdirSync(path.join(target, 'node_modules', 'example'), { recursive: true })
   fs.writeFileSync(path.join(target, 'node_modules', 'example', 'sentinel.js'), 'original')
   fs.writeFileSync(path.join(target, '.env.example'), 'SAFE_EXAMPLE=1\n')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.copyFileSync('.env.example', '.env')
@@ -780,9 +800,10 @@ test('minimal validation environment omits provider secrets and process diagnost
   const environmentRoot = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-env-')))
   const scalar = 'provider-scalar-must-not-persist'
   const databaseUrl = 'postgres://release-user:database-password@db.example.test:5432/app'
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 if (process.env.FAKE_PROVIDER_SECRET) process.exit(21)
+if (process.env.NODE_ENV !== 'production') process.exit(22)
 console.error(${JSON.stringify(`${scalar} ${databaseUrl}`)})
 process.exit(7)
 `)
@@ -792,6 +813,7 @@ process.exit(7)
   try {
     const minimal = release.createMinimalValidationEnvironment(environmentRoot)
     assert.equal(minimal.env.FAKE_PROVIDER_SECRET, undefined)
+    assert.equal(minimal.env.NODE_ENV, undefined)
     const [result] = release.runTargetValidationSteps({
       steps: [{ id: 'target-validation:OMH-002:lint', kind: 'target-validation', caseId: 'OMH-002', command: 'yarn lint' }],
       target,
@@ -818,7 +840,7 @@ test('target validation cannot mutate nested files in shared dependencies', { sk
   fs.writeFileSync(nested, 'original')
   const target = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'om-release-validation-deps-')))
   fs.symlinkSync(controllerDependencies, path.join(target, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.writeFileSync('node_modules/example/nested.js', 'tampered')
@@ -840,7 +862,7 @@ test('target validation fails closed when a regular dependency tree overlaps the
   const nested = path.join(target, 'node_modules', 'example', 'nested.js')
   fs.mkdirSync(path.dirname(nested), { recursive: true })
   fs.writeFileSync(nested, 'original')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(fakeYarn, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.writeFileSync('node_modules/example/nested.js', 'tampered')
@@ -863,7 +885,7 @@ test('sandbox read-only descendants override a writable parent root', { skip: !t
   const nested = path.join(dependencyRoot, 'example', 'nested.js')
   fs.mkdirSync(path.dirname(nested), { recursive: true })
   fs.writeFileSync(nested, 'original')
-  const probe = path.join(target, 'sandbox-probe')
+  const probe = path.join(target, 'sandbox-probe.cjs')
   fs.writeFileSync(probe, `#!/usr/bin/env node
 const fs = require('node:fs')
 fs.writeFileSync('allowed.txt', 'allowed')
@@ -1135,7 +1157,7 @@ test('macOS validation resolves a lexical PATH node launcher without authorizing
   const launcherParent = path.join(launcherBase, 'xfs-deadbeef')
   fs.mkdirSync(launcherParent)
   const launcher = path.join(launcherParent, 'node')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(fs.realpathSync(process.execPath))}  "$@"\n`)
   fs.chmodSync(launcher, 0o755)
   fs.writeFileSync(fakeYarn, '#!/usr/bin/env node\nconsole.error("xfs-ok")\n')
@@ -1160,7 +1182,7 @@ test('macOS validation rejects a lookalike XFS node wrapper', { skip: process.pl
   const launcherParent = path.join(launcherBase, 'xfs-badc0de')
   fs.mkdirSync(launcherParent)
   const launcher = path.join(launcherParent, 'node')
-  const fakeYarn = path.join(target, 'fake-yarn')
+  const fakeYarn = path.join(target, 'fake-yarn.cjs')
   fs.writeFileSync(launcher, `#!/bin/sh\nexec ${JSON.stringify(fs.realpathSync(process.execPath))} "$@"\n`)
   fs.chmodSync(launcher, 0o755)
   fs.writeFileSync(fakeYarn, '#!/usr/bin/env node\nrequire("node:fs").writeFileSync("unsafe.txt", "ran")\n')
@@ -1487,6 +1509,7 @@ test('persisted foundation process diagnostics use a minimal environment and red
   fs.mkdirSync(path.join(root, 'scripts'), { recursive: true })
   fs.mkdirSync(path.join(root, 'node_modules'), { recursive: true })
   fs.mkdirSync(fakeBin)
+  fs.writeFileSync(path.join(fakeBin, 'package.json'), '{"type":"commonjs"}\n')
   const input = releaseInputs()
   const targets: Record<string, string> = {}
   for (const caseId of ['OMH-002', 'OMH-003']) {

@@ -34,8 +34,7 @@ test.describe('TC-SSO-006: Error Scenarios', () => {
         },
       })
       expect(response.ok()).toBeFalsy()
-      // SsoConfigError(409) should be caught → 409; if instanceof fails → 500
-      expect([409, 500]).toContain(response.status())
+      expect(response.status()).toBe(409)
     } finally {
       await cleanup()
     }

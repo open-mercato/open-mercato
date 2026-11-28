@@ -71,42 +71,13 @@ export async function seedCatalogPriceKinds(
   const existing = await em.find(CatalogPriceKind, {
     tenantId: scope.tenantId,
   })
-  const defaultsByCode = new Map(PRICE_KIND_DEFAULTS.map((def) => [def.code.toLowerCase(), def]))
+  const existingCodes = new Set(existing.map((record) => record.code.toLowerCase()))
   const now = new Date()
-  const seen = new Set<string>()
   const targetOrganizationId = scope.organizationId ?? null
-
-  for (const record of existing) {
-    const key = record.code.toLowerCase()
-    if (seen.has(key)) {
-      record.deletedAt = now
-      record.isActive = false
-      record.updatedAt = now
-      continue
-    }
-    const def = defaultsByCode.get(key)
-    if (!def) {
-      if (record.deletedAt == null) {
-        record.deletedAt = now
-        record.isActive = false
-        record.updatedAt = now
-      }
-      continue
-    }
-    record.organizationId = targetOrganizationId
-    record.title = def.title
-    record.displayMode = def.displayMode ?? 'including-tax'
-    record.currencyCode = def.currencyCode ?? null
-    record.isPromotion = def.isPromotion
-    record.isActive = true
-    record.deletedAt = null
-    record.updatedAt = now
-    seen.add(key)
-  }
 
   for (const def of PRICE_KIND_DEFAULTS) {
     const key = def.code.toLowerCase()
-    if (seen.has(key)) continue
+    if (existingCodes.has(key)) continue
     const record = em.create(CatalogPriceKind, {
       organizationId: targetOrganizationId,
       tenantId: scope.tenantId,

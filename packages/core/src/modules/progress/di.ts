@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createProgressService } from './lib/progressServiceImpl'
@@ -13,3 +14,5 @@ export function register(container: AppContainer) {
     },
   })
 }
+
+defineProcessDiRegistrar(register)

@@ -15,6 +15,8 @@
 import { formatDuration } from '../time-tracking/duration'
 import { readNumber, readString, type BoardApiRow, type BoardStatus } from './kanbanBoardData'
 
+export const TASK_DRAWER_QUERY_ROOT = ['staff', 'time-tracking', 'task-drawer'] as const
+
 export type DrawerComment = {
   id: string
   body: string
@@ -22,6 +24,9 @@ export type DrawerComment = {
   authorName: string | null
   authorEmail: string | null
   createdAt: string | null
+  visibility: 'internal' | 'customer'
+  authorKind: 'staff' | 'customer'
+  updatedAt: string | null
 }
 
 export type DrawerEntry = {
@@ -57,6 +62,9 @@ export function toDrawerComment(row: BoardApiRow): DrawerComment | null {
     authorName: readString(row, 'authorName', 'author_name'),
     authorEmail: readString(row, 'authorEmail', 'author_email'),
     createdAt: readString(row, 'createdAt', 'created_at'),
+    visibility: readString(row, 'visibility') === 'customer' ? 'customer' : 'internal',
+    authorKind: readString(row, 'authorKind', 'author_kind') === 'customer' ? 'customer' : 'staff',
+    updatedAt: readString(row, 'updatedAt', 'updated_at'),
   }
 }
 
@@ -191,4 +199,11 @@ export function buildEntryClocks({ date, startClock, endClock, minutes }: EntryC
     startedAt: `${date}T${minutesToClock(resolvedStart)}`,
     endedAt: `${date}T${minutesToClock(resolvedEnd)}`,
   }
+}
+
+export const TASK_ASSIGNMENT_CHANGED_EVENT = 'staff.timesheets.time_task.assignee_changed'
+
+export function isAssignmentEventForTask(payload: unknown, taskId: string): boolean {
+  if (!taskId || typeof payload !== 'object' || payload === null) return false
+  return (payload as { id?: unknown }).id === taskId
 }

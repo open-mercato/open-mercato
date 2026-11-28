@@ -1,7 +1,11 @@
 import type { CacheStrategy } from '@open-mercato/cache'
+import { describeCacheSelection } from '@open-mercato/cache'
+import { isCacheProviderError } from '@open-mercato/shared/lib/cache/providers'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { bootstrap } from '@/bootstrap-api'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInRequestScope } from '@open-mercato/shared/lib/di/request-scope'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 bootstrap()
 
@@ -16,11 +20,44 @@ type HealthcheckDependencies = {
   timeoutMs: number
   logger: Pick<Console, 'error'>
   cacheStrategy: () => string | undefined
+  cacheProviderSelected: () => boolean
 }
 
 type HealthcheckProbe = {
-  name: 'database' | 'redis'
+  name: 'database' | 'redis' | 'cache'
   run: () => Promise<unknown>
+}
+
+function sanitizeCacheProviderFailure(error: unknown): Error {
+  const code = isCacheProviderError(error) ? ` (${error.code})` : ''
+  return new Error(`Cache provider healthcheck failed${code}`)
+}
+
+function isCacheProviderSelected(dependencies: HealthcheckDependencies): boolean {
+  try {
+    return dependencies.cacheProviderSelected()
+  } catch (error) {
+    throw sanitizeCacheProviderFailure(error)
+  }
+}
+
+function resolveCacheProbeName(dependencies: HealthcheckDependencies): HealthcheckProbe['name'] {
+  try {
+    return dependencies.cacheProviderSelected() ? 'cache' : 'redis'
+  } catch {
+    return 'cache'
+  }
+}
+
+async function probeCacheProvider(cache: CacheStrategy): Promise<void> {
+  if (!cache.healthcheck) {
+    throw new Error('Cache provider healthcheck is unavailable')
+  }
+  try {
+    await cache.healthcheck()
+  } catch (error) {
+    throw sanitizeCacheProviderFailure(error)
+  }
 }
 
 function withTimeout(probe: HealthcheckProbe, timeoutMs: number): Promise<void> {
@@ -42,6 +79,22 @@ function withTimeout(probe: HealthcheckProbe, timeoutMs: number): Promise<void> 
   })
 }
 
+async function disposeHealthcheckContainer(
+  container: Awaited<ReturnType<typeof createRequestContainer>>,
+  logger: HealthcheckDependencies['logger'],
+): Promise<void> {
+  try {
+    await container.dispose()
+  } catch (error) {
+    try {
+      logger.error('[healthz] Scope cleanup failed', { error })
+    } catch {}
+    try {
+      getTelemetryRuntime()?.reportError(error, { module: 'app', code: 'app.healthcheck_cleanup_failed' })
+    } catch {}
+  }
+}
+
 export function createHealthcheckHandler(
   overrides: Partial<HealthcheckDependencies> = {},
 ): () => Promise<Response> {
@@ -51,24 +104,33 @@ export function createHealthcheckHandler(
     timeoutMs: HEALTHCHECK_TIMEOUT_MS,
     logger: console,
     cacheStrategy: () => process.env.CACHE_STRATEGY,
+    cacheProviderSelected: () => describeCacheSelection().kind === 'provider',
     ...overrides,
   }
 
-  return async function healthcheck(): Promise<Response> {
+  async function healthcheck(): Promise<Response> {
     const timestamp = dependencies.now().toISOString()
+    let container: Awaited<ReturnType<typeof createRequestContainer>> | undefined
+    const operations: Promise<unknown>[] = []
+    let pendingOperations = 0
 
     try {
-      const container = await dependencies.createContainer()
+      container = await dependencies.createContainer()
       const em = container.resolve<EntityManager>('em')
       const cache = container.resolve<CacheStrategy>('cache')
+      const cacheProbeName = resolveCacheProbeName(dependencies)
       const probes: HealthcheckProbe[] = [
         {
           name: 'database',
           run: () => em.getConnection().execute('SELECT 1'),
         },
         {
-          name: 'redis',
+          name: cacheProbeName,
           run: async () => {
+            if (isCacheProviderSelected(dependencies)) {
+              await probeCacheProvider(cache)
+              return
+            }
             if (dependencies.cacheStrategy() === 'redis') {
               if (!cache.healthcheck) {
                 throw new Error('Redis cache healthcheck is unavailable')
@@ -82,7 +144,12 @@ export function createHealthcheckHandler(
       ]
 
       const results = await Promise.allSettled(
-        probes.map((probe) => withTimeout(probe, dependencies.timeoutMs)),
+        probes.map((probe) => {
+          pendingOperations += 1
+          const operation = Promise.resolve().then(probe.run).finally(() => { pendingOperations -= 1 })
+          operations.push(operation)
+          return withTimeout({ ...probe, run: () => operation }, dependencies.timeoutMs)
+        }),
       )
       const failed = results
         .map((result, index) => ({ result, probe: probes[index] }))
@@ -106,6 +173,13 @@ export function createHealthcheckHandler(
       dependencies.logger.error('[healthz] Healthcheck setup failed', {
         error: error instanceof Error ? error.message : String(error),
       })
+    } finally {
+      if (container) {
+        const ownedContainer = container
+        const dispose = () => disposeHealthcheckContainer(ownedContainer, dependencies.logger)
+        if (pendingOperations === 0) await dispose()
+        else void Promise.allSettled(operations).then(dispose)
+      }
     }
 
     return Response.json(
@@ -113,6 +187,8 @@ export function createHealthcheckHandler(
       { status: 503 },
     )
   }
+
+  return () => runInRequestScope(healthcheck)
 }
 
 export const GET = createHealthcheckHandler()

@@ -1,8 +1,10 @@
 import type { Queue, QueuedJob, JobHandler, AsyncQueueOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
+import { resolveCoalesceKey } from '../coalescing'
 import { getRedisUrlOrThrow, parseRedisUrl, REDIS_WIRE_PROTOCOL } from '@open-mercato/shared/lib/redis/connection'
 import type { RedisProtocolVersion } from '@open-mercato/shared/lib/redis/connection'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { attachTraceMetadata, runJobInTrace } from '../tracing'
+import { publishWithTimeout, validateEnqueueOptions } from '../publication'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const packageLogger = createLogger('queue')
@@ -25,11 +27,13 @@ interface BullQueueInterface<T> {
     name: string,
     data: T,
     opts?: {
+      jobId?: string
       removeOnComplete?: boolean
       removeOnFail?: number
       delay?: number
       attempts?: number
       backoff?: { type: string; delay: number }
+      deduplication?: { id: string; keepLastIfActive?: boolean }
     },
   ) => Promise<{ id?: string }>
   obliterate: (opts?: { force?: boolean }) => Promise<void>
@@ -65,7 +69,7 @@ interface BullMQModule {
 }
 
 /** The `bullmq-otel` package (optional). Loaded only when an OTLP backend is active. */
-type BullMQOtelModule = { BullMQOtel: new (tracerName: string) => object }
+type BullMQOtelModule = { BullMQOtel: new (options: { tracerName: string }) => object }
 
 const REMOVABLE_JOB_STATES = ['waiting', 'delayed', 'prioritized', 'paused', 'waiting-children']
 
@@ -185,7 +189,7 @@ function resolveConnection(options?: AsyncQueueOptions['connection']): Connectio
  */
 export function createAsyncQueue<T = unknown>(
   name: string,
-  options?: AsyncQueueOptions
+  options?: AsyncQueueOptions<T>
 ): Queue<T> {
   const connection = resolveConnection(options?.connection)
   const concurrency = options?.concurrency ?? 1
@@ -193,6 +197,8 @@ export function createAsyncQueue<T = unknown>(
   const lockDuration = options?.lockDuration
   const maxStalledCount = options?.maxStalledCount
   const onJobAbandoned = options?.onJobAbandoned
+  // Captured here because `enqueue`'s own `options` parameter shadows this one.
+  const coalesceBy = options?.coalesceBy
   const logger = packageLogger.child({ queue: name })
 
   /**
@@ -219,6 +225,7 @@ export function createAsyncQueue<T = unknown>(
   }
 
   let bullQueue: BullQueueInterface<QueuedJob<T>> | null = null
+  let bullQueuePromise: Promise<BullQueueInterface<QueuedJob<T>>> | null = null
   let bullWorker: BullWorkerInterface | null = null
   let bullmqModule: BullMQModule | null = null
   let abandonedSweepTimer: ReturnType<typeof setInterval> | null = null
@@ -359,7 +366,7 @@ export function createAsyncQueue<T = unknown>(
         if (!getTelemetryRuntime()?.canUseGlobalTracePropagation()) return undefined
         try {
           const mod = (await import('bullmq-otel')) as unknown as BullMQOtelModule
-          return new mod.BullMQOtel('open-mercato')
+          return new mod.BullMQOtel({ tracerName: 'open-mercato' })
         } catch {
           packageLogger.warn('bullmq-otel not available; using built-in trace carrier', { queue: name })
           return undefined
@@ -370,12 +377,19 @@ export function createAsyncQueue<T = unknown>(
   }
 
   async function getQueue(): Promise<BullQueueInterface<QueuedJob<T>>> {
-    if (!bullQueue) {
-      const { Queue: BullQueueClass } = await getBullMQ()
-      const telemetry = await getQueueTelemetry()
-      bullQueue = new BullQueueClass<QueuedJob<T>>(name, { connection, ...(telemetry ? { telemetry } : {}) })
+    if (bullQueue) return bullQueue
+    if (!bullQueuePromise) {
+      bullQueuePromise = (async () => {
+        const { Queue: BullQueueClass } = await getBullMQ()
+        const telemetry = await getQueueTelemetry()
+        bullQueue = new BullQueueClass<QueuedJob<T>>(name, { connection, ...(telemetry ? { telemetry } : {}) })
+        return bullQueue
+      })().catch((error: unknown) => {
+        bullQueuePromise = null
+        throw error
+      })
     }
-    return bullQueue
+    return bullQueuePromise
   }
 
   // -------------------------------------------------------------------------
@@ -383,25 +397,40 @@ export function createAsyncQueue<T = unknown>(
   // -------------------------------------------------------------------------
 
   async function enqueue(data: T, options?: EnqueueOptions): Promise<string> {
+    validateEnqueueOptions(options)
+    return publishWithTimeout(() => publish(data, options), options?.timeoutMs)
+  }
+
+  async function publish(data: T, options?: EnqueueOptions): Promise<string> {
+    const coalesceKey = resolveCoalesceKey(data, options, coalesceBy)
     const queue = await getQueue()
     // When bullmq-otel handles propagation, don't also attach our carrier.
     const telemetry = await getQueueTelemetry()
     const metadata = telemetry ? undefined : attachTraceMetadata(undefined)
     const jobData: QueuedJob<T> = {
-      id: crypto.randomUUID(),
+      id: options?.jobId ?? crypto.randomUUID(),
       payload: data,
       createdAt: new Date().toISOString(),
       ...(metadata ? { metadata } : {}),
     }
 
     const job = await queue.add(jobData.id, jobData, {
+      ...(options?.jobId ? { jobId: options.jobId } : {}),
       delay: options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined,
       removeOnComplete: true,
       removeOnFail: 1000,
       attempts,
       backoff: { type: 'exponential', delay: 1000 },
+      // `keepLastIfActive` is what turns BullMQ's deduplication from "drop the duplicate" into the
+      // coalescing this package promises: an add that lands mid-run is stored and replayed once the
+      // running job finishes, rather than discarded along with the write that triggered it.
+      // Never emit `deduplication: undefined` — BullMQ treats the key's presence as intent.
+      ...(coalesceKey ? { deduplication: { id: coalesceKey, keepLastIfActive: true } } : {}),
     })
 
+    // On a coalesced add BullMQ returns the outstanding job that caused the add to collapse. When
+    // that job is active, BullMQ separately stores a proto-job for the follow-up; its id becomes
+    // visible only when promoted.
     return job.id ?? jobData.id
   }
 
@@ -576,6 +605,7 @@ export function createAsyncQueue<T = unknown>(
     if (bullQueue) {
       await bullQueue.close()
       bullQueue = null
+      bullQueuePromise = null
     }
   }
 

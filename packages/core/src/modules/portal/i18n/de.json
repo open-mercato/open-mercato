@@ -64,6 +64,13 @@
   "portal.login.submit": "Anmelden",
   "portal.login.submitting": "Anmeldung…",
   "portal.login.title": "Anmelden",
+  "portal.magicLink.backToLogin": "Zurück zur Anmeldung",
+  "portal.magicLink.description": "Melden Sie sich mit dem Link aus Ihrer E-Mail im Portal an.",
+  "portal.magicLink.error.generic": "Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.",
+  "portal.magicLink.error.invalidToken": "Dieser Anmeldelink ist ungültig oder abgelaufen. Fordern Sie einen neuen an.",
+  "portal.magicLink.error.missingToken": "Der Anmeldelink ist ungültig oder unvollständig.",
+  "portal.magicLink.submit": "Anmelden",
+  "portal.magicLink.title": "Mit einem Link anmelden",
   "portal.nav.account": "Konto",
   "portal.nav.dashboard": "Dashboard",
   "portal.nav.home": "Portal",
@@ -121,6 +128,7 @@
   "portal.signup.error.email.invalid": "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
   "portal.signup.error.generic": "Registrierung fehlgeschlagen. Bitte versuchen Sie es erneut.",
   "portal.signup.error.password.minLength": "Das Passwort muss mindestens 8 Zeichen lang sein.",
+  "portal.signup.error.rateLimited": "Zu viele Registrierungsversuche. Bitte warten Sie einige Minuten und versuchen Sie es erneut.",
   "portal.signup.hasAccount": "Bereits ein Konto?",
   "portal.signup.loginLink": "Anmelden",
   "portal.signup.password": "Passwort",
@@ -137,8 +145,9 @@
   "portal.verify.error.backToLogin": "Zurück zur Anmeldung",
   "portal.verify.error.generic": "Die E-Mail-Bestätigung ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
   "portal.verify.error.invalidToken": "Das Bestätigungs-Token fehlt.",
+  "portal.verify.submit": "E-Mail-Adresse bestätigen und Passwort festlegen",
   "portal.verify.success.description": "Ihre E-Mail-Adresse wurde bestätigt. Sie können sich jetzt im Portal anmelden.",
   "portal.verify.success.loginLink": "Anmelden",
   "portal.verify.success.title": "E-Mail bestätigt",
-  "portal.verify.title": "E-Mail wird bestätigt"
+  "portal.verify.title": "E-Mail-Adresse bestätigen"
 }

@@ -468,9 +468,14 @@ recorded in the hub inbox and answered in Discord — see § Interactions dispat
 
 ### 4. Connect the channel in Open Mercato
 
-In `/backend/integrations`, find **Discord**, and connect a channel with the credential fields
-(`botToken`, `applicationId`, `publicKey`, `guildId`, `defaultChannelId`). `validateCredentials`
-calls `GET /users/@me` to confirm the token before persisting.
+In **Profile → My communication channels → Connect channel → Connect Discord**, connect a channel
+with the credential fields (`botToken`, `applicationId`, `publicKey`, `guildId`, `defaultChannelId`).
+The dialog is an embedded `CrudForm` that shows the same per-field hints as the integration
+credentials form and validates required fields and the public-key format client-side.
+`validateCredentials` calls `GET /users/@me` to confirm the token before persisting. The
+**Integrations → Discord** credentials form stores a separate, organization-wide credential that
+creates no channel; it backs the health probe, `register-slash-commands`, and any channel without
+its own credential (user guide § Integrations → Discord vs. Connect Discord).
 
 Optional env preconfiguration (provider-owned, applied from `setup.ts`, rerunnable via a provider
 CLI command — same pattern as other providers):
@@ -657,13 +662,16 @@ up in teardown, no reliance on seeded/demo data). Discord REST + Gateway are stu
 | TC-CHANNEL-DISCORD-010 | AI peer absent | With `ai_assistant` disabled, the subscriber no-ops and inbound still ingests (module-decoupling). |
 | TC-CHANNEL-DISCORD-011 | AI auto-reply panel listing | A per-user Discord channel appears in `GET /api/channel_discord/ai-auto-reply/channels` for its owner and for nobody else. |
 | TC-CHANNEL-DISCORD-012 | AI reply send path | An approved reply on a channel whose sender has no address completes through `messages.messages.compose`. |
+| TC-CHANNEL-DISCORD-013 | Forged AI reply proposals | Client-filed cards remain generic 500 refusals; authenticated proposals with a source outside the organization return 404 without sending. |
+| TC-CHANNEL-DISCORD-014 | Localized approval refusals | Admin-created system-marked proposals preserve English/Polish 403/404 errors, release claims for repeated refusals and dismissal, and never insert replies. |
+| TC-CHANNEL-DISCORD-015 | Connect Discord dialog | The profile-page Connect Discord dialog validates required fields and the public-key format inline before any request, shows each field's help text, and lands server field errors on their fields. |
 
 Unit tests (provider package, jest): `convertOutbound`/`normalizeInbound` mapping, Ed25519 verify,
 gateway identify/resume/backoff state machine, bot-self-message filter.
 
 ### What ships in the implementation PR, and where the ceiling is
 
-TC-CHANNEL-DISCORD-001..008, 011 and 012 ship as executable Playwright specs in
+TC-CHANNEL-DISCORD-001..008 and 011..014 ship as executable Playwright specs in
 `packages/channel-discord/src/modules/channel_discord/__integration__/`.
 
 TC-009 and TC-010 assert AI auto-reply behaviour. The behaviour now exists (#4778), and the halves
@@ -715,6 +723,35 @@ and 007's guard cases need no fixture and run unconditionally.
 ---
 
 ## Backward compatibility
+
+### Migration & Backward Compatibility — bounded interactions (#7241)
+
+`POST /api/channel_discord/interactions` screens missing, malformed, and stale signature
+headers before consuming the body. Otherwise it uses the existing shared bounded reader:
+the default is 1,048,576 bytes (1 MiB), overridden by a positive safe-integer
+`OM_WEBHOOK_MAX_BODY_BYTES`. Invalid values retain the default. A declared length above
+the limit or actual streamed bytes above it returns `413 { error: 'payload_too_large' }`
+before translations, JSON parsing, candidate lookup, signature verification, or dispatch.
+An absent, malformed, or understated Content-Length cannot bypass actual byte counting;
+an exact-limit body continues through the existing signature and interaction path.
+
+Route URLs, signature format, tenant resolution, and accepted-payload responses remain unchanged. No schema migration,
+credential rotation, or stored-data remediation is needed.
+
+Clients must keep encoded interaction bodies within the configured limit; retrying an
+oversized body unchanged will still fail. Operators must align ingress limits with the
+application cap and account for this shared setting's effect on other bounded webhook
+readers before increasing it. No unlimited mode is introduced. `UPGRADE_NOTES.md` carries
+the client/operator guidance. Residual risk: concurrent requests within the cap still
+consume resources, so existing request-count limits remain in effect.
+
+Route regression coverage uses real Ed25519 signatures and streamed fixtures for header
+screening, declared overflow, absent/malformed/false lengths, chunked cancellation,
+multibyte exact-boundary success, configured limits, and no downstream work on overflow.
+
+### Migration & Backward Compatibility — proposal approval refusals (#7310)
+
+Approval of a proposal whose source message is unavailable returns a localized 404; an operator who cannot read the source receives a localized 403. Both use the existing `{ error: string }` response shape. The action wrapper preserves these typed refusals after releasing its terminal claim, so dismissal or a later retry remains available. Unexpected errors retain the generic 500 response. Routes, command IDs, database schema, permission rules, and successful approval behavior are unchanged; no migration is required. English and Polish command tests cover both refusals, and all five shipped locales include the messages.
 
 ### Migration & Backward Compatibility — proposal origin (2026-10-13)
 
@@ -1162,6 +1199,29 @@ rule 3), and no variant should be considered done without it.
 ---
 
 ## Changelog
+
+### 2026-10-29 — Bound public signed interaction bodies (#7241)
+
+- Reuse the shared streamed byte cap after header screening and before candidate lookup;
+  document 413, boundary coverage, and client/operator migration.
+
+### 2026-10-25 — Integrate approval refusals with authenticated proposals (#7356)
+
+- Preserved current proposal-origin and organization guards while applying localized source refusals. Kept forged-card TC-CHANNEL-DISCORD-013, moved refusal coverage to unused TC-CHANNEL-DISCORD-014, and authenticated its admin-created fixtures with `stampSystemProposalFixture`.
+
+### 2026-10-23 — Connect Discord dialog on CrudForm with field hints (issue #5592)
+
+- Rebuilt the profile-page Connect Discord dialog on an embedded `CrudForm` with a client-side
+  schema (`lib/connect-form.ts`), mirroring the IMAP dialog: required fields and the 64-hex public
+  key are checked inline before any request, server field errors land on their fields.
+- Each field shows the same help text as the `integration.ts` credential fields; a unit test keeps
+  the two in sync. TC-CHANNEL-DISCORD-015 covers the dialog in the browser.
+- Corrected § 4 above and documented in the user guide how the Integrations → Discord credential
+  differs from a connected channel. No API, schema or credential-shape change.
+
+### 2026-10-13 — Proposal approval refusals (#7310)
+
+- Localized Discord proposal approval refusals use typed 403/404 errors preserved by the message action wrapper, on top of the source-read authorization introduced in #7151. TC-CHANNEL-DISCORD-014 exercises both locales over HTTP, repeated refusals, dismissal, and the absence of replies.
 
 ### 2026-10-13 — Authenticate system-filed AI reply proposals (issue #7312)
 

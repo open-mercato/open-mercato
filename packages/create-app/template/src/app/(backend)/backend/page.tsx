@@ -2,10 +2,15 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { redirect } from 'next/navigation'
 import { DashboardScreen } from '@open-mercato/ui/backend/dashboard'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
 import { backendMiddlewareEntries } from '@/.mercato/generated/backend-middleware.generated'
 
 export default async function BackendIndex() {
+  return runInOwnedRequestScope(renderBackendIndex)
+}
+
+async function renderBackendIndex() {
   const auth = await getAuthFromCookies()
   if (!auth) redirect('/api/auth/session/refresh?redirect=/backend')
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null

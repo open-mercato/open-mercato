@@ -124,6 +124,7 @@ describe('isInternalHost (SSRF guard)', () => {
     '::7f00:1%lo0',
     '::1%lo0',
     'fe80::1%eth0',
+    '203.0.113.10',
   ]
 
   const allowed = [
@@ -132,7 +133,7 @@ describe('isInternalHost (SSRF guard)', () => {
     'mail.proton.me',
     '8.8.8.8',
     '1.1.1.1',
-    '203.0.113.10',
+    '93.184.216.34',
     '2001:4860:4860::8888',
     '2606:4700:4700::1111',
     '64:ff9b::808:808',

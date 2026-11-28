@@ -3,27 +3,40 @@ import type { AwilixContainer } from 'awilix'
 import type { ResponseEnricher, EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
 import { CustomerEntity } from '@open-mercato/core/modules/customers/data/entities'
 import {
+  StaffSupportTicket,
   StaffTeamMember,
   StaffTimeProject,
   StaffTimeReport,
   StaffTimeReportEntry,
   StaffTimeReportEvent,
+  StaffTimeProjectMember,
   StaffTimeTask,
   StaffTimeTaskStatus,
 } from './entities'
 import { decorateTimeEntryRows } from '../lib/timesheets/timeEntryDecoration'
 import { computeProjectHoursTrend } from '../lib/timesheets-projects/computeProjectHoursTrend'
-import { computeProjectFinancials } from '../lib/timesheets-projects/computeProjectFinancials'
+import {
+  computeProjectFinancials,
+  resolveProjectAmountDecimalPlaces,
+} from '../lib/timesheets-projects/computeProjectFinancials'
 import type { ProjectBudgetKind } from '../lib/timesheets-projects/budgetBurn'
 import {
   listProjectMembersPreview,
   type MemberPreview,
 } from '../lib/timesheets-projects/listProjectMembersPreview'
 import { computeTaskRollups, EMPTY_TASK_ROLLUP } from '../lib/timesheets-tasks/computeTaskRollups'
+import { derivePortalStatus } from '../lib/support/portalStatus'
+import {
+  isActiveAssignment,
+  normalizeAssignmentGraceDays,
+  resolveAssignmentGraceDaysFromContainer,
+} from '../lib/time-tracking/projectAssignment'
 
 const MANAGE_FEATURE = 'staff.timesheets.projects.manage'
+const TASKS_VIEW_FEATURE = 'staff.timesheets.tasks.view'
 const RATES_FEATURE = 'staff.timesheets.rates.view'
 
 /**
@@ -70,7 +83,9 @@ type StaffEnrichment = {
     billableMinutes?: number
     budget?: ProjectBudget
     hourlyRate?: number | null
+    hourlyRateExact?: string | null
     cost?: number | null
+    costExact?: string | null
   }
 }
 
@@ -103,6 +118,11 @@ function toNullableNumber(value: string | number | null | undefined): number | n
   if (value === null || value === undefined) return null
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? parsed : null
+}
+
+function toNullableExact(value: string | number | null | undefined): string | null {
+  const parsed = parseDecimal(value)
+  return parsed ? decimalToString(parsed) : null
 }
 
 function resolveCustomerName(snapshot: Record<string, unknown> | null | undefined): string | null {
@@ -199,9 +219,13 @@ const portfolioEnricher: ResponseEnricher<EntityRecord, StaffEnrichment> = {
       deletedAt: null,
     })
     const projectById = new Map(projects.map((project) => [project.id, project]))
-    const hourlyRateByProjectId = new Map(
-      projects.map((project) => [project.id, toNullableNumber(project.hourlyRate)]),
-    )
+    const hourlyRateByProjectId = new Map(projects.map((project) => [project.id, project.hourlyRate ?? null]))
+    const amountDecimalPlacesByProjectId = hasRates
+      ? await resolveProjectAmountDecimalPlaces(ctx.container, projects, {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+        })
+      : {}
 
     const customerIdsMissingSnapshot = projects
       .filter((project) => !resolveCustomerName(project.customerSnapshot))
@@ -229,6 +253,7 @@ const portfolioEnricher: ResponseEnricher<EntityRecord, StaffEnrichment> = {
         organizationId: ctx.organizationId,
         projectIds,
         hourlyRateByProjectId,
+        amountDecimalPlacesByProjectId,
         staffMemberId: ownEntriesOnly,
       }),
       loadCustomerNames(ctx.em.fork(), ctx.tenantId, ctx.organizationId, customerIdsMissingSnapshot),
@@ -263,7 +288,9 @@ const portfolioEnricher: ResponseEnricher<EntityRecord, StaffEnrichment> = {
       }
       if (hasRates) {
         enrichment.hourlyRate = toNullableNumber(project?.hourlyRate)
+        enrichment.hourlyRateExact = toNullableExact(project?.hourlyRate)
         enrichment.cost = financials?.cost ?? null
+        enrichment.costExact = financials?.costExact ?? null
       }
       return { ...record, _staff: enrichment }
     })
@@ -511,6 +538,7 @@ const timeEntryEnricher: ResponseEnricher<EntityRecord, TimeEntryEnrichment> = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       canSeeRates: await callerHasFeature(ctx, RATES_FEATURE),
+      container: ctx.container,
     })
     return rows as (EntityRecord & TimeEntryEnrichment)[]
   },
@@ -533,6 +561,7 @@ type TaskContextEnrichment = {
     statusIsDone: boolean | null
     assigneeName: string | null
     hourlyRate?: number | null
+    hourlyRateExact?: string | null
     currencyCode?: string | null
   }
 }
@@ -628,9 +657,202 @@ const taskContextEnricher: ResponseEnricher<EntityRecord, TaskContextEnrichment>
       }
       if (hasRates) {
         enrichment.hourlyRate = toNullableNumber(project?.hourlyRate)
+        enrichment.hourlyRateExact = toNullableExact(project?.hourlyRate)
         enrichment.currencyCode = project?.currencyCode ?? null
       }
       return { ...record, _staff: enrichment }
+    })
+  },
+}
+
+export type SupportTicketEnrichment = {
+  _staffSupport: {
+    ticket: {
+      id: string
+      supportReference: string
+      category: { value: string; label: string }
+      routedVia: string
+      portalStatus: string
+      customerSnapshot: Record<string, unknown> | null
+      reportedByCustomerUserId: string | null
+      unnotifiedAt: string | null
+      customerRequest: { subject: string; body: string } | null
+    } | null
+  }
+}
+
+const EMPTY_SUPPORT_TICKET: SupportTicketEnrichment = { _staffSupport: { ticket: null } }
+
+/**
+ * The customer request behind a portal ticket. Internal tasks get `ticket: null`.
+ * `customerRequest` is the encrypted original the portal shows, read here so the
+ * drawer can show staff exactly what the customer sees.
+ */
+const supportTicketEnricher: ResponseEnricher<EntityRecord, SupportTicketEnrichment> = {
+  id: 'staff.timesheets-tasks-support-ticket',
+  targetEntity: 'staff:staff_time_task',
+  priority: 4,
+  timeout: 3000,
+  critical: false,
+  fallback: { ...EMPTY_SUPPORT_TICKET },
+  cacheableOnListHit: false,
+
+  async enrichOne(record, context) {
+    const enriched = await this.enrichMany!([record], context)
+    return enriched[0]
+  },
+
+  async enrichMany(records, context) {
+    if (records.length === 0) return records as (EntityRecord & SupportTicketEnrichment)[]
+    const ctx = context as InternalContext
+    if (!ctx.tenantId || !ctx.organizationId) {
+      return records.map((record) => ({ ...record, ...EMPTY_SUPPORT_TICKET }))
+    }
+    const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+    const portalRecordIds = records
+      .filter((record) => record.source === 'portal' || record.source === undefined)
+      .map((record) => record.id)
+      .filter((id): id is string => typeof id === 'string')
+    if (portalRecordIds.length === 0) {
+      return records.map((record) => ({ ...record, ...EMPTY_SUPPORT_TICKET }))
+    }
+    const tickets = await findWithDecryption(
+      ctx.em.fork(),
+      StaffSupportTicket,
+      { taskId: { $in: portalRecordIds }, ...scope, deletedAt: null },
+      undefined,
+      scope,
+    )
+    if (tickets.length === 0) {
+      return records.map((record) => ({ ...record, ...EMPTY_SUPPORT_TICKET }))
+    }
+    const ticketByTask = new Map(tickets.map((ticket) => [ticket.taskId, ticket]))
+    const tasks = await ctx.em.fork().find(
+      StaffTimeTask,
+      { id: { $in: tickets.map((ticket) => ticket.taskId) }, ...scope },
+      { fields: ['id', 'taskStatusId'] },
+    )
+    const statusIds = [...new Set(tasks.map((task) => task.taskStatusId))]
+    const statuses = statusIds.length
+      ? await ctx.em.fork().find(StaffTimeTaskStatus, { id: { $in: statusIds }, ...scope }, { fields: ['id', 'isDefault', 'isDone'] })
+      : []
+    const statusById = new Map(statuses.map((status) => [status.id, status]))
+    const statusByTask = new Map(tasks.map((task) => [task.id, statusById.get(task.taskStatusId) ?? null]))
+
+    return records.map((record) => {
+      const ticket = typeof record.id === 'string' ? ticketByTask.get(record.id) : undefined
+      if (!ticket) return { ...record, ...EMPTY_SUPPORT_TICKET }
+      const request = ticket.customerRequestSnapshot
+      return {
+        ...record,
+        _staffSupport: {
+          ticket: {
+            id: ticket.id,
+            supportReference: ticket.supportReference,
+            category: ticket.categorySnapshot,
+            routedVia: ticket.routedVia,
+            portalStatus: derivePortalStatus(statusByTask.get(ticket.taskId) ?? null),
+            customerSnapshot: ticket.customerSnapshot ?? null,
+            reportedByCustomerUserId: ticket.reportedByCustomerUserId ?? null,
+            unnotifiedAt: ticket.unnotifiedAt ? ticket.unnotifiedAt.toISOString() : null,
+            customerRequest:
+              request && typeof request === 'object' && typeof request.subject === 'string'
+                ? { subject: request.subject, body: typeof request.body === 'string' ? request.body : '' }
+                : null,
+          },
+        },
+      }
+    })
+  },
+}
+
+/**
+ * Whether the CALLER may claim or release each task right now, decided by the same
+ * rule the claim and release commands enforce: claiming needs an active assigner
+ * membership of the task's project inside its assignment window (plus the tenant's
+ * grace days), an unassigned task and a column that is not done; releasing needs the
+ * caller to be the current assignee. The drawer reads these instead of guessing from
+ * a page of project members, so it never offers an action the server refuses.
+ */
+export type TaskAssignmentEnrichment = {
+  _staffAssignment: {
+    canClaim: boolean
+    canRelease: boolean
+  }
+}
+
+const NO_TASK_ASSIGNMENT: TaskAssignmentEnrichment = { _staffAssignment: { canClaim: false, canRelease: false } }
+
+const taskAssignmentEnricher: ResponseEnricher<EntityRecord, TaskAssignmentEnrichment> = {
+  id: 'staff.timesheets-tasks-assignment',
+  targetEntity: 'staff:staff_time_task',
+  features: [TASKS_VIEW_FEATURE],
+  priority: 3,
+  timeout: 3000,
+  critical: false,
+  fallback: { ...NO_TASK_ASSIGNMENT },
+  cacheableOnListHit: false,
+
+  async enrichOne(record, context) {
+    const enriched = await this.enrichMany!([record], context)
+    return enriched[0]
+  },
+
+  async enrichMany(records, context) {
+    if (records.length === 0) return records as (EntityRecord & TaskAssignmentEnrichment)[]
+    const ctx = context as InternalContext
+    if (!ctx.tenantId || !ctx.organizationId || !ctx.userId) {
+      return records.map((record) => ({ ...record, ...NO_TASK_ASSIGNMENT }))
+    }
+    const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
+    const callerStaffMemberId = await resolveCallerStaffMemberId(ctx)
+    if (!callerStaffMemberId) return records.map((record) => ({ ...record, ...NO_TASK_ASSIGNMENT }))
+
+    const taskIds = records.map((record) => record.id).filter((id): id is string => typeof id === 'string')
+    const tasks = await ctx.em.fork().find(
+      StaffTimeTask,
+      { id: { $in: taskIds }, ...scope, deletedAt: null },
+      { fields: ['id', 'timeProjectId', 'taskStatusId', 'assigneeStaffMemberId'] },
+    )
+    const taskById = new Map(tasks.map((task) => [task.id, task]))
+    const projectIds = [...new Set(tasks.map((task) => task.timeProjectId).filter(Boolean))]
+    const statusIds = [...new Set(tasks.map((task) => task.taskStatusId).filter(Boolean))]
+
+    const [statuses, memberships, graceDays] = await Promise.all([
+      statusIds.length
+        ? ctx.em.fork().find(StaffTimeTaskStatus, { id: { $in: statusIds }, ...scope }, { fields: ['id', 'isDone'] })
+        : Promise.resolve([]),
+      projectIds.length
+        ? ctx.em.fork().find(StaffTimeProjectMember, {
+            timeProjectId: { $in: projectIds },
+            staffMemberId: callerStaffMemberId,
+            isAssigner: true,
+            status: 'active',
+            deletedAt: null,
+            ...scope,
+          })
+        : Promise.resolve([]),
+      resolveAssignmentGraceDaysFromContainer(ctx.container, ctx.tenantId),
+    ])
+    const doneStatusIds = new Set(statuses.filter((status) => status.isDone).map((status) => status.id))
+    const now = new Date()
+    const assignerProjectIds = new Set(
+      memberships
+        .filter((membership) => isActiveAssignment(membership, now, normalizeAssignmentGraceDays(graceDays)))
+        .map((membership) => membership.timeProjectId),
+    )
+
+    return records.map((record) => {
+      const task = taskById.get(record.id)
+      if (!task) return { ...record, ...NO_TASK_ASSIGNMENT }
+      const assignee = task.assigneeStaffMemberId ?? null
+      return {
+        ...record,
+        _staffAssignment: {
+          canClaim: !assignee && assignerProjectIds.has(task.timeProjectId) && !doneStatusIds.has(task.taskStatusId),
+          canRelease: assignee === callerStaffMemberId,
+        },
+      }
     })
   },
 }
@@ -787,6 +1009,8 @@ const apiEnrichers: ResponseEnricher[] = [
   taskRollupEnricher,
   taskTagEnricher,
   taskContextEnricher,
+  supportTicketEnricher,
+  taskAssignmentEnricher,
   timeEntryEnricher,
   reportEnricher,
 ]

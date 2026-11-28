@@ -65,6 +65,7 @@ type VersionHistoryPanelProps = {
    */
   contentUpdatedAt?: string | null
   onRestored?: () => void | Promise<void>
+  onBeforeSnapshot?: () => Promise<boolean>
 }
 
 export { resolveVersionRestoreCapability } from './componentCapabilities'
@@ -75,6 +76,7 @@ export function VersionHistoryPanel({
   tier,
   canRestore,
   onRestored,
+  onBeforeSnapshot,
 }: VersionHistoryPanelProps) {
   const t = useT()
   const mayRestore = resolveVersionRestoreCapability(canRestore, tier)
@@ -85,6 +87,7 @@ export function VersionHistoryPanel({
   const [restoringVersionId, setRestoringVersionId] = React.useState<string | null>(null)
   const [previewVersionId, setPreviewVersionId] = React.useState<string | null>(null)
   const restoreInFlight = React.useRef(false)
+  const snapshotInFlight = React.useRef(false)
   const reloadSequence = React.useRef(0)
   const activeReload = React.useRef<AbortController | null>(null)
   const activeDocumentId = React.useRef<string | null>(null)
@@ -141,16 +144,25 @@ export function VersionHistoryPanel({
   }, [reload])
 
   const handleSnapshot = React.useCallback(async () => {
-    if (!mayRestore) return
+    if (!mayRestore || snapshotInFlight.current) return
+    snapshotInFlight.current = true
     setIsCreating(true)
     const nextLabel = label.trim() || null
     try {
       await runMutation({
-        operation: () => apiCallOrThrow(
-          `/api/documents/${encodeURIComponent(documentId)}/versions`,
-          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label: nextLabel }) },
-          { errorMessage: t('documents.versions.error.save') },
-        ),
+        operation: async () => {
+          if (onBeforeSnapshot && !(await onBeforeSnapshot())) {
+            throw new Error(t('documents.versions.error.save'))
+          }
+          if (currentDocumentIdRef.current !== documentId) {
+            throw new Error(t('documents.versions.error.save'))
+          }
+          return apiCallOrThrow(
+            `/api/documents/${encodeURIComponent(documentId)}/versions`,
+            { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ label: nextLabel }) },
+            { errorMessage: t('documents.versions.error.save') },
+          )
+        },
         context: { formId: mutationContextId, resourceKind: 'documents.document_version', resourceId: documentId, retryLastMutation },
         mutationPayload: { label: nextLabel },
       })
@@ -162,8 +174,11 @@ export function VersionHistoryPanel({
     } catch (error) {
       if (currentDocumentIdRef.current !== documentId) return
       flash(error instanceof Error ? error.message : t('documents.versions.error.save'), 'error')
-    } finally { setIsCreating(false) }
-  }, [documentId, label, mayRestore, mutationContextId, reload, retryLastMutation, runMutation, t])
+    } finally {
+      snapshotInFlight.current = false
+      setIsCreating(false)
+    }
+  }, [documentId, label, mayRestore, mutationContextId, onBeforeSnapshot, reload, retryLastMutation, runMutation, t])
 
   const handleRestore = React.useCallback(async (version: VersionPreview) => {
     if (!mayRestore || restoreInFlight.current) return

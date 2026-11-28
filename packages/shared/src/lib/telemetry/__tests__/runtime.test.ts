@@ -1,8 +1,14 @@
 import {
   captureTelemetryTrace,
+  collectTelemetryMetrics,
   getTelemetryRuntime,
   isTelemetryBackendEnabled,
+  recordTelemetryMetric,
+  registerTelemetryMetricCollector,
   registerTelemetryRuntime,
+  registerTelemetryErrorReporter,
+  reportTelemetryError,
+  resetTelemetryMetricCollectors,
   resetTelemetryRuntime,
   withTelemetrySpan,
   type TelemetryRuntime,
@@ -12,6 +18,44 @@ import {
 } from '../runtime'
 
 type SpanCall = { name: string; options?: TelemetrySpanOptions }
+
+describe('reportTelemetryError', () => {
+  afterEach(() => resetTelemetryRuntime())
+
+  it('prefers the complete runtime over the browser reporter without double reporting', () => {
+    const browserReporter = jest.fn()
+    const runtimeReporter = jest.fn()
+    const dispose = registerTelemetryErrorReporter(browserReporter)
+    registerTelemetryRuntime(createRuntime({ reportError: runtimeReporter }))
+    const error = new Error('[internal] lookup failed')
+    try {
+      reportTelemetryError(error, { module: 'ui', code: 'ui.address_types_load_failed' })
+      expect(runtimeReporter).toHaveBeenCalledWith(error, { module: 'ui', code: 'ui.address_types_load_failed' })
+      expect(browserReporter).not.toHaveBeenCalled()
+    } finally {
+      dispose()
+    }
+  })
+
+  it('keeps the current browser reporter when a previous registration is disposed', () => {
+    const previous = jest.fn()
+    const current = jest.fn()
+    const disposePrevious = registerTelemetryErrorReporter(previous)
+    const disposeCurrent = registerTelemetryErrorReporter(current)
+    const error = new Error('[internal] lookup failed')
+    try {
+      disposePrevious()
+      reportTelemetryError(error)
+      expect(previous).not.toHaveBeenCalled()
+      expect(current).toHaveBeenCalledWith(error)
+      disposeCurrent()
+      reportTelemetryError(error)
+      expect(current).toHaveBeenCalledTimes(1)
+    } finally {
+      disposeCurrent()
+    }
+  })
+})
 
 function createRuntime(overrides: Partial<TelemetryRuntime> = {}): TelemetryRuntime {
   return {
@@ -117,6 +161,119 @@ describe('telemetry runtime registry', () => {
     resetTelemetryRuntime()
 
     expect(getTelemetryRuntime()).toBeUndefined()
+  })
+})
+
+describe('telemetry metric bridge', () => {
+  afterEach(() => {
+    resetTelemetryMetricCollectors()
+    resetTelemetryRuntime()
+  })
+
+  it('returns false without allocating a provider point when metrics are unavailable', () => {
+    expect(recordTelemetryMetric({
+      kind: 'gauge',
+      name: 'om.db.pool.max',
+      value: 20,
+      unit: '{connection}',
+    })).toBe(false)
+  })
+
+  it('forwards metric points through the optional runtime method', () => {
+    const points: Parameters<NonNullable<TelemetryRuntime['recordMetric']>>[0][] = []
+    registerTelemetryRuntime(createRuntime({ recordMetric: (point) => points.push(point) }))
+
+    const recorded = recordTelemetryMetric({
+      kind: 'histogram',
+      name: 'om.db.pool.wait_time',
+      value: 0.25,
+      labels: { pool: 'primary' },
+      unit: 's',
+    })
+
+    expect(recorded).toBe(true)
+    expect(points).toEqual([{
+      kind: 'histogram',
+      name: 'om.db.pool.wait_time',
+      value: 0.25,
+      labels: { pool: 'primary' },
+      unit: 's',
+    }])
+  })
+
+  it('collects registered metric owners and stops after disposal', () => {
+    const first = jest.fn()
+    const second = jest.fn()
+    const disposeFirst = registerTelemetryMetricCollector(first)
+    registerTelemetryMetricCollector(second)
+
+    collectTelemetryMetrics()
+    disposeFirst()
+    collectTelemetryMetrics()
+
+    expect(first).toHaveBeenCalledTimes(1)
+    expect(second).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses a snapshot so collectors can dispose during collection', () => {
+    const calls: string[] = []
+    let disposeSecond = () => {}
+    registerTelemetryMetricCollector(() => {
+      calls.push('first')
+      disposeSecond()
+    })
+    disposeSecond = registerTelemetryMetricCollector(() => {
+      calls.push('second')
+    })
+
+    collectTelemetryMetrics()
+    collectTelemetryMetrics()
+
+    expect(calls).toEqual(['first', 'second', 'first'])
+  })
+
+  it('isolates collector failures and reports them without skipping later collectors', () => {
+    const failure = new Error('[internal] collector failed')
+    const nextCollector = jest.fn()
+    const onError = jest.fn()
+    const reportError = jest.fn()
+    registerTelemetryRuntime(createRuntime({ reportError }))
+    registerTelemetryMetricCollector(() => {
+      throw failure
+    })
+    registerTelemetryMetricCollector(nextCollector)
+
+    collectTelemetryMetrics(onError)
+
+    expect(onError).toHaveBeenCalledWith(failure)
+    expect(reportError).toHaveBeenCalledWith(failure, {
+      module: 'telemetry',
+      code: 'telemetry.metric_collector_failed',
+    })
+    expect(nextCollector).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([false, true])('continues collection when the error callback fails (reporting throws: %s)', (reportingThrows) => {
+    const failure = new Error('[internal] collector failed')
+    const callbackFailure = new Error('[internal] error callback failed')
+    const reportError = jest.fn(() => {
+      if (reportingThrows) throw new Error('[internal] reporting sink failed')
+    })
+    registerTelemetryRuntime(createRuntime({ reportError }))
+    const nextCollector = jest.fn()
+    registerTelemetryMetricCollector(() => { throw failure })
+    registerTelemetryMetricCollector(nextCollector)
+    const onError = jest.fn(() => { throw callbackFailure })
+
+    expect(() => collectTelemetryMetrics(onError)).not.toThrow()
+    expect(() => collectTelemetryMetrics(onError)).not.toThrow()
+
+    expect(nextCollector).toHaveBeenCalledTimes(2)
+    expect(reportError).toHaveBeenCalledTimes(4)
+    expect(reportError).toHaveBeenCalledWith(callbackFailure, {
+      module: 'telemetry',
+      code: 'telemetry.metric_collector_callback_failed',
+    })
   })
 })
 

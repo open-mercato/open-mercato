@@ -287,6 +287,11 @@ curl -X POST "$BASE_URL/payment_gateways/refund" \
 }
 ```
 
+Capture, refund and cancel return `404` when the transaction is missing, deleted,
+or outside the caller's tenant/organization scope. They use the same localized
+not-found response for missing and foreign records, before invoking the provider.
+A real provider failure remains `502`; do not retry a scoped `404` as a provider outage.
+
 ## Cancel payment — `POST /payment_gateways/cancel`
 
 **Feature:** `payment_gateways.manage`
@@ -307,6 +312,10 @@ curl -X POST "$BASE_URL/payment_gateways/cancel" \
   "status": "cancelled"
 }
 ```
+
+| Status | `code` | Meaning |
+|--------|--------|---------|
+| 409 | `payment_cancel_captured_funds` | Part of the payment is already captured (`partially_captured`) or a capture is holding a reservation. Cancelling would leave the captured amount with no refund path; to return it to the customer, refund it. The uncaptured remainder of a partially captured authorization is not released by this endpoint: it lapses when the provider's authorization expires, or can be voided in the provider's dashboard. |
 
 ## Get transaction status — `GET /payment_gateways/status`
 
@@ -356,7 +365,7 @@ Webhook events are processed asynchronously by dedicated workers. Each event inc
 
 ## Stripe webhook setup
 
-Stripe should send webhook events into Open Mercato so the hub can update transaction status, append webhook history, and keep refunds and disputes synchronized. Session creation can work without it, but a production Stripe integration should not stop there.
+Stripe should send webhook events into Open Mercato so the hub can update transaction status, append webhook history, and keep refunds synchronized. A `charge.refunded` event whose Charge shows refunded captured funds moves the transaction to `partially_refunded` or `refunded`, depending on whether the captured amount is fully refunded (from `partially_refunded` only the move to `refunded`; a refund that arrives before the capture webhook moves a `pending` or `authorized` transaction through `captured`); `charge.refund.updated` and dispute events are recorded without changing the unified status. Session creation can work without it, but a production Stripe integration should not stop there.
 
 ### Endpoint URL
 

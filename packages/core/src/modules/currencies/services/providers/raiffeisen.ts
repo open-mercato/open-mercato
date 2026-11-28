@@ -1,4 +1,4 @@
-import { RateProvider, RateProviderResult } from './base'
+import { RateProvider, RateProviderResult, invertProviderRate, toProviderRate } from './base'
 import { fromZonedTime } from 'date-fns-tz'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -105,11 +105,16 @@ export class RaiffeisenPolandProvider implements RateProvider {
         
         // Rate 1: PLN → XXX (inverse of SELL) - this is when bank SELLS foreign currency
         // If sell = 4.5 (1 EUR costs 4.5 PLN), then 1 PLN = 1/4.5 EUR
-        const sellRate = parseFloat(rateData.sell)
+        const sellRate = invertProviderRate(rateData.sell)
+        const buyRate = toProviderRate(rateData.buy)
+        if (sellRate === null || buyRate === null) {
+          logger.warn('Skipping unusable rate', { code: rateData.code, sell: rateData.sell, buy: rateData.buy })
+          continue
+        }
         results.push({
           fromCurrencyCode: this.providerBaseCurrency,
           toCurrencyCode: rateData.code,
-          rate: (1 / sellRate).toString(),
+          rate: sellRate,
           source: this.source,
           date: rateDate,
           type: 'sell', // Bank sells foreign currency (from their perspective)
@@ -120,7 +125,7 @@ export class RaiffeisenPolandProvider implements RateProvider {
         results.push({
           fromCurrencyCode: rateData.code,
           toCurrencyCode: this.providerBaseCurrency,
-          rate: rateData.buy,
+          rate: buyRate,
           source: this.source,
           date: rateDate,
           type: 'buy', // Bank buys foreign currency (from their perspective)

@@ -9,6 +9,14 @@ import { CacheDependencyUnavailableError } from './errors'
 import { matchCacheKeyPattern } from './patterns'
 import { parseCacheCompression, parseCacheCompressionMinBytes } from './codec'
 import type { CacheCodecOptions } from './codec'
+import type { CacheProviderHostContext, CacheProviderPlacement, ResolvedCacheProvider } from './provider'
+import {
+  CacheProviderError,
+  createCacheProviderHostContext,
+  getPreparedCacheProvider,
+  readSelectedCacheProviderId,
+  toSanitizedCacheProviderError,
+} from './provider'
 
 function normalizeTenantKey(raw: string | null | undefined): string {
   const value = typeof raw === 'string' ? raw.trim() : ''
@@ -41,9 +49,13 @@ function isCacheMetadata(value: CacheValue | null): value is CacheMetadata {
   return hasValidKey && hasValidExpiresAt
 }
 
+type CacheProviderEntry = CacheMetadata & { value: CacheValue }
+type CacheRecordLayout =
+  | { kind: 'stock'; reportsBoundedCounters: boolean }
+  | { kind: 'provider'; defaultTtl?: number }
+
 type CacheStrategyName = NonNullable<CacheServiceOptions['strategy']>
-const KNOWN_STRATEGIES: CacheStrategyName[] = ['memory', 'redis', 'sqlite', 'jsonfile']
-const TENANT_META_KEY_PATTERN = 'tenant:*:key:meta:*'
+const PROVIDER_ENTRY_PREFIX = 'entry:v1:'
 const TENANT_META_KEY_MARKER = ':key:meta:'
 
 type TenantAwareCacheStrategy = CacheStrategy & {
@@ -52,7 +64,7 @@ type TenantAwareCacheStrategy = CacheStrategy & {
 
 function isCacheStrategyName(value: string | undefined): value is CacheStrategyName {
   if (!value) return false
-  return KNOWN_STRATEGIES.includes(value as CacheStrategyName)
+  return Object.hasOwn(stockProviderFactories, value)
 }
 
 function resolveConfiguredStrategyType(options?: CacheServiceOptions): CacheStrategyName {
@@ -80,8 +92,25 @@ function storageKey(originalKey: string, prefixes: TenantPrefixes): string {
   return `${prefixes.keyPrefix}k:${hashIdentifier(originalKey)}`
 }
 
+function providerEntryKey(originalKey: string, keyPrefix: string): string {
+  return `${keyPrefix}${PROVIDER_ENTRY_PREFIX}${hashIdentifier(originalKey)}`
+}
+
+function isCacheProviderEntry(value: CacheValue | null): value is CacheProviderEntry {
+  return isCacheMetadata(value) && Object.hasOwn(value, 'value')
+}
+
 function metaKey(originalKey: string, prefixes: TenantPrefixes): string {
   return `${prefixes.keyPrefix}meta:${hashIdentifier(originalKey)}`
+}
+
+/**
+ * Physical key under which the tenant-aware wrapper stores a logical key's value
+ * record. Providers receive these already-scoped keys; exposed so provider
+ * conformance tooling can target a specific record without copying the layout.
+ */
+export function resolvePhysicalCacheValueKey(originalKey: string, tenantId: string | null): string {
+  return providerEntryKey(originalKey, `tenant:${normalizeTenantKey(tenantId)}:key:`)
 }
 
 function hashedTag(tag: string, prefixes: TenantPrefixes): string {
@@ -99,42 +128,59 @@ function buildTagSet(tags: string[] | undefined, prefixes: TenantPrefixes, inclu
   return Array.from(scoped)
 }
 
-function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: boolean): TenantAwareCacheStrategy {
+function createTenantAwareWrapper(base: CacheStrategy, layout: CacheRecordLayout): TenantAwareCacheStrategy {
+  const recordPrefix = layout.kind === 'provider' ? PROVIDER_ENTRY_PREFIX : 'meta:'
+
+  function valueKey(key: string, prefixes: TenantPrefixes) {
+    return layout.kind === 'provider' ? providerEntryKey(key, prefixes.keyPrefix) : storageKey(key, prefixes)
+  }
+
   function normalizeDeletionCount(raw: number): number {
-    if (!raw) return raw
-    if (!Number.isFinite(raw)) return raw
+    if (layout.kind === 'provider' || !raw || !Number.isFinite(raw)) return raw
     return Math.ceil(raw / 2)
   }
 
+  async function* scanRecords(keyPrefix: string) {
+    for (const physicalKey of await base.keys(`${keyPrefix}${recordPrefix}*`)) {
+      const record = await base.get(physicalKey, { returnExpired: true })
+      if (layout.kind === 'stock' && typeof record === 'string') {
+        yield { physicalKey, key: record, expiresAt: null }
+        continue
+      }
+      if (!isCacheMetadata(record) || (layout.kind === 'provider' && !isCacheProviderEntry(record))) continue
+      yield { physicalKey, key: record.key, expiresAt: record.expiresAt ?? null }
+    }
+  }
+
   const get = async (key: string, options?: CacheGetOptions) => {
-    const prefixes = resolveTenantPrefixes()
-    return base.get(storageKey(key, prefixes), options)
+    const record = await base.get(valueKey(key, resolveTenantPrefixes()), options)
+    if (layout.kind === 'stock') return record
+    return isCacheProviderEntry(record) ? record.value : null
   }
 
   const set = async (key: string, value: CacheValue, options?: CacheSetOptions) => {
     const prefixes = resolveTenantPrefixes()
-    const hashedTags = buildTagSet(options?.tags, prefixes, true)
+    const tags = buildTagSet(options?.tags, prefixes, true)
+    const nextOptions: CacheSetOptions = { ...options, tags }
+    if (layout.kind === 'provider') {
+      const ttl = options?.ttl ?? layout.defaultTtl
+      const entry: CacheProviderEntry = { key, value, expiresAt: ttl && ttl > 0 ? Date.now() + ttl : null }
+      await base.set(valueKey(key, prefixes), entry, nextOptions)
+      return
+    }
+
+    await base.set(valueKey(key, prefixes), value, nextOptions)
     const ttl = options?.ttl ?? undefined
-    const nextOptions: CacheSetOptions | undefined = options
-      ? { ...options, tags: hashedTags }
-      : { tags: hashedTags }
-    await base.set(storageKey(key, prefixes), value, nextOptions)
-    const metaPayload: CacheMetadata = { key, expiresAt: ttl ? Date.now() + ttl : null }
-    await base.set(metaKey(key, prefixes), metaPayload, {
-      ttl,
-      tags: hashedTags,
-    })
+    const metadata: CacheMetadata = { key, expiresAt: ttl ? Date.now() + ttl : null }
+    await base.set(metaKey(key, prefixes), metadata, { ttl, tags })
   }
 
-  const has = async (key: string) => {
-    const prefixes = resolveTenantPrefixes()
-    return base.has(storageKey(key, prefixes))
-  }
+  const has = async (key: string) => base.has(valueKey(key, resolveTenantPrefixes()))
 
   const del = async (key: string) => {
     const prefixes = resolveTenantPrefixes()
-    const primary = await base.delete(storageKey(key, prefixes))
-    await base.delete(metaKey(key, prefixes))
+    const primary = await base.delete(valueKey(key, prefixes))
+    if (layout.kind === 'stock') await base.delete(metaKey(key, prefixes))
     return primary
   }
 
@@ -153,18 +199,11 @@ function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: b
   }
 
   const keys = async (pattern?: string) => {
-    const prefixes = resolveTenantPrefixes()
-    const metaPattern = `${prefixes.keyPrefix}meta:*`
-    const metaKeys = await base.keys(metaPattern)
     const originals: string[] = []
-    for (const metaKey of metaKeys) {
-      const metaValue = await base.get(metaKey, { returnExpired: true })
-      if (!metaValue) continue
-      const metadata = typeof metaValue === 'string' ? null : (isCacheMetadata(metaValue) ? metaValue : null)
-      const original = typeof metaValue === 'string' ? metaValue : metadata?.key
-      if (!original) continue
-      if (pattern && !matchCacheKeyPattern(original, pattern)) continue
-      originals.push(original)
+    for await (const { key } of scanRecords(resolveTenantPrefixes().keyPrefix)) {
+      if (layout.kind === 'stock' && !key) continue
+      if (pattern && !matchCacheKeyPattern(key, pattern)) continue
+      originals.push(key)
     }
     return originals
   }
@@ -173,51 +212,34 @@ function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: b
     const normalizedPatterns = Array.from(new Set(patterns.map((pattern) => pattern.trim()).filter(Boolean)))
     if (normalizedPatterns.length === 0) return 0
 
-    const metaKeys = await base.keys(TENANT_META_KEY_PATTERN)
     let deleted = 0
-    for (const metadataKey of metaKeys) {
-      const metadataValue = await base.get(metadataKey, { returnExpired: true })
-      if (!metadataValue) continue
-      const metadata = typeof metadataValue === 'string'
-        ? null
-        : (isCacheMetadata(metadataValue) ? metadataValue : null)
-      const originalKey = typeof metadataValue === 'string' ? metadataValue : metadata?.key
-      if (!originalKey || !normalizedPatterns.some((pattern) => matchCacheKeyPattern(originalKey, pattern))) {
+    for await (const { physicalKey, key } of scanRecords('tenant:*:key:')) {
+      if (layout.kind === 'stock' && !key) continue
+      if (!normalizedPatterns.some((pattern) => matchCacheKeyPattern(key, pattern))) continue
+      if (layout.kind === 'provider') {
+        if (await base.delete(physicalKey)) deleted += 1
         continue
       }
 
-      const markerIndex = metadataKey.lastIndexOf(TENANT_META_KEY_MARKER)
+      const markerIndex = physicalKey.lastIndexOf(TENANT_META_KEY_MARKER)
       if (markerIndex < 0) continue
-      const primaryKey = `${metadataKey.slice(0, markerIndex)}:key:k:${metadataKey.slice(markerIndex + TENANT_META_KEY_MARKER.length)}`
+      const primaryKey = `${physicalKey.slice(0, markerIndex)}:key:k:${physicalKey.slice(markerIndex + TENANT_META_KEY_MARKER.length)}`
       if (await base.delete(primaryKey)) deleted += 1
-      await base.delete(metadataKey)
+      await base.delete(physicalKey)
     }
     return deleted
   }
 
   const stats = async () => {
-    const prefixes = resolveTenantPrefixes()
-    const metaKeys = await base.keys(`${prefixes.keyPrefix}meta:*`)
     let size = 0
     let expired = 0
     const now = Date.now()
-    for (const metaKey of metaKeys) {
-      const metaValue = await base.get(metaKey, { returnExpired: true })
-      if (!metaValue) continue
-      const metadata = typeof metaValue === 'string' ? null : (isCacheMetadata(metaValue) ? metaValue : null)
-      const original = typeof metaValue === 'string' ? metaValue : metadata?.key
-      if (!original) continue
+    for await (const { key, expiresAt } of scanRecords(resolveTenantPrefixes().keyPrefix)) {
+      if (layout.kind === 'stock' && !key) continue
       size++
-      const expiresAt = metadata?.expiresAt ?? null
       if (expiresAt !== null && expiresAt <= now) expired++
     }
-    // size/expired stay tenant-scoped (derived from this tenant's meta keys).
-    // Only memory-backed strategies track the process-global bound counters, so
-    // skip the extra base.stats() round-trip for redis/sqlite/jsonfile and omit
-    // the optional fields (the stats() contract marks them optional). Keyed off
-    // the configured strategy: a backend degraded to the memory fallback
-    // intentionally does not surface these diagnostics.
-    if (!reportsBoundedCounters) {
+    if (layout.kind !== 'stock' || !layout.reportsBoundedCounters) {
       return { size, expired }
     }
     const { evictions, sweeps, lastSweepReclaimed } = await base.stats()
@@ -251,27 +273,310 @@ function createTenantAwareWrapper(base: CacheStrategy, reportsBoundedCounters: b
   }
 }
 
-function createConfiguredTenantAwareStrategy(options?: CacheServiceOptions): TenantAwareCacheStrategy {
-  const strategyType = resolveConfiguredStrategyType(options)
+export type CacheSelection =
+  | { kind: 'stock'; strategy: CacheStrategyName; placement: CacheProviderPlacement }
+  | { kind: 'provider'; id: string; placement: CacheProviderPlacement }
 
+type EffectiveCacheSelection =
+  | { kind: 'stock'; strategy: CacheStrategyName }
+  | { kind: 'provider'; provider: ResolvedCacheProvider }
+
+const DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS = 10_000
+const DEFAULT_PROVIDER_RETRY_COOLDOWN_MS = 1_000
+const REQUIRED_PROVIDER_STRATEGY_METHODS = [
+  'get',
+  'set',
+  'has',
+  'delete',
+  'deleteByTags',
+  'clear',
+  'keys',
+  'stats',
+  'healthcheck',
+  'close',
+] as const
+
+type ProviderStrategy = CacheStrategy & {
+  healthcheck(): Promise<void>
+  close(): Promise<void>
+}
+
+function resolveEffectiveSelection(options?: CacheServiceOptions): EffectiveCacheSelection {
+  if (options?.strategy && options?.provider) {
+    throw new CacheProviderError(
+      'conflicting_selection',
+      'Cache service options must not combine an explicit stock strategy with an explicit cache provider',
+      { providerId: options.provider.id },
+    )
+  }
+  if (options?.strategy) return { kind: 'stock', strategy: resolveConfiguredStrategyType(options) }
+  if (options?.provider) return { kind: 'provider', provider: options.provider }
+  if (readSelectedCacheProviderId(process.env)) {
+    const prepared = getPreparedCacheProvider(process.env)
+    if (prepared) return { kind: 'provider', provider: prepared }
+  }
+  return { kind: 'stock', strategy: resolveConfiguredStrategyType(options) }
+}
+
+/**
+ * Describe the effective cache selection (stock strategy or registered provider)
+ * without constructing a backend. Throws a `CacheProviderError` when a provider
+ * is selected but invalid or not yet prepared.
+ */
+export function describeCacheSelection(options?: CacheServiceOptions): CacheSelection {
+  const selection = resolveEffectiveSelection(options)
+  if (selection.kind === 'provider') {
+    return { kind: 'provider', id: selection.provider.id, placement: selection.provider.placement }
+  }
+  return {
+    kind: 'stock',
+    strategy: selection.strategy,
+    placement: selection.strategy === 'redis' ? 'shared' : 'local',
+  }
+}
+
+function resolveProviderConnectTimeoutMs(): number {
+  const raw = process.env.CACHE_PROVIDER_CONNECT_TIMEOUT_MS
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_PROVIDER_CONNECT_TIMEOUT_MS
+}
+
+function resolveProviderRetryCooldownMs(): number {
+  const raw = process.env.CACHE_PROVIDER_RETRY_COOLDOWN_MS
+  const parsed = raw !== undefined && raw.trim().length > 0 ? Number(raw) : Number.NaN
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : DEFAULT_PROVIDER_RETRY_COOLDOWN_MS
+}
+
+function isProviderStrategy(value: unknown): value is ProviderStrategy {
+  if (typeof value !== 'object' || value === null) return false
+  const record = value as Record<string, unknown>
+  return REQUIRED_PROVIDER_STRATEGY_METHODS.every((method) => typeof record[method] === 'function')
+}
+
+async function closeQuietly(value: unknown): Promise<void> {
+  if (typeof value !== 'object' || value === null) return
+  try {
+    const close = (value as { close?: unknown }).close
+    if (typeof close === 'function') await close.call(value)
+  } catch {
+    return
+  }
+}
+
+function connectProviderStrategy(
+  provider: ResolvedCacheProvider,
+  context: CacheProviderHostContext,
+  timeoutMs: number,
+): Promise<ProviderStrategy> {
+  return new Promise<ProviderStrategy>((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      reject(new CacheProviderError(
+        'timeout',
+        `Cache provider "${provider.id}" did not initialize within ${timeoutMs}ms`,
+        { providerId: provider.id },
+      ))
+    }, timeoutMs)
+    if (typeof timer === 'object' && typeof timer.unref === 'function') timer.unref()
+
+    Promise.resolve()
+      .then(() => provider.definition.create(provider.config, context))
+      .then(
+        (strategy) => {
+          if (settled) {
+            void closeQuietly(strategy)
+            return
+          }
+          clearTimeout(timer)
+          settled = true
+          try {
+            if (!isProviderStrategy(strategy)) {
+              throw new CacheProviderError(
+                'invalid_registration',
+                `Cache provider "${provider.id}" create() must return a cache strategy implementing ${REQUIRED_PROVIDER_STRATEGY_METHODS.join(', ')}`,
+                { providerId: provider.id },
+              )
+            }
+            resolve(strategy)
+          } catch (error) {
+            void closeQuietly(strategy)
+            reject(toSanitizedCacheProviderError(error, {
+              message: `Cache provider "${provider.id}" failed to initialize`,
+              providerId: provider.id,
+            }))
+          }
+        },
+        (error: unknown) => {
+          if (settled) return
+          clearTimeout(timer)
+          settled = true
+          reject(toSanitizedCacheProviderError(error, {
+            message: `Cache provider "${provider.id}" failed to initialize`,
+            providerId: provider.id,
+          }))
+        },
+      )
+  })
+}
+
+type ProviderOperation = 'get' | 'set' | 'has' | 'delete' | 'deleteByTags' | 'clear' | 'keys' | 'stats' | 'healthcheck' | 'cleanup' | 'close'
+
+function createLazyProviderStrategy(
+  provider: ResolvedCacheProvider,
+  context: CacheProviderHostContext,
+  timeoutMs: number,
+  retryCooldownMs: number,
+): ProviderStrategy {
+  let active: ProviderStrategy | null = null
+  let pending: Promise<ProviderStrategy> | null = null
+  let closing: Promise<void> | null = null
+  let closed = false
+  let lastFailure: { error: CacheProviderError; at: number } | null = null
+  let generation = 0
+
+  const sanitize = (error: unknown, operation: ProviderOperation): CacheProviderError =>
+    toSanitizedCacheProviderError(error, {
+      message: `Cache provider "${provider.id}" ${operation} failed`,
+      providerId: provider.id,
+    })
+
+  const ensure = async (operation: ProviderOperation): Promise<ProviderStrategy> => {
+    if (closed) {
+      throw new CacheProviderError('unavailable', `Cache provider "${provider.id}" is closed`, { providerId: provider.id })
+    }
+    if (active) return active
+    if (!pending) {
+      if (lastFailure && Date.now() - lastFailure.at < retryCooldownMs) throw lastFailure.error
+      const attemptGeneration = generation
+      const attempt: Promise<ProviderStrategy> = connectProviderStrategy(provider, context, timeoutMs).then(
+        async (strategy) => {
+          if (attemptGeneration !== generation) {
+            await closeQuietly(strategy)
+            throw new CacheProviderError('unavailable', `Cache provider "${provider.id}" was closed during initialization`, { providerId: provider.id })
+          }
+          active = strategy
+          lastFailure = null
+          if (pending === attempt) pending = null
+          return strategy
+        },
+        (error: unknown) => {
+          if (pending === attempt) pending = null
+          if (attemptGeneration === generation) {
+            lastFailure = { error: sanitize(error, operation), at: Date.now() }
+          }
+          throw error
+        },
+      )
+      pending = attempt
+    }
+    try {
+      return await pending
+    } catch (error) {
+      throw sanitize(error, operation)
+    }
+  }
+
+  const run = async <T>(operation: ProviderOperation, call: (strategy: ProviderStrategy) => Promise<T> | T): Promise<T> => {
+    const strategy = await ensure(operation)
+    try {
+      return await call(strategy)
+    } catch (error) {
+      throw sanitize(error, operation)
+    }
+  }
+
+  const close = async (): Promise<void> => {
+    if (!closing) {
+      const current = active
+      const inflight = pending
+      closed = true
+      active = null
+      pending = null
+      lastFailure = null
+      generation += 1
+      closing = (async () => {
+        if (inflight) await inflight.catch(() => undefined)
+        if (current) {
+          try {
+            await current.close()
+          } catch (error) {
+            throw sanitize(error, 'close')
+          }
+        }
+      })()
+    }
+    return closing
+  }
+
+  return {
+    get: (key, options) => run('get', (strategy) => strategy.get(key, options)),
+    set: (key, value, options) => run('set', (strategy) => strategy.set(key, value, options)),
+    has: (key) => run('has', (strategy) => strategy.has(key)),
+    delete: (key) => run('delete', (strategy) => strategy.delete(key)),
+    deleteByTags: (tags) => run('deleteByTags', (strategy) => strategy.deleteByTags(tags)),
+    clear: () => run('clear', (strategy) => strategy.clear()),
+    keys: (pattern) => run('keys', (strategy) => strategy.keys(pattern)),
+    stats: () => run('stats', (strategy) => strategy.stats()),
+    healthcheck: () => run('healthcheck', (strategy) => strategy.healthcheck()),
+    cleanup: () => run('cleanup', (strategy) => (strategy.cleanup ? strategy.cleanup() : 0)),
+    close,
+  }
+}
+
+function resolveDefaultTtl(options?: CacheServiceOptions): number | undefined {
   const envTtl = process.env.CACHE_TTL
   const parsedEnvTtl = envTtl ? Number.parseInt(envTtl, 10) : undefined
-  const defaultTtl = options?.defaultTtl ?? (typeof parsedEnvTtl === 'number' && Number.isFinite(parsedEnvTtl) ? parsedEnvTtl : undefined)
+  return options?.defaultTtl ?? (typeof parsedEnvTtl === 'number' && Number.isFinite(parsedEnvTtl) ? parsedEnvTtl : undefined)
+}
+
+function resolveCodecOptions(options?: CacheServiceOptions): CacheCodecOptions {
+  return {
+    compression: options?.compression ?? parseCacheCompression(process.env.CACHE_COMPRESSION),
+    compressionMinBytes: options?.compressionMinBytes ?? parseCacheCompressionMinBytes(process.env.CACHE_COMPRESSION_MIN_BYTES),
+  }
+}
+
+function createProviderTenantAwareStrategy(provider: ResolvedCacheProvider, options?: CacheServiceOptions): TenantAwareCacheStrategy {
+  const context = createCacheProviderHostContext(provider, {
+    defaultTtl: resolveDefaultTtl(options),
+    codec: resolveCodecOptions(options),
+  })
+  const lazyStrategy = createLazyProviderStrategy(
+    provider,
+    context,
+    resolveProviderConnectTimeoutMs(),
+    resolveProviderRetryCooldownMs(),
+  )
+  return createTenantAwareWrapper(lazyStrategy, { kind: 'provider', defaultTtl: context.defaultTtl })
+}
+
+function createTenantAwareStrategyForSelection(
+  selection: EffectiveCacheSelection,
+  options?: CacheServiceOptions,
+): TenantAwareCacheStrategy {
+  if (selection.kind === 'provider') return createProviderTenantAwareStrategy(selection.provider, options)
+  return createStockTenantAwareStrategy(selection.strategy, options)
+}
+
+function createConfiguredTenantAwareStrategy(options?: CacheServiceOptions): TenantAwareCacheStrategy {
+  return createTenantAwareStrategyForSelection(resolveEffectiveSelection(options), options)
+}
+
+function createStockTenantAwareStrategy(strategyType: CacheStrategyName, options?: CacheServiceOptions): TenantAwareCacheStrategy {
+  const defaultTtl = resolveDefaultTtl(options)
 
   const envMaxEntries = process.env.CACHE_MEMORY_MAX_ENTRIES
   const parsedEnvMaxEntries = envMaxEntries ? Number.parseInt(envMaxEntries, 10) : undefined
   const maxEntries = options?.maxEntries ?? (typeof parsedEnvMaxEntries === 'number' && Number.isFinite(parsedEnvMaxEntries) ? parsedEnvMaxEntries : undefined)
 
-  const codecOptions: CacheCodecOptions = {
-    compression: options?.compression ?? parseCacheCompression(process.env.CACHE_COMPRESSION),
-    compressionMinBytes: options?.compressionMinBytes ?? parseCacheCompressionMinBytes(process.env.CACHE_COMPRESSION_MIN_BYTES),
-  }
+  const codecOptions = resolveCodecOptions(options)
 
-  const baseStrategy = createStrategyForType(strategyType, options, defaultTtl, maxEntries, codecOptions)
+  const createStrategy = isCacheStrategyName(strategyType) ? stockProviderFactories[strategyType] : stockProviderFactories.memory
+  const baseStrategy = createStrategy({ options, defaultTtl, maxEntries, codecOptions })
   const resilientStrategy = withDependencyFallback(baseStrategy, strategyType, defaultTtl, maxEntries)
-  const reportsBoundedCounters = strategyType === 'memory'
-
-  return createTenantAwareWrapper(resilientStrategy, reportsBoundedCounters)
+  return createTenantAwareWrapper(resilientStrategy, { kind: 'stock', reportsBoundedCounters: strategyType === 'memory' })
 }
 
 /**
@@ -309,9 +614,10 @@ export async function purgeConfiguredCachePatternsAcrossTenantScopes(
   // A newly-created memory strategy cannot reach the running app's process-local
   // cache, so constructing one here would only allocate and immediately discard
   // an empty store. Persistent stock backends remain cross-process maintainable.
-  if (resolveConfiguredStrategyType(options) === 'memory') return 0
+  const selection = resolveEffectiveSelection(options)
+  if (selection.kind === 'stock' && selection.strategy === 'memory') return 0
 
-  const cache = createConfiguredTenantAwareStrategy(options)
+  const cache = createTenantAwareStrategyForSelection(selection, options)
   try {
     return await cache.deleteByPatternsAcrossScopes(patterns)
   } finally {
@@ -382,18 +688,19 @@ export class CacheService implements CacheStrategy {
   }
 }
 
-function createStrategyForType(strategyType: CacheStrategyName, options?: CacheServiceOptions, defaultTtl?: number, maxEntries?: number, codecOptions?: CacheCodecOptions): CacheStrategy {
-  switch (strategyType) {
-    case 'redis':
-      return createRedisStrategy(options?.redisUrl, { defaultTtl, ...codecOptions })
-    case 'sqlite':
-      return createSqliteStrategy(options?.sqlitePath, { defaultTtl, ...codecOptions })
-    case 'jsonfile':
-      return createJsonFileStrategy(options?.jsonFilePath, { defaultTtl })
-    case 'memory':
-    default:
-      return createMemoryStrategy({ defaultTtl, maxEntries })
-  }
+type StockFactoryOptions = {
+  defaultTtl?: number
+  maxEntries?: number
+  codecOptions: CacheCodecOptions
+  options?: CacheServiceOptions
+}
+
+/** Stock npm factories are available even to synchronous pre-bootstrap callers. */
+const stockProviderFactories: Record<CacheStrategyName, (config: StockFactoryOptions) => CacheStrategy> = {
+  memory: ({ defaultTtl, maxEntries }) => createMemoryStrategy({ defaultTtl, maxEntries }),
+  redis: ({ defaultTtl, codecOptions, options }) => createRedisStrategy(options?.redisUrl, { defaultTtl, ...codecOptions }),
+  sqlite: ({ defaultTtl, codecOptions, options }) => createSqliteStrategy(options?.sqlitePath, { defaultTtl, ...codecOptions }),
+  jsonfile: ({ defaultTtl, options }) => createJsonFileStrategy(options?.jsonFilePath, { defaultTtl }),
 }
 
 function describeDependencyFailure(error: CacheDependencyUnavailableError): string {
@@ -427,7 +734,7 @@ function withDependencyFallback(strategy: CacheStrategy, strategyType: CacheStra
 
   const ensureFallback = (error: CacheDependencyUnavailableError) => {
     if (!fallbackStrategy) {
-      fallbackStrategy = createMemoryStrategy({ defaultTtl, maxEntries })
+      fallbackStrategy = stockProviderFactories.memory({ defaultTtl, maxEntries, codecOptions: {} })
     }
     if (!warned) {
       const dependencyMessage = error.dependency

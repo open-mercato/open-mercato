@@ -10,12 +10,16 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import {
   createAiApiOperationRunner,
+  type AiApiOperationRequest,
   type AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { authorizeFeatures } from '@open-mercato/shared/security/featurePolicy'
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../lib/interactionStatus'
+import { resolveCustomerInteractionFeatureFlags } from '../lib/interactionFeatureFlags'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE } from '../lib/interactionCompatibility'
+import { listActivitiesForScope, loadActivityForScope, type ActivityRecord } from './activity-read-model'
 import {
-  CustomerActivity,
   CustomerComment,
   CustomerDeal,
   CustomerDealCompanyLink,
@@ -149,35 +153,51 @@ async function loadCommentForScope(
   return row
 }
 
-async function loadActivityForScope(
-  em: EntityManager,
-  ctx: CustomersToolContext,
-  tenantId: string,
-  activityId: string,
-): Promise<CustomerActivity | null> {
-  const where: Record<string, unknown> = { id: activityId, tenantId }
-  if (ctx.organizationId) where.organizationId = ctx.organizationId
-  const row = await findOneWithDecryption<CustomerActivity>(
-    em,
-    CustomerActivity,
-    where as any,
-    undefined,
-    buildScope(ctx, tenantId),
-  )
-  if (!row || row.tenantId !== tenantId) return null
-  if (ctx.organizationId && row.organizationId !== ctx.organizationId) return null
-  return row
+async function runActivityOperation(ctx: CustomersToolContext, request: AiApiOperationRequest) {
+  const { tenantId } = assertTenantScope(ctx)
+  const flags = await resolveCustomerInteractionFeatureFlags(ctx.container, tenantId)
+  const executionContext = ctx as AiToolExecutionContext
+  if (flags.legacyAdapters) {
+    return createAiApiOperationRunner(executionContext).run(request)
+  }
+  const requiredFeatures = ['customers.interactions.manage']
+  if (!authorizeFeatures(requiredFeatures, {
+    grantedFeatures: ctx.userFeatures,
+    unrestricted: ctx.isSuperAdmin,
+  })) {
+    throw new Error('[internal] Canonical interaction management permission is required')
+  }
+  const { activityType, subject, ...body } = request.body ?? {}
+  const runner = createAiApiOperationRunner({
+    ...executionContext,
+    tool: { ...executionContext.tool, requiredFeatures },
+  })
+  return runner.run({
+    ...request,
+    path: '/customers/interactions',
+    body: {
+      ...body,
+      ...(activityType !== undefined ? { interactionType: activityType } : {}),
+      ...(subject !== undefined ? { title: subject } : {}),
+      ...(request.method === 'POST' ? {
+        source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+        status: body.occurredAt ? 'done' : 'planned',
+      } : {}),
+      ...(request.method === 'PUT' && body.occurredAt ? { status: 'done' } : {}),
+    },
+  })
+}
+
+function activitySnapshot(activity: ActivityRecord | null) {
+  return activity ? {
+    activityType: activity.activityType,
+    subject: activity.subject,
+    body: activity.body,
+    occurredAt: activity.occurredAt?.toISOString() ?? null,
+  } : null
 }
 
 function commentEntityIdOf(row: CustomerComment): string | null {
-  const ent = (row as any).entity
-  if (!ent) return null
-  if (typeof ent === 'string') return ent
-  if (typeof ent === 'object' && typeof ent.id === 'string') return ent.id
-  return null
-}
-
-function activityEntityIdOf(row: CustomerActivity): string | null {
   const ent = (row as any).entity
   if (!ent) return null
   if (typeof ent === 'string') return ent
@@ -210,33 +230,17 @@ const listActivitiesTool: CustomersAiToolDefinition = {
     const em = resolveEm(ctx)
     const limit = input.limit ?? 50
     const offset = input.offset ?? 0
-    const where: Record<string, unknown> = { tenantId }
-    if (ctx.organizationId) where.organizationId = ctx.organizationId
-    const entityId = input.personId ?? input.companyId ?? null
-    if (entityId) where.entity = entityId
-    if (input.dealId) where.deal = input.dealId
-    if (input.activityType) where.activityType = input.activityType
-    const [rows, total] = await Promise.all([
-      findWithDecryption<CustomerActivity>(
-        em,
-        CustomerActivity,
-        where as any,
-        { limit, offset, orderBy: { occurredAt: 'desc', createdAt: 'desc' } as any } as any,
-        buildScope(ctx, tenantId),
-      ),
-      em.count(CustomerActivity, where as any),
-    ])
-    const filtered = rows.filter((row) => row.tenantId === tenantId)
+    const { items: rows, total } = await listActivitiesForScope(em, ctx, tenantId, { ...input, limit, offset })
     return {
-      items: filtered.map((row) => ({
+      items: rows.map((row) => ({
         id: row.id,
         activityType: row.activityType,
         subject: row.subject ?? null,
         body: row.body ?? null,
         occurredAt: row.occurredAt ? new Date(row.occurredAt).toISOString() : null,
         authorUserId: row.authorUserId ?? null,
-        entityId: activityEntityIdOf(row),
-        dealId: (row as any).deal && typeof (row as any).deal === 'object' ? (row as any).deal.id : (row as any).deal ?? null,
+        entityId: row.entityId,
+        dealId: row.dealId,
         organizationId: row.organizationId ?? null,
         tenantId: row.tenantId ?? null,
         createdAt: row.createdAt ? new Date(row.createdAt).toISOString() : null,
@@ -645,16 +649,14 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
     if (!existing) return null
     return {
       recordId: existing.id,
-      entityType: 'customers.customer_activity',
+      entityType: existing.entityType,
       recordVersion: recordVersionFromUpdatedAt(existing.updatedAt),
       before: {
         activityType: existing.activityType,
         subject: existing.subject ?? null,
         body: existing.body ?? null,
         occurredAt: existing.occurredAt ? new Date(existing.occurredAt).toISOString() : null,
-        dealId: (existing as any).deal && typeof (existing as any).deal === 'object'
-          ? (existing as any).deal.id
-          : (existing as any).deal ?? null,
+        dealId: existing.dealId,
       },
     }
   },
@@ -662,7 +664,6 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
     const { tenantId } = assertTenantScope(ctx)
     const input: ManageDealActivityInput = manageDealActivityInput.parse(rawInput)
     const em = resolveEm(ctx)
-    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
 
     if (input.operation === 'create') {
       const deal = await loadDealForScope(em, ctx, tenantId, input.dealId!)
@@ -686,23 +687,19 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
       if (input.subject) body.subject = input.subject
       if (input.body) body.body = input.body
       if (input.occurredAt) body.occurredAt = input.occurredAt
-      const response = await runner.run({ method: 'POST', path: '/customers/activities', body })
+      const response = await runActivityOperation(ctx, { method: 'POST', path: '/customers/activities', body })
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to create activity')
       }
       const result = (response.data ?? {}) as { id?: string | null }
+      const created = result.id ? await loadActivityForScope(em, ctx, tenantId, result.id) : null
       return {
         operation: 'create' as const,
         activityId: result.id ?? null,
         dealId: deal.id,
         commandName: 'customers.activities.create',
         before: null,
-        after: {
-          activityType: input.activityType ?? null,
-          subject: input.subject ?? null,
-          body: input.body ?? null,
-          occurredAt: input.occurredAt ?? null,
-        },
+        after: activitySnapshot(created),
       }
     }
 
@@ -716,7 +713,7 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
       if (input.subject !== undefined) body.subject = input.subject
       if (input.body !== undefined) body.body = input.body
       if (input.occurredAt !== undefined) body.occurredAt = input.occurredAt
-      const response = await runner.run({ method: 'PUT', path: '/customers/activities', body })
+      const response = await runActivityOperation(ctx, { method: 'PUT', path: '/customers/activities', body })
       if (!response.success) {
         throw new Error(response.error ?? `Failed to update activity "${existing.id}"`)
       }
@@ -746,7 +743,7 @@ const manageDealActivityTool: CustomersAiToolDefinition = {
     const existing = await loadActivityForScope(em, ctx, tenantId, input.activityId!)
     if (!existing) throw new Error(`Activity "${input.activityId}" is not accessible to the caller.`)
     const body: Record<string, unknown> = { id: existing.id }
-    const response = await runner.run({ method: 'DELETE', path: '/customers/activities', body })
+    const response = await runActivityOperation(ctx, { method: 'DELETE', path: '/customers/activities', body })
     if (!response.success) {
       throw new Error(response.error ?? `Failed to delete activity "${existing.id}"`)
     }
@@ -1131,17 +1128,15 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
     if (!existing) return null
     return {
       recordId: existing.id,
-      entityType: 'customers.customer_activity',
+      entityType: existing.entityType,
       recordVersion: recordVersionFromUpdatedAt(existing.updatedAt),
       before: {
         activityType: existing.activityType,
         subject: existing.subject ?? null,
         body: existing.body ?? null,
         occurredAt: existing.occurredAt ? new Date(existing.occurredAt).toISOString() : null,
-        entityId: activityEntityIdOf(existing),
-        dealId: (existing as any).deal && typeof (existing as any).deal === 'object'
-          ? (existing as any).deal.id
-          : (existing as any).deal ?? null,
+        entityId: existing.entityId,
+        dealId: existing.dealId,
       },
     }
   },
@@ -1149,7 +1144,6 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
     const { tenantId } = assertTenantScope(ctx)
     const input: ManageRecordActivityInput = manageRecordActivityInput.parse(rawInput)
     const em = resolveEm(ctx)
-    const runner = createAiApiOperationRunner(ctx as unknown as AiToolExecutionContext)
 
     if (input.operation === 'create') {
       const entityId = input.personId ?? input.companyId!
@@ -1174,11 +1168,12 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
       if (input.subject) body.subject = input.subject
       if (input.body) body.body = input.body
       if (input.occurredAt) body.occurredAt = input.occurredAt
-      const response = await runner.run({ method: 'POST', path: '/customers/activities', body })
+      const response = await runActivityOperation(ctx, { method: 'POST', path: '/customers/activities', body })
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to create activity')
       }
       const result = (response.data ?? {}) as { id?: string | null }
+      const created = result.id ? await loadActivityForScope(em, ctx, tenantId, result.id) : null
       return {
         operation: 'create' as const,
         activityId: result.id ?? null,
@@ -1186,12 +1181,7 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
         dealId,
         commandName: 'customers.activities.create',
         before: null,
-        after: {
-          activityType: input.activityType ?? null,
-          subject: input.subject ?? null,
-          body: input.body ?? null,
-          occurredAt: input.occurredAt ?? null,
-        },
+        after: activitySnapshot(created),
       }
     }
 
@@ -1205,7 +1195,7 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
       if (input.subject !== undefined) body.subject = input.subject
       if (input.body !== undefined) body.body = input.body
       if (input.occurredAt !== undefined) body.occurredAt = input.occurredAt
-      const response = await runner.run({ method: 'PUT', path: '/customers/activities', body })
+      const response = await runActivityOperation(ctx, { method: 'PUT', path: '/customers/activities', body })
       if (!response.success) {
         throw new Error(response.error ?? `Failed to update activity "${existing.id}"`)
       }
@@ -1235,7 +1225,7 @@ const manageRecordActivityTool: CustomersAiToolDefinition = {
     const existing = await loadActivityForScope(em, ctx, tenantId, input.activityId!)
     if (!existing) throw new Error(`Activity "${input.activityId}" is not accessible to the caller.`)
     const body: Record<string, unknown> = { id: existing.id }
-    const response = await runner.run({ method: 'DELETE', path: '/customers/activities', body })
+    const response = await runActivityOperation(ctx, { method: 'DELETE', path: '/customers/activities', body })
     if (!response.success) {
       throw new Error(response.error ?? `Failed to delete activity "${existing.id}"`)
     }

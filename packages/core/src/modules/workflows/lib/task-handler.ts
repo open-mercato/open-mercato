@@ -18,7 +18,7 @@ import {
   WorkflowEvent,
   StepInstance,
 } from '../data/entities'
-import { executeWorkflow } from './workflow-executor'
+import { executeWorkflow, handleTransitionFailure } from './workflow-executor'
 import { findDefinitionForInstance } from './find-definition'
 import {
   findTaskDecision,
@@ -27,6 +27,14 @@ import {
 } from './task-decisions'
 import { loadTaskDecisionContext } from './task-decision-context'
 import { readRequiredFormFields } from './task-form-schema'
+import {
+  buildTaskCompletionBlockedBody,
+  evaluateTaskCompletionGuards,
+  isTaskCompletionBlockedError,
+  TASK_COMPLETION_BLOCKED_ERROR_NAME,
+} from './task-completion-guards'
+import type { TaskCompletionBlock } from './task-completion-guards'
+import { isRunClosedToUserTasks } from './instance-status'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -89,6 +97,34 @@ export class UserTaskError extends Error {
   }
 }
 
+/**
+ * A registered completion guard vetoed the completion
+ * (`lib/task-completion-guards.ts`). `code` is the GUARD's code, so the route,
+ * the command and a direct caller all see the same one.
+ */
+export class TaskCompletionBlockedError extends UserTaskError {
+  readonly status = 409
+  readonly guardId: string
+  readonly messageKey: string | null
+
+  constructor(public readonly block: TaskCompletionBlock) {
+    super(
+      block.message ?? 'Task completion is blocked by a precondition',
+      block.code,
+      { guardId: block.guardId, messageKey: block.messageKey }
+    )
+    this.name = TASK_COMPLETION_BLOCKED_ERROR_NAME
+    this.guardId = block.guardId
+    this.messageKey = block.messageKey
+  }
+
+  get body(): Record<string, unknown> {
+    return buildTaskCompletionBlockedBody(this.block)
+  }
+}
+
+export { isTaskCompletionBlockedError }
+
 // ============================================================================
 // User Task Completion
 // ============================================================================
@@ -102,6 +138,14 @@ export class UserTaskError extends Error {
  * 3. Merges form data into workflow context
  * 4. Logs completion event
  * 5. Resumes workflow execution
+ *
+ * Closing the task is a COMPARE-AND-SET, like `claimUserTask`: the lookup only
+ * decides which error to report, while the row is closed with a conditional
+ * `UPDATE … WHERE status IN ('PENDING', 'IN_PROGRESS')`. Two submissions of the
+ * same task (the task page and a notification quick action, two tabs, a client
+ * retrying after a timeout) can both pass the lookup; only one closes the row,
+ * and the other gets the same `TASK_NOT_FOUND` a later submission would, before
+ * any event is logged or the run is advanced.
  *
  * @param em - Entity manager
  * @param container - DI container for workflow execution
@@ -163,7 +207,7 @@ export async function completeUserTask(
   // default route. The list is re-resolved from the instance's pinned
   // definition, so it is exactly the list the assignee was shown.
   const chosenDecision = decisionId
-    ? findTaskDecision((await loadTaskDecisionContext(em, task)).decisions, decisionId)
+    ? findTaskDecision((await loadTaskDecisionContext(em, task, { tenantId: task.tenantId, organizationId: task.organizationId })).decisions, decisionId)
     : null
 
   if (decisionId && !chosenDecision) {
@@ -174,13 +218,76 @@ export async function completeUserTask(
     )
   }
 
+  // Same scope the guard target is read in: an instance outside it must refuse
+  // here, or its guards would see no selectors and be skipped.
+  const instance = await em.findOne(WorkflowInstance, {
+    id: task.workflowInstanceId,
+    tenantId: task.tenantId,
+    organizationId: task.organizationId,
+  })
+  if (!instance) {
+    throw new UserTaskError(
+      'Workflow instance not found',
+      'INSTANCE_NOT_FOUND',
+      { workflowInstanceId: task.workflowInstanceId }
+    )
+  }
+
+  if (isRunClosedToUserTasks(instance.status)) {
+    throw new UserTaskError(
+      'Workflow is no longer active',
+      'WORKFLOW_NOT_ACTIVE',
+      { taskId, workflowInstanceId: instance.id, status: instance.status }
+    )
+  }
+
+  // A host-owned precondition (`lib/task-completion-guards.ts`) gets the last
+  // word, still before anything is mutated: every completion path reaches this
+  // function, so this one check covers the route, the command and direct callers.
+  const completionBlock = await evaluateTaskCompletionGuards(em, container, task, {
+    mode: 'complete',
+    userId,
+    formData,
+    decisionId: chosenDecision?.id ?? null,
+  })
+  if (completionBlock) {
+    throw new TaskCompletionBlockedError(completionBlock)
+  }
+
   // The chosen decision rides along inside the completion payload the task
   // already persists — no new column, and downstream route conditions can read
   // it once the payload is merged into the run context.
   const completionData = withRecordedDecision(formData, chosenDecision?.id)
 
-  // Update task
   const now = new Date()
+  const closed = await em.nativeUpdate(
+    UserTask,
+    {
+      id: taskId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      status: { $in: ['PENDING', 'IN_PROGRESS'] },
+      assignedTo: task.assignedTo ?? null,
+      claimedBy: task.claimedBy ?? null,
+    },
+    {
+      status: 'COMPLETED',
+      formData: completionData,
+      completedBy: userId,
+      completedAt: now,
+      comments: comments || null,
+      updatedAt: now,
+    },
+  )
+
+  if (closed === 0) {
+    throw new UserTaskError(
+      'Task not found or already completed',
+      'TASK_NOT_FOUND',
+      { taskId }
+    )
+  }
+
   task.status = 'COMPLETED'
   task.formData = completionData
   task.completedBy = userId
@@ -189,16 +296,6 @@ export async function completeUserTask(
   task.updatedAt = now
 
   await em.flush()
-
-  // Fetch workflow instance
-  const instance = await em.findOne(WorkflowInstance, task.workflowInstanceId)
-  if (!instance) {
-    throw new UserTaskError(
-      'Workflow instance not found',
-      'INSTANCE_NOT_FOUND',
-      { workflowInstanceId: task.workflowInstanceId }
-    )
-  }
 
   // Branch-scoped completion: when the task belongs to a parallel branch,
   // merge form data into the branch namespace and resume just that branch.
@@ -291,6 +388,7 @@ export async function completeUserTask(
   }
 
   const transitionContext = {
+    container,
     workflowContext: instance.context,
     userId,
   }
@@ -376,9 +474,13 @@ export async function completeUserTask(
   )
 
   if (!transitionResult.success) {
-    logger.error('Transition failed', { component: 'task-handler', err: transitionResult.error })
-    // Don't throw, just leave workflow in current state
-    return
+    const failure = await handleTransitionFailure(em, container, instance, transitionResult, {
+      evalContext: transitionContext,
+      fromStepId: currentStepId,
+      toStepId: targetStepId,
+      source: 'task-completion',
+    })
+    if (failure.kind === 'failed' || failure.kind === 'parked') return
   }
 
   // Now continue workflow execution from the new step

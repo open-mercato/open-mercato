@@ -89,19 +89,33 @@ connection so clients do not reconnect in synchronized waves). Closing is intent
 bridge (`useEventBridge`) treats the close as an error, closes its `EventSource`, and opens a new one
 with its own exponential backoff (1 second doubling up to 30 seconds, reset after a successful
 open). The new request passes through normal authentication again, and once it opens the bridge
-dispatches an `om:bridge:reconnected` app event so components can refetch anything they may have
+dispatches an `om:bridge:reconnected` app event (`BRIDGE_RECONNECTED_EVENT_ID` from
+`@open-mercato/ui/backend/injection/useAppEvent`) so components can refetch anything they may have
 missed. Heartbeats still run every 30 seconds, and the browser watchdog still reconnects when one is
 missing for 45 seconds.
 
 | Environment variable | Default | Constraint | Purpose |
 | --- | ---: | ---: | --- |
-| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | `1000`–`2147483647` | How often an open stream re-resolves canonical identity and roles. |
-| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` | `1000`–`2147483647` | Base maximum age of one server stream before a forced reconnect; each connection applies ±15% jitter within the same bounds. |
+| `OM_EVENTS_SSE_AUTH_REVALIDATION_INTERVAL_MS` | `30000` | `1000`–`2147483647` | How often an open stream re-checks its credentials: the DOM Event Bridge re-resolves canonical identity, organization scope and roles; the Portal Event Bridge re-checks the customer session. |
+| `OM_EVENTS_SSE_CONNECTION_MAX_AGE_MS` | `300000` | `1000`–`2147483647` | Base maximum age of one DOM or Portal Event Bridge stream before a forced reconnect; each connection applies ±15% jitter within the same bounds. |
 
 Invalid values and values below the minimum use the default. Larger finite values are capped at
 Node's maximum safe timer delay (`2^31-1` milliseconds), preventing timer overflow from turning a
 long interval into rapid reconnect churn. Keep the revalidation interval below the maximum age when
 periodic revocation detection should happen before the mandatory reconnect.
+
+### Browser delivery contract
+
+Browser delivery is **at-most-once with gaps; refetch on reconnect**. The backend bridge also
+closes its stream while the tab is hidden. Events emitted while a DOM or Portal Event Bridge stream
+is closed are never replayed: they are invalidation hints, not a durable log. The bridges announce a
+reopened stream with `om:bridge:reconnected` (`BRIDGE_RECONNECTED_EVENT_ID`) on the backend and
+`om:portal-bridge:reconnected` (`PORTAL_BRIDGE_RECONNECTED_EVENT_ID`, from
+`@open-mercato/ui/portal/hooks/usePortalAppEvent`) in the portal. A live view that only listens to
+domain events shows stale data after every gap. Use `useLiveRefetch`
+(`@open-mercato/ui/backend/injection/useLiveRefetch`) or `usePortalLiveRefetch`
+(`@open-mercato/ui/portal/hooks/usePortalLiveRefetch`), which refetch on matching events and on
+every reconnect.
 
 ## File Structure
 

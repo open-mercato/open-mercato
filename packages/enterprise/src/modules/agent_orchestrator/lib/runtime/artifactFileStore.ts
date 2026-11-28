@@ -10,12 +10,17 @@
  *
  * Fail-CLOSED by contract (unlike the trace store's fail-open): a capture is only
  * recorded when the encrypted bytes are durably stored. When `storage-s3` is
- * unconfigured for the tenant or any step throws, `putArtifactBytes` returns
- * `null` and the collector marks the file capture failed rather than recording a
- * row that points at bytes that were never stored.
+ * unconfigured for the tenant or any step throws, `putArtifactBytesResult`
+ * reports `storage_unavailable` and the collector counts the file as not stored
+ * rather than recording a row that points at bytes that were never stored. The
+ * same holds, reported as `encryption_unavailable`, when encryption is on but
+ * the bytes cannot be encrypted (service absent, KMS unhealthy, no DEK).
+ * With tenant data encryption turned off the bytes are stored unencrypted, like
+ * every other encrypted column in that mode. Reads accept both forms.
  */
 
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { sealArtifactPayload } from '../trace/sealArtifactPayload'
 
 const logger = createLogger('agent_orchestrator').child({ component: 'artifact-file-store' })
 
@@ -102,18 +107,6 @@ async function resolveStorageService(
   }
 }
 
-/** Wrap `{ caption: base64 }` and encrypt when encryption is available; else pass through. */
-async function encryptWrapper(
-  container: MinimalContainer,
-  scope: ArtifactFileScope,
-  base64: string,
-): Promise<Record<string, unknown>> {
-  const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
-  const payload = { [ARTIFACT_BYTES_REF.field]: base64 }
-  if (!enc || typeof enc.encryptEntityPayload !== 'function') return payload
-  return enc.encryptEntityPayload(ARTIFACT_BYTES_REF.entityId, payload, scope.tenantId, scope.organizationId)
-}
-
 async function decryptWrapper(
   container: MinimalContainer,
   scope: ArtifactFileScope,
@@ -134,19 +127,40 @@ async function decryptWrapper(
   return typeof raw === 'string' ? raw : null
 }
 
+export type ArtifactBytesFailureReason = 'encryption_unavailable' | 'storage_unavailable'
+
+export type ArtifactBytesPutResult =
+  | { status: 'stored'; key: string }
+  | { status: ArtifactBytesFailureReason }
+
 /**
- * Upload one artifact's bytes encrypted at rest and return its storage key, or
- * `null` when storage is unavailable or the write fails (fail-closed). Never throws.
+ * Upload one artifact's bytes encrypted at rest and report the outcome:
+ * `stored` with its key, `encryption_unavailable` when tenant data encryption is
+ * on but the bytes could not be sealed (nothing is uploaded), or
+ * `storage_unavailable` when storage is unconfigured or the write fails
+ * (fail-closed). Never throws and never logs the file name.
  */
-export async function putArtifactBytes(
+export async function putArtifactBytesResult(
   container: MinimalContainer,
   scope: ArtifactFileScope,
   input: { buffer: Buffer; fileName: string; mimeType?: string },
-): Promise<string | null> {
+): Promise<ArtifactBytesPutResult> {
+  const svc = await resolveStorageService(container, scope)
+  if (!svc) return { status: 'storage_unavailable' }
+  let wrapper: Record<string, unknown> | null
   try {
-    const svc = await resolveStorageService(container, scope)
-    if (!svc) return null
-    const wrapper = await encryptWrapper(container, scope, input.buffer.toString('base64'))
+    const enc = tryResolve<TenantEncryptionLike>(container, 'tenantEncryptionService')
+    wrapper = await sealArtifactPayload(enc, scope, ARTIFACT_BYTES_REF, input.buffer.toString('base64'))
+  } catch (error) {
+    logger.warn('artifact byte encryption failed', {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    wrapper = null
+  }
+  if (!wrapper) return { status: 'encryption_unavailable' }
+  try {
     const { key } = await svc.upload({
       namespace: AGENT_ARTIFACT_FILE_NAMESPACE,
       fileName: `${input.fileName.replace(/[^a-zA-Z0-9_.-]+/g, '_')}.enc`,
@@ -154,13 +168,29 @@ export async function putArtifactBytes(
       contentType: 'application/octet-stream',
       scope,
     })
-    return key || null
+    return key ? { status: 'stored', key } : { status: 'storage_unavailable' }
   } catch (error) {
     logger.warn('artifact byte upload failed', {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
       error: error instanceof Error ? error.message : String(error),
     })
-    return null
+    return { status: 'storage_unavailable' }
   }
+}
+
+/**
+ * Upload one artifact's bytes encrypted at rest and return its storage key, or
+ * `null` when storage is unavailable, the bytes cannot be encrypted, or the write
+ * fails (fail-closed). Never throws.
+ */
+export async function putArtifactBytes(
+  container: MinimalContainer,
+  scope: ArtifactFileScope,
+  input: { buffer: Buffer; fileName: string; mimeType?: string },
+): Promise<string | null> {
+  const result = await putArtifactBytesResult(container, scope, input)
+  return result.status === 'stored' ? result.key : null
 }
 
 /**

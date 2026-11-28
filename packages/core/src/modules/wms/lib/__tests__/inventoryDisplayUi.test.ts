@@ -3,6 +3,7 @@ import {
   formatCatalogProductLabel,
   formatCatalogVariantLabel,
   formatInventoryDateTime,
+  formatInventoryMovementActivitySubtitle,
   formatInventoryQuantity,
   formatReservationSourceLabel,
   inventoryMovementReasonLabel,
@@ -83,5 +84,40 @@ describe('inventoryDisplayUi', () => {
       reason: 'Custom auditor note',
       movementType: 'adjust',
     }, t)).toBe('Custom auditor note')
+  })
+
+  it('formats ASN receive activity without exposing idempotency UUIDs', () => {
+    expect(formatInventoryMovementActivitySubtitle({
+      reasonCode: 'asn_receive',
+      movementType: 'receipt',
+      referenceType: 'po',
+      referenceId: 'e351bb6a-3d96-4a1b-8c2d-1234567890ab',
+      referenceLabel: 'ASN-1042',
+    }, t)).toBe('Receive (from ASN) · ASN-1042')
+
+    expect(formatInventoryMovementActivitySubtitle({
+      reasonCode: null,
+      movementType: 'receipt',
+      referenceType: 'po',
+      referenceId: 'e351bb6a-3d96-4a1b-8c2d-1234567890ab',
+      source: 'asn_receive',
+      referenceLabel: 'ASN-1042',
+    }, t)).toBe('Receive (from ASN) · ASN-1042')
+
+    expect(formatInventoryMovementActivitySubtitle({
+      reasonCode: null,
+      movementType: 'receipt',
+      referenceType: 'po',
+      referenceId: 'e351bb6a-3d96-4a1b-8c2d-1234567890ab',
+      source: 'asn_receive',
+    }, t)).toBe('Receive (from ASN)')
+
+    expect(formatInventoryMovementActivitySubtitle({
+      reasonCode: null,
+      reason: null,
+      movementType: 'receipt',
+      referenceType: 'manual',
+      referenceId: '88888888-8888-4888-8888-888888888888',
+    }, t)).toBe('Manual')
   })
 })

@@ -14,7 +14,7 @@ import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useAppEventCoalesced } from '@open-mercato/ui/backend/injection/useAppEventCoalesced'
 import { Archive, ChevronDown, FilePenLine, Inbox, Layers, Send } from 'lucide-react'
 import { getMessageUiComponentRegistry } from './utils/typeUiRegistry'
@@ -45,6 +45,7 @@ type MessageListItem = {
   sourceEntityType?: string | null
   priority: string
   status: string
+  isDraft: boolean
   hasObjects: boolean
   objectCount: number
   hasAttachments: boolean
@@ -94,7 +95,7 @@ export function MessagesInboxPageClient() {
   useAppEventCoalesced('messages.message.*', invalidateMessageListQueries, [invalidateMessageListQueries])
 
   // Reconnect means events were missed while offline, so it refreshes uncoalesced.
-  useAppEvent('om:bridge:reconnected', invalidateMessageListQueries, [invalidateMessageListQueries])
+  useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, invalidateMessageListQueries, [invalidateMessageListQueries])
 
   const [folder, setFolder] = React.useState<MessageFolder>('inbox')
   const [folderMenuOpen, setFolderMenuOpen] = React.useState(false)
@@ -304,6 +305,7 @@ export function MessagesInboxPageClient() {
               bodyFormat: 'text' as const,
               priority: (item.priority as 'low' | 'normal' | 'high' | 'urgent') ?? 'normal',
               sentAt: item.sentAt ? new Date(item.sentAt) : null,
+              isDraft: item.isDraft,
               senderName: getMessageListParticipantLabel(item, folder, t),
               hasObjects: item.hasObjects,
               objectCount: item.objectCount,
@@ -358,7 +360,7 @@ export function MessagesInboxPageClient() {
   const totalPages = listQuery.data?.totalPages ?? 0
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 max-w-full space-y-4 [&_.isolate]:overflow-x-auto">
       <DataTable
         title={t('messages.title', 'Messages')}
         titleHeadingLevel={1}

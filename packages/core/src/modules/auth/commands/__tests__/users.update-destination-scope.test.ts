@@ -287,6 +287,9 @@ describe('auth.users.update destination scope defense', () => {
       if (entity === Role) return destinationRole
       return destinationOrganizationLookup(entity, where)
     })
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => (
+      entity === Role ? [destinationRole] : []
+    ))
     const { ctx, em, updateOrmEntity } = buildContext({ isSuperAdmin: true, organizationIds: null })
     em.flush
       .mockResolvedValueOnce(undefined)
@@ -300,6 +303,34 @@ describe('auth.users.update destination scope defense', () => {
 
     expect(updateOrmEntity).toHaveBeenCalledTimes(1)
     expect(em.begin).toHaveBeenCalledTimes(1)
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
+    const currentLinkRead = mockFindWithDecryption.mock.calls.find(([, entity]) => entity === UserRole)
+    expect(currentLinkRead?.[2]).toMatchObject({ deletedAt: null, role: { deletedAt: null } })
+  })
+
+  test('rejects a role that left the destination tenant before the role lock was granted', async () => {
+    const destinationRole = { id: retainedRoleId, name: 'Destination role', tenantId: tenantB, deletedAt: null } as Role
+    const lockedRole = { ...destinationRole, tenantId: tenantA } as Role
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: unknown, where: unknown) => {
+      if (entity === Role) return destinationRole
+      return destinationOrganizationLookup(entity, where)
+    })
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: unknown) => (
+      entity === Role ? [lockedRole] : []
+    ))
+    const { ctx, em } = buildContext({ isSuperAdmin: true, organizationIds: null })
+
+    await expect(getHandler().execute({
+      id: targetUserId,
+      organizationId: foreignOrganization,
+      roles: [retainedRoleId],
+    }, ctx)).rejects.toMatchObject({
+      status: 400,
+      body: { error: `Role(s) not found: "${retainedRoleId}"` },
+    })
+
+    expect(em.persist).not.toHaveBeenCalled()
     expect(em.rollback).toHaveBeenCalledTimes(1)
     expect(em.commit).not.toHaveBeenCalled()
   })

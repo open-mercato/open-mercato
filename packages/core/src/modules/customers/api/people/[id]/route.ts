@@ -1,3 +1,6 @@
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveCustomerDetailView } from '../../../lib/detailViewAccess'
+import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -33,6 +36,7 @@ import {
   mapInteractionRecordToTodoSummary,
 } from '../../../lib/interactionCompatibility'
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
+import { countCustomerTodos } from '../../../lib/todoCompatibility'
 import { hydrateCanonicalInteractions } from '../../../lib/interactionReadModel'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -83,11 +87,12 @@ function buildPersonDetailCacheKey(params: {
   scopedOrganizationIds: string[]
   interactionMode: 'canonical' | 'legacy'
   includeTokens: string[]
+  cacheAccess: string
 }): string {
   const include = [...params.includeTokens].sort((a, b) => a.localeCompare(b)).join('|') || 'none'
   const scoped = [...params.scopedOrganizationIds].sort((a, b) => a.localeCompare(b)).join('|') || 'null'
   return [
-    'customers:person-detail',
+    'customers:person-detail:v2',
     params.personId,
     `tenant=${params.tenantId ?? 'null'}`,
     `org=${params.organizationId ?? 'null'}`,
@@ -96,24 +101,10 @@ function buildPersonDetailCacheKey(params: {
     `scope=${scoped}`,
     `mode=${params.interactionMode}`,
     `include=${include}`,
+    `view=${params.cacheAccess}`,
   ].join(':')
 }
 
-
-function parseIncludeParams(request: Request): Set<string> {
-  const url = new URL(request.url)
-  const raw = url.searchParams.getAll('include')
-  const tokens = new Set<string>()
-  raw.forEach((entry) => {
-    if (!entry) return
-    entry
-      .split(',')
-      .map((part) => part.trim().toLowerCase())
-      .filter((part) => part.length > 0)
-      .forEach((part) => tokens.add(part))
-  })
-  return tokens
-}
 
 function notFound(message: string) {
   return NextResponse.json({ error: message }, { status: 404 })
@@ -439,17 +430,6 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
   const profiler = createRouteProfiler('customers.people.detail')
   profiler.mark('request_received')
 
-  const includeTokens = parseIncludeParams(_req)
-  profiler.mark('includes_parsed', { include: Array.from(includeTokens) })
-
-  const includeActivities = includeTokens.has('activities')
-  const includeAddresses = includeTokens.has('addresses')
-  const includeComments = includeTokens.has('comments') || includeTokens.has('notes')
-  const includeDeals = includeTokens.has('deals')
-  const includeInteractions = includeTokens.has('interactions')
-  const includeTodos = includeTokens.has('todos') || includeTokens.has('tasks')
-  const plannedPreviewLimit = 5
-
   let statusCode = 500
   let profileMeta: Record<string, unknown> | undefined
   let addresses: CustomerAddress[] = []
@@ -556,6 +536,18 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     // expensive sweeps below so a hit returns without touching the DB.
     const personDetailTenantId = person.tenantId ?? auth.tenantId ?? null
     const personDetailOrganizationId = person.organizationId ?? null
+    const { view, include, cacheAccess } = await resolveCustomerDetailView(
+      container.resolve<RbacService>('rbacService'), auth.sub,
+      { tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }, _req,
+    )
+    profiler.mark('includes_parsed', { include: Array.from(include) })
+    const includeActivities = include.has('activities')
+    const includeAddresses = include.has('addresses')
+    const includeComments = include.has('comments')
+    const includeDeals = include.has('deals')
+    const includeInteractions = include.has('interactions')
+    const includeTodos = include.has('todos')
+    const plannedPreviewLimit = 5
     const personDetailCache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
     const personDetailCacheKey = personDetailCache
       ? buildPersonDetailCacheKey({
@@ -566,7 +558,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           selectedOrganizationId: (scope?.selectedId ?? auth.orgId) ?? null,
           scopedOrganizationIds: Array.isArray(scope?.filterIds) ? scope.filterIds : [],
           interactionMode,
-          includeTokens: Array.from(includeTokens),
+          includeTokens: Array.from(include),
+          cacheAccess,
         })
       : null
     const personDetailCacheTags = personDetailCache
@@ -577,9 +570,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       const cached = await runWithCacheTenant(personDetailTenantId, () => personDetailCache.get(personDetailCacheKey))
       if (cached) {
         statusCode = 200
-        profileMeta = { cacheHit: true, include: Array.from(includeTokens), interactionMode }
+        profileMeta = { cacheHit: true, include: Array.from(include), interactionMode }
         profiler.mark('cache_hit')
-        return NextResponse.json(cached)
+        return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
       }
     }
 
@@ -675,40 +668,42 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       : []
     profiler.mark('canonical_interactions_hydrated', { count: canonicalInteractions.length })
 
-    const plannedPreviewInteractions = shouldLoadCanonicalInteractions
-      ? (() => {
-          const sorted = [...canonicalInteractions]
-            .filter((interaction) => isOpenInteractionStatus(interaction.status) && interaction.interactionType !== 'task')
-            .sort((left, right) => {
-              const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
-              const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
-              if (leftTime === rightTime) return left.id.localeCompare(right.id)
-              return leftTime - rightTime
-            })
-          return sorted.slice(0, plannedPreviewLimit)
-        })()
-      : await hydrateCanonicalInteractions({
-          em,
-          container,
-          auth,
-          selectedOrganizationId: (scope?.selectedId ?? auth.orgId) ?? null,
-          interactions: await findWithDecryption(
+    const plannedPreviewInteractions = !view.interactions
+      ? []
+      : shouldLoadCanonicalInteractions
+        ? (() => {
+            const sorted = [...canonicalInteractions]
+              .filter((interaction) => isOpenInteractionStatus(interaction.status) && interaction.interactionType !== 'task')
+              .sort((left, right) => {
+                const leftTime = new Date(left.scheduledAt ?? left.createdAt).getTime()
+                const rightTime = new Date(right.scheduledAt ?? right.createdAt).getTime()
+                if (leftTime === rightTime) return left.id.localeCompare(right.id)
+                return leftTime - rightTime
+              })
+            return sorted.slice(0, plannedPreviewLimit)
+          })()
+        : await hydrateCanonicalInteractions({
             em,
-            CustomerInteraction,
-            {
-              entity: person.id,
-              organizationId: person.organizationId,
-              tenantId: person.tenantId,
-              deletedAt: null,
-              status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] },
-              interactionType: { $ne: 'task' },
-              ...emailVisibilityFilter,
-            },
-            { orderBy: { scheduledAt: 'ASC', createdAt: 'ASC' }, limit: plannedPreviewLimit },
-            { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
-          ),
-          enrich: true,
-        })
+            container,
+            auth,
+            selectedOrganizationId: (scope?.selectedId ?? auth.orgId) ?? null,
+            interactions: await findWithDecryption(
+              em,
+              CustomerInteraction,
+              {
+                entity: person.id,
+                organizationId: person.organizationId,
+                tenantId: person.tenantId,
+                deletedAt: null,
+                status: { $nin: [...TERMINAL_INTERACTION_STATUS_LIST] },
+                interactionType: { $ne: 'task' },
+                ...emailVisibilityFilter,
+              },
+              { orderBy: { scheduledAt: 'ASC', createdAt: 'ASC' }, limit: plannedPreviewLimit },
+              { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
+            ),
+            enrich: true,
+          })
 
     if (includeActivities && !interactionFlags.unified) {
       activities = await findWithDecryption(em, CustomerActivity, { entity: person.id }, { orderBy: { occurredAt: 'desc', createdAt: 'desc' }, limit: 50 }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
@@ -770,7 +765,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     if (viewerUserId) authorIds.add(viewerUserId)
 
     if (authorIds.size) {
-      const users = await findWithDecryption(em, User, { id: { $in: Array.from(authorIds) } }, {}, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
+      const users = await findWithDecryption(em, User, {
+        id: { $in: Array.from(authorIds) },
+        tenantId: person.tenantId,
+      }, {}, { tenantId: person.tenantId, organizationId: person.organizationId })
       userMap = new Map(
         users.map((user) => [
           user.id,
@@ -852,53 +850,43 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       addressesCount,
       dealsCount,
     ] = await Promise.all([
-      includeComments
-        ? Promise.resolve(comments.length)
-        : em.count(CustomerComment, {
+      view.activities && !includeComments
+        ? em.count(CustomerComment, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
-          }),
-      em.count(CustomerInteraction, {
+          })
+        : comments.length,
+      view.activities ? em.count(CustomerInteraction, {
         entity: person.id,
         organizationId: person.organizationId,
         tenantId: person.tenantId,
         deletedAt: null,
         interactionType: { $ne: 'task' },
         ...emailVisibilityFilter,
-      }),
-      em.count(CustomerInteraction, {
+      }) : 0,
+      view.interactions ? em.count(CustomerInteraction, {
         entity: person.id,
         organizationId: person.organizationId,
         tenantId: person.tenantId,
         deletedAt: null,
         ...emailVisibilityFilter,
-      }),
-      interactionFlags.unified
-        ? em.count(CustomerInteraction, {
+      }) : 0,
+      view.interactions ? countCustomerTodos(em, {
+        entityId: person.id,
+        organizationId: person.organizationId,
+        tenantId: person.tenantId,
+      }, interactionFlags.unified) : 0,
+      view.activities && !includeAddresses
+        ? em.count(CustomerAddress, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
-            deletedAt: null,
-            interactionType: 'task',
           })
-        : em.count(CustomerTodoLink, {
-            entity: person.id,
-            organizationId: person.organizationId,
-            tenantId: person.tenantId,
-          }),
-      includeAddresses
-        ? Promise.resolve(addresses.length)
-        : em.count(CustomerAddress, {
-            entity: person.id,
-            organizationId: person.organizationId,
-            tenantId: person.tenantId,
-          }),
-      includeDeals
-        ? Promise.resolve(deals.length)
-        : em.count(CustomerDealPersonLink, {
-            person: person.id,
-          }),
+        : addresses.length,
+      view.deals && !includeDeals
+        ? em.count(CustomerDealPersonLink, { person: person.id })
+        : deals.length,
     ])
     const counts = {
       tags: tagAssignments.length + labelAssignments.length,
@@ -925,11 +913,11 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         source: person.source,
         temperature: person.temperature,
         renewalQuarter: person.renewalQuarter,
-        nextInteractionAt: person.nextInteractionAt ? person.nextInteractionAt.toISOString() : null,
-        nextInteractionName: person.nextInteractionName,
-        nextInteractionRefId: person.nextInteractionRefId,
-        nextInteractionIcon: person.nextInteractionIcon,
-        nextInteractionColor: person.nextInteractionColor,
+        nextInteractionAt: view.interactions && person.nextInteractionAt ? person.nextInteractionAt.toISOString() : null,
+        nextInteractionName: view.interactions ? person.nextInteractionName : null,
+        nextInteractionRefId: view.interactions ? person.nextInteractionRefId : null,
+        nextInteractionIcon: view.interactions ? person.nextInteractionIcon : null,
+        nextInteractionColor: view.interactions ? person.nextInteractionColor : null,
         organizationId: person.organizationId,
         tenantId: person.tenantId,
         isActive: person.isActive,
@@ -1114,7 +1102,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
           ? { id: primaryCompany.companyId, displayName: primaryCompany.displayName }
           : null
       })(),
-      plannedActivitiesPreview: plannedPreviewInteractions,
+      ...(view.interactions ? { plannedActivitiesPreview: plannedPreviewInteractions } : {}),
       counts,
       viewer: {
         userId: viewerUserIdFinal,
@@ -1134,10 +1122,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       } catch {}
     }
 
-    const response = NextResponse.json(payload)
+    const response = NextResponse.json(await enrichCustomerDetailResponse(payload, 'person', { auth, container, em, tenantId: personDetailTenantId, organizationId: personDetailOrganizationId }))
     statusCode = 200
     profileMeta = {
-      include: Array.from(includeTokens),
+      include: Array.from(include),
       interactionMode,
       counts,
     }
@@ -1343,7 +1331,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Fetch person with related data',
-      description: 'Returns a person customer record with optional related resources such as addresses, comments, activities, interactions, deals, and todos.',
+      description: 'Returns a person customer record with optional related resources such as addresses, comments, activities, interactions, deals, and todos. Related data is subject to the caller’s view permissions.',
       query: personDetailQuerySchema,
       responses: [
         { status: 200, description: 'Person detail payload', schema: personDetailResponseSchema },

@@ -144,6 +144,66 @@ describe('resolver enterprise module toggle', () => {
     expect(modules).toEqual([{ id: 'customers', from: '@open-mercato/core' }])
   })
 
+  it('keeps one registration per module id and warns about duplicates', () => {
+    process.env.OM_ENABLE_ENTERPRISE_MODULES = 'true'
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolver-duplicate-'))
+    fs.mkdirSync(path.join(tempDir, 'src'), { recursive: true })
+    fs.writeFileSync(
+      path.join(tempDir, 'src', 'modules.ts'),
+      `
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+
+export const enabledModules = [
+  { id: 'customers', from: '@open-mercato/core' },
+  { id: 'record_locks', from: '@open-mercato/enterprise' },
+]
+
+if (parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES, false)) {
+  enabledModules.push({ id: 'record_locks', from: '@open-mercato/enterprise' })
+}
+`,
+      'utf8',
+    )
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      const modules = createResolver(tempDir).loadEnabledModules()
+      expect(modules.filter((entry) => entry.id === 'record_locks')).toHaveLength(1)
+      expect(modules.map((entry) => entry.id)).toEqual(['customers', 'record_locks'])
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Module "record_locks" is registered more than once'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('carries the full dev bootstrap mark from a dropped duplicate onto the kept registration', () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolver-duplicate-bootstrap-'))
+    fs.mkdirSync(path.join(tempDir, 'src'), { recursive: true })
+    fs.writeFileSync(
+      path.join(tempDir, 'src', 'modules.ts'),
+      `
+export const enabledModules = [
+  { id: 'events', from: '@open-mercato/events' },
+  { id: 'events', from: '@open-mercato/events', overrides: { cli: { start: null } } },
+  { id: 'queue', from: '@open-mercato/core', overrides: { workers: { 'queue:process': null } } },
+  { id: 'queue', from: '@open-mercato/core' },
+]
+`,
+      'utf8',
+    )
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+
+    try {
+      expect(createResolver(tempDir).loadEnabledModules()).toEqual([
+        { id: 'events', from: '@open-mercato/events', devSupervisorRequiresFullBootstrap: true },
+        { id: 'queue', from: '@open-mercato/core', devSupervisorRequiresFullBootstrap: true },
+      ])
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('Module "events" is registered more than once'))
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
   it('parses modules.ts statically without executing runtime side effects', () => {
     delete (globalThis as Record<string, unknown>).__resolver_evaluated__
     const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolver-enterprise-'))

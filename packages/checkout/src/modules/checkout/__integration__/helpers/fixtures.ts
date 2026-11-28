@@ -71,6 +71,7 @@ export type CheckoutLinkRecord = {
   templateId?: string | null
   completionCount?: number
   activeReservationCount?: number
+  isLocked?: boolean
   fixedPriceAmount?: number | null
   displayCustomFieldsOnPage?: boolean
   publicCustomFields?: Array<{ key?: string; label?: string; value?: unknown }>

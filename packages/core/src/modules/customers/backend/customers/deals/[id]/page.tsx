@@ -10,10 +10,13 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { AttachmentsSection, ErrorMessage, LoadingMessage, NotesSection, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
+import { CustomerDetailSidebar } from '../../../../components/detail/CustomerDetailSidebar'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { CollapsibleZoneLayout, type ZoneSectionDescriptor } from '@open-mercato/ui/backend/crud/CollapsibleZoneLayout'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { E } from '#generated/entities.ids.generated'
 
@@ -36,6 +39,7 @@ import { createCustomerNotesAdapter } from '../../../../components/detail/notesA
 import type { InteractionSummary } from '../../../../components/detail/types'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
 import { ICON_SUGGESTIONS } from '../../../../lib/dictionaries'
+import { metadata as pipelineMetadata } from '../pipeline/page.meta'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 
 import { formatCurrency, startOfNextQuarter } from './hooks/formatters'
@@ -53,6 +57,8 @@ import { useScheduleDialog } from './hooks/useScheduleDialog'
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id ?? ''
   const t = useT()
+  const { payload } = useBackendChrome()
+  const canViewPipeline = hasAllFeatures(payload?.grantedFeatures, pipelineMetadata.requireFeatures)
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -100,7 +106,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     [detailTranslator, runMutationWithContext],
   )
 
-  const { injectedTabs, injectedTabMap } = useDealInjectedTabs({
+  const { injectedTabs, injectedTabMap, loading: injectedTabsLoading } = useDealInjectedTabs({
     injectionContext,
     data,
     setData,
@@ -123,6 +129,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
   const {
     plannedActivities,
+    plannedLoadFailed,
     activityRefreshKey,
     loadPlannedActivities,
     handleActivityCreated,
@@ -138,7 +145,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     () => (data
       ? [...data.people, ...data.companies].map((entry) => ({
           id: entry.id,
-          label: entry.subtitle ? `${entry.label} · ${entry.subtitle}` : entry.label,
+          label: entry.subtitle ? `${entry.label}, ${entry.subtitle}` : entry.label,
           kind: entry.kind,
           isPrimary: entry.isPrimary === true,
         }))
@@ -292,11 +299,14 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     router.push('/backend')
   }, [closeWonPopup, router])
 
-  const handleBackToPipeline = React.useCallback(() => {
+  const handleBackToDeals = React.useCallback(() => {
     closeWonPopup()
     closeLostPopup()
-    router.push('/backend/customers/deals/pipeline')
-  }, [closeLostPopup, closeWonPopup, router])
+    router.push(canViewPipeline ? '/backend/customers/deals/pipeline' : '/backend/customers/deals')
+  }, [canViewPipeline, closeLostPopup, closeWonPopup, router])
+  const backActionLabel = canViewPipeline
+    ? undefined
+    : t('customers.deals.detail.actions.backToList', 'Back to deals')
 
   const handleScheduleLostFollowUp = React.useCallback(() => {
     if (!data || !selectedActivityEntity) return
@@ -337,9 +347,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           id: data.deal.pipelineId,
           name: currentPipelineName ?? t('customers.deals.detail.pipeline.defaultName', 'Current pipeline'),
           isDefault: false,
+          stageProbabilitiesEnabled: data.pipelineStageProbabilitiesEnabled === true,
         }]
       : [],
-    [currentPipelineName, data?.deal.pipelineId, t],
+    [currentPipelineName, data?.deal.pipelineId, data?.pipelineStageProbabilitiesEnabled, t],
   )
 
   if (isLoading) {
@@ -413,6 +424,10 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             typeof data.deal.valueAmount === 'string' && data.deal.valueAmount.trim().length
               ? Number(data.deal.valueAmount)
               : null,
+          valueAmountExact:
+            typeof data.deal.valueAmount === 'string' && data.deal.valueAmount.trim().length
+              ? data.deal.valueAmount.trim()
+              : null,
           personIds: data.linkedPersonIds,
           companyIds: data.linkedCompanyIds,
           customFields: data.customFields,
@@ -425,11 +440,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     </div>
   )
 
-  const zone2Content = (
+  const injectedTabContent = injectedTabMap.get(activeTab)
+  const zone2Content = injectedTabContent ? (
+    <div>{injectedTabContent()}</div>
+  ) : (
     <div className="rounded-[10px] border border-border bg-card px-5 py-5">
       {(() => {
-        const injected = injectedTabMap.get(activeTab)
-        if (injected) return injected()
 
         if (activeTab === 'activities') {
           const activityEntitySelection = activityEntities.length > 1 ? (
@@ -490,6 +506,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                   onActivityCreated={() => { void handleActivityCreated() }}
                   runGuardedMutation={runMutationWithContext}
                   onScheduleRequested={openSchedule}
+                  refreshKey={activityRefreshKey}
                 />
               ) : (
                 <EmptyState
@@ -504,6 +521,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               )}
               <PlannedActivitiesSection
                 activities={plannedActivities}
+                loadFailed={plannedLoadFailed}
+                onRetryLoad={() => { void loadPlannedActivities() }}
                 onComplete={(interactionId) => { void handleMarkDone(interactionId) }}
                 onSchedule={selectedActivityEntity ? openSchedule : undefined}
                 onEdit={handleEditActivity}
@@ -607,7 +626,6 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               entityId={E.customers.customer_deal}
               recordId={data.deal.id}
               title={t('customers.deals.detail.tabs.files', 'Files')}
-              description={t('customers.deals.detail.files.subtitle', 'Upload and manage files linked to this deal.')}
             />
           )
         }
@@ -618,6 +636,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
 
         return null
       })()}
+      {injectedTabMap.get(activeTab)?.()}
     </div>
   )
 
@@ -625,46 +644,47 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
     <Page>
       <PageBody>
         <div className="space-y-6">
-          <InjectionSpot spotId={extensionPoints.hosts.dealHeader.spotId} context={injectionContext} data={data} />
+          <section className="space-y-6 rounded-lg border border-border bg-card p-6">
+            <DealDetailHeader
+              deal={data.deal}
+              owner={data.owner}
+              people={data.people}
+              companies={data.companies}
+              pipelineName={currentPipelineName}
+              extraActions={<InjectionSpot spotId={extensionPoints.hosts.dealHeader.spotId} context={injectionContext} data={data} />}
+              actions={<InjectionSpot spotId={extensionPoints.hosts.dealHeaderActions.spotId} context={{ ...injectionContext, isDirty, isSaving }} data={data} disabled={isSaving} />}
+              secondaryActions={(
+                <DealClosureActionBar
+                  closureOutcome={data.deal.closureOutcome}
+                  onWon={() => { void handleWon() }}
+                  onLost={openLostDialog}
+                />
+              )}
+              onSave={handleHeaderSave}
+              onDelete={handleDelete}
+              isDirty={isDirty}
+              isSaving={isSaving}
+            />
 
-          <DealDetailHeader
-            deal={data.deal}
-            owner={data.owner}
-            people={data.people}
-            companies={data.companies}
-            pipelineName={currentPipelineName}
-            stageOptions={data.pipelineStages}
-            currentStageId={data.deal.pipelineStageId}
-            onStageChange={handleStageChange}
-            isStageSaving={isStageSaving}
-            onSave={handleHeaderSave}
-            onDelete={handleDelete}
-            isDirty={isDirty}
-            isSaving={isSaving}
-          />
+            <InjectionSpot spotId={extensionPoints.hosts.dealStatusBadges.spotId} context={injectionContext} data={data} onDataChange={setData} />
 
-          <InjectionSpot spotId={extensionPoints.hosts.dealStatusBadges.spotId} context={injectionContext} data={data} onDataChange={setData} />
+            <PipelineStepper
+              stages={data.pipelineStages}
+              transitions={data.stageTransitions}
+              currentStageId={data.deal.pipelineStageId}
+              pipelineName={currentPipelineName}
+              closureOutcome={data.deal.closureOutcome}
+              onStageChange={handleStageChange}
+              stageChangeDisabled={isDirty || isSaving || isStageSaving}
+            />
+          </section>
 
-          <PipelineStepper
-            stages={data.pipelineStages}
-            transitions={data.stageTransitions}
-            currentStageId={data.deal.pipelineStageId}
-            pipelineName={currentPipelineName}
-            closureOutcome={data.deal.closureOutcome}
-            footer={data.deal.closureOutcome ? null : (
-              <DealClosureActionBar
-                embedded
-                closureOutcome={data.deal.closureOutcome}
-                onWon={() => { void handleWon() }}
-                onLost={openLostDialog}
-              />
-            )}
-          />
-
+          <CustomerDetailSidebar spotId={extensionPoints.hosts.dealSidebar.spotId} context={injectionContext} data={data} onDataChange={setData} disabled={isSaving}>
           <DealDetailTabs
+            isLoadingInjectedTabs={injectedTabsLoading}
             activeTab={activeTab}
             onTabChange={handleTabChange}
-            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label }))}
+            injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
             peopleCount={data.counts.people}
             companiesCount={data.counts.companies}
           >
@@ -678,6 +698,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
               zone2={zone2Content}
             />
           </DealDetailTabs>
+          </CustomerDetailSidebar>
 
           <InjectionSpot spotId={extensionPoints.hosts.dealFooter.spotId} context={injectionContext} data={data} />
         </div>
@@ -713,7 +734,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           dealTitle={data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
           stats={wonStats}
           onViewDashboard={handleViewDashboard}
-          onBackToPipeline={handleBackToPipeline}
+          onBackToPipeline={handleBackToDeals}
+          backActionLabel={backActionLabel}
         />
 
         <DealLostSummaryDialog
@@ -722,7 +744,8 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
           dealTitle={data.deal.title || t('customers.deals.detail.untitled', 'Untitled deal')}
           lossNotes={data.deal.lossNotes}
           stats={lostStats}
-          onBackToPipeline={handleBackToPipeline}
+          onBackToPipeline={handleBackToDeals}
+          backActionLabel={backActionLabel}
           onScheduleFollowUp={selectedActivityEntity ? handleScheduleLostFollowUp : undefined}
         />
       </PageBody>

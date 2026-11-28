@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { ProgressService } from '../../../progress/lib/progressService'
 import {
@@ -52,6 +53,15 @@ export async function POST(req: Request) {
   const ids = Array.from(new Set(parsed.data.ids))
   const container = await createRequestContainer()
   const progressService = container.resolve('progressService') as ProgressService
+  const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  if (orgScope?.selectionRejected) {
+    return NextResponse.json(responseSchema.parse({
+      ok: false,
+      progressJobId: null,
+      message: 'Your selected organization is no longer available. Please re-select an organization and try again.',
+    }), { status: 422 })
+  }
+  const organizationId = orgScope?.selectedId ?? auth.orgId
 
   const progressJob = await progressService.createJob(
     {
@@ -69,7 +79,7 @@ export async function POST(req: Request) {
     },
     {
       tenantId: auth.tenantId,
-      organizationId: auth.orgId,
+      organizationId,
       userId: auth.sub,
     },
   )
@@ -79,7 +89,7 @@ export async function POST(req: Request) {
     progressJobId: progressJob.id,
     ids,
     scope: {
-      organizationId: auth.orgId,
+      organizationId,
       tenantId: auth.tenantId,
       userId: auth.sub,
     },

@@ -2,6 +2,34 @@
   "$comment": "Checked topic registry for the CANON-C source-link contract. source-required topics are one per (emitted owner, rendered exact-file link) pair; their topicId is derived as <ownerSlug>:<targetKey> and re-derived by the validator. retained-normative-snippet topics name a rule that survives in prose; evidence is a literal substring the owner must still contain. The derived source-link inventory must assert that its topic set equals this registry exactly; this file is a contract, not a second authority.",
   "topics": [
     {
+      "topicId": "root:.ai/guides/infrastructure-providers.md",
+      "owner": "AGENTS.md",
+      "requirement": "source-required",
+      "href": ".ai/guides/infrastructure-providers.md",
+      "resolvedPath": ".ai/guides/infrastructure-providers.md"
+    },
+    {
+      "topicId": "guides/infrastructure-providers:src/providers/cache.ts",
+      "owner": ".ai/guides/infrastructure-providers.md",
+      "requirement": "source-required",
+      "href": "../../src/providers/cache.ts",
+      "resolvedPath": "src/providers/cache.ts"
+    },
+    {
+      "topicId": "guides/infrastructure-providers:src/providers/queue.example.ts",
+      "owner": ".ai/guides/infrastructure-providers.md",
+      "requirement": "source-required",
+      "href": "../../src/providers/queue.example.ts",
+      "resolvedPath": "src/providers/queue.example.ts"
+    },
+    {
+      "topicId": "guides/infrastructure-providers:src/providers/kms.example.ts",
+      "owner": ".ai/guides/infrastructure-providers.md",
+      "requirement": "source-required",
+      "href": "../../src/providers/kms.example.ts",
+      "resolvedPath": "src/providers/kms.example.ts"
+    },
+    {
       "topicId": "guides/framework-contracts:node_modules/@open-mercato/shared/src/lib/commands/types.ts",
       "owner": ".ai/guides/framework-contracts.md",
       "requirement": "source-required",
@@ -1029,6 +1057,110 @@
       "requirement": "source-required",
       "href": "../../src/modules/example/di.ts",
       "resolvedPath": "src/modules/example/di.ts"
+    },
+    {
+      "topicId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "owner": ".ai/guides/module-tool.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/cli/src/lib/module-install.ts",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/module-install.ts"
+    },
+    {
+      "topicId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "owner": ".ai/guides/module-tool.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/cli/src/lib/module-identity.ts",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/module-identity.ts"
+    },
+    {
+      "topicId": "guides/module-tool:node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "owner": ".ai/guides/module-tool.md",
+      "requirement": "source-required",
+      "href": "../../node_modules/@open-mercato/cli/src/lib/eject.ts",
+      "resolvedPath": "node_modules/@open-mercato/cli/src/lib/eject.ts"
+    },
+    {
+      "topicId": "rule:guides/module-tool#file-artifact-unknown-origin",
+      "owner": ".ai/guides/module-tool.md",
+      "requirement": "retained-normative-snippet",
+      "evidence": "A local file artifact establishes neither an npm nor a GitHub origin: omit an unknown `locator`; an active binding replacement must fail before Yarn when its origin cannot be preserved."
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:api/todos/route.ts",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "href": "../../../../src/modules/example/api/todos/route.ts",
+      "resolvedPath": "src/modules/example/api/todos/route.ts",
+      "requirement": "source-required"
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:encryption.ts",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "href": "../../../../src/modules/example/encryption.ts",
+      "resolvedPath": "src/modules/example/encryption.ts",
+      "requirement": "source-required"
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:search.ts",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "href": "../../../../src/modules/example/search.ts",
+      "resolvedPath": "src/modules/example/search.ts",
+      "requirement": "source-required"
+    },
+    {
+      "topicId": "om-module-scaffold/api-and-domain:.ai/skills/om-data-model-design/references/sensitive-data.md",
+      "owner": ".ai/skills/om-module-scaffold/references/api-and-domain.md",
+      "href": "../../om-data-model-design/references/sensitive-data.md#encrypted-list-search",
+      "resolvedPath": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "requirement": "source-required"
+    },
+    {
+      "topicId": "om-data-model-design/sensitive-data:node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "owner": ".ai/skills/om-data-model-design/references/sensitive-data.md",
+      "href": "../../../../node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "resolvedPath": "node_modules/@open-mercato/shared/src/lib/query/engine.ts",
+      "requirement": "source-required"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts",
+      "resolvedPath": "node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:form-sections.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/form-sections.ts",
+      "resolvedPath": "src/modules/example/form-sections.ts"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:references/crud-form-extensions/required-coverage.md",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/references/crud-form-extensions/required-coverage.md",
+      "resolvedPath": "src/modules/example/references/crud-form-extensions/required-coverage.md"
+    },
+    {
+      "topicId": "om-system-extension/extension-branches:references/module-overrides.reference.ts",
+      "owner": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "requirement": "source-required",
+      "href": "../../../../src/modules/example/references/module-overrides.reference.ts",
+      "resolvedPath": "src/modules/example/references/module-overrides.reference.ts"
+    },
+    {
+      "topicId": "root:.ai/skills/om-system-extension/references/extension-branches.md",
+      "owner": "AGENTS.md",
+      "requirement": "source-required",
+      "href": ".ai/skills/om-system-extension/references/extension-branches.md",
+      "resolvedPath": ".ai/skills/om-system-extension/references/extension-branches.md"
     }
   ]
 }

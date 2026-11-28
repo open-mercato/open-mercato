@@ -9,7 +9,10 @@ import {
 import { notificationTypes } from '../notifications'
 import { emitStaffEvent } from '../events'
 import { MANAGE_PROJECTS_FEATURE } from '../lib/time-tracking/access'
-import { computeProjectFinancials } from '../lib/timesheets-projects/computeProjectFinancials'
+import {
+  computeProjectFinancials,
+  resolveProjectAmountDecimalPlaces,
+} from '../lib/timesheets-projects/computeProjectFinancials'
 import { FULL_BUDGET_PERCENT, evaluateBudgetThreshold } from '../lib/timesheets-projects/budgetThreshold'
 import {
   claimBudgetThresholdAlert,
@@ -99,12 +102,18 @@ export default async function handle(payload: TimeEntryWritePayload, ctx: Resolv
     // has since been switched off still needs clearing.
     if (project.budgetKind === 'none' && project.budgetAlertedAtPercent === null) return
 
+    const amountDecimalPlacesByProjectId = await resolveProjectAmountDecimalPlaces(
+      ctx,
+      [{ id: project.timeProjectId, currencyCode: project.currencyCode }],
+      { tenantId, organizationId },
+    )
     const financials = await computeProjectFinancials({
       em,
       tenantId,
       organizationId,
       projectIds: [project.timeProjectId],
-      hourlyRateByProjectId: new Map([[project.timeProjectId, project.hourlyRate]]),
+      hourlyRateByProjectId: new Map([[project.timeProjectId, project.hourlyRateExact ?? project.hourlyRate]]),
+      amountDecimalPlacesByProjectId,
     })
     const totals = financials.get(project.timeProjectId)
 

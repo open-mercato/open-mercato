@@ -42,6 +42,9 @@ export class SsoConfig {
   @Property({ name: 'sso_required', type: 'boolean', default: false })
   ssoRequired: boolean = false
 
+  @Property({ name: 'authorization_user_id', type: 'uuid', nullable: true })
+  authorizationUserId?: string | null
+
   @Property({ name: 'app_role_mappings', type: 'jsonb', default: '{}' })
   appRoleMappings: Record<string, string> = {}
 
@@ -130,6 +133,10 @@ export class ScimToken {
 
   @Property({ name: 'token_hash', type: 'text' })
   tokenHash!: string
+
+  @Property({ name: 'token_lookup_hash', type: 'text', nullable: true })
+  @Index({ name: 'scim_tokens_token_lookup_hash_idx' })
+  tokenLookupHash?: string | null
 
   @Property({ name: 'token_prefix', type: 'text' })
   tokenPrefix!: string

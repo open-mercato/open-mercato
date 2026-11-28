@@ -156,6 +156,7 @@ describe('link-channel-message subscriber — inbound', () => {
     expect(createdData.entity).toBe(personRef)
     expect(createdData.title).toBe('Hello')
     expect(createdData.authorUserId).toBeNull()
+    expect(createdData.occurredAt).toBeNull()
   })
 
   it('inherits Person from the hub thread when address match is empty (encryption-safe reply linking)', async () => {
@@ -233,9 +234,10 @@ describe('link-channel-message subscriber — inbound', () => {
       channelMetadata: { crmVisibility: 'shared' },
     }
     mockFindPeople.mockResolvedValueOnce([{ id: 'person-1' }])
+    const sentAt = new Date('2026-05-28T21:55:00Z')
     const em = makeEm({
       // findOne[0]: link lookup, findOne[1]: channel (user-scoped → owner present)
-      findOneResults: [linkRow, { userId: 'u-1' }],
+      findOneResults: [linkRow, { userId: 'u-1' }, { sentAt }],
     })
 
     await handler(
@@ -252,6 +254,7 @@ describe('link-channel-message subscriber — inbound', () => {
     expect(em.create).toHaveBeenCalledTimes(1)
     const [, createdData] = em.create.mock.calls[0] as [unknown, Record<string, unknown>]
     expect(createdData.visibility).toBe('private')
+    expect(createdData.occurredAt).toBe(sentAt)
   })
 
   it('creates 3 interactions for 3-person match across From/To/Cc', async () => {
@@ -506,7 +509,7 @@ describe('link-channel-message subscriber — interaction timestamp (#6095)', ()
     expect(lookedUp).not.toContain('ExternalMessage')
   })
 
-  it('falls back to the link creation time when the event carries no provider timestamp', async () => {
+  it('keeps unknown occurrence time when the event carries no provider timestamp', async () => {
     // Events queued before this change, and channels whose adapter supplies no
     // timestamp, both land here.
     mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
@@ -516,11 +519,11 @@ describe('link-channel-message subscriber — interaction timestamp (#6095)', ()
 
     expect(em.create).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ occurredAt: ingestedAt }),
+      expect.objectContaining({ occurredAt: null }),
     )
   })
 
-  it('falls back to the link creation time when the payload timestamp is unparsable', async () => {
+  it('keeps unknown occurrence time when the payload timestamp is unparsable', async () => {
     mockFindPeople.mockResolvedValueOnce([{ id: 'person-1', email: 'alice@example.com' }])
     const em = makeEmForTimestamp()
 
@@ -528,7 +531,7 @@ describe('link-channel-message subscriber — interaction timestamp (#6095)', ()
 
     expect(em.create).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ occurredAt: ingestedAt }),
+      expect.objectContaining({ occurredAt: null }),
     )
   })
 

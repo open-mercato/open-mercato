@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { z } from 'zod'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
@@ -68,11 +69,24 @@ export async function GET(
     if (!keyParam) {
       throw new CrudHttpError(400, { error: 'Dictionary key is required.' })
     }
-    const keys = KEY_ALIASES[keyParam] ?? [keyParam]
+    const isCatalogKey = Object.values(KEY_ALIASES).some((aliases) => aliases.includes(keyParam))
+    if (!isCatalogKey) {
+      const rbacService = context.container.resolve<RbacService>('rbacService')
+      const canView = context.auth && await rbacService.userHasAllFeatures(
+        context.auth.sub,
+        ['dictionaries.view'],
+        { tenantId: context.tenantId, organizationId: context.organizationId },
+      )
+      if (!canView) {
+        throw new CrudHttpError(403, { error: context.translate('auth.accessDenied.title') })
+      }
+    }
+    const keys = Object.hasOwn(KEY_ALIASES, keyParam) ? KEY_ALIASES[keyParam] : [keyParam]
     const dictionaries = await context.em.find(
       Dictionary,
       {
         tenantId: context.tenantId,
+        organizationId: { $in: context.readableOrganizationIds },
         key: { $in: keys },
         deletedAt: null,
         isActive: true,

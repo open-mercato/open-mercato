@@ -26,6 +26,7 @@ import {
   normalizeDictionaryEntries,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { SALES_DOCUMENT_NUMBER_COLUMN_META } from './salesDocumentsColumns'
+import { PriceWithCurrency } from '../PriceWithCurrency'
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -54,11 +55,14 @@ type ApiDocument = {
   status?: string | null
   customerEntityId?: string | null
   customerSnapshot?: Record<string, unknown> | null
+  contactEmail?: string | null
   channelId?: string | null
   channelName?: string | null
   lineItemCount?: number | null
   grandTotalNetAmount?: number | null
+  grandTotalNetAmountExact?: string | null
   grandTotalGrossAmount?: number | null
+  grandTotalGrossAmountExact?: string | null
   currencyCode?: string | null
   placedAt?: string | null
   validUntil?: string | null
@@ -84,7 +88,9 @@ type SalesDocumentRow = {
   channelName?: string | null
   lineItemCount?: number | null
   totalNet?: number | null
+  totalNetExact?: string | null
   totalGross?: number | null
+  totalGrossExact?: string | null
   currency?: string | null
   date?: string | null
   updatedAt?: string | null
@@ -133,19 +139,6 @@ function toNumber(value: unknown): number | null {
     return Number.isNaN(parsed) ? null : parsed
   }
   return null
-}
-
-function formatCurrency(amount: number | null | undefined, currency: string | null | undefined, fallback = '—') {
-  if (amount == null || Number.isNaN(amount)) return fallback
-  try {
-    if (currency && currency.trim().length) {
-      const formatter = new Intl.NumberFormat(undefined, { style: 'currency', currency })
-      return formatter.format(amount)
-    }
-    return new Intl.NumberFormat(undefined, { style: 'decimal', maximumFractionDigits: 2 }).format(amount)
-  } catch {
-    return String(amount)
-  }
 }
 
 function mergeOptions(existing: FilterOption[], next: FilterOption[]): FilterOption[] {
@@ -530,7 +523,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         : doc.quoteNumber ?? (item as any)?.quote_number ?? id
       const customerSnapshot = (doc.customerSnapshot ?? null) as CustomerSnapshot | null
       const customerName = resolveCustomerName(customerSnapshot, doc.customerEntityId ?? null)
-      const customerEmail = resolveCustomerEmail(customerSnapshot)
+      const customerEmail = doc.contactEmail ?? resolveCustomerEmail(customerSnapshot)
       const totalNet = toNumber(doc.grandTotalNetAmount)
       const totalGross = toNumber(doc.grandTotalGrossAmount)
       const placedAt = doc.placedAt ?? null
@@ -547,7 +540,9 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         channelName: doc.channelName ?? null,
         lineItemCount: doc.lineItemCount ?? null,
         totalNet,
+        totalNetExact: doc.grandTotalNetAmountExact,
         totalGross,
+        totalGrossExact: doc.grandTotalGrossAmountExact,
         currency: doc.currencyCode ?? null,
         date,
         updatedAt: doc.updatedAt ?? null,
@@ -619,6 +614,11 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     setPage(1)
   }, [])
 
+  const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
+    setSorting(nextSorting)
+    setPage(1)
+  }, [])
+
   const handleRefresh = React.useCallback(() => {
     setReloadToken((token) => token + 1)
   }, [])
@@ -683,6 +683,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
             <DictionaryValue
               value={row.original.status}
               map={statusMap}
+              appearance="dot"
               fallback={<span className="text-xs text-muted-foreground">{row.original.status}</span>}
               className="text-xs text-muted-foreground font-medium"
               iconWrapperClassName="inline-flex h-5 w-5 items-center justify-center rounded bg-muted text-muted-foreground"
@@ -735,16 +736,18 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       id: 'grandTotalNetAmount',
       accessorKey: 'totalNet',
       header: t('sales.documents.list.table.totalNet', 'Total (net)'),
+      meta: { truncate: false },
       cell: ({ row }) => (
-        <span className="text-sm">{formatCurrency(row.original.totalNet ?? null, row.original.currency)}</span>
+        <PriceWithCurrency amount={row.original.totalNetExact ?? row.original.totalNet} currency={row.original.currency} className="font-sans wrap-anywhere" />
       ),
     },
     {
       id: 'grandTotalGrossAmount',
       accessorKey: 'totalGross',
       header: t('sales.documents.list.table.totalGross', 'Total (gross)'),
+      meta: { truncate: false },
       cell: ({ row }) => (
-        <span className="text-sm">{formatCurrency(row.original.totalGross ?? null, row.original.currency)}</span>
+        <PriceWithCurrency amount={row.original.totalGrossExact ?? row.original.totalGross} currency={row.original.currency} className="font-sans wrap-anywhere" />
       ),
     },
     {
@@ -784,8 +787,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           )}
           columns={columns}
           data={rows}
+          sortable
+          manualSorting
           sorting={sorting}
-          onSortingChange={setSorting}
+          onSortingChange={handleSortingChange}
           isLoading={isLoading}
           searchValue={search}
           onSearchChange={handleSearchChange}

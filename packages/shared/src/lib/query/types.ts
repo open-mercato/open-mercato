@@ -1,5 +1,6 @@
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { Profiler } from '../profiler'
+import type { CiphertextSearchWarning } from './ciphertext-search-warning'
 import type { ResolvedCustomFieldDefinitions } from '../crud/custom-field-definition-index'
 
 /**
@@ -12,7 +13,7 @@ import type { ResolvedCustomFieldDefinitions } from '../crud/custom-field-defini
  * NULL column never does); an empty value list excludes nothing. Unsupported on `cf:*` keys, where
  * it compiles to `false`.
  */
-export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'exists' | 'overlap' | 'noverlap'
+export type FilterOp = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'in' | 'nin' | 'like' | 'ilike' | 'not_ilike' | 'exists' | 'overlap' | 'noverlap'
 
 export enum SortDir {
   Asc = 'asc',
@@ -43,6 +44,7 @@ export type WhereOps<T> = {
   $nin?: T[]
   $like?: T extends string ? string : never
   $ilike?: T extends string ? string : never
+  $not?: { $ilike: T extends string ? string : never }
   $exists?: boolean
   $overlap?: T extends readonly (infer Element)[] ? Element[] : T[]
   $noverlap?: T extends readonly (infer Element)[] ? Element[] : T[]
@@ -126,6 +128,21 @@ export type QueryOptions = {
    * not match the standard `organization_id = X AND tenant_id = Y` shape.
    */
   omitAutomaticTenantOrgScope?: boolean
+  /**
+   * When `false`, the engine returns encrypted fields as stored (ciphertext) instead of decrypting
+   * them, and performs no DEK lookup at all. Defaults to `true` — today's behaviour — so existing
+   * callers are unaffected.
+   *
+   * Use it on generic, entity-agnostic surfaces that select every column and do not need plaintext.
+   * Opting in to decline decryption is not an access control: when decryption DOES run it is bound
+   * to the caller's tenant by `resolveDecryptScope`, which refuses any row whose `tenant_id`
+   * contradicts `tenantId`.
+   *
+   * Caveat: declining also disables the plaintext-sort path, so a `sort` on an encrypted field
+   * degrades to SQL `ORDER BY` over ciphertext — a meaningless order. Both engines log one warning
+   * when that combination is requested.
+   */
+  decryptEncryptedFields?: boolean
   // Soft-delete behavior: when false (default), rows with non-null deleted_at
   // are excluded if the base table has that column. Set true to include them.
   withDeleted?: boolean
@@ -181,6 +198,7 @@ export type ListCountCapWarning = {
 }
 
 export type QueryResultMeta = {
+  ciphertextSearchWarnings?: CiphertextSearchWarning[]
   partialIndexWarning?: PartialIndexWarning
   encryptedSortRowCapWarning?: EncryptedSortRowCapWarning
   listCountCapWarning?: ListCountCapWarning

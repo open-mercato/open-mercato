@@ -98,7 +98,7 @@ function createHarness() {
   const command = mockRegisteredCommands.get('messages.messages.compose')
   expect(command).toBeTruthy()
   const createdMessage = () => created.find((entry) => entry.entity === Message)?.data
-  return { command: command!, ctx, createdMessage }
+  return { command: command!, ctx, createdMessage, trx }
 }
 
 describe('messages.messages.compose — sentAt (#6095)', () => {
@@ -119,6 +119,15 @@ describe('messages.messages.compose — sentAt (#6095)', () => {
     await command.execute(composeInput({ sentAt }), ctx)
 
     expect(createdMessage()?.sentAt).toEqual(sentAt)
+  })
+
+  it('preserves an explicitly unknown imported send time', async () => {
+    const { command, ctx, createdMessage } = createHarness()
+
+    await command.execute(composeInput({ sentAt: null, inboundFromChannel: true }), ctx)
+
+    expect(createdMessage()?.sentAt).toBeNull()
+    expect(createdMessage()?.isDraft).toBe(false)
   })
 
   it('still stamps "now" when no sentAt is supplied', async () => {
@@ -143,5 +152,29 @@ describe('messages.messages.compose — sentAt (#6095)', () => {
 
     expect(createdMessage()?.sentAt).toBeNull()
     expect(createdMessage()?.status).toBe('draft')
+  })
+
+  it('writes the mailbox link before emitting compose side effects', async () => {
+    const { command, ctx, trx } = createHarness()
+    const persistMailboxDelivery = jest.fn(async () => {
+      expect(emitMessagesEventMock).not.toHaveBeenCalled()
+    })
+
+    await command.execute(composeInput(), { ...ctx, persistMailboxDelivery })
+
+    expect(persistMailboxDelivery).toHaveBeenCalledWith(trx, {
+      messageId: createdMessageId,
+      threadId: createdMessageId,
+    })
+    expect(emitMessagesEventMock).toHaveBeenCalled()
+  })
+
+  it('does not emit compose side effects when the mailbox link write rolls back', async () => {
+    const { command, ctx } = createHarness()
+    const failure = new Error('[internal] mailbox link write failed')
+    const persistMailboxDelivery = jest.fn().mockRejectedValue(failure)
+
+    await expect(command.execute(composeInput(), { ...ctx, persistMailboxDelivery })).rejects.toBe(failure)
+    expect(emitMessagesEventMock).not.toHaveBeenCalled()
   })
 })

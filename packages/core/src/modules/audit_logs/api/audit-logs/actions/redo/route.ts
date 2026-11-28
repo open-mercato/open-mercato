@@ -5,7 +5,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveFeatureCheckContext, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
-import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { isCrudHttpError, translateCrudErrorBody } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ActionLogService } from '@open-mercato/core/modules/audit_logs/services/actionLogService'
 import type { CommandRuntimeContext, CommandLogMetadata } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
@@ -15,7 +16,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
-import { authorizeAuditReplayWithEntityManager } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
+import { authorizeAuditReplayWithEntityManager, isAuditReplayOrganizationAllowed } from '@open-mercato/core/modules/audit_logs/lib/replayAuthorization'
 import {
   actionLogBelongsToAuth,
   resolveCanonicalAuthSubject,
@@ -106,14 +107,12 @@ export async function POST(req: Request) {
   if (log.tenantId && log.tenantId !== (auth.tenantId ?? null)) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
-  // Tenant-level redoers may redo across organizations within the tenant, so an
-  // unresolved (null) caller org is allowed and only an explicit mismatch is rejected.
-  // Every other caller must resolve to the target's own organization — a null caller
-  // org must not bypass an org-scoped target (issue #2685, ported in #2931).
-  const orgScopeMismatch = canRedoTenant
-    ? Boolean(log.organizationId && scopedOrgId && log.organizationId !== scopedOrgId)
-    : Boolean(log.organizationId && log.organizationId !== scopedOrgId)
-  if (orgScopeMismatch) {
+  if (!isAuditReplayOrganizationAllowed({
+    scope,
+    organizationId: scopedOrgId,
+    targetOrganizationId: log.organizationId,
+    canReplayTenant: canRedoTenant,
+  })) {
     return NextResponse.json({ error: 'Redo target not available' }, { status: 400 })
   }
 
@@ -197,18 +196,18 @@ export async function POST(req: Request) {
     }
     return response
   } catch (err) {
-    // Same contract as undo: a domain refusal carries an already-localized body the
-    // operator can act on, so surface it instead of a generic message.
     if (isCrudHttpError(err)) {
       logger.warn('Redo rejected', { err })
-      return NextResponse.json(err.body, { status: err.status })
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(translateCrudErrorBody(err.body, translate), { status: err.status })
     }
     const interceptorRejection = getCommandInterceptorHttpRejection(err)
     if (interceptorRejection) {
       return NextResponse.json(interceptorRejection.body, { status: interceptorRejection.status })
     }
     logger.error('Redo failed', { err })
-    return NextResponse.json({ error: 'Redo failed' }, { status: 400 })
+    const { translate } = await resolveTranslations()
+    return NextResponse.json({ error: translate('audit_logs.error.redo_failed', 'Redo failed') }, { status: 400 })
   }
 }
 

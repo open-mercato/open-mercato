@@ -1,0 +1,81 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Studio: features</title><style>
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,sans-serif;font-size:13px;color:#262626;background:#fff}
+.top{background:#f5f5f5;border-bottom:1px solid #e5e5e5;padding:10px 24px;display:flex;justify-content:space-between;font-size:12px;color:#525252}
+.top b{color:#171717}
+.wrap{display:grid;grid-template-columns:1fr 380px;min-height:calc(100vh - 38px)}
+.frame{padding:20px 24px;border-right:1px solid #e5e5e5}
+.app{border:1px solid #d4d4d4;border-radius:10px;overflow:hidden;background:#fff}
+.bar{display:flex;justify-content:space-between;align-items:center;padding:8px 14px;border-bottom:1px solid #e5e5e5;background:#fafafa;color:#737373;font-size:12px}
+.body{display:grid;grid-template-columns:150px 1fr}
+.side{background:#fafafa;border-right:1px solid #e5e5e5;padding:12px 10px;color:#737373;font-size:12px;min-height:300px}
+.side .h{font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin:10px 0 4px;color:#a3a3a3}
+.side .i{padding:4px 6px;border-radius:5px}.side .on{background:#e9e9e9;color:#171717}
+.page{padding:16px 18px}
+.over{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#737373}
+h1{font-size:18px;margin:2px 0 4px}.muted{color:#737373}.small{font-size:11px}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
+.btn{display:inline-block;position:relative;border:1px solid #d4d4d4;border-radius:7px;padding:5px 10px;font-weight:600;background:#fff;margin-left:8px;font-size:12px}
+.mb{position:absolute;top:-9px;right:-9px;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#e11d48;color:#fff;font-size:10.5px;font-weight:700}
+.dash.row>div:last-child,.row>span:last-child{white-space:nowrap}
+.btn.p{background:#171717;color:#fff;border-color:#171717}.btn.dis{background:#f5f5f5;border-color:#e5e5e5;color:#a3a3a3}.btn.p.dis{background:#d4d4d4;border-color:#d4d4d4;color:#fff}
+.tabs{display:flex;gap:16px;border-bottom:1px solid #e5e5e5;margin:10px 0 12px;font-size:12px;color:#737373;font-weight:600}
+.tabs span{padding:6px 0}.tabs .on{color:#171717;border-bottom:2px solid #171717}
+.card{border:1px solid #e5e5e5;border-radius:9px;padding:12px 14px;margin-bottom:10px;background:#fff}
+.card h3{margin:0 0 8px;font-size:13px}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:10px}.g3{display:grid;grid-template-columns:1.2fr 1fr;gap:12px}
+.lbl{font-weight:600;margin:8px 0 4px;font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:5px}.chip{border:1px solid #d4d4d4;border-radius:6px;padding:3px 8px;font-size:12px;white-space:nowrap}
+.chip.sel{border:1.5px solid #171717;background:#f5f5f5;font-weight:600}.chip.off{color:#a3a3a3;background:#fafafa;text-decoration:line-through}
+.in{border:1px solid #d4d4d4;border-radius:6px;padding:5px 8px;font-size:12px;background:#fff}
+.mono{font-family:ui-monospace,Menlo,monospace;font-size:11.5px}
+.hint{font-size:11px;color:#737373;margin-top:3px}
+.cond{border-left:3px solid #a5b4fc;padding-left:8px;margin-top:8px}
+.forced{border-left:3px solid #818cf8;padding-left:8px;margin-top:8px}
+.badge{display:inline-flex;align-items:center;gap:4px;border-radius:999px;padding:1px 8px;font-size:11px;font-weight:600;border:1px solid}
+.badge:before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.ok{background:#f0fdf4;color:#14532d;border-color:#bbf7d0}.warn{background:#fffbeb;color:#78350f;border-color:#fde68a}
+.err{background:#fef2f2;color:#7f1d1d;border-color:#fecaca}.info{background:#eef2ff;color:#312e81;border-color:#c7d2fe}.neu{background:#f5f5f5;color:#404040;border-color:#e5e5e5}
+.msg{border-radius:7px;padding:6px 9px;margin-bottom:6px;font-size:12px;border:1px solid}
+table{width:100%;border-collapse:collapse;font-size:12px}th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:#737373;border-bottom:1px solid #e5e5e5;padding:5px 4px;background:#fafafa}
+td{border-bottom:1px solid #f0f0f0;padding:6px 4px;vertical-align:top}.r{text-align:right;font-variant-numeric:tabular-nums}
+.tot{display:flex;justify-content:space-between;align-items:baseline;border-top:2px solid #e5e5e5;margin-top:8px;padding-top:8px}.tot b{font-size:18px}
+.m{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:#e11d48;color:#fff;font-size:10.5px;font-weight:700;margin:0 4px;vertical-align:1px;flex:none}
+.legend{padding:20px 22px;background:#fafafa}
+.legend h2{font-size:15px;margin:0 0 4px}.legend .sub{color:#737373;margin-bottom:14px;font-size:12px}
+.note{display:flex;gap:8px;margin-bottom:11px;line-height:1.45}.note b{display:block}
+.flowbox{border:1px solid #d4d4d4;border-radius:9px;padding:10px 12px;background:#fff}
+.overlay{position:relative}.scrim{position:absolute;inset:0;background:rgba(23,23,23,.28);border-radius:10px}
+.dialog{position:absolute;background:#fff;border:1px solid #d4d4d4;border-radius:11px;box-shadow:0 14px 34px rgba(0,0,0,.18);padding:14px 16px}
+.row{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.dash{border:1px dashed #d4d4d4;border-radius:9px;padding:10px 12px}
+.strike{text-decoration:line-through;color:#a3a3a3}
+.lock{background:#fafafa;color:#a3a3a3}
+.state{margin:16px 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#737373;font-weight:700}
+.toast{display:inline-block;border:1px solid #bbf7d0;background:#f0fdf4;color:#14532d;border-radius:8px;padding:6px 10px;font-size:12px}
+</style></head><body>
+<div class="top"><span><b>Product Configurator spec</b> &middot; UX wireframe &middot; Studio: features</span><span>Low fidelity: shows flow and states, not visual design. Final UI uses the Open Mercato design system.</span></div>
+<div class="wrap"><div class="frame"><div class="app"><div class="bar"><span>&#8962; &rsaquo; Models &rsaquo; Telescopic loader TL-500</span><span>Org: Green Valley Demo &#9662; &nbsp; &#9881; &nbsp; &#9787;</span></div>
+<div class="body"><div class="side"><div class="i ">Dashboard</div><div class="h">Customers</div><div class="i">Companies</div><div class="i">People</div><div class="h">Sales</div><div class="i">Create sales document</div><div class="i ">Orders</div><div class="i ">Quotes</div><div class="h">Catalog</div><div class="i">Products</div><div class="h">Product configurator</div><div class="i on">Models</div></div><div class="page"><div class="hd"><div><h1>Telescopic loader TL-500</h1><span class="badge ok">Published v4</span> <span class="badge warn">Unpublished changes</span><div class="muted small" style="margin-top:4px">Key tl-500 &middot; EUR &middot; Base price list &middot; Product: Telescopic loader TL-500</div></div><div style="text-align:right"><span class="small" style="color:#b91c1c;margin-right:6px">Discard unsaved changes</span><span class="btn p">Save draft</span><span class="btn dis">Validate</span><span class="btn dis" style="margin-right:6px">Publish</span><div class="hint">Unsaved changes: save first, Validate and Publish use the saved draft.</div></div></div>
+<div class="tabs"><span class="">Overview</span><span class="on">Features</span><span class="">Formulas</span><span class="">Lookups</span><span class="">Rules</span><span class="">BOM</span><span class="">Dependencies</span><span class="">Test</span><span class="">Advanced (JSON)</span></div>
+<div class="card"><div class="row"><h3>Features</h3><span class="btn">+ Add feature</span></div>
+<table><tr><th>Feature <span class="m">1</span></th><th>Type <span class="m">2</span></th><th>Options or range</th><th>Group</th><th>Default</th><th>In summary <span class="m">3</span></th><th>Shown when</th></tr>
+<tr><td><b>Engine power</b><div class="mono muted">engine_power</div></td><td>Choice</td><td class="small">75 kW, 100 kW, 120 kW</td><td>Chassis</td><td>100 kW</td><td>Yes</td><td class="muted">always</td></tr>
+<tr><td><b>Tyres</b><div class="mono muted">tyres</div></td><td>Choice</td><td class="small">Agricultural 500/70 R24, Road 460/70 R24</td><td>Chassis</td><td>Agricultural</td><td>No</td><td class="muted">always</td></tr>
+<tr><td><b>Road registration</b><div class="mono muted">road_registration</div></td><td>Yes/no</td><td class="muted">&mdash;</td><td>Chassis</td><td>No</td><td>No</td><td class="muted">always</td></tr>
+<tr><td><b>Lift height</b><div class="mono muted">lift_height</div></td><td>Number</td><td class="small">7.0 to 10.0, step 0.5, m</td><td>Boom and attachment</td><td>8.0</td><td>Yes</td><td class="muted">always</td></tr>
+<tr><td><b>Attachment</b><div class="mono muted">attachment</div></td><td>Choice</td><td class="small">from lookup <b>Allowed attachments</b> <span class="m">4</span></td><td>Boom and attachment</td><td class="small">from lookup</td><td>Yes</td><td class="muted">always</td></tr>
+<tr><td><b>Hydraulic quick hitch</b><div class="mono muted">quick_hitch</div></td><td>Yes/no</td><td class="muted">&mdash;</td><td>Boom and attachment</td><td>No</td><td>No</td><td class="muted">always</td></tr>
+<tr><td><b>Paint</b><div class="mono muted">paint</div></td><td>Choice</td><td class="small">Standard green, Custom colour</td><td>Finish</td><td>Standard green</td><td>Yes</td><td class="muted">always</td></tr>
+<tr style="background:#f8f9ff"><td><b>Custom colour</b><div class="mono muted">custom_colour</div></td><td>Colour</td><td class="small"><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#c0392b;vertical-align:-1px;margin-right:5px"></span>Signal red <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#1e3a5f;vertical-align:-1px;margin-right:5px"></span>Navy <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#f1c40f;vertical-align:-1px;margin-right:5px"></span>Yellow</td><td>Finish</td><td>Signal red</td><td>Yes</td><td><span class="chip">Paint = Custom colour</span> <span class="m">5</span></td></tr></table></div>
+<div class="card" style="border-color:#c7d2fe;background:#f8f9ff"><h3>Edit feature: Custom colour <span class="m">6</span></h3><div class="g2">
+<div><div class="lbl">Name and key</div><div class="in">Custom colour</div><div class="in mono" style="margin-top:4px">custom_colour</div></div>
+<div><div class="lbl">Type</div><div class="chips"><span class="chip">Choice</span><span class="chip">Yes/no</span><span class="chip">Number</span><span class="chip sel">Colour</span></div><div class="lbl">Options</div><div class="chips"><span class="chip sel">Fixed list</span><span class="chip">From a permitted lookup</span></div></div>
+<div style="grid-column:span 2"><table><tr><th>Option</th><th>Value</th><th>Swatch</th><th>Order</th><th></th></tr>
+<tr><td><div class="in">Signal red</div></td><td class="mono">signal_red</td><td><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#c0392b;vertical-align:-1px;margin-right:5px"></span><span class="mono small">#C0392B</span></td><td>1</td><td class="muted">&times;</td></tr>
+<tr><td><div class="in">Navy</div></td><td class="mono">navy</td><td><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#1e3a5f;vertical-align:-1px;margin-right:5px"></span><span class="mono small">#1E3A5F</span></td><td>2</td><td class="muted">&times;</td></tr>
+<tr><td><div class="in">Yellow</div></td><td class="mono">yellow</td><td><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#f1c40f;vertical-align:-1px;margin-right:5px"></span><span class="mono small">#F1C40F</span></td><td>3</td><td class="muted">&times;</td></tr>
+<tr><td colspan="5" class="small muted">+ add option &middot; swatches must be #RRGGBB</td></tr></table></div>
+<div><div class="lbl">Group and order</div><div class="in">Finish &#9662; &middot; 2</div></div><div><div class="lbl">Default</div><div class="in">Signal red &#9662;</div></div>
+<div><div class="lbl">Shown when (all must be true)</div><div class="row" style="gap:6px;justify-content:flex-start"><div class="in">Paint &#9662;</div><div class="in">is &#9662;</div><div class="in">Custom colour &#9662;</div></div></div><div><div class="lbl">In summary</div><div class="in">Yes &#9662;</div><div class="hint">Hidden fields never appear in the summary.</div></div></div>
+<div style="text-align:right;margin-top:8px"><span class="btn">Cancel</span><span class="btn p">Save feature</span></div></div></div></div></div><div class="state">Number feature: Lift height <span class="m">7</span></div><div class="app" style="padding:12px 14px"><div class="g2"><div><div class="lbl">Minimum, maximum, step</div><div class="row" style="gap:6px;justify-content:flex-start"><div class="in">7.0</div><div class="in">10.0</div><div class="in">0.5</div></div></div><div><div class="lbl">Unit and default</div><div class="row" style="gap:6px;justify-content:flex-start"><div class="in">m</div><div class="in">8.0</div></div><div class="hint">The default must fit the range and step.</div></div></div></div></div>
+<aside class="legend"><h2>Studio: features</h2><div class="sub">Admin defines what the rep can choose: type, options, limits, grouping, defaults and when a field is shown.</div><div class="note"><span class="m">1</span><div><b>Name and key</b>People see the name; formulas, rules and lookups use the key.</div></div><div class="note"><span class="m">2</span><div><b>Type</b>Choice, yes/no, number or colour. The type decides the control the rep gets (see the configurator wireframe).</div></div><div class="note"><span class="m">3</span><div><b>In summary</b>Marks the fields that build the line summary on the quote.</div></div><div class="note"><span class="m">4</span><div><b>Options from a lookup</b>A choice can take its options and default from a permitted lookup keyed by another feature.</div></div><div class="note"><span class="m">5</span><div><b>Shown when</b>Conditions use the same builder as rules; a hidden field keeps the rep’s value.</div></div><div class="note"><span class="m">6</span><div><b>Row editor</b>Every property is a form control; a colour option carries a validated swatch.</div></div><div class="note"><span class="m">7</span><div><b>Numbers</b>Range, step, unit and default; the rep gets errors under the field when out of range or step.</div></div></aside></div></body></html>

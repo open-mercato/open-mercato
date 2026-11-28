@@ -4,9 +4,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../../data/entities'
+import { loadWarrantyClaimDictionaryLabel } from '../../../../lib/dictionaries'
 import { loadPortalOwnedClaim } from '../../../../lib/portalClaimAccess'
 import { resolveLinkedCustomerAuth } from '../../../../lib/portalAuthGuard'
 
@@ -102,6 +104,27 @@ function serializeClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) {
   }
 }
 
+async function loadRejectionReasonLabel(
+  context: PortalContext,
+  rejectionReasonCode: string | null | undefined,
+): Promise<string | null> {
+  if (!rejectionReasonCode) return null
+  try {
+    return await loadWarrantyClaimDictionaryLabel(
+      context.em.fork(),
+      { tenantId: context.tenantId, organizationId: context.organizationId },
+      'warranty-claim-rejection-reason',
+      rejectionReasonCode,
+    )
+  } catch (error) {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'warranty_claims',
+      code: 'warranty_claims.portal_rejection_label_failed',
+    })
+    return null
+  }
+}
+
 export async function GET(req: Request, ctx: RouteContext) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
@@ -131,7 +154,8 @@ export async function GET(req: Request, ctx: RouteContext) {
     { orderBy: { lineNo: 'ASC' } },
     scope,
   )
-  return NextResponse.json({ item: serializeClaim(claim, lines) })
+  const rejectionReasonLabel = await loadRejectionReasonLabel(context, claim.rejectionReasonCode)
+  return NextResponse.json({ item: { ...serializeClaim(claim, lines), rejectionReasonLabel } })
 }
 
 const lineSchema = z.object({
@@ -166,6 +190,7 @@ const claimSchema = z.object({
   orderNumber: z.string().nullable(),
   reasonCode: z.string().nullable(),
   rejectionReasonCode: z.string().nullable(),
+  rejectionReasonLabel: z.string().nullable().optional(),
   resolutionSummary: z.string().nullable(),
   slaDueAt: z.string().nullable(),
   submittedAt: z.string().nullable(),

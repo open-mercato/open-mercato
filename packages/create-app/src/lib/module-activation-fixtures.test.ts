@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import test, { after } from 'node:test'
 import { fileURLToPath } from 'node:url'
+import { buildSync } from 'esbuild'
 import {
   DESIGN_SYSTEM_ACTIVATION_ENTRY,
   EXAMPLE_ACTIVATION_ENTRY,
@@ -24,10 +25,10 @@ import {
 //
 // This fixture drives the real scaffolder and the real generator suite against a
 // generated app. It stages `node_modules/@open-mercato/*` from the workspace
-// build output instead of installing from a registry: the resolver only needs a
-// non-symlinked package directory exposing `dist/modules`, which is exactly what
-// a published install produces. `scripts/test-create-app.ts` runs the same two
-// fixtures end to end against a real Verdaccio install and `yarn generate`.
+// build output instead of installing from a registry. The resolver discovers
+// non-symlinked package directories exposing `dist/modules`. The OpenAPI bundle
+// also needs the installed runtime dependencies, which this fixture links from
+// the workspace. `scripts/test-create-app.ts` tests a real Verdaccio install.
 //
 // Both fixtures share one scaffolded app, which additionally proves each fixture
 // restores the shipped module set instead of leaking it into the next one.
@@ -48,8 +49,15 @@ type ActivationFixtureApp = {
 let fixtureApp: ActivationFixtureApp | null = null
 
 function stageInstalledPackages(appDir: string): void {
-  const scopeDir = path.join(appDir, 'node_modules', '@open-mercato')
+  const appNodeModules = path.join(appDir, 'node_modules')
+  const scopeDir = path.join(appNodeModules, '@open-mercato')
   fs.mkdirSync(scopeDir, { recursive: true })
+
+  const workspaceNodeModules = path.join(REPO_ROOT, 'node_modules')
+  for (const entry of fs.readdirSync(workspaceNodeModules)) {
+    if (entry.startsWith('.') || entry === '@open-mercato') continue
+    fs.symlinkSync(path.join(workspaceNodeModules, entry), path.join(appNodeModules, entry), 'junction')
+  }
 
   const packagesDir = path.join(REPO_ROOT, 'packages')
   let staged = 0
@@ -64,6 +72,8 @@ function stageInstalledPackages(appDir: string): void {
       name?: string
       version?: string
       main?: string
+      type?: string
+      exports?: unknown
     }
     if (!manifest.name?.startsWith('@open-mercato/')) continue
 
@@ -71,7 +81,13 @@ function stageInstalledPackages(appDir: string): void {
     fs.mkdirSync(installedDir, { recursive: true })
     fs.writeFileSync(
       path.join(installedDir, 'package.json'),
-      `${JSON.stringify({ name: manifest.name, version: manifest.version, main: manifest.main }, null, 2)}\n`,
+      `${JSON.stringify({
+        name: manifest.name,
+        version: manifest.version,
+        main: manifest.main,
+        type: manifest.type,
+        exports: manifest.exports,
+      }, null, 2)}\n`,
     )
     fs.symlinkSync(distDir, path.join(installedDir, 'dist'), 'dir')
     staged += 1
@@ -128,6 +144,34 @@ async function createGenerator(appDir: string): Promise<() => Promise<void>> {
   }
 }
 
+function assertAppModulesEvaluate(appDir: string): void {
+  const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), 'activation-modules-evaluation-'))
+  const outputPath = path.join(outputDir, 'modules.mjs')
+  try {
+    buildSync({
+      entryPoints: [path.join(appDir, 'src', 'modules.ts')],
+      bundle: true,
+      platform: 'node',
+      format: 'esm',
+      outfile: outputPath,
+      logLevel: 'silent',
+    })
+    const result = spawnSync(process.execPath, [outputPath], {
+      cwd: appDir,
+      encoding: 'utf8',
+      env: process.env,
+      timeout: CLI_SCAFFOLD_TIMEOUT_MS,
+    })
+    assert.equal(
+      result.status,
+      0,
+      `expected activated src/modules.ts to evaluate\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`,
+    )
+  } finally {
+    fs.rmSync(outputDir, { recursive: true, force: true })
+  }
+}
+
 async function prepareFixtureApp(): Promise<ActivationFixtureApp> {
   if (fixtureApp) return fixtureApp
 
@@ -145,7 +189,15 @@ async function runFixture(
   assertActivation: (appDir: string) => Promise<void>,
 ): Promise<void> {
   const { appDir, generate } = await prepareFixtureApp()
-  await runActivationFixture({ appDir, entry, generate, assertActivation })
+  await runActivationFixture({
+    appDir,
+    entry,
+    generate,
+    assertActivation: async (activatedAppDir) => {
+      assertAppModulesEvaluate(activatedAppDir)
+      await assertActivation(activatedAppDir)
+    },
+  })
   await assertModulesUnregistered(appDir, DISABLED_BY_DEFAULT_MODULE_IDS)
 }
 
@@ -156,31 +208,46 @@ after(() => {
 })
 
 test('enabling the example module in a generated app registers the Todo surface only', async () => {
-  await runFixture(EXAMPLE_ACTIVATION_ENTRY, assertExampleActivation)
+  await runFixture(EXAMPLE_ACTIVATION_ENTRY, async (appDir) => {
+    await assertExampleActivation(appDir)
+
+    const openApiPath = path.join(appDir, '.mercato', 'generated', 'openapi.generated.json')
+    type JsonSchemaContent = { content?: { 'application/json'?: { schema?: unknown } } }
+    const openApi = JSON.parse(fs.readFileSync(openApiPath, 'utf8')) as {
+      paths: Record<string, Record<string, {
+        requestBody?: JsonSchemaContent
+        responses?: Record<string, JsonSchemaContent>
+      }>>
+    }
+    const update = openApi.paths['/api/example/todos/section-policy']?.put
+    assert.ok(update?.requestBody?.content?.['application/json']?.schema, 'Missing typed Todo section-policy request')
+    assert.ok(update.responses?.['422']?.content?.['application/json']?.schema, 'Missing typed Todo section-policy validation response')
+  })
 })
 
 test('enabling the design_system module in a generated app registers the gallery only', async () => {
   await runFixture(DESIGN_SYSTEM_ACTIVATION_ENTRY, assertDesignSystemActivation)
 })
 
-test('standalone integration activation preserves the app-level example override contracts', () => {
-  const targetRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'standalone-integration-entry-'))
-  const modulesPath = path.join(targetRoot, 'modules.ts')
-  fs.writeFileSync(modulesPath, "const exampleModuleEntry = { id: 'example', from: '@app' }\nconst enabledModules: ModuleEntry[] = [\n]\n")
-
+test('standalone integration activation evaluates the example overrides with design_system', async () => {
+  const { appDir, generate } = await prepareFixtureApp()
+  const modulesPath = path.join(appDir, 'src', 'modules.ts')
+  const baselineSource = fs.readFileSync(modulesPath, 'utf8')
   try {
     enableModuleEntry(modulesPath, EXAMPLE_INTEGRATION_ACTIVATION_ENTRY)
+    enableModuleEntry(modulesPath, DESIGN_SYSTEM_ACTIVATION_ENTRY)
+    await generate()
+    assertAppModulesEvaluate(appDir)
+
     const source = fs.readFileSync(modulesPath, 'utf8')
     assert.match(source, /features: \{ 'example\.manage': null \}/)
-    assert.match(source, /calendar: exampleCalendarOverrides/)
+    assert.doesNotMatch(source, /exampleCalendarOverrides/)
     assert.match(source, /groupOrder: \['example\.nav\.group'\]/)
-    // The injection override is what TC-UMES-023 asserts in a scaffolded app; without
-    // it that spec would report a client-dispatch regression that is really a missing
-    // activation fixture.
     assert.match(source, /injection: \{ 'example:override-probe:widget': null \}/)
     assert.match(source, /'GET \/api\/example\/override-probe'/)
     assert.match(source, /source: 'modules\.ts override'/)
   } finally {
-    fs.rmSync(targetRoot, { recursive: true, force: true })
+    fs.writeFileSync(modulesPath, baselineSource)
+    await generate()
   }
 })

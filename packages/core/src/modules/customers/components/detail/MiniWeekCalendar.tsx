@@ -7,14 +7,18 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { InteractionSummary } from './types'
 import { loadLegacyActivitiesInRange } from './legacyActivities'
+import { isCanceledInteractionStatus, isTerminalInteractionStatus } from '../../lib/interactionStatus'
 import { isSameDay } from '../../lib/localDay'
 
 interface MiniWeekCalendarProps {
   entityId: string
   useCanonicalInteractions?: boolean
   refreshRef?: React.RefObject<(() => void) | null>
+  /** Host refresh signal: the week reloads whenever it changes (an activity was created, changed or deleted elsewhere on the page). */
+  refreshKey?: number
 }
 
 function getWeekDays(baseDate: Date): Date[] {
@@ -58,7 +62,7 @@ function dotColorForType(type: string, isToday: boolean): string {
   return INTERACTION_TYPE_COLORS[type] ?? INTERACTION_TYPE_FALLBACK_COLOR
 }
 
-export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef }: MiniWeekCalendarProps) {
+export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, refreshRef, refreshKey = 0 }: MiniWeekCalendarProps) {
   const t = useT()
   const today = React.useMemo(() => new Date(), [])
   const [weekOffset, setWeekOffset] = React.useState(0)
@@ -81,8 +85,8 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
       : month
   }, [baseDate, t, weekOffset])
 
-  const [refreshKey, setRefreshKey] = React.useState(0)
-  const refresh = React.useCallback(() => setRefreshKey((k) => k + 1), [])
+  const [localRefreshKey, setLocalRefreshKey] = React.useState(0)
+  const refresh = React.useCallback(() => setLocalRefreshKey((k) => k + 1), [])
 
   React.useEffect(() => {
     if (refreshRef) (refreshRef as React.MutableRefObject<(() => void) | null>).current = refresh
@@ -156,7 +160,7 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
       }
     })()
     return () => controller.abort()
-  }, [entityId, weekStart, weekEnd, useCanonicalInteractions, refreshKey])
+  }, [entityId, weekStart, weekEnd, useCanonicalInteractions, refreshKey, localRefreshKey])
 
   const eventsByDay = React.useMemo(() => {
     const map = new Map<string, InteractionSummary[]>()
@@ -269,13 +273,23 @@ export function MiniWeekCalendar({ entityId, useCanonicalInteractions = true, re
           {summaryEvents.map(({ event, dayLabel, isToday: isActiveDay }) => {
             const dateStr = event.scheduledAt ?? event.occurredAt ?? event.createdAt
             const time = dateStr ? new Date(dateStr).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : ''
+            const isCanceled = isCanceledInteractionStatus(event.status)
             return (
               <div key={event.id} className="flex items-center gap-2 text-xs">
                 <span className={cn('size-1.5 rounded-full shrink-0', INTERACTION_TYPE_COLORS[event.interactionType] ?? (isActiveDay ? INTERACTION_TYPE_FALLBACK_COLOR : 'bg-muted-foreground'))} />
                 <span className="font-semibold text-muted-foreground shrink-0">
                   {dayLabel}{time}
                 </span>
-                <span className="truncate">{event.title ?? event.body ?? event.interactionType}</span>
+                <span className={cn('min-w-0 truncate', isCanceled && 'text-muted-foreground line-through')}>
+                  {event.title ?? event.body ?? event.interactionType}
+                </span>
+                {isTerminalInteractionStatus(event.status) ? (
+                  <StatusBadge variant={isCanceled ? 'neutral' : 'success'} className="shrink-0">
+                    {isCanceled
+                      ? t('customers.interactions.status.canceled', 'Canceled')
+                      : t('customers.interactions.status.done', 'Done')}
+                  </StatusBadge>
+                ) : null}
               </div>
             )
           })}

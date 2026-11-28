@@ -109,7 +109,7 @@ describe('staff.timesheets-tasks-context enricher', () => {
   it('adds the project rate only for a holder of staff.timesheets.rates.view', async () => {
     const [row] = await taskContextEnricher.enrichMany!([{ id: TASK_ID }], context(world, true))
 
-    expect(row._staff).toMatchObject({ hourlyRate: 320, currencyCode: 'PLN' })
+    expect(row._staff).toMatchObject({ hourlyRate: 320, hourlyRateExact: '320', currencyCode: 'PLN' })
   })
 
   it('answers with the empty block for a row the page no longer resolves', async () => {
@@ -184,6 +184,8 @@ describe('query-engine surface', () => {
     'staff.timesheets-tasks-rollup',
     'staff.timesheets-tasks-tags',
     'staff.timesheets-tasks-context',
+    'staff.timesheets-tasks-support-ticket',
+    'staff.timesheets-tasks-assignment',
     'staff.timesheets-time-entries',
     'staff.timesheets-reports',
   ]

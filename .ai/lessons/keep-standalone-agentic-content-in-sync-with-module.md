@@ -1,8 +1,8 @@
 ---
 title: "Keep standalone agentic content in sync with module conventions"
-modules: ["create_app","documents","events","cli"]
-areas: ["architecture","framework-context"]
-topics: ["auto-discovery","events","generated-files","package-runtime","session-export","testing"]
+modules: ["create_app","documents","events","cli","ui"]
+areas: ["architecture","framework-context","testing"]
+topics: ["auto-discovery","generated-files","package-runtime","session-export","context-budget","component-overrides"]
 ---
 
 # Keep standalone agentic content in sync with module conventions
@@ -15,4 +15,16 @@ topics: ["auto-discovery","events","generated-files","package-runtime","session-
 
 When an enabled package-backed module adds a generated fact sheet, add or expand a harness case whose prompt makes that module fact necessary and lists `.ai/guides/modules/<id>.md` in `context.required`. Putting the fact sheet only in `allowedExtra` makes it available but does not prove an agent reads it, so the emitted-fact coverage guard must continue to reject that state.
 
+Measure instruction budgets after tool patches and the real enabled-module fact index are present. A source-only root fixture can fit while the packed scaffold exceeds a case's context cap. Reclaim redundant routing prose, preserve the contract's hard caps, and keep the existing budget regression representative of the actual scaffold.
+
 **Applies to**: `packages/create-app/agentic/shared/`, `packages/create-app/agentic/claude-code/`, `packages/create-app/agentic/codex/`, `packages/create-app/agentic/cursor/`.
+
+Compatibility guidance is also retrieved by standalone harness cases. Adding to root `BACKWARD_COMPATIBILITY.md` increases their required context even when no create-app source changes. Keep compatibility summaries concise and link rollout detail in `UPGRADE_NOTES.md`; run `packages/create-app/src/lib/compatibility-context-budget.test.ts` after such additions. Preserve the existing context caps rather than increasing them to accommodate verbose notes.
+
+When compacting standalone guidance, preserve phrases asserted by its contract tests or update the source and assertion together when the contract intentionally changes. Run `context-guidance-contracts.test.ts` beside the relevant context-budget test so byte savings cannot silently invalidate the emitted guidance contract.
+
+Measure concurrently prepared release entries in one materialized document, counting shared formatting savings once. Preserve initial budgets, read sets and containment. A deterministic pass does not establish packed-preset or certified release evidence.
+
+A newly mounted framework component handle must appear in the generated framework host catalog with exact bound provenance. Test contribution correlation as well as catalog membership: a missing first-party handle can silently become an optional external target. Route its standalone customization case to the existing canonical contributor and exact installed props source; verify example availability against the readable surface inventory before repeating an older absence claim.
+
+When a focused source-reading task exceeds a generic compatibility case’s frozen budget, preserve the generic case and add a distinct focused case with measured limits. Derive the complete read set through the evaluator, including its automatically allowed surface inventory; separately validate instructions, initial source reads and total reads. Run the original compatibility guard and example-read policy suite beside the new case, and synchronize every pinned count and declaring-case list.

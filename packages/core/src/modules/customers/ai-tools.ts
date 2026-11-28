@@ -1,18 +1,15 @@
 /**
- * Module-root AI tool contribution for the customers module
- * (Phase 1 WS-C, Step 3.9 — read-only Phase 1 surface).
+ * Module-root AI tool contribution for the customers module.
  *
  * The generator walks every module for a top-level `ai-tools.ts` and takes
  * the default/`aiTools` export as the contribution. This file aggregates the
- * six customers packs (people, companies, deals, activities+tasks,
- * addresses+tags, settings) so they all flow through the existing
+ * customers packs (people, companies, deals, activities+tasks,
+ * addresses+tags, settings, deal analysis) so they all flow through the existing
  * `ai-tools.generated.ts` pipeline without any generator changes.
  *
- * Mutation tools are deferred to Step 5.13+ under the pending-action contract;
- * every tool here is read-only and enforces tenant + organization scoping via
- * the existing encryption helpers. See
- * `.ai/runs/2026-04-18-ai-framework-unification/step-3.9-checks.md` for the
- * matrix of required features and decisions.
+ * Read and mutation tools enforce tenant + organization scoping. Mutations
+ * use the pending-action approval contract and command-backed writes;
+ * read-only agents cannot expose them. See the framework AI agents guide.
  */
 import peopleAiTools from './ai-tools/people-pack'
 import companiesAiTools from './ai-tools/companies-pack'

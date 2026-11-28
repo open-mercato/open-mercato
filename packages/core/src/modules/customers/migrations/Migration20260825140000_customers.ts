@@ -17,17 +17,28 @@ export class Migration20260825140000_customers extends Migration {
     // predicate treats as "not shared" (fail closed). Scoped by tenant on both
     // joins so a backfill can never attribute an interaction to another tenant's
     // channel.
+    //
+    // Both source tables belong to the optional communication_channels module. Apps
+    // that do not enable it (e.g. the wms starter preset) have neither table and no
+    // email rows to backfill, so the backfill runs only when both tables exist.
     this.addSql(`
-      update "customer_interactions" ci
-      set "channel_id" = ec."channel_id"
-      from "message_channel_links" mcl
-      join "external_conversations" ec
-        on ec."id" = mcl."external_conversation_id"
-       and ec."tenant_id" = mcl."tenant_id"
-      where ci."external_message_id" = mcl."id"
-        and ci."tenant_id" = mcl."tenant_id"
-        and ci."interaction_type" = 'email'
-        and ci."channel_id" is null;
+      do $$
+      begin
+        if to_regclass('message_channel_links') is not null
+           and to_regclass('external_conversations') is not null then
+          update "customer_interactions" ci
+          set "channel_id" = ec."channel_id"
+          from "message_channel_links" mcl
+          join "external_conversations" ec
+            on ec."id" = mcl."external_conversation_id"
+           and ec."tenant_id" = mcl."tenant_id"
+          where ci."external_message_id" = mcl."id"
+            and ci."tenant_id" = mcl."tenant_id"
+            and ci."interaction_type" = 'email'
+            and ci."channel_id" is null;
+        end if;
+      end
+      $$;
     `);
 
     this.addSql(`create index "customer_interactions_email_channel_idx" on "customer_interactions" ("channel_id", "entity_id") where "interaction_type" = 'email' and "channel_id" is not null and "deleted_at" is null;`);

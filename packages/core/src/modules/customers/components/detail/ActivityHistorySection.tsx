@@ -16,6 +16,9 @@ import { ErrorMessage, LoadingMessage, TabEmptyState } from '@open-mercato/ui/ba
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import type { ActivitySummary, InteractionSummary } from './types'
 import { ActivityCard } from './ActivityCard'
+import { useActivityDelete } from './hooks/useActivityDelete'
+import { useInteractionUndoRefresh } from './hooks/useInteractionUndoRefresh'
+import { runActivityRefresh, type ActivityRefreshHandler } from './activityRefresh'
 
 type GuardedMutationRunner = <T,>(
   operation: () => Promise<T>,
@@ -27,6 +30,8 @@ type ActivityHistorySectionProps = {
   useCanonicalInteractions?: boolean
   refreshKey?: number
   onEditActivity?: (activity: InteractionSummary) => void
+  /** Called after an activity in the history is changed, deleted or restored by undo, so the host can refresh the panels it owns (week strip, planned list, counters). */
+  onDataRefresh?: ActivityRefreshHandler
   /** Optional guarded-mutation runner so per-row mutations route through the parent's
    * `useGuardedMutation` and emit retry-last-mutation context. */
   runMutation?: GuardedMutationRunner
@@ -73,8 +78,8 @@ function computeRangeStart(range: '7d' | '30d' | '90d'): Date {
   return date
 }
 
-function toTimelineTimestamp(activity: InteractionSummary): string {
-  return activity.occurredAt ?? activity.scheduledAt ?? activity.createdAt
+function toTimelineTimestamp(activity: InteractionSummary): string | null {
+  return activity.occurredAt ?? activity.scheduledAt ?? null
 }
 
 function normalizeLegacyActivity(activity: ActivitySummary): InteractionSummary {
@@ -116,9 +121,17 @@ function sortTimelineActivities(items: InteractionSummary[]): InteractionSummary
     const rightIsUpcoming = rightIsPlanned && rightScheduled >= now
 
     if (leftIsUpcoming !== rightIsUpcoming) return leftIsUpcoming ? -1 : 1
-    if (leftIsUpcoming && rightIsUpcoming) return leftScheduled - rightScheduled
+    if (leftIsUpcoming && rightIsUpcoming) {
+      return leftScheduled - rightScheduled || left.id.localeCompare(right.id)
+    }
 
-    const compare = toTimelineTimestamp(right).localeCompare(toTimelineTimestamp(left))
+    const leftTime = toTimelineTimestamp(left)
+    const rightTime = toTimelineTimestamp(right)
+    if (!leftTime || !rightTime) {
+      if (leftTime !== rightTime) return leftTime ? -1 : 1
+      return right.id.localeCompare(left.id)
+    }
+    const compare = rightTime.localeCompare(leftTime)
     if (compare !== 0) return compare
     return right.id.localeCompare(left.id)
   })
@@ -152,7 +165,9 @@ function matchesSearch(activity: InteractionSummary, query: string): boolean {
 }
 
 function isWithinRange(activity: InteractionSummary, start: Date): boolean {
-  const timestamp = new Date(toTimelineTimestamp(activity))
+  const value = toTimelineTimestamp(activity)
+  if (!value) return false
+  const timestamp = new Date(value)
   if (Number.isNaN(timestamp.getTime())) return false
   return timestamp >= start
 }
@@ -171,6 +186,7 @@ export function ActivityHistorySection({
   useCanonicalInteractions = false,
   refreshKey = 0,
   onEditActivity,
+  onDataRefresh,
   runMutation,
   excludeInteractionType = 'task',
 }: ActivityHistorySectionProps) {
@@ -188,9 +204,12 @@ export function ActivityHistorySection({
   const [loadedPages, setLoadedPages] = React.useState(1)
   const [localRefreshKey, setLocalRefreshKey] = React.useState(0)
   const historyRequestSeqRef = React.useRef(0)
-  const handleActivityChanged = React.useCallback(() => {
+  const handleActivityChanged = React.useCallback(async () => {
     setLocalRefreshKey((current) => current + 1)
-  }, [])
+    await runActivityRefresh(onDataRefresh, 'ActivityHistorySection')
+  }, [onDataRefresh])
+
+  useInteractionUndoRefresh(handleActivityChanged, 'ActivityHistorySection')
 
   React.useEffect(() => {
     const timeout = window.setTimeout(() => setSearch(searchInput.trim()), 300)
@@ -343,8 +362,15 @@ export function ActivityHistorySection({
     setLoadedPages((current) => current + 1)
   }, [])
 
+  const { deleteActivity, canDeleteActivity, ConfirmDialogElement } = useActivityDelete({
+    runMutation,
+    onAfterDelete: handleActivityChanged,
+    logContext: 'ActivityHistorySection',
+  })
+
   return (
     <div className="rounded-xl border bg-card">
+      {ConfirmDialogElement}
       <div className="flex items-center gap-2 border-b px-5 py-4">
         <Clock3 className="size-4 text-muted-foreground" />
         <div className="min-w-0">
@@ -352,7 +378,7 @@ export function ActivityHistorySection({
             {t('customers.activityLog.title', 'Activity history')}
           </h3>
           <p className="text-xs text-muted-foreground">
-            {t('customers.timeline.history.filtered', 'filtered: {{types}} · {{count}} results', {
+            {t('customers.timeline.history.filtered', 'filtered: {{types}}, {{count}} results', {
               types: filteredLabel,
               count: activities.length,
             })}
@@ -451,15 +477,17 @@ export function ActivityHistorySection({
         ) : (
           <div className="space-y-4">
             {activities.map((activity, index) => {
-              const currentYear = new Date(toTimelineTimestamp(activity)).getFullYear()
-              const previousYear = index > 0 ? new Date(toTimelineTimestamp(activities[index - 1])).getFullYear() : null
-              const showYearSeparator = previousYear !== null && currentYear !== previousYear
+              const currentDate = toTimelineTimestamp(activity)
+              const previousDate = index > 0 ? toTimelineTimestamp(activities[index - 1]) : null
+              const currentYear = currentDate ? new Date(currentDate).getFullYear() : null
+              const previousYear = previousDate ? new Date(previousDate).getFullYear() : null
+              const showYearSeparator = currentYear !== null && previousYear !== null && currentYear !== previousYear
               return (
                 <React.Fragment key={activity.id}>
                   {showYearSeparator ? (
                     <div className="flex items-center gap-3 py-1">
                       <div className="h-px flex-1 bg-border" />
-                      <span className="text-xs font-semibold text-muted-foreground">· {currentYear} ·</span>
+                      <span className="text-xs font-semibold text-muted-foreground">{currentYear}</span>
                       <div className="h-px flex-1 bg-border" />
                     </div>
                   ) : null}
@@ -467,6 +495,7 @@ export function ActivityHistorySection({
                     activity={activity}
                     onOpen={onEditActivity}
                     onChanged={handleActivityChanged}
+                    onDelete={canDeleteActivity(activity) ? deleteActivity : undefined}
                     runMutation={runMutation}
                   />
                 </React.Fragment>

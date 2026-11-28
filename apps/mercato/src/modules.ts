@@ -13,6 +13,8 @@ import { officialModuleEntries } from './official-modules.generated'
 export type ModuleEntry = {
   id: string
   from?: '@open-mercato/core' | '@app' | string
+  locator?: string
+  packageName?: string
   overrides?: ModuleOverrides
 }
 
@@ -102,6 +104,9 @@ export const enabledModules: ModuleEntry[] = [
   // Channel-agnostic basket module (cart-module spec): priced lines, promotions,
   // totals, token-bound public access. Requires catalog, sales and customer_groups.
   { id: 'cart', from: '@open-mercato/core' },
+  // Staff-authored priced proposals on a buyer's basket, accepted as a cart merge
+  // (.ai/specs/2026-09-22-assisted-selling.md). Requires cart.
+  { id: 'assisted_selling', from: '@open-mercato/core' },
   { id: 'api_keys', from: '@open-mercato/core' },
   { id: 'devices', from: '@open-mercato/core' },
   { id: 'dictionaries', from: '@open-mercato/core' },
@@ -117,6 +122,7 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'workflows', from: '@open-mercato/core' },
   { id: 'search', from: '@open-mercato/search' },
   { id: 'currencies', from: '@open-mercato/core' },
+  { id: 'ledger', from: '@open-mercato/core' },
   { id: 'planner', from: '@open-mercato/core' },
   { id: 'resources', from: '@open-mercato/core' },
   { id: 'staff', from: '@open-mercato/core' },
@@ -145,12 +151,14 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'checkout', from: '@open-mercato/checkout' },
   { id: 'documents', from: '@open-mercato/documents' },
   { id: 'gateway_stripe', from: '@open-mercato/gateway-stripe' },
+  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },
   { id: 'gateway_tpay', from: '@open-mercato/gateway-tpay' },
   // Per-user email channels for the Communications Hub (SPEC-045d / email
   // integration spec). Each provider package registers its `ChannelAdapter`
   // at import time via `setup.ts`; the hub picks them up by `providerKey`.
   { id: 'channel_resend', from: '@open-mercato/channel-resend' },
   { id: 'channel_ses', from: '@open-mercato/channel-ses' },
+  { id: 'channel_smtp', from: '@open-mercato/channel-smtp' },
   { id: 'channel_imap', from: '@open-mercato/channel-imap' },
   { id: 'channel_gmail', from: '@open-mercato/channel-gmail' },
   // Mobile push providers for the push_notifications channel. Each registers a
@@ -191,6 +199,9 @@ export const enabledModules: ModuleEntry[] = [
       nav: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)
         ? { groupOrder: ['example.nav.group'] }
         : undefined,
+      // An empty setup override is a no-op that still makes the setup domain dispatch, which is what
+      // TC-AUTH-SETUP-OVERRIDE-I18N-001 needs to guard locale-only registrations (#7243).
+      setup: parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false) ? {} : undefined,
       widgets: {
         // Client-side override probe (#5844). Deliberately ungated: a `process.env.OM_*`
         // guard would resolve on the server and evaluate to `false` in the browser, where
@@ -217,8 +228,11 @@ export const enabledModules: ModuleEntry[] = [
       },
     },
   },
-  { id: 'ratelimit_probe', from: '@app' },
 ]
+
+if (parseBooleanWithDefault(process.env.OM_INTEGRATION_TEST, false)) {
+  enabledModules.push({ id: 'ratelimit_probe', from: '@app' })
+}
 
 // Official modules activated via official-modules.json / official-modules.local.json
 // (managed by `yarn official-modules`; backed by the external/official-modules submodule).
@@ -260,4 +274,8 @@ if (enterpriseModulesEnabled && enterpriseAgentsEnabled) {
   // brand-new module (see apps/mercato/src/modules/agent_examples/README.md).
   // It imports the orchestrator SDK, so it is only enabled alongside it.
   enabledModules.push({ id: 'agent_examples', from: '@app' })
+}
+
+if (enterpriseModulesEnabled && parseBooleanWithDefault(process.env.OM_ENABLE_ENTERPRISE_MODULES_BACKUPS, false)) {
+  enabledModules.push({ id: 'backups', from: '@open-mercato/enterprise' })
 }

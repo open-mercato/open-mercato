@@ -4,6 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { isCrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -305,14 +306,22 @@ export async function POST(req: Request, ctx: { params: { tableId: string } }) {
       },
     ], { transaction: true })
   } catch (err) {
+    if (isUniqueViolation(err) || (isCrudHttpError(err) && err.body.code === 'duplicate_name')) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json({
+        error: translate('ui.perspectives.error.nameExists', 'A view with this name already exists.'),
+        code: 'duplicate_name',
+      }, { status: 409 })
+    }
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    if (isUniqueViolation(err)) {
+    if (err instanceof Error && 'code' in err && err.code === 'NOT_FOUND') {
+      const { translate } = await resolveTranslations()
       return NextResponse.json({
-        error: 'A view with this name already exists.',
-        code: 'duplicate_name',
-      }, { status: 409 })
+        error: translate('api.errors.notFound', 'Not Found'),
+        code: 'NOT_FOUND',
+      }, { status: 404 })
     }
     throw err
   }
@@ -386,6 +395,7 @@ const perspectivesPostDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed or invalid roles provided', schema: perspectivesErrorSchema },
     { status: 401, description: 'Authentication required', schema: perspectivesErrorSchema },
     { status: 403, description: 'Missing perspectives.role_defaults feature for role updates', schema: perspectivesErrorSchema },
+    { status: 404, description: 'Personal perspective does not exist in the current user scope', schema: perspectivesErrorSchema },
     { status: 409, description: 'Optimistic lock conflict or perspective name already exists', schema: perspectivesErrorSchema },
   ],
 }

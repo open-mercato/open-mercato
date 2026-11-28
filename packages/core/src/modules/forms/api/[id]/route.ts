@@ -79,6 +79,7 @@ export async function GET(req: Request) {
     }
     const id = extractFormId(req)
     if (!id) return jsonError(400, 'forms.errors.invalid_id')
+    if (!z.string().uuid().safeParse(id).success) return jsonError(404, 'forms.errors.form_not_found')
 
     const em = ctx.container.resolve('em') as EntityManager
     const form = await loadForm(em, id, tenantId, organizationId)

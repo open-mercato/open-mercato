@@ -231,14 +231,15 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       await login(page, 'admin')
       await page.goto(`/backend/customers/deals/${dealId}?tab=people`, { waitUntil: 'domcontentloaded' })
 
-      const personCard = (name: string) =>
-        page
-          .locator('div')
-          .filter({ has: page.getByText(name, { exact: true }) })
-          .filter({ has: page.getByRole('button', { name: /^Unlink$/i }) })
-          .last()
+      // Linked people render in a DataTable (#7493); Unlink lives in each row's actions menu.
+      const personRow = (name: string) =>
+        page.getByRole('row').filter({ has: page.getByText(name, { exact: true }) }).last()
+      const unlinkPerson = async (name: string) => {
+        await personRow(name).getByRole('button', { name: 'Open actions', exact: true }).click()
+        await page.getByRole('menuitem', { name: /^Unlink$/i }).click()
+      }
 
-      await expect(personCard(linkedName), 'the People tab should render a card per linked person')
+      await expect(personRow(linkedName), 'the People tab should render a row per linked person')
         .toBeVisible({ timeout: 30_000 })
 
       // --- Step 1: link an existing person through the dialog ---
@@ -256,13 +257,13 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
 
       // --- Step 2: filter and sort ---
       const search = page.getByPlaceholder(/Search by name, role, email/i)
-      const filtersToggle = page.getByRole('button', { name: /^Filters$/i })
-      await expect(search, 'the filter row starts open').toBeVisible({ timeout: 15_000 })
-      await filtersToggle.click()
-      await expect(search, 'Filters should collapse the search and sort controls').toBeHidden()
-      await filtersToggle.click()
-      await expect(search, 'Filters should reopen the search and sort controls').toBeVisible()
+      await expect(search, 'the search box is always visible').toBeVisible({ timeout: 15_000 })
+      await expect(
+        page.getByRole('button', { name: /search and sort/i }),
+        'there is no disclosure hiding the search box any more (#7493)',
+      ).toHaveCount(0)
       await search.fill(unlinkedName)
+      await expect(search).toHaveValue(unlinkedName)
       await expect(page.getByText(unlinkedName, { exact: false }).first()).toBeVisible({ timeout: 30_000 })
       await expect(
         page.getByText(decoyName, { exact: false }),
@@ -270,20 +271,20 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       ).toHaveCount(0, { timeout: 30_000 })
 
       await search.fill('')
-      // The deal tab offers only the two name sorts — "recent" is withheld until PR 3, which
-      // is exactly what `DealPeopleSection.test.tsx` pins at the unit level.
-      const sort = page.locator('select').first()
-      await expect(sort).toBeVisible({ timeout: 15_000 })
-      await expect(sort).toHaveValue('name-asc')
+      // Sorting lives in the column headers. The deal tab offers only the Name sort — the
+      // "Linked" column and its "recently linked" sort are withheld until PR 3, which is
+      // exactly what `DealPeopleSection.test.tsx` pins at the unit level.
+      const nameHeader = page.getByRole('columnheader', { name: /^Name$/ })
+      await expect(nameHeader).toHaveAttribute('aria-sort', 'ascending', { timeout: 15_000 })
       await expect(
-        sort.locator('option[value="recent"]'),
-        'the deal tab must not offer the "recently linked" sort until PR 3 stops re-dating links',
+        page.getByRole('columnheader', { name: /^Linked$/ }),
+        'the deal tab must not offer the "Linked" column until PR 3 stops re-dating links',
       ).toHaveCount(0)
-      await sort.selectOption('name-desc')
-      await expect(sort).toHaveValue('name-desc')
+      await nameHeader.getByRole('button', { name: /^Name$/ }).click()
+      await expect(nameHeader).toHaveAttribute('aria-sort', 'descending')
 
       // --- Step 3: unlink from the card ---
-      await personCard(decoyName).getByRole('button', { name: /^Unlink$/i }).click()
+      await unlinkPerson(decoyName)
       await expect(
         page.getByText(decoyName, { exact: false }),
         'the unlinked person should leave the list',
@@ -302,7 +303,7 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       await createDialog.getByRole('button', { name: /Create person/i }).click()
       await expect(createDialog).toBeHidden({ timeout: 30_000 })
       await expect(
-        personCard(newContactName),
+        personRow(newContactName),
         'a person created from the tab should be linked to the deal straight away',
       ).toBeVisible({ timeout: 30_000 })
       const createdContact = (await listPeopleFor(request, token, dealId)).items
@@ -320,7 +321,7 @@ test.describe('TC-CRM-088 deal linked-people parity', () => {
       })
 
       // The page still holds the pre-bump token, so its next unlink is stale.
-      await personCard(newContactName).getByRole('button', { name: /^Unlink$/i }).click()
+      await unlinkPerson(newContactName)
       await expectConflictBanner(page, { timeout: 30_000 })
     } finally {
       for (const entry of created.reverse()) {

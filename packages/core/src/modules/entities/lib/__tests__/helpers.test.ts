@@ -53,6 +53,202 @@ function createEnabledEncryptionService(): TenantDataEncryptionService {
 }
 
 describe('setRecordCustomFields', () => {
+  describe('empty multi-value writes', () => {
+    const scope = { entityId: 'example:todo', recordId: 'record-1', organizationId: 'org-1', tenantId: 'tenant-1' }
+
+    function createValueStore(encrypted = false) {
+      const definitions = [
+        { key: 'labels', kind: 'text', configJson: { multi: true, encrypted } },
+        { key: 'protected', kind: 'text', configJson: { encrypted } },
+        { key: 'assignee', kind: 'select', configJson: { multi: true } },
+        { key: 'counts', kind: 'integer', configJson: { multi: true, encrypted } },
+        { key: 'flags', kind: 'boolean', configJson: { multi: true, encrypted } },
+        { key: 'priority', kind: 'integer', configJson: {} },
+        { key: 'blocked', kind: 'boolean', configJson: {} },
+        { key: 'description', kind: 'text', configJson: {} },
+      ].map((definition) => ({ ...scope, ...definition, isActive: true, deletedAt: null }))
+      const rows: Array<Record<string, unknown>> = []
+      const emMock = {
+        find: jest.fn(async (entity: unknown, where: Record<string, unknown>) =>
+          (entity === CustomFieldDef ? definitions : rows).filter((row) => matchesWhere(row, where))),
+        nativeDelete: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
+          const removed = rows.filter((row) => matchesWhere(row, where))
+          for (const row of removed) rows.splice(rows.indexOf(row), 1)
+          return removed.length
+        }),
+        create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data, id: `value-${rows.length}` })),
+        persist: jest.fn((created: Array<Record<string, unknown>>) => rows.push(...created)),
+        flush: jest.fn(async () => undefined),
+        begin: jest.fn(async () => undefined),
+        commit: jest.fn(async () => undefined),
+        rollback: jest.fn(async () => undefined),
+        isInTransaction: jest.fn(() => false),
+      }
+      return { rows, emMock, em: emMock as unknown as EntityManager }
+    }
+
+    it('rolls back a multi-value replacement when the encrypted field has no usable key', async () => {
+      const previousEncryptionToggle = process.env.TENANT_DATA_ENCRYPTION
+      process.env.TENANT_DATA_ENCRYPTION = 'yes'
+      try {
+        const { em, emMock } = createValueStore(true)
+        const encryptionService = {
+          isEnabled: () => true,
+          getDek: async () => null,
+          createDek: async () => null,
+        } as unknown as TenantDataEncryptionService
+        const onChanged = jest.fn()
+
+        await expect(setRecordCustomFields(em, {
+          ...scope,
+          encryptionService,
+          values: { labels: ['replacement'] },
+          onChanged,
+        })).rejects.toMatchObject({ status: 503, body: { code: 'ENCRYPTION_UNAVAILABLE' } })
+
+        expect(emMock.begin).toHaveBeenCalledTimes(1)
+        expect(emMock.nativeDelete).toHaveBeenCalledTimes(1)
+        expect(emMock.rollback).toHaveBeenCalledTimes(1)
+        expect(emMock.persist).not.toHaveBeenCalled()
+        expect(emMock.flush).not.toHaveBeenCalled()
+        expect(emMock.commit).not.toHaveBeenCalled()
+        expect(onChanged).not.toHaveBeenCalled()
+      } finally {
+        if (previousEncryptionToggle === undefined) delete process.env.TENANT_DATA_ENCRYPTION
+        else process.env.TENANT_DATA_ENCRYPTION = previousEncryptionToggle
+      }
+    })
+
+    it('rejects scalar reconciliation when the existing encrypted value cannot obtain its key', async () => {
+      const { rows, em, emMock } = createValueStore(true)
+      rows.push({ ...scope, id: 'existing', fieldKey: 'protected', valueText: 'existing value' })
+      const before = structuredClone(rows)
+      const cause = new Error('[internal] test key provider failure')
+      const encryptionService = {
+        isEnabled: () => true,
+        getDek: async () => { throw cause },
+      } as unknown as TenantDataEncryptionService
+
+      await expect(setRecordCustomFields(em, {
+        ...scope,
+        encryptionService,
+        values: { protected: ['existing value', 'extra legacy row'] },
+      })).rejects.toMatchObject({ status: 503, body: { code: 'ENCRYPTION_UNAVAILABLE' }, cause })
+
+      expect(rows).toEqual(before)
+      expect(emMock.rollback).toHaveBeenCalledTimes(1)
+      expect(emMock.nativeDelete).not.toHaveBeenCalled()
+      expect(emMock.commit).not.toHaveBeenCalled()
+    })
+
+    it.each([{ values: [] }, { values: [null, null] }])(
+      'clears an encrypted scalar during a key outage with $values',
+      async ({ values }) => {
+        const { rows, em, emMock } = createValueStore(true)
+        rows.push({ ...scope, id: 'existing', fieldKey: 'protected', valueText: 'existing value' })
+        const getDek = jest.fn(async () => { throw new Error('[internal] test key provider failure') })
+        const encryptionService = { isEnabled: () => true, getDek } as unknown as TenantDataEncryptionService
+
+        await setRecordCustomFields(em, { ...scope, encryptionService, values: { protected: values } })
+
+        expect(rows).toHaveLength(1)
+        expect(rows[0]?.valueText).toBeNull()
+        expect(getDek).not.toHaveBeenCalled()
+        expect(emMock.commit).toHaveBeenCalledTimes(1)
+      },
+    )
+
+    it('keeps empty fields absent and all other values intact when an unrelated edit echoes nulls', async () => {
+      const { rows, em, emMock } = createValueStore()
+      await setRecordCustomFields(em, { ...scope, values: { priority: 3, blocked: false, description: 'Keep me' } })
+      const before = structuredClone(rows)
+      const onChanged = jest.fn()
+
+      await setRecordCustomFields(em, {
+        ...scope,
+        values: { labels: null, assignee: null, priority: 3, blocked: false },
+        onChanged,
+      })
+
+      expect(rows).toEqual(before)
+      expect(rows.filter((row) => row.fieldKey === 'labels' || row.fieldKey === 'assignee')).toEqual([])
+      expect(onChanged).toHaveBeenCalledTimes(1)
+      expect(onChanged).toHaveBeenCalledWith(scope)
+      expect(emMock.commit).toHaveBeenCalledTimes(2)
+      expect(emMock.rollback).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      { empty: null },
+      { empty: [] },
+      { empty: [null] },
+      { empty: [undefined, null] },
+    ])('clears a populated multi-value field with $empty without empty rows', async ({ empty }) => {
+      const { rows, em } = createValueStore()
+      await setRecordCustomFields(em, { ...scope, values: { labels: ['frontend', 'backend'], assignee: ['alice'] } })
+      const assignee = structuredClone(rows.filter((row) => row.fieldKey === 'assignee'))
+
+      await setRecordCustomFields(em, { ...scope, values: { labels: empty } })
+
+      expect(rows).toEqual(assignee)
+    })
+
+    it('skips undefined writes and preserves false, zero, empty strings and populated selections', async () => {
+      const { rows, em } = createValueStore()
+      await setRecordCustomFields(em, {
+        ...scope,
+        values: { labels: [null, '', 'frontend', undefined], counts: [0, null, 2], flags: [false, null, true] },
+      })
+      const before = structuredClone(rows)
+      await setRecordCustomFields(em, { ...scope, values: { labels: undefined } })
+
+      expect(rows).toEqual(before)
+      expect(rows.filter((row) => row.fieldKey === 'labels').map((row) => row.valueText)).toEqual(['', 'frontend'])
+      expect(rows.filter((row) => row.fieldKey === 'counts').map((row) => row.valueInt)).toEqual([0, 2])
+      expect(rows.filter((row) => row.fieldKey === 'flags').map((row) => row.valueBool)).toEqual([false, true])
+    })
+
+    it('retains scalar null clearing', async () => {
+      const { rows, em } = createValueStore()
+      await setRecordCustomFields(em, { ...scope, values: { description: 'Clear me' } })
+      await setRecordCustomFields(em, { ...scope, values: { description: null } })
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({ fieldKey: 'description', valueText: null })
+    })
+
+    it('retains tenant and pinned organization boundaries during empty replacement', async () => {
+      const { rows, em } = createValueStore()
+      const otherTenant = { ...scope, tenantId: 'tenant-2' }
+      const otherOrganization = { ...scope, organizationId: 'org-2' }
+      for (const target of [scope, otherTenant, otherOrganization]) {
+        await setRecordCustomFields(em, { ...target, pinOrganizationId: true, values: { labels: ['keep'] } })
+      }
+      const others = structuredClone(rows.filter((row) => row.tenantId !== scope.tenantId || row.organizationId !== scope.organizationId))
+
+      await setRecordCustomFields(em, { ...scope, pinOrganizationId: true, values: { labels: null } })
+
+      expect(rows).toEqual(others)
+      expect(rows).toHaveLength(2)
+    })
+
+    it('encrypts present values and clears encrypted multi-value fields without creating null ciphertext rows', async () => {
+      const { rows, em } = createValueStore(true)
+      const encryptionService = createEnabledEncryptionService()
+      await setRecordCustomFields(em, {
+        ...scope, encryptionService,
+        values: { labels: [null, 'private'], counts: [null, 0], flags: [false, undefined] },
+      })
+
+      expect(rows).toHaveLength(3)
+      expect(rows.map((row) => decryptWithAesGcm(String(row.valueText), TEST_DEK))).toEqual(['private', '0', 'false'])
+      await setRecordCustomFields(em, {
+        ...scope, encryptionService, values: { labels: null, counts: [], flags: [null] },
+      })
+      expect(rows).toEqual([])
+    })
+  })
+
   it('persists dynamic keys for trusted command writes (whitelist is enforced upstream)', async () => {
     const definition = {
       key: 'priority',
@@ -226,6 +422,14 @@ describe('setRecordCustomFields', () => {
     }
 
     const makeEm = (rows: Array<Partial<CustomFieldValue>>, def: Record<string, unknown> = definition) => {
+      // The batched value read groups rows by `fieldKey`, so pin the key on fixtures whose
+      // earlier per-key lookup did not need it. Mutating in place keeps the tests' identity
+      // assertions (they read `current.valueInt` afterwards) meaningful.
+      for (const row of rows) {
+        if ((row as Record<string, unknown>).fieldKey === undefined) {
+          (row as Record<string, unknown>).fieldKey = String(def.key)
+        }
+      }
       const nativeDelete = jest.fn(async () => rows.length)
       const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
       const persist = jest.fn()
@@ -313,7 +517,7 @@ describe('setRecordCustomFields', () => {
       expect(find).toHaveBeenCalledWith(CustomFieldValue, {
         entityId: 'example:todo',
         recordId: 'record-1',
-        fieldKey: 'priority',
+        fieldKey: { $in: ['priority'] },
         $or: [{ tenantId: 'tenant-1' }, { tenantId: null }],
       })
     })
@@ -367,7 +571,7 @@ describe('setRecordCustomFields', () => {
       it('heals the duplicates to one row, keeping the value the caller\'s scope already holds', async () => {
         const stale = { id: 'value-org-a', organizationId: 'org-a', tenantId: 'tenant-1', valueText: 'A-stale' }
         const current = { id: 'value-org-b', organizationId: 'org-b', tenantId: 'tenant-1', valueText: 'B-ui' }
-        const { em, nativeDelete, create, persist } = makeEm([stale, current], textDefinition)
+        const { em, find, nativeDelete, create, persist } = makeEm([stale, current], textDefinition)
 
         await setRecordCustomFields(em, {
           entityId: 'auth:user',
@@ -381,6 +585,10 @@ describe('setRecordCustomFields', () => {
         // both values re-created under org-b — still two live rows for a single-value field.
         expect(nativeDelete).toHaveBeenCalledTimes(1)
         expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['value-org-a'] } })
+        // The batched read must include the key: the branch it feeds is the one that heals.
+        expect(find).toHaveBeenCalledWith(CustomFieldValue, expect.objectContaining({
+          fieldKey: { $in: ['note'] },
+        }))
         expect(current.valueText).toBe('B-ui')
         expect(create).not.toHaveBeenCalled()
         expect(persist).not.toHaveBeenCalled()
@@ -499,7 +707,7 @@ describe('setRecordCustomFields', () => {
       expect(find).toHaveBeenCalledWith(CustomFieldValue, {
         entityId: 'example:todo',
         recordId: 'record-1',
-        fieldKey: 'priority',
+        fieldKey: { $in: ['priority'] },
         organizationId: 'org-b',
         $or: [{ tenantId: 'tenant-1' }, { tenantId: null }],
       })
@@ -518,6 +726,111 @@ describe('setRecordCustomFields', () => {
 
       const [, where] = find.mock.calls.find(([entity]) => entity === CustomFieldValue) ?? []
       expect(where).not.toHaveProperty('organizationId')
+    })
+  })
+
+  describe('batched existing-value read (#6147)', () => {
+    const scope = { entityId: 'example:todo', recordId: 'record-1', organizationId: 'org-b', tenantId: 'tenant-1' }
+
+    const define = (key: string, configJson: Record<string, unknown> = {}) => ({
+      key,
+      kind: 'text',
+      organizationId: null,
+      tenantId: 'tenant-1',
+      updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+      configJson,
+    })
+
+    const makeEm = (definitions: Array<Record<string, unknown>>, rows: Array<Record<string, unknown>>) => {
+      const nativeDelete = jest.fn(async () => 0)
+      const create = jest.fn((entity: unknown, data: Record<string, unknown>) => ({ ...data, entity }))
+      const persist = jest.fn()
+      const find = jest.fn(async (entity: unknown) => (entity === CustomFieldDef ? definitions : rows))
+      const emMock = {
+        find,
+        findOne: jest.fn(async () => null),
+        create,
+        persist,
+        nativeDelete,
+        flush: jest.fn(async () => undefined),
+        begin: jest.fn(async () => undefined),
+        commit: jest.fn(async () => undefined),
+        rollback: jest.fn(async () => undefined),
+        isInTransaction: jest.fn(() => false),
+      }
+      return { em: emMock as unknown as EntityManager, emMock, find, nativeDelete, create, persist }
+    }
+
+    const valueCalls = (find: jest.Mock) => find.mock.calls.filter(([entity]) => entity === CustomFieldValue)
+
+    it('reads every scalar key in one query, not one query per key', async () => {
+      const existing = { id: 'value-beta', fieldKey: 'beta', organizationId: 'org-b', tenantId: 'tenant-1', valueText: 'stale' }
+      const { em, find, create, nativeDelete } = makeEm(
+        [define('alpha'), define('beta'), define('gamma')],
+        [existing],
+      )
+
+      await setRecordCustomFields(em, { ...scope, values: { alpha: 'a', beta: 'b', gamma: 'c' } })
+
+      expect(valueCalls(find)).toHaveLength(1)
+      expect(valueCalls(find)[0]?.[1]).toEqual({
+        entityId: 'example:todo',
+        recordId: 'record-1',
+        fieldKey: { $in: ['alpha', 'beta', 'gamma'] },
+        $or: [{ tenantId: 'tenant-1' }, { tenantId: null }],
+      })
+      // The prefetched row is UPDATED in place; only the two keys without one are created.
+      expect(existing.valueText).toBe('b')
+      expect(nativeDelete).not.toHaveBeenCalled()
+      expect(create).toHaveBeenCalledTimes(2)
+      expect(create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ fieldKey: 'alpha' }))
+      expect(create).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ fieldKey: 'gamma' }))
+      // The batched read runs before anything is written, so it cannot observe half-applied work.
+      expect(find.mock.invocationCallOrder[1]).toBeLessThan(create.mock.invocationCallOrder[0])
+    })
+
+    it('leaves a multi-value key out of the prefetch, whose rows the array branch replaces wholesale', async () => {
+      const { em, find, nativeDelete } = makeEm(
+        [define('note'), define('segments', { multi: true })],
+        [],
+      )
+
+      await setRecordCustomFields(em, { ...scope, values: { note: 'hello', segments: ['gamma', 'delta'] } })
+
+      expect(valueCalls(find)).toHaveLength(1)
+      expect(valueCalls(find)[0]?.[1]).toMatchObject({ fieldKey: { $in: ['note'] } })
+      expect(nativeDelete).toHaveBeenCalledTimes(1)
+    })
+
+    it('spends no value read when every key takes the array branch', async () => {
+      const { em, find } = makeEm([define('segments', { multi: true })], [])
+
+      await setRecordCustomFields(em, { ...scope, values: { segments: ['gamma'] } })
+
+      expect(valueCalls(find)).toHaveLength(0)
+    })
+
+    it('reconciles each prefetched key from the same read: stale rows go, a missing key is created', async () => {
+      const alphaStale = { id: 'alpha-stale', fieldKey: 'alpha', organizationId: 'org-a', tenantId: 'tenant-1', valueText: 'old' }
+      const alphaCurrent = { id: 'alpha-current', fieldKey: 'alpha', organizationId: 'org-b', tenantId: 'tenant-1', valueText: 'ui' }
+      const betaStale = { id: 'beta-stale', fieldKey: 'beta', organizationId: 'org-a', tenantId: 'tenant-1', valueText: 'old' }
+      const { em, find, nativeDelete, create } = makeEm(
+        [define('alpha'), define('beta')],
+        [alphaStale, alphaCurrent, betaStale],
+      )
+
+      await setRecordCustomFields(em, { ...scope, values: { alpha: 'A', beta: 'B' } })
+
+      expect(valueCalls(find)).toHaveLength(1)
+      expect(alphaCurrent.valueText).toBe('A')
+      expect(alphaStale.valueText).toBe('old')
+      expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['alpha-stale'] } })
+      expect(nativeDelete).toHaveBeenCalledWith(CustomFieldValue, { id: { $in: ['beta-stale'] } })
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(create).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ fieldKey: 'beta', organizationId: 'org-b' }),
+      )
     })
   })
 

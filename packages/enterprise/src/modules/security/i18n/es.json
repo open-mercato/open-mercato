@@ -225,6 +225,7 @@
   "security.api.errors.challengeIdAndMethodTypeRequired": "challengeId y methodType son obligatorios.",
   "security.api.errors.codeRequired": "code es obligatorio.",
   "security.api.errors.crossTenantAccessDenied": "Acceso entre inquilinos denegado.",
+  "security.api.errors.currentPasswordInvalid": "La contraseña actual es incorrecta.",
   "security.api.errors.emailOtpDestinationMissing": "Al método OTP por correo le falta una dirección de correo de destino.",
   "security.api.errors.emailOtpDestinationRequired": "No se puede configurar OTP por correo electrónico sin una dirección de correo de destino.",
   "security.api.errors.emailOtpSetupSessionExpired": "La sesión de configuración de OTP por correo ha expirado.",
@@ -260,6 +261,7 @@
   "security.api.errors.mfaRequestFailed": "No se pudo procesar la solicitud de MFA.",
   "security.api.errors.mfaSetupSessionNotFound": "No se encontró la sesión de configuración de MFA.",
   "security.api.errors.mfaSetupSessionProviderMismatch": "La sesión de configuración de MFA no coincide con el proveedor solicitado.",
+  "security.api.errors.newPasswordSameAsCurrent": "La nueva contraseña debe ser diferente de la contraseña actual.",
   "security.api.errors.noMfaMethodsConfigured": "No hay métodos MFA configurados.",
   "security.api.errors.noRegisteredMfaProviders": "No hay proveedores MFA registrados disponibles para los métodos configurados.",
   "security.api.errors.notImplemented": "Todavía no está implementado.",
@@ -268,6 +270,7 @@
   "security.api.errors.passkeyRegistrationVerificationFailed": "La verificación del registro de la passkey falló.",
   "security.api.errors.passkeySetupSessionExpired": "La sesión de configuración de passkey ha expirado.",
   "security.api.errors.passkeySetupSessionNotFound": "No se encontró la sesión de configuración de passkey.",
+  "security.api.errors.passwordAuthenticationUnavailable": "La autenticación por contraseña no está disponible para este usuario.",
   "security.api.errors.passwordRequired": "La contraseña es obligatoria.",
   "security.api.errors.resetReasonRequired": "Se requiere un motivo para el restablecimiento.",
   "security.api.errors.setupIdRequired": "setupId es obligatorio.",
@@ -329,6 +332,8 @@
   "security.notifications.enforcementDeadline.bodyOverdue": "Tu plazo de inscripción en MFA venció el {deadline}. Configura MFA de inmediato para mantener el acceso a tu cuenta.",
   "security.notifications.enforcementDeadline.bodyWithDeadline": "Tu organización ahora requiere MFA. Configúralo dentro de {days} día(s) antes del {deadline} para mantener el acceso a tu cuenta.",
   "security.notifications.enforcementDeadline.title": "Se requiere inscripción en MFA",
+  "security.notifications.mfaEmergencyBypass.body": "Se detectó una omisión de emergencia de MFA en tu organización. La protección MFA puede estar desactivada. Pide al operador del sistema que desactive OM_SECURITY_MFA_EMERGENCY_BYPASS después de la emergencia.",
+  "security.notifications.mfaEmergencyBypass.title": "Se detectó una omisión de emergencia de MFA",
   "security.notifications.mfaEnrolled.body": "{method} fue habilitado para tu cuenta.",
   "security.notifications.mfaEnrolled.title": "Método MFA habilitado",
   "security.notifications.mfaReset.body": "Un administrador restableció tus métodos MFA. Motivo: {reason}",
@@ -483,5 +488,5 @@
   "ui.common.yes": "Yes",
   "ui.filters.all": "All",
   "ui.profileMenu.changePassword": "Seguridad y MFA",
-  "ui.table.registeredAt": "Registered"
+  "ui.table.registeredAt": "Registrado"
 }

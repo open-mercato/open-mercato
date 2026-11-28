@@ -121,17 +121,17 @@ export function resolveSplashBindHost(env = process.env, logger = console) {
     : ''
   const normalized = raw.toLowerCase()
   if (normalized === '0.0.0.0' || normalized === 'all') {
-    logger?.warn?.('⚠️  OM_DEV_SPLASH_BIND=0.0.0.0 — splash server is reachable from the network. Mutating action endpoints (GitHub publish, coding tool spawn) become exposed to anyone who can reach this port; the Host/Origin guard only stops browser-based DNS rebinding, not raw HTTP clients. Only enable on trusted networks.')
+    logger?.warn?.('❗ OM_DEV_SPLASH_BIND=0.0.0.0 — splash server is reachable from the network. Mutating action endpoints (GitHub publish, coding tool spawn) become exposed to anyone who can reach this port; the Host/Origin guard only stops browser-based DNS rebinding, not raw HTTP clients. Only enable on trusted networks.')
     return '0.0.0.0'
   }
   if (normalized === '::' || normalized === '::0') {
-    logger?.warn?.('⚠️  OM_DEV_SPLASH_BIND=:: — splash server is reachable from the network. Mutating action endpoints become exposed to anyone who can reach this port. Only enable on trusted networks.')
+    logger?.warn?.('❗ OM_DEV_SPLASH_BIND=:: — splash server is reachable from the network. Mutating action endpoints become exposed to anyone who can reach this port. Only enable on trusted networks.')
     return '::'
   }
   if (normalized === '::1') return '::1'
   if (normalized === '127.0.0.1' || normalized === 'localhost') return '127.0.0.1'
   if (normalized) {
-    logger?.warn?.(`⚠️  Unrecognized OM_DEV_SPLASH_BIND="${raw}" — falling back to loopback (127.0.0.1).`)
+    logger?.warn?.(`❗ Unrecognized OM_DEV_SPLASH_BIND="${raw}" — falling back to loopback (127.0.0.1).`)
   }
   return '127.0.0.1'
 }

@@ -7,6 +7,8 @@ import {
   expectWorkflowHeaderAction,
   invokeWorkflowHeaderAction,
   openWorkflowDetailsDrawer,
+  visualEditorHref,
+  workflowStepNodes,
 } from '@open-mercato/core/helpers/integration/workflowsUi'
 import { deleteWorkflowDefinitionIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 
@@ -46,6 +48,25 @@ async function findOverrideIdByWorkflowId(
 }
 
 test.describe('TC-WF-010: Code-Based Workflow Definitions — UI', () => {
+  // The visual editor only renders its React Flow canvas on the first request
+  // this worker process serves for it; that cold render cost otherwise lands
+  // entirely on whichever test in this file happens to run first (observed as
+  // a 20s+ timeout on first attempt that then passed in under 9s on retry,
+  // once the route was already warm). Pay that cost once, in its own budget,
+  // before any test below spends its own timeout on it.
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(60_000)
+    const context = await browser.newContext()
+    const page = await context.newPage()
+    try {
+      await login(page, 'admin')
+      await page.goto(visualEditorHref(CODE_WORKFLOW_API_ID))
+      await expect(workflowStepNodes(page).first()).toBeVisible({ timeout: 45_000 })
+    } finally {
+      await context.close()
+    }
+  })
+
   test('admin can Customize a code workflow and Reset it back to code from the UI', async ({ page, request }) => {
     const apiToken = await getAuthToken(request, 'admin')
     let overrideId: string | null = null

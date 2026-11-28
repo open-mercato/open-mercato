@@ -7,6 +7,7 @@
   "demoFeedback.dialog.successBody": "곧 연락드리겠습니다.",
   "demoFeedback.dialog.successTitle": "감사합니다!",
   "demoFeedback.dialog.title": "Open Mercato 팀과 상담하기",
+  "demoFeedback.errors.disabled": "데모 모드가 비활성화되어 피드백을 사용할 수 없습니다.",
   "demoFeedback.errors.emailInvalid": "유효한 이메일 주소를 입력하세요.",
   "demoFeedback.errors.generic": "문제가 발생했습니다. 다시 시도해 주세요.",
   "demoFeedback.errors.termsRequired": "계속하려면 약관에 동의해 주세요.",

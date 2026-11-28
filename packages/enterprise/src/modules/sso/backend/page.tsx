@@ -11,6 +11,8 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { surfaceSsoAdminError } from '../components/surfaceSsoAdminError'
 import Link from 'next/link'
 
 interface SsoConfigRow {
@@ -45,6 +47,19 @@ export default function SsoConfigListPage() {
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation, retryLastMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'sso-config-list',
+  })
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => {
+      return runMutation({
+        operation,
+        mutationPayload,
+        context: { retryLastMutation },
+      })
+    },
+    [retryLastMutation, runMutation],
+  )
 
   const isSuperAdmin = !!data.isSuperAdmin
 
@@ -79,23 +94,34 @@ export default function SsoConfigListPage() {
 
     if (!confirmed) return
 
-    await apiCallOrThrow(`/api/sso/config/${row.id}`, { method: 'DELETE' }, {
-      errorMessage: t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'),
-    })
+    try {
+      await runMutationWithContext(
+        () => apiCallOrThrow(`/api/sso/config/${row.id}`, { method: 'DELETE' }, {
+          errorMessage: t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'),
+        }),
+        { id: row.id },
+      )
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.error.deleteFailed', 'Failed to delete SSO configuration'), { onRefresh: fetchData })
+      return
+    }
     flash(t('sso.admin.delete.success', 'SSO configuration deleted'), 'success')
     fetchData()
   }
 
   const handleToggleActivation = async (row: SsoConfigRow) => {
     try {
-      await apiCallOrThrow(
-        `/api/sso/config/${row.id}/activate`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ active: !row.isActive }),
-        },
-        { errorMessage: t('sso.admin.error.activationFailed', 'Failed to update activation status') },
+      await runMutationWithContext(
+        () => apiCallOrThrow(
+          `/api/sso/config/${row.id}/activate`,
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ active: !row.isActive }),
+          },
+          { errorMessage: t('sso.admin.error.activationFailed', 'Failed to update activation status') },
+        ),
+        { id: row.id, active: !row.isActive },
       )
       flash(
         row.isActive
@@ -104,25 +130,28 @@ export default function SsoConfigListPage() {
         'success',
       )
       fetchData()
-    } catch {
-      // apiCallOrThrow already flashes the error
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.error.activationFailed', 'Failed to update activation status'), { onRefresh: fetchData })
     }
   }
 
   const handleTestConnection = async (row: SsoConfigRow) => {
     try {
-      const call = await apiCallOrThrow<{ ok: boolean; error?: string }>(
-        `/api/sso/config/${row.id}/test`,
-        { method: 'POST' },
-        { errorMessage: t('sso.admin.error.testFailed', 'Connection test failed') },
+      const call = await runMutationWithContext(
+        () => apiCallOrThrow<{ ok: boolean; error?: string }>(
+          `/api/sso/config/${row.id}/test`,
+          { method: 'POST' },
+          { errorMessage: t('sso.admin.error.testFailed', 'Connection test failed') },
+        ),
+        { id: row.id },
       )
       if (call.result?.ok) {
         flash(t('sso.admin.test.success', 'Discovery successful — issuer is reachable'), 'success')
       } else {
         flash(call.result?.error || t('sso.admin.test.failed', 'Discovery failed'), 'error')
       }
-    } catch {
-      // apiCallOrThrow already flashes the error
+    } catch (err) {
+      surfaceSsoAdminError(err, t, t('sso.admin.error.testFailed', 'Connection test failed'))
     }
   }
 

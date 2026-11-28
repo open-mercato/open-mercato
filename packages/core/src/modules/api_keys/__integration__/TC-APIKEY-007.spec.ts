@@ -94,9 +94,24 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
     let crossTenantKeyId: string | null = null
     let roleId: string | null = null
     let actorUserId: string | null = null
+    let keyCreatorRoleId: string | null = null
+    const keyCreators = new Map<string, { userId: string; token: string }>()
 
     const createKey = async (name: string, tenantId: string, organizationId: string): Promise<string> => {
-      const id = await createScopedApiKey(request, superadminToken, { name, tenantId, organizationId })
+      let creator = keyCreators.get(organizationId)
+      if (!creator) {
+        const email = `qa-tc-apikey-007-creator-${randomUUID()}@example.com`
+        const userId = await createUserFixture(request, superadminToken, {
+          email,
+          password,
+          organizationId,
+          roles: [expectId(keyCreatorRoleId, 'Key creator role should exist')],
+        })
+        creator = { userId, token: '' }
+        keyCreators.set(organizationId, creator)
+        creator.token = await getAuthToken(request, email, password)
+      }
+      const id = await createScopedApiKey(request, creator.token, { name, tenantId, organizationId })
       pendingKeyIds.add(id)
       return id
     }
@@ -112,6 +127,15 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
     }
 
     try {
+      keyCreatorRoleId = await createRoleFixture(request, superadminToken, {
+        name: `qa-tc-apikey-007-creator-${stamp}`,
+        tenantId: actorTenantId,
+      })
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId: keyCreatorRoleId,
+        features: ['api_keys.create'],
+        organizations: null,
+      })
       allowedOrganizationId = await createOrganizationFixture(request, superadminToken, {
         name: `QA TC-APIKEY-007 Allowed ${stamp}`,
         tenantId: actorTenantId,
@@ -164,17 +188,23 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
         { token: actorToken },
       )
       const emptyScopeList = await readJsonSafe<KeyListBody>(emptyScopeProbe)
-      expect(emptyScopeProbe.status(), 'Deny-all actor should pass the API-key view feature guard').toBe(200)
-      expect(emptyScopeList?.items ?? [], 'organizations=[] should resolve to an empty visible key set').toEqual([])
+      expect(
+        emptyScopeProbe.status(),
+        'A deny-all actor is stopped at the feature guard: an empty organization scope is deny-all',
+      ).toBe(403)
+      expect(emptyScopeList?.items, 'A denied list must not carry any key').toBeUndefined()
 
-      const unknownResponse = await apiRequest(
+      const denyAllUnknownResponse = await apiRequest(
         request,
         'DELETE',
         `/api/api_keys/keys?id=${encodeURIComponent(randomUUID())}`,
         { token: actorToken },
       )
-      const unknownBody = await readJsonSafe<ErrorBody>(unknownResponse)
-      expect(unknownResponse.status(), 'Unknown id establishes the non-enumerating response').toBe(404)
+      const denyAllUnknownBody = await readJsonSafe<ErrorBody>(denyAllUnknownResponse)
+      expect(
+        denyAllUnknownResponse.status(),
+        'Unknown id establishes the non-enumerating response: the deny happens before any key lookup',
+      ).toBe(403)
 
       const denyAllResponse = await apiRequest(
         request,
@@ -188,8 +218,8 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
       expect(
         denyAllResponse.status(),
         'organizations=[] must deny a known organization-bound key like an unknown id',
-      ).toBe(unknownResponse.status())
-      expect(denyAllBody, 'Deny-all response must not disclose whether the key exists').toEqual(unknownBody)
+      ).toBe(denyAllUnknownResponse.status())
+      expect(denyAllBody, 'Deny-all response must not disclose whether the key exists').toEqual(denyAllUnknownBody)
       expect(denyAllSurvival.status(), 'Rejected deny-all deletion must leave the key for superadmin cleanup').toBe(200)
 
       // Widen the same non-superadmin to exactly one organization. This proves
@@ -199,6 +229,17 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
         features: ['api_keys.view', 'api_keys.delete'],
         organizations: [allowedOrganizationId],
       })
+      // With a visible organization the actor passes the feature guard again, so
+      // the non-enumerating baseline is now the route's own not-found response.
+      const unknownResponse = await apiRequest(
+        request,
+        'DELETE',
+        `/api/api_keys/keys?id=${encodeURIComponent(randomUUID())}`,
+        { token: actorToken },
+      )
+      const unknownBody = await readJsonSafe<ErrorBody>(unknownResponse)
+      expect(unknownResponse.status(), 'Unknown id establishes the non-enumerating response').toBe(404)
+
       const allowedKeyId = await createKey(
         `QA TC-APIKEY-007 allowed ${stamp}`,
         actorTenantId,
@@ -320,6 +361,10 @@ test.describe('TC-APIKEY-007: DELETE organization-scope enforcement (#4033)', ()
       for (const keyId of pendingKeyIds) {
         await deleteAsSuperadmin(keyId).catch(() => undefined)
       }
+      for (const creator of keyCreators.values()) {
+        await deleteUserIfExists(request, superadminToken, creator.userId)
+      }
+      await deleteRoleIfExists(request, superadminToken, keyCreatorRoleId)
       await deleteUserIfExists(request, superadminToken, foreignTenantUserId)
       await deleteRoleIfExists(request, superadminToken, foreignTenantRoleId)
       await deleteUserIfExists(request, superadminToken, actorUserId)

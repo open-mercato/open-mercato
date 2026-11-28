@@ -154,6 +154,7 @@ export const reindexResultSchema = z.object({
 
 export const reindexResponseSchema = z.object({
   ok: z.boolean(),
+  error: z.string().optional().describe('Localized message present when ok is false'),
   action: z.enum(['clear', 'recreate', 'reindex']),
   entityId: z.string().nullable(),
   useQueue: z.boolean().optional(),
@@ -465,14 +466,14 @@ export const indexOpenApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List vector index entries',
-      description: 'Returns paginated list of entries in the vector search index.',
+      description: 'Returns a page of vector index entries for entities the caller may view.',
       tags: ['Search'],
       query: indexListQueryParamsSchema,
       responses: [
         { status: 200, description: 'Index entries', schema: indexListResponseSchema },
         { status: 401, description: 'Unauthorized', schema: errorResponseSchema },
         { status: 500, description: 'Failed to fetch index', schema: errorResponseSchema },
-        { status: 503, description: 'Vector strategy unavailable', schema: errorResponseSchema },
+        { status: 503, description: 'Search service or vector strategy unavailable', schema: errorResponseSchema },
       ],
     },
     DELETE: {

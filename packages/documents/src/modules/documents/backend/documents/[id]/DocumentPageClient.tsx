@@ -79,6 +79,17 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
   const scrollVersionsIntoView = React.useRef(false)
   const [editorEpoch, setEditorEpoch] = React.useState(0)
   const [editor, setEditor] = React.useState<Editor | null>(null)
+  const contentSaveRef = React.useRef<{ documentId: string; save: () => Promise<boolean> } | null>(null)
+  const displayedDocumentId = state.status === 'ready' ? state.document.id : null
+  const registerContentSave = React.useCallback((save: (() => Promise<boolean>) | null) => {
+    contentSaveRef.current = save && displayedDocumentId ? { documentId: displayedDocumentId, save } : null
+  }, [displayedDocumentId])
+  const saveBeforeSnapshot = React.useCallback(async () => {
+    const registered = contentSaveRef.current
+    if (!registered || registered.documentId !== documentId) return false
+    const saved = await registered.save()
+    return saved && contentSaveRef.current === registered
+  }, [documentId])
   const [commentFocusRequest, setCommentFocusRequest] = React.useState<CommentFocusRequest | null>(null)
   const requestSequence = React.useRef(0)
   const mutationContextId = `documents-detail:${documentId}`
@@ -135,6 +146,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
     const nextContent = contentCall.status === 404
       ? { contentHtml: '', updatedAt: null }
       : normalizeDocumentContent(contentCall.result)
+    contentSaveRef.current = null
     setState((current) => current.status === 'ready' ? {
       ...current,
       content: nextContent,
@@ -411,6 +423,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
                 documentUpdatedAt={document.updatedAt}
                 readOnly={!capabilities.canEdit}
                 onEditorReady={setEditor}
+                onSaveReady={registerContentSave}
                 onContentConflict={handleContentConflict}
                 onComment={capabilities.canComment ? (anchor) => setCommentFocusRequest((current) => ({ anchor, requestId: (current?.requestId ?? 0) + 1 })) : undefined}
                 onTitleChange={(title, updatedAt) => setState((current) => current.status === 'ready' ? {
@@ -441,6 +454,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
                   canRestore={capabilities.canEdit}
                   contentUpdatedAt={content.updatedAt}
                   onRestored={reloadEditor}
+                  onBeforeSnapshot={saveBeforeSnapshot}
                 />
               </div>
             ) : null}

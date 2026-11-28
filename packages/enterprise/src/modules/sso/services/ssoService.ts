@@ -7,6 +7,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { SsoConfig } from '../data/entities'
 import type { SsoProviderRegistry } from '../lib/registry'
 import type { AccountLinkingService } from './accountLinkingService'
+import type { SsoAuthService } from './ssoAuthService'
 import { encryptStateCookie, decryptStateCookie, createFlowState } from '../lib/state-cookie'
 import { emitSsoEvent } from '../events'
 import { isSsoRolesRevokedError } from '../lib/errors'
@@ -21,7 +22,7 @@ export class SsoService {
     private ssoProviderRegistry: SsoProviderRegistry,
     private accountLinkingService: AccountLinkingService,
     private tenantEncryptionService: TenantDataEncryptionService,
-    private authService: AuthService,
+    private authService: AuthService & Pick<SsoAuthService, 'createSession'>,
     private rbacService: RbacService,
   ) {}
 
@@ -52,10 +53,10 @@ export class SsoService {
       {},
       { tenantId: null },
     )
-    if (!config) throw new Error('SSO configuration not found or inactive')
+    if (!config) throw new Error('[internal] SSO configuration not found or inactive')
 
     const provider = this.ssoProviderRegistry.resolve(config.protocol)
-    if (!provider) throw new Error(`No provider registered for protocol: ${config.protocol}`)
+    if (!provider) throw new Error(`[internal] No provider registered for protocol: ${config.protocol}`)
 
     const clientSecret = await this.decryptClientSecret(config)
 
@@ -91,12 +92,12 @@ export class SsoService {
     organizationId: string
   }> {
     const flowState = decryptStateCookie(stateCookie)
-    if (!flowState) throw new Error('Invalid or expired SSO state')
+    if (!flowState) throw new Error('[internal] Invalid or expired SSO state')
 
     const receivedState = Buffer.from(callbackParams.state || '')
     const expectedState = Buffer.from(flowState.state)
     if (receivedState.length !== expectedState.length || !crypto.timingSafeEqual(receivedState, expectedState)) {
-      throw new Error('State mismatch — possible CSRF attack')
+      throw new Error('[internal] State mismatch — possible CSRF attack')
     }
 
     const config = await findOneWithDecryption(
@@ -106,13 +107,14 @@ export class SsoService {
       {},
       { tenantId: null },
     )
-    if (!config) throw new Error('SSO configuration no longer active')
+    if (!config) throw new Error('[internal] SSO configuration no longer active')
 
     const provider = this.ssoProviderRegistry.resolve(config.protocol)
-    if (!provider) throw new Error(`No provider for protocol: ${config.protocol}`)
+    if (!provider) throw new Error(`[internal] No provider for protocol: ${config.protocol}`)
 
     const clientSecret = await this.decryptClientSecret(config)
 
+    const configUpdatedAt = config.updatedAt instanceof Date ? config.updatedAt.getTime() : Number.NaN
     const idpPayload = await provider.handleCallback(config, {
       callbackParams,
       redirectUri,
@@ -122,16 +124,16 @@ export class SsoService {
       clientSecret,
     })
 
-    const tenantId = config.tenantId ?? ''
     let user: Awaited<ReturnType<AccountLinkingService['resolveUser']>>['user']
     try {
-      ;({ user } = await this.accountLinkingService.resolveUser(config, idpPayload, tenantId))
+      ;({ user } = await this.accountLinkingService.resolveUser(config, idpPayload, config.tenantId ?? '', configUpdatedAt))
     } catch (err) {
       if (isSsoRolesRevokedError(err)) await this.rbacService.invalidateUserCache(err.userId)
       throw err
     }
 
     await this.rbacService.invalidateUserCache(String(user.id))
+    const tenantId = user.tenantId ?? null
 
     const roles = await this.authService.getUserRoles(user, tenantId || null)
 
@@ -139,7 +141,12 @@ export class SsoService {
 
     const days = Number(process.env.REMEMBER_ME_DAYS || '30')
     const sessionExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
-    const { session, token: sessionRefreshToken } = await this.authService.createSession(user, sessionExpiresAt)
+    const { session, token: sessionRefreshToken } = await this.authService.createSession(user, sessionExpiresAt, {
+      tenantId,
+      organizationId: config.organizationId,
+      ssoConfigId: config.id,
+      configUpdatedAt,
+    })
 
     const token = signJwt({
       sub: String(user.id),
@@ -161,7 +168,7 @@ export class SsoService {
       sessionToken: sessionRefreshToken,
       sessionExpiresAt,
       redirectUrl: flowState.returnUrl || '/backend',
-      tenantId: config.tenantId ?? null,
+      tenantId,
       organizationId: config.organizationId,
     }
   }

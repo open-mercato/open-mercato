@@ -4,7 +4,11 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { Message } from '../data/entities'
 import { attachmentIdsPayloadSchema, unlinkAttachmentPayloadSchema } from '../data/validators'
-import { linkAttachmentsToMessage } from '../lib/attachments'
+import {
+  deleteMessageAttachmentRows,
+  enqueueMessageAttachmentSectionCleanup,
+  linkAttachmentsToMessage,
+} from '../lib/attachments'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from '../lib/constants'
 import { assertOrganizationAccess, getAttachmentIdsForMessage, type MessageScopeInput } from './shared'
 
@@ -107,12 +111,11 @@ const linkDraftAttachmentsCommand: CommandHandler<unknown, { ok: true }> = {
     const organizationId = (logEntry?.organizationId as string | null) ?? null
     if (!messageId || !tenantId) return
     const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-    await em.nativeDelete(Attachment, {
-      entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-      recordId: messageId,
+    const deleted = await deleteMessageAttachmentRows(em, {
+      messageId,
       tenantId,
       organizationId,
-      id: { $nin: before.attachmentIds.length ? before.attachmentIds : ['00000000-0000-0000-0000-000000000000'] },
+      excludeIds: before.attachmentIds,
     })
     if (before.attachmentIds.length > 0) {
       const attachments = await em.find(Attachment, {
@@ -126,6 +129,7 @@ const linkDraftAttachmentsCommand: CommandHandler<unknown, { ok: true }> = {
       }
     }
     await em.flush()
+    await enqueueMessageAttachmentSectionCleanup(deleted)
   },
 }
 
@@ -148,14 +152,13 @@ const unlinkDraftAttachmentsCommand: CommandHandler<unknown, { ok: true }> = {
     const input = unlinkDraftAttachmentsSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await requireEditableDraftMessage(em, input, input.messageId)
-    const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-    await em.nativeDelete(Attachment, {
-      id: { $in: input.attachmentIds },
-      entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-      recordId: input.messageId,
+    const deleted = await deleteMessageAttachmentRows(em, {
+      messageId: input.messageId,
       tenantId: input.tenantId,
       organizationId: input.organizationId,
+      includeIds: input.attachmentIds,
     })
+    await enqueueMessageAttachmentSectionCleanup(deleted)
     return { ok: true }
   },
   async captureAfter(rawInput, _result, ctx) {
@@ -196,12 +199,11 @@ const unlinkDraftAttachmentsCommand: CommandHandler<unknown, { ok: true }> = {
     const organizationId = (logEntry?.organizationId as string | null) ?? null
     if (!messageId || !tenantId) return
     const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
-    await em.nativeDelete(Attachment, {
-      entityId: MESSAGE_ATTACHMENT_ENTITY_ID,
-      recordId: messageId,
+    const deleted = await deleteMessageAttachmentRows(em, {
+      messageId,
       tenantId,
       organizationId,
-      id: { $nin: before.attachmentIds.length ? before.attachmentIds : ['00000000-0000-0000-0000-000000000000'] },
+      excludeIds: before.attachmentIds,
     })
     if (before.attachmentIds.length > 0) {
       const attachments = await em.find(Attachment, {
@@ -215,6 +217,7 @@ const unlinkDraftAttachmentsCommand: CommandHandler<unknown, { ok: true }> = {
       }
     }
     await em.flush()
+    await enqueueMessageAttachmentSectionCleanup(deleted)
   },
 }
 

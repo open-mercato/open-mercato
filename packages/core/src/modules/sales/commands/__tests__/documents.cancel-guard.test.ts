@@ -15,6 +15,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { SalesOrder, SalesPayment, SalesShipment } from '../../data/entities'
 import type { DocumentUpdateInput } from '../documents'
+import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
 import '../documents'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -77,7 +78,9 @@ function makeOrder(overrides: Record<string, unknown> = {}) {
 type Stored = { shipments?: Array<Record<string, unknown>>; payments?: Array<Record<string, unknown>> }
 
 function makeEm(order: Record<string, unknown>, stored: Stored = {}) {
+  const lockFixture = createSalesDocumentLockKyselyFixture(ORDER_ID)
   const em: any = {
+    getKysely: () => lockFixture,
     findOne: jest.fn(async (requested: unknown, where: any) => {
       if (requested === SalesOrder) return order
       if (requested === DictionaryEntry) {
@@ -129,6 +132,33 @@ async function runUpdate(order: Record<string, unknown>, stored: Stored, statusE
 }
 
 describe('sales.orders.update — cancellation guard (issue #4054)', () => {
+  it('checks fulfillment after acquiring the parent lock and refreshing the order', async () => {
+    const order = makeOrder()
+    const stored: Stored = { shipments: [] }
+    const em = makeEm(order, stored)
+    const lockQuery = em.getKysely().selectFrom('sales_orders')
+    const lock = jest.spyOn(lockQuery, 'executeTakeFirst').mockImplementation(async () => {
+      stored.shipments?.push({ id: 's-concurrent', status: 'shipped' })
+      return { id: ORDER_ID }
+    })
+    const handler = commandRegistry.get<DocumentUpdateInput, { order: SalesOrder }>('sales.orders.update')
+
+    await expect(handler!.execute({ id: ORDER_ID, statusEntryId: CANCELED_ENTRY_ID }, makeCtx(em))).rejects.toMatchObject({
+      status: 409,
+      body: { error: 'sales.orders.errors.cancel_has_shipments' },
+    })
+
+    expect(lock).toHaveBeenCalledTimes(1)
+    expect(em.findOne).toHaveBeenCalledWith(
+      SalesOrder,
+      expect.objectContaining({ id: ORDER_ID, tenantId: TENANT_ID, organizationId: ORG_ID }),
+      expect.objectContaining({ refresh: true }),
+    )
+    expect(order.status).toBe('confirmed')
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
+  })
+
   it('refuses to cancel an order that still has a live shipment', async () => {
     const order = makeOrder()
     const { em, result } = await runUpdate(order, { shipments: [{ id: 's-1', status: 'shipped' }] }, CANCELED_ENTRY_ID)

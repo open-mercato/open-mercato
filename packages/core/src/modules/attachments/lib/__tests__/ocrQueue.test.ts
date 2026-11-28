@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   getOcrConcurrencyStateForTests,
+  processAttachmentOcr,
   requestOcrProcessing,
   resetOcrConcurrencyStateForTests,
   withOcrConcurrencySlot,
@@ -8,6 +9,16 @@ import {
 import type { Attachment } from '../../data/entities'
 import type { StorageDriver } from '../drivers/types'
 import { extractAttachmentContent } from '../textExtraction'
+import { OcrService } from '../ocrService'
+import { enqueueAttachmentOcr } from '../ocrJobQueue'
+
+jest.mock('../ocrJobQueue', () => ({
+  enqueueAttachmentOcr: jest.fn(async () => {
+    throw new Error('queue unavailable')
+  }),
+}))
+
+const enqueueAttachmentOcrMock = enqueueAttachmentOcr as jest.MockedFunction<typeof enqueueAttachmentOcr>
 
 jest.mock('../textExtraction', () => ({
   extractAttachmentContent: jest.fn(async () => null),
@@ -27,6 +38,52 @@ const makeAttachment = (): Attachment =>
   }) as unknown as Attachment
 
 const driver = {} as StorageDriver
+
+describe('requestOcrProcessing durable queue', () => {
+  let setImmediateSpy: jest.SpyInstance
+
+  beforeEach(() => {
+    resetOcrConcurrencyStateForTests()
+    setImmediateSpy = jest.spyOn(global, 'setImmediate').mockImplementation((() => undefined) as never)
+  })
+
+  afterEach(() => {
+    setImmediateSpy.mockRestore()
+    enqueueAttachmentOcrMock.mockClear()
+  })
+
+  it('enqueues a durable attachments-ocr job carrying only the attachment id and scope', async () => {
+    enqueueAttachmentOcrMock.mockResolvedValueOnce('job-1')
+    const fork = jest.fn()
+    const requestEm = { fork } as unknown as EntityManager
+
+    await expect(
+      requestOcrProcessing(requestEm, makeAttachment(), driver, 'docs/attachment-1.pdf'),
+    ).resolves.toBe('queued')
+
+    expect(enqueueAttachmentOcrMock).toHaveBeenCalledWith({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(fork).not.toHaveBeenCalled()
+    expect(setImmediateSpy).not.toHaveBeenCalled()
+    expect(getOcrConcurrencyStateForTests()).toEqual({ active: 0, waiting: 0 })
+  })
+
+  it('falls back to the in-process scheduler when the durable queue rejects the job', async () => {
+    const fork = jest.fn(() => ({}))
+    const requestEm = { fork } as unknown as EntityManager
+
+    await expect(
+      requestOcrProcessing(requestEm, makeAttachment(), driver, 'docs/attachment-1.pdf'),
+    ).resolves.toBe('queued')
+
+    expect(enqueueAttachmentOcrMock).toHaveBeenCalledTimes(1)
+    expect(fork).toHaveBeenCalledTimes(1)
+    expect(setImmediateSpy).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('requestOcrProcessing EntityManager isolation', () => {
   let setImmediateSpy: jest.SpyInstance
@@ -64,6 +121,57 @@ describe('requestOcrProcessing EntityManager isolation', () => {
     ).rejects.toThrow(/requires an EntityManager that exposes fork/)
 
     expect(setImmediateSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('processAttachmentOcr content persistence', () => {
+  const previousApiKey = process.env.OPENAI_API_KEY
+
+  beforeEach(() => {
+    process.env.OPENAI_API_KEY = 'test-key'
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    if (previousApiKey === undefined) delete process.env.OPENAI_API_KEY
+    else process.env.OPENAI_API_KEY = previousApiKey
+  })
+
+  it('strips U+0000 from OCR output before persisting and keeps the rest of the text', async () => {
+    jest.spyOn(OcrService.prototype, 'processFile').mockResolvedValue({
+      content: ' Ty\u0000pe3 font\n\n--- Page 2 ---\u0000 ',
+      processingTimeMs: 1,
+    })
+    const attachmentRow = { id: 'attachment-1', content: null as string | null }
+    const em = {
+      findOne: jest.fn(async () => attachmentRow),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    em.persist.mockImplementation(() => em)
+    const ocrDriver = {
+      toLocalPath: jest.fn(async () => ({
+        filePath: '/tmp/attachment-1.pdf',
+        cleanup: jest.fn(async () => undefined),
+      })),
+    } as unknown as StorageDriver
+
+    await processAttachmentOcr(
+      em as unknown as EntityManager,
+      {
+        attachmentId: 'attachment-1',
+        storagePath: 'docs/attachment-1.pdf',
+        mimeType: 'application/pdf',
+        partitionCode: 'docs',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      ocrDriver,
+    )
+
+    expect(attachmentRow.content).toBe(' Type3 font\n\n--- Page 2 --- ')
+    expect(em.persist).toHaveBeenCalledWith(attachmentRow)
+    expect(em.flush).toHaveBeenCalled()
   })
 })
 
@@ -246,5 +354,27 @@ describe('requestOcrProcessing wait queue cap', () => {
     expect(outcomes).toEqual(['queued', 'queued', 'inline_fallback', 'inline_fallback'])
     expect(setImmediateSpy).toHaveBeenCalledTimes(2)
     releaseFirst()
+  })
+
+  it('does not count pending jobs that will occupy free concurrency slots as waiters', async () => {
+    process.env.OM_ATTACHMENT_OCR_MAX_CONCURRENCY = '2'
+    process.env.OM_ATTACHMENT_OCR_MAX_WAIT_QUEUE = '2'
+
+    const forkedEm = {
+      findOne: jest.fn(async () => ({ id: 'a', content: null })),
+      persist: jest.fn(() => forkedEm),
+      flush: jest.fn(async () => undefined),
+    }
+    const requestEm = { fork: jest.fn(() => forkedEm) } as unknown as EntityManager
+    const driver = {
+      toLocalPath: jest.fn(async () => ({ filePath: '/tmp/x.pdf', cleanup: jest.fn(async () => undefined) })),
+    } as unknown as StorageDriver
+
+    const outcomes = await Promise.all(
+      [1, 2, 3, 4, 5].map(() => requestOcrProcessing(requestEm, makeAttachment(), driver, 'docs/x.pdf')),
+    )
+
+    expect(outcomes).toEqual(['queued', 'queued', 'queued', 'queued', 'inline_fallback'])
+    expect(setImmediateSpy).toHaveBeenCalledTimes(4)
   })
 })

@@ -65,7 +65,7 @@ describe('CrudForm unsaved navigation guard', () => {
       {
         dict: {
           'ui.forms.actions.save': 'Save',
-          'ui.forms.confirmUnsavedChanges': 'You have unsaved changes. Are you sure you want to leave?',
+          'ui.forms.unsavedChangesTitle': 'Discard unsaved changes?',
         },
       },
     )
@@ -83,7 +83,7 @@ describe('CrudForm unsaved navigation guard', () => {
     })
 
     expect(confirmDialogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'You have unsaved changes. Are you sure you want to leave?' }),
+      expect.objectContaining({ title: 'Discard unsaved changes?', variant: 'destructive' }),
     )
     expect(window.location.pathname).toBe('/current')
   })
@@ -96,7 +96,7 @@ describe('CrudForm unsaved navigation guard', () => {
       {
         dict: {
           'ui.forms.actions.save': 'Save',
-          'ui.forms.confirmUnsavedChanges': 'You have unsaved changes. Are you sure you want to leave?',
+          'ui.forms.unsavedChangesTitle': 'Discard unsaved changes?',
         },
       },
     )
@@ -119,7 +119,7 @@ describe('CrudForm unsaved navigation guard', () => {
     })
 
     expect(confirmDialogMock).toHaveBeenCalledWith(
-      expect.objectContaining({ title: 'You have unsaved changes. Are you sure you want to leave?' }),
+      expect.objectContaining({ title: 'Discard unsaved changes?' }),
     )
     expect(event.defaultPrevented).toBe(true)
 
@@ -140,7 +140,7 @@ describe('CrudForm unsaved navigation guard', () => {
       {
         dict: {
           'ui.forms.actions.save': 'Save',
-          'ui.forms.confirmUnsavedChanges': 'You have unsaved changes. Are you sure you want to leave?',
+          'ui.forms.unsavedChangesTitle': 'Discard unsaved changes?',
         },
       },
     )
@@ -184,7 +184,7 @@ describe('CrudForm unsaved navigation guard', () => {
       {
         dict: {
           'ui.forms.actions.save': 'Save',
-          'ui.forms.confirmUnsavedChanges': 'You have unsaved changes. Are you sure you want to leave?',
+          'ui.forms.unsavedChangesTitle': 'Discard unsaved changes?',
         },
       },
     )
@@ -227,7 +227,7 @@ describe('CrudForm unsaved navigation guard', () => {
       {
         dict: {
           'ui.forms.actions.save': 'Save',
-          'ui.forms.confirmUnsavedChanges': 'You have unsaved changes. Are you sure you want to leave?',
+          'ui.forms.unsavedChangesTitle': 'Discard unsaved changes?',
         },
       },
     )
@@ -255,7 +255,7 @@ describe('CrudForm unsaved navigation guard', () => {
       {
         dict: {
           'ui.forms.actions.save': 'Save',
-          'ui.forms.confirmUnsavedChanges': 'You have unsaved changes. Are you sure you want to leave?',
+          'ui.forms.unsavedChangesTitle': 'Discard unsaved changes?',
         },
       },
     )
@@ -294,7 +294,7 @@ describe('CrudForm unsaved navigation guard', () => {
       {
         dict: {
           'ui.forms.actions.save': 'Save',
-          'ui.forms.confirmUnsavedChanges': 'You have unsaved changes. Are you sure you want to leave?',
+          'ui.forms.unsavedChangesTitle': 'Discard unsaved changes?',
         },
       },
     )

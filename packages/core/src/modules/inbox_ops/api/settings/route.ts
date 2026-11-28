@@ -71,7 +71,13 @@ export async function PATCH(req: Request) {
   try {
     const ctx = await resolveRequestContext(req)
 
-    const body = await req.json()
+    let body: unknown
+    try {
+      body = await req.json()
+    } catch {
+      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+    }
+
     const parsed = updateSettingsSchema.safeParse(body)
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid request', details: parsed.error.issues }, { status: 400 })
