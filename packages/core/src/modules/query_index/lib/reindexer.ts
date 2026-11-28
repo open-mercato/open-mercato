@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
-import { resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
+import { DIRECTORY_ORGANIZATION_ENTITY_TYPE, resolveQueryIndexSourceTableMetadata } from './subscriber-scope'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { decryptIndexDocForSearch, encryptIndexDocForStorage } from '@open-mercato/shared/lib/encryption/indexDoc'
 import {
@@ -83,7 +83,6 @@ const DEFAULT_BATCH_SIZE = 500
  * deletes index entries the run failed to rebuild.
  */
 const MAX_PURGE_EXCLUSIONS = 1000
-const deriveOrgFromId = new Set<string>(['directory:organization'])
 const COVERAGE_REFRESH_THROTTLE_MS = 5 * 60 * 1000
 const lastCoverageReset = new Map<string, number>()
 
@@ -502,7 +501,7 @@ export async function reindexEntity(
     .orderBy('started_at' as any, 'desc')
     .executeTakeFirst() as { started_at: Date | string } | undefined
   const jobStartedAt = jobRow?.started_at ? new Date(jobRow.started_at) : new Date()
-  const deriveOrg = deriveOrgFromId.has(entityType)
+  const deriveOrg = entityType === DIRECTORY_ORGANIZATION_ENTITY_TYPE
     ? (row: AnyRow) => String(row.id)
     : undefined
 

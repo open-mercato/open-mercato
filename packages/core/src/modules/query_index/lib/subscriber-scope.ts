@@ -3,6 +3,8 @@ import { getEntityIds } from '@open-mercato/shared/lib/encryption/entityIds'
 import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 
+export const DIRECTORY_ORGANIZATION_ENTITY_TYPE = 'directory:organization'
+
 export type QueryIndexScope = {
   tenantId: string | null
   organizationId: string | null
@@ -64,6 +66,9 @@ export function resolveQueryIndexSourceMetadata(
   if (!source) throw new QueryIndexScopeError(`Query index entity type has no registered ORM table: ${entityType}`)
   const listed = listEntityMetadata(em).some((metadata) => metadata.tableName === (source.tableName ?? source.table) && (metadata.schema && metadata.schema !== '*' ? metadata.schema : undefined) === source.schema)
   if (!listed) throw new QueryIndexScopeError(`[internal] Query index entity metadata was not found for table: ${source.table}`)
+  if (entityType === DIRECTORY_ORGANIZATION_ENTITY_TYPE && (!source.organizationColumn || !source.tenantColumn)) {
+    throw new QueryIndexScopeError(`[internal] Query index organization metadata requires mapped id and tenant columns: ${source.table}`)
+  }
   return source
 }
 
@@ -96,12 +101,13 @@ export function resolveQueryIndexSourceTableMetadata(
   const schema = typeof metadata.schema === 'string' && metadata.schema !== '*' ? metadata.schema : undefined
   const table = schema ? `${schema}.${tableName}` : tableName
   const deletedAtColumn = resolveScopeColumn(metadata, 'deletedAt', table)
+  const isDirectoryOrganization = entityType === DIRECTORY_ORGANIZATION_ENTITY_TYPE
   return {
     table,
     ...(schema ? { schema, tableName } : {}),
     ...(deletedAtColumn ? { deletedAtColumn } : {}),
-    organizationColumn: resolveScopeColumn(metadata, 'organizationId', table),
-    tenantColumn: resolveScopeColumn(metadata, 'tenantId', table),
+    organizationColumn: resolveScopeColumn(metadata, isDirectoryOrganization ? 'id' : 'organizationId', table),
+    tenantColumn: resolveScopeColumn(metadata, isDirectoryOrganization ? 'tenant' : 'tenantId', table),
   }
 }
 
