@@ -308,10 +308,60 @@ describe('wms sales order enrichers', () => {
     )
 
     const balanceCall = findWithDecryptionMock.mock.calls.find((call) => call[1] === InventoryBalance)
-    expect(balanceCall?.[3]).toEqual({ populate: ['location'] })
+    expect(balanceCall?.[3]).toEqual({ populate: ['location', 'lot'] })
     expect(result[0]?._wms?.stockSummary).toEqual([
       { catalogVariantId: 'variant-1', available: '10', reserved: '0' },
     ])
+  })
+
+  const lotBalances = () =>
+    [
+      { status: 'available', quantityOnHand: '10', quantityReserved: '0', expiresAt: new Date('2999-01-01') },
+      { status: 'quarantine', quantityOnHand: '3', quantityReserved: '1', expiresAt: null },
+      { status: 'hold', quantityOnHand: '4', quantityReserved: '0', expiresAt: null },
+      { status: 'available', quantityOnHand: '5', quantityReserved: '0', expiresAt: new Date('2000-01-01') },
+    ].map(
+      (row, index) =>
+        ({
+          catalogVariantId: 'variant-1',
+          quantityOnHand: row.quantityOnHand,
+          quantityReserved: row.quantityReserved,
+          quantityAllocated: '0',
+          lot: { id: `lot-${index}`, status: row.status, expiresAt: row.expiresAt },
+        }) as unknown as InventoryBalance,
+    )
+
+  it('excludes quarantined, held and expired lots from sales order Available', async () => {
+    const queryEngine = createQueryEngine((entityId) =>
+      entityId === E.sales.sales_order_line
+        ? [{ id: 'line-1', order_id: 'order-1', product_variant_id: 'variant-1', quantity: '2', line_number: 1 }]
+        : [],
+    )
+    findWithDecryptionMock.mockImplementation(async (_em, entity) =>
+      entity === InventoryBalance ? lotBalances() : [],
+    )
+
+    const result = await salesOrderInventoryEnricher!.enrichMany!(
+      [{ id: 'order-1' }],
+      createContext(true, queryEngine),
+    )
+
+    expect(result[0]?._wms?.stockSummary).toEqual([
+      { catalogVariantId: 'variant-1', available: '10', reserved: '1' },
+    ])
+  })
+
+  it('excludes ineligible lots from catalog Available but keeps them on hand', async () => {
+    const catalogEnricher = enrichers.find((enricher) => enricher.id === 'wms.catalog-variant-inventory')
+    findWithDecryptionMock.mockImplementation(async (_em, entity) =>
+      entity === InventoryBalance ? lotBalances() : [],
+    )
+
+    const result = await catalogEnricher!.enrichMany!([{ id: 'variant-1' }], createContext(true))
+
+    expect(result[0]).toMatchObject({
+      _wms: { stockSummary: [{ onHand: '22', reserved: '1', available: '10' }] },
+    })
   })
 
   it('prefers explicit warehouse assignment over reservation-derived warehouse', async () => {
