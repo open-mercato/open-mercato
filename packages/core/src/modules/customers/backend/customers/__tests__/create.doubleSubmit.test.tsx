@@ -5,6 +5,7 @@ import { act, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import type { CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import CreateCompanyPage from '../companies/create/page'
 import CreatePersonPage from '../people/create/page'
 
@@ -38,16 +39,38 @@ jest.mock('@open-mercato/ui/backend/utils/customFieldDefs', () => ({
   fetchCustomFieldDefs: async () => [],
   fetchCustomFieldFormStructure: async () => ({ definitions: [], metadata: {} }),
 }))
-jest.mock('../../../components/formConfig', () => ({
-  createCompanyFormSchema: () => undefined,
-  createPersonFormSchema: () => undefined,
-  createCompanyFormFields: () => [{ id: 'displayName', label: 'Name', type: 'text' }],
-  createPersonFormFields: () => [{ id: 'displayName', label: 'Name', type: 'text' }],
-  createCompanyFormGroups: () => undefined,
-  createPersonFormGroups: () => undefined,
-  buildCompanyPayload: (values: Record<string, unknown>) => values,
-  buildPersonPayload: (values: Record<string, unknown>) => values,
-}))
+jest.mock('../../../components/formConfig', () => {
+  const createFields = () => [
+    { id: 'displayName', label: 'Name', type: 'text' },
+    {
+      id: 'addresses',
+      label: 'Addresses',
+      type: 'custom',
+      component: ({ setValue }: CrudCustomFieldRenderProps) => (
+        <input
+          aria-label="Address company name"
+          onChange={(event) => setValue([{
+            id: 'staged-address',
+            addressLine1: ' Portowa 3 ',
+            companyName: event.target.value,
+            country: 'pl',
+            isPrimary: true,
+          }])}
+        />
+      ),
+    },
+  ]
+  return {
+    createCompanyFormSchema: () => undefined,
+    createPersonFormSchema: () => undefined,
+    createCompanyFormFields: createFields,
+    createPersonFormFields: createFields,
+    createCompanyFormGroups: () => undefined,
+    createPersonFormGroups: () => undefined,
+    buildCompanyPayload: (values: Record<string, unknown>) => values,
+    buildPersonPayload: (values: Record<string, unknown>) => values,
+  }
+})
 
 describe.each([
   ['company', CreateCompanyPage, 'customers/companies', '/backend/customers/companies-v2/new-record', '/backend/customers/companies'],
@@ -67,6 +90,28 @@ describe.each([
     fireEvent.change(view.getByRole('textbox', { name: 'Name' }), { target: { value: 'New customer' } })
     return { ...view, form }
   }
+
+  it.each([
+    ['Warehouse Świętek', 'Warehouse Świętek'],
+    ['  Warehouse Świętek  ', 'Warehouse Świętek'],
+    ['   ', undefined],
+  ])('submits the staged address company name %j as %j', async (input, expected) => {
+    const { form, getByRole } = renderCreatePage()
+    fireEvent.change(getByRole('textbox', { name: 'Address company name' }), { target: { value: input } })
+    await act(async () => { fireEvent.submit(form) })
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(detailHref))
+
+    const addressCalls = jest.mocked(createCrud).mock.calls.filter(([path]) => path === 'customers/addresses')
+    expect(addressCalls).toHaveLength(1)
+    expect(addressCalls[0][1]).toEqual({
+      entityId: 'new-record',
+      organizationId: 'org-1',
+      addressLine1: 'Portowa 3',
+      country: 'PL',
+      isPrimary: true,
+      ...(expected === undefined ? {} : { companyName: expected }),
+    })
+  })
 
   it('ignores click, keyboard and direct submissions after save resolves until navigation unmounts the form', async () => {
     const { container, form, getByRole } = renderCreatePage()
