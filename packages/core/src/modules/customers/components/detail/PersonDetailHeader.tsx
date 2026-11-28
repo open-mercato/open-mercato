@@ -19,6 +19,7 @@ import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import type { PersonOverview } from '../formConfig'
 import type { CustomerDictionaryMap } from '@open-mercato/core/modules/customers/lib/dictionaries'
 import { formatFallbackLabel } from './utils'
+import { CreatedByFact } from './CreatedByFact'
 
 const HEADER_ICON_BUTTON_CLASS = 'size-8 rounded-md'
 
@@ -31,6 +32,7 @@ type PersonDetailHeaderProps = {
   isDirty: boolean
   isSaving: boolean
   actions?: React.ReactNode
+  createdByUserId?: string | null
   /** Callback to focus a specific field in the Zone 1 CrudForm by field name. */
   onFocusField?: (fieldName: string) => void
   /**
@@ -76,6 +78,7 @@ export function PersonDetailHeader({
   isDirty,
   isSaving,
   actions,
+  createdByUserId,
   onFocusField,
   onOpenCompaniesTab,
   onDataReload,
@@ -153,6 +156,7 @@ export function PersonDetailHeader({
                   <a href={`mailto:${person.primaryEmail}`} className="hover:underline">{person.primaryEmail}</a>
                 </HeaderFact>
               ) : null}
+              <CreatedByFact createdByUserId={createdByUserId} />
             </dl>
 
             <div className="flex flex-wrap items-center gap-2">

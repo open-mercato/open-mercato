@@ -101,6 +101,7 @@ const crud = makeCrudRoute({
       'display_name',
       'description',
       'owner_user_id',
+      'created_by_user_id',
       'primary_email',
       'primary_phone',
       'status',
@@ -496,12 +497,18 @@ const crud = makeCrudRoute({
         const record = item as Record<string, unknown>
         const entity = typeof record.id === 'string' ? entitiesById.get(record.id) : undefined
         const profile = typeof record.id === 'string' ? profilesByEntityId.get(record.id) : undefined
-        if (!entity && !profile) return item
+        if (!entity && !profile) {
+          return {
+            ...record,
+            created_by_user_id: record.created_by_user_id ?? null,
+          }
+        }
         return {
           ...record,
           display_name: entity?.displayName ?? record.display_name ?? null,
           description: entity?.description ?? record.description ?? null,
           owner_user_id: entity?.ownerUserId ?? record.owner_user_id ?? null,
+          created_by_user_id: entity?.createdByUserId ?? record.created_by_user_id ?? null,
           primary_email: entity?.primaryEmail ?? record.primary_email ?? null,
           primary_phone: entity?.primaryPhone ?? record.primary_phone ?? null,
           status: entity?.status ?? record.status ?? null,
@@ -541,6 +548,12 @@ const personListItemSchema = z.object({
   display_name: z.string().optional(),
   description: z.string().nullable().optional(),
   owner_user_id: z.string().uuid().nullable().optional(),
+  created_by_user_id: z
+    .string()
+    .uuid()
+    .nullable()
+    .optional()
+    .describe('Read-only server-assigned creator attribution.'),
   primary_email: z.string().nullable().optional(),
   primary_phone: z.string().nullable().optional(),
   status: z.string().nullable().optional(),

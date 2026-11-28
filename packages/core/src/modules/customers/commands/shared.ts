@@ -11,6 +11,7 @@ import type { EventBus } from '@open-mercato/events'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { invalidateDictionaryCache } from '../api/dictionaries/cache'
+import { z } from 'zod'
 
 const logger = createLogger('customers')
 export { ensureOrganizationScope, ensureSameScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
@@ -19,6 +20,35 @@ export { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 export const CUSTOMER_ENTITY_UNDO_DATE_OPTIONS = {
   datePaths: ['before.entity.nextInteractionAt'],
 } as const
+
+export function resolveCreatorUserId(
+  ctx: CommandRuntimeContext,
+  { tenantId }: { tenantId: string },
+): string | null {
+  if (ctx.systemActor === true) return null
+  if (ctx.runAs) return null
+
+  const auth = ctx.auth
+  if (!auth) return null
+  const subject = typeof auth.sub === 'string' ? auth.sub : null
+  if (
+    auth.isApiKey === true ||
+    (typeof auth.keyId === 'string' && auth.keyId.length > 0) ||
+    (subject !== null && subject.startsWith('api_key:'))
+  ) {
+    return null
+  }
+
+  const actorTenantId = 'actorTenantId' in auth ? auth.actorTenantId : auth.tenantId
+  if (typeof actorTenantId !== 'string' || actorTenantId !== tenantId) return null
+
+  if (subject === null || !z.string().uuid().safeParse(subject).success) {
+    logger.warn('customers.creator_unresolved')
+    return null
+  }
+
+  return subject
+}
 
 export function normalizeDictionaryColor(input: unknown): string | null {
   if (typeof input !== 'string') return null

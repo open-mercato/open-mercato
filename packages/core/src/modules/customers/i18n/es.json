@@ -1670,6 +1670,8 @@
   "customers.deals.presets.myDeals": "Mis negocios",
   "customers.deals.presets.wonQuarter": "Ganados este trimestre",
   "customers.detail.comingSoon": "Coming soon",
+  "customers.detail.createdBy.label": "Creado por",
+  "customers.detail.createdBy.unknown": "Creador desconocido",
   "customers.detail.saveGuide": "Los campos del perfil se guardan con el botón principal Guardar. Las etiquetas se guardan automáticamente. Las secciones relacionadas de abajo se guardan de forma independiente en sus propias pestañas y paneles.",
   "customers.dictionaries.defaults.activity_type.call": "Llamada",
   "customers.dictionaries.defaults.activity_type.email": "Correo electrónico",

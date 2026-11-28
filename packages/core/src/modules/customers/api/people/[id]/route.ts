@@ -906,6 +906,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         displayName: person.displayName,
         description: person.description,
         ownerUserId: person.ownerUserId,
+        createdByUserId: person.createdByUserId ?? null,
         primaryEmail: person.primaryEmail,
         primaryPhone: person.primaryPhone,
         status: person.status,
@@ -1154,6 +1155,11 @@ const personDetailResponseSchema = z.object({
     displayName: z.string().nullable().optional(),
     description: z.string().nullable().optional(),
     ownerUserId: z.string().uuid().nullable().optional(),
+    createdByUserId: z
+      .string()
+      .uuid()
+      .nullable()
+      .describe('Read-only server-assigned creator attribution.'),
     primaryEmail: z.string().nullable().optional(),
     primaryPhone: z.string().nullable().optional(),
     status: z.string().nullable().optional(),

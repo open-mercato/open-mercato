@@ -17,6 +17,7 @@ import {
   type InlineFieldProps,
   type NextInteractionPayload,
 } from './InlineEditors'
+import { CreatedByFact } from './CreatedByFact'
 
 type PersonHighlightsPerson = {
   id: string
@@ -56,6 +57,7 @@ export type PersonHighlightsProps = {
   isDeleting: boolean
   onCompanySave: (companyId: string | null) => Promise<void>
   utilityActions?: React.ReactNode
+  createdByUserId?: string | null
 }
 
 type CompanyInfo = { id: string; name: string }
@@ -73,6 +75,7 @@ export function PersonHighlights({
   isDeleting,
   onCompanySave,
   utilityActions,
+  createdByUserId,
 }: PersonHighlightsProps) {
   const router = useRouter()
   const t = useT()
@@ -423,6 +426,7 @@ export function PersonHighlights({
           onSave={onNextInteractionSave}
           activateOnClick
         />
+        <CreatedByFact createdByUserId={createdByUserId} variant="highlight" />
       </div>
     </div>
   )

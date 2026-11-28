@@ -64,6 +64,7 @@ type CompanyOverview = {
     displayName: string
     description?: string | null
     ownerUserId?: string | null
+    createdByUserId?: string | null
     primaryEmail?: string | null
     primaryPhone?: string | null
     status?: string | null
@@ -820,6 +821,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
           <CompanyHighlights
             company={company}
             profile={profile ?? null}
+            createdByUserId={company.createdByUserId}
             validators={validators}
             onDisplayNameSave={updateDisplayName}
             utilityActions={(

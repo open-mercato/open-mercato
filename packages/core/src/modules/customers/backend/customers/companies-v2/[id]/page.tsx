@@ -54,6 +54,10 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
 
+type CompanyDetailOverview = CompanyOverview & {
+  company: CompanyOverview['company'] & { createdByUserId?: string | null }
+}
+
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
@@ -65,7 +69,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
 
-  const [data, setData] = React.useState<CompanyOverview | null>(null)
+  const [data, setData] = React.useState<CompanyDetailOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
@@ -149,12 +153,12 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setError(null)
     setIsNotFound(false)
     try {
-      const payload = await readApiResultOrThrow<CompanyOverview>(
+      const payload = await readApiResultOrThrow<CompanyDetailOverview>(
         `/api/customers/companies/${encodeURIComponent(id)}`,
         undefined,
         { errorMessage: t('customers.companies.detail.error.load', 'Failed to load company.') },
       )
-      setData(payload as CompanyOverview)
+      setData(payload)
     } catch (err) {
       if (isDetailNotFoundStatus((err as { status?: number }).status)) {
         setIsNotFound(true)
@@ -470,6 +474,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           <CompanyDetailHeader
             actions={<InjectionSpot spotId={extensionPoints.hosts.companyHeaderActions.spotId} context={injectionContext} data={data} disabled={isSaving} />}
             data={data}
+            createdByUserId={data.company.createdByUserId}
             onTagsChange={handleTagsChange}
             tagsSectionControllerRef={tagsSectionControllerRef}
             onSave={handleHeaderSave}

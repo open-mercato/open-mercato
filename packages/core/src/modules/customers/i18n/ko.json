@@ -1670,6 +1670,8 @@
   "customers.deals.presets.myDeals": "내 거래",
   "customers.deals.presets.wonQuarter": "이번 분기 성사",
   "customers.detail.comingSoon": "곧 제공됩니다",
+  "customers.detail.createdBy.label": "작성자",
+  "customers.detail.createdBy.unknown": "알 수 없는 작성자",
   "customers.detail.saveGuide": "프로필 필드는 메인 저장 버튼으로 저장됩니다. 태그는 자동으로 저장됩니다. 아래의 관련 섹션들은 각자의 탭과 패널 내에서 독립적으로 저장됩니다.",
   "customers.dictionaries.defaults.activity_type.call": "통화",
   "customers.dictionaries.defaults.activity_type.email": "이메일",

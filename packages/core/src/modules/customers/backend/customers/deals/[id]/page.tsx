@@ -648,6 +648,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
             <DealDetailHeader
               deal={data.deal}
               owner={data.owner}
+              createdByUserId={data.deal.createdByUserId}
               people={data.people}
               companies={data.companies}
               pipelineName={currentPipelineName}

@@ -53,6 +53,9 @@ export class CustomerEntity {
   @Property({ name: 'owner_user_id', type: 'uuid', nullable: true })
   ownerUserId?: string | null
 
+  @Property({ name: 'created_by_user_id', type: 'uuid', nullable: true })
+  createdByUserId?: string | null
+
   @Property({ name: 'primary_email', type: 'text', nullable: true })
   primaryEmail?: string | null
 
@@ -353,6 +356,9 @@ export class CustomerDeal {
 
   @Property({ name: 'owner_user_id', type: 'uuid', nullable: true })
   ownerUserId?: string | null
+
+  @Property({ name: 'created_by_user_id', type: 'uuid', nullable: true })
+  createdByUserId?: string | null
 
   @Property({ name: 'source', type: 'text', nullable: true })
   source?: string | null

@@ -11,6 +11,7 @@ import {
   type InlineFieldProps,
   type NextInteractionPayload,
 } from './InlineEditors'
+import { CreatedByFact } from './CreatedByFact'
 
 type CompanyHighlightsCompany = {
   id: string
@@ -53,6 +54,7 @@ export type CompanyHighlightsProps = {
   onDelete: () => void
   isDeleting: boolean
   utilityActions?: React.ReactNode
+  createdByUserId?: string | null
 }
 
 export function CompanyHighlights({
@@ -67,6 +69,7 @@ export function CompanyHighlights({
   onDelete,
   isDeleting,
   utilityActions,
+  createdByUserId,
 }: CompanyHighlightsProps) {
   const t = useT()
   const historyFallbackId =
@@ -156,6 +159,7 @@ export function CompanyHighlights({
           onSave={onNextInteractionSave}
           activateOnClick
         />
+        <CreatedByFact createdByUserId={createdByUserId} variant="highlight" />
       </div>
     </div>
   )

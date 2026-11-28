@@ -39,6 +39,7 @@ import {
   extractUndoPayload,
   ensureDictionaryEntry,
   invalidateDictionaryKindCaches,
+  resolveCreatorUserId,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -320,6 +321,7 @@ type DealSnapshot = {
     probability: number | null
     expectedCloseAt: Date | string | null
     ownerUserId: string | null
+    createdByUserId: string | null
     source: string | null
     closureOutcome: string | null
     lossReasonId: string | null
@@ -399,6 +401,7 @@ async function loadDealSnapshot(
       probability: deal.probability ?? null,
       expectedCloseAt: deal.expectedCloseAt ?? null,
       ownerUserId: deal.ownerUserId ?? null,
+      createdByUserId: deal.createdByUserId ?? null,
       source: deal.source ?? null,
       closureOutcome: deal.closureOutcome ?? null,
       lossReasonId: deal.lossReasonId ?? null,
@@ -592,6 +595,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     ensureOrganizationScope(ctx, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const createdByUserId = resolveCreatorUserId(ctx, { tenantId: parsed.tenantId })
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
     let deal!: CustomerDeal
     let stageSnapshot: PipelineStageSnapshot | null = null
@@ -646,6 +650,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           probability: parsed.probability ?? stageDefaultProbability,
           expectedCloseAt: parsed.expectedCloseAt ?? null,
           ownerUserId: parsed.ownerUserId ?? null,
+          createdByUserId,
           source: parsed.source ?? null,
           closureOutcome: parsed.closureOutcome ?? null,
           lossReasonId: parsed.lossReasonId ?? null,
@@ -758,6 +763,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
         probability: after.deal.probability,
         expectedCloseAt: after.deal.expectedCloseAt,
         ownerUserId: after.deal.ownerUserId,
+        createdByUserId: after.deal.createdByUserId ?? null,
         source: after.deal.source,
         closureOutcome: after.deal.closureOutcome,
         lossReasonId: after.deal.lossReasonId,
@@ -1101,6 +1107,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         probability: before.deal.probability,
         expectedCloseAt: coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt'),
         ownerUserId: before.deal.ownerUserId,
+        createdByUserId: before.deal.createdByUserId ?? null,
         source: before.deal.source,
         closureOutcome: before.deal.closureOutcome,
         lossReasonId: before.deal.lossReasonId,
@@ -1274,6 +1281,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           probability: before.deal.probability,
           expectedCloseAt: coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt'),
           ownerUserId: before.deal.ownerUserId,
+          createdByUserId: before.deal.createdByUserId ?? null,
           source: before.deal.source,
           closureOutcome: before.deal.closureOutcome,
           lossReasonId: before.deal.lossReasonId,

@@ -111,6 +111,7 @@ const crud = makeCrudRoute({
       'display_name',
       'description',
       'owner_user_id',
+      'created_by_user_id',
       'primary_email',
       'primary_phone',
       'status',
@@ -487,9 +488,15 @@ const crud = makeCrudRoute({
         if (!item || typeof item !== 'object') return item
         const record = item as Record<string, unknown>
         const profile = typeof record.id === 'string' ? profilesByEntityId.get(record.id) : undefined
-        if (!profile) return item
+        if (!profile) {
+          return {
+            ...record,
+            created_by_user_id: record.created_by_user_id ?? null,
+          }
+        }
         return {
           ...record,
+          created_by_user_id: record.created_by_user_id ?? null,
           legal_name: profile.legalName ?? null,
           brand_name: profile.brandName ?? null,
           domain: profile.domain ?? null,
@@ -514,6 +521,12 @@ const companyListItemSchema = z.object({
   display_name: z.string().optional(),
   description: z.string().nullable().optional(),
   owner_user_id: z.string().uuid().nullable().optional(),
+  created_by_user_id: z
+    .string()
+    .uuid()
+    .nullable()
+    .optional()
+    .describe('Read-only server-assigned creator attribution.'),
   primary_email: z.string().nullable().optional(),
   primary_phone: z.string().nullable().optional(),
   status: z.string().nullable().optional(),
