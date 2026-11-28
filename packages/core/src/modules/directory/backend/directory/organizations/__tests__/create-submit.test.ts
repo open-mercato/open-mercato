@@ -43,4 +43,24 @@ describe('submitCreateOrganization', () => {
       customFields: { custom: 'value' },
     })
   })
+
+  it('rejects oversized names with the localized field message before sending a mutation', async () => {
+    const request = jest.fn(async () => {})
+    const message = 'Nazwa może zawierać najwyżej 200 znaków'
+    await expect(submitCreateOrganization({
+      values: { name: 'x'.repeat(201) },
+      actorIsSuperAdmin: false, selectedTenantId: null,
+      createOrganization: request,
+      messages: { nameTooLong: message },
+    })).rejects.toMatchObject({ message, fieldErrors: { name: message } })
+    expect(request).not.toHaveBeenCalled()
+
+    await submitCreateOrganization({
+      values: { name: 'x'.repeat(200) },
+      actorIsSuperAdmin: false, selectedTenantId: null,
+      createOrganization: request,
+      messages: { nameTooLong: message },
+    })
+    expect(request).toHaveBeenCalledTimes(1)
+  })
 })

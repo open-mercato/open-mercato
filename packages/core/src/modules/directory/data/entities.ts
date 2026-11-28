@@ -1,5 +1,5 @@
 import { Collection } from '@mikro-orm/core'
-import { Entity, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Entity, Index, ManyToOne, OneToMany, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'tenants' })
 export class Tenant {
@@ -27,6 +27,10 @@ export class Tenant {
 
 @Entity({ tableName: 'organizations' })
 @Unique({ name: 'organizations_tenant_slug_uniq', properties: ['tenant', 'slug'] })
+@Index({
+  name: 'organizations_live_slug_uniq',
+  expression: 'create unique index "organizations_live_slug_uniq" on "organizations" (lower("slug")) where "deleted_at" is null',
+})
 export class Organization {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string

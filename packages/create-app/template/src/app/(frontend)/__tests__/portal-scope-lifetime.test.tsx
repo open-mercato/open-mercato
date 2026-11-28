@@ -4,11 +4,13 @@ import { asFunction, asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 
-const mockFindOne = jest.fn()
-const mockOrm = { em: { fork: jest.fn(() => ({ findOne: mockFindOne })) } }
+const mockFind = jest.fn()
+const mockOrm = { em: { fork: jest.fn(() => ({ find: mockFind })) } }
 const mockDispose = jest.fn()
 
-jest.mock('next/headers', () => ({ headers: async () => ({ get: () => '/acme/portal' }) }))
+jest.mock('next/headers', () => ({
+  headers: async () => ({ get: (name: string) => name === 'x-next-url' ? '/acme/portal' : null }),
+}))
 jest.mock('next/link', () => ({ __esModule: true, default: 'a' }))
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuthServer', () => ({
   getCustomerAuthFromCookies: async () => {
@@ -26,7 +28,13 @@ jest.mock('@open-mercato/ui/portal/PortalLayoutShell', () => ({
 jest.mock('@open-mercato/ui/backend/detail', () => ({ AccessDeniedMessage: () => null }))
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({ resolveTranslations: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/db/mikro', () => ({ getOrm: async () => mockOrm }))
-jest.mock('@mikro-orm/core', () => ({ RequestContext: { getEntityManager: () => null } }))
+jest.mock('@mikro-orm/core', () => ({
+  ...jest.requireActual('@mikro-orm/core'),
+  RequestContext: { getEntityManager: () => null },
+}))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (em: { find: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.find(...args),
+}))
 jest.mock('@open-mercato/shared/lib/query/engine', () => ({ BasicQueryEngine: class {} }))
 jest.mock('@open-mercato/shared/lib/data/engine', () => ({ DefaultDataEngine: class {} }))
 jest.mock('@open-mercato/shared/lib/commands', () => ({ commandRegistry: {}, CommandBus: class {} }))
@@ -67,7 +75,7 @@ beforeEach(() => {
   process.env.OM_CACHE_SINGLETON = 'on'
   process.env.SEARCH_DISABLE_SINGLETON_CACHE = 'off'
   jest.clearAllMocks()
-  mockFindOne.mockResolvedValue({ id: 'org', name: 'Acme', tenant: { id: 'tenant' } })
+  mockFind.mockResolvedValue([{ id: 'org', name: 'Acme', slug: 'acme', tenant: { id: 'tenant' } }])
   resetBootstrapCache()
   registerAppDiRegistrar(defineProcessDiRegistrar(() => {}))
   registerDiRegistrars([defineProcessDiRegistrar((container) => {
@@ -93,12 +101,12 @@ afterEach(async () => {
 })
 
 it.each([false, true])('releases the layout scope after portal lookup (failure: %s)', async (fails) => {
-  if (fails) mockFindOne.mockRejectedValueOnce(new Error('lookup failed'))
+  if (fails) mockFind.mockRejectedValueOnce(new Error('lookup failed'))
   root = await initializeProcessContainer()
 
   const element = await FrontendLayout({ children: <span>child content</span> })
   expect(renderToStaticMarkup(element)).toContain('child content')
-  expect(mockFindOne).toHaveBeenCalledTimes(1)
+  expect(mockFind).toHaveBeenCalledTimes(1)
   expect(mockDispose).not.toHaveBeenCalled()
 
   invalidateProcessContainer()

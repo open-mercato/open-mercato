@@ -1,19 +1,18 @@
 /** @jest-environment node */
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
-const otherTenantId = '33333333-3333-4333-8333-333333333333'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 
-const findOne = jest.fn()
+const find = jest.fn()
 const resolveByHostname = jest.fn()
 
 let domainMappingServiceRegistered = true
 
 const container = {
   resolve: jest.fn((name: string) => {
-    if (name === 'em') return { findOne }
+    if (name === 'em') return { find }
     if (name === 'domainMappingService') {
-      if (!domainMappingServiceRegistered) throw new Error('Could not resolve domainMappingService')
+      if (!domainMappingServiceRegistered) return undefined
       return { resolveByHostname }
     }
     throw new Error(`Unexpected container resolve: ${name}`)
@@ -22,6 +21,10 @@ const container = {
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => container),
+}))
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (em: { find: (...args: unknown[]) => unknown }, ...args: unknown[]) => em.find(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -46,7 +49,7 @@ function makeRequest(slug: string, headers: Record<string, string> = {}) {
 }
 
 function makeOrganization() {
-  return { id: organizationId, name: 'Acme', slug: 'acme' }
+  return { id: organizationId, name: 'Acme', slug: 'acme', tenant: { id: tenantId } }
 }
 
 describe('GET /api/directory/organizations/lookup', () => {
@@ -55,50 +58,70 @@ describe('GET /api/directory/organizations/lookup', () => {
     domainMappingServiceRegistered = true
     rateLimiterService = { trustProxyDepth: 1, consume }
     consume.mockResolvedValue({ allowed: true, msBeforeNext: 0, remainingPoints: 59 })
-    findOne.mockResolvedValue(makeOrganization())
+    find.mockResolvedValue([makeOrganization()])
     resolveByHostname.mockResolvedValue(null)
   })
 
-  it('scopes the lookup to the tenant implied by an active custom-domain host', async () => {
-    resolveByHostname.mockResolvedValue({ tenantId, status: 'active' })
+  it('scopes the lookup to the organization and tenant mapped to an active custom domain', async () => {
+    resolveByHostname.mockResolvedValue({ tenantId, organizationId, status: 'active' })
 
     const res = await GET(makeRequest('acme', { host: 'shop.acme.com' }))
 
     expect(res.status).toBe(200)
     expect(resolveByHostname).toHaveBeenCalledWith('shop.acme.com')
-    const [, filter] = findOne.mock.calls[0]
-    expect(filter).toMatchObject({ slug: 'acme', deletedAt: null, tenant: tenantId })
+    const [, filter] = find.mock.calls[0]
+    expect(filter).toMatchObject({ id: organizationId, deletedAt: null, tenant: tenantId })
+    await expect(res.json()).resolves.toEqual({
+      ok: true,
+      organization: { id: organizationId, name: 'Acme', slug: 'acme' },
+    })
   })
 
   it('does not leak another tenant org when the custom-domain host owns no such slug', async () => {
-    resolveByHostname.mockResolvedValue({ tenantId, status: 'active' })
-    findOne.mockResolvedValue(null)
+    resolveByHostname.mockResolvedValue({ tenantId, organizationId, status: 'active' })
+    find.mockResolvedValue([])
 
     const res = await GET(makeRequest('competitor', { host: 'shop.acme.com' }))
 
     expect(res.status).toBe(404)
-    const [, filter] = findOne.mock.calls[0]
-    expect(filter).toMatchObject({ tenant: tenantId })
+    expect(find).toHaveBeenCalledTimes(1)
+    const [, filter] = find.mock.calls[0]
+    expect(filter).toMatchObject({ id: organizationId, tenant: tenantId })
   })
 
-  it('resolves globally but deterministically on the platform domain', async () => {
+  it('resolves a unique undeleted slug on the platform domain', async () => {
     resolveByHostname.mockResolvedValue(null)
 
     const res = await GET(makeRequest('acme', { host: 'app.openmercato.com' }))
 
     expect(res.status).toBe(200)
-    const [, filter, options] = findOne.mock.calls[0]
+    const [, filter, options] = find.mock.calls[0]
     expect(filter).not.toHaveProperty('tenant')
-    expect(options).toEqual({ orderBy: { createdAt: 'ASC' } })
+    expect(options).toEqual({ limit: 2 })
+  })
+
+  it('returns 404 when the platform organization resolver has an ambiguous result', async () => {
+    find.mockResolvedValue([makeOrganization(), { ...makeOrganization(), id: 'different-org' }])
+
+    const res = await GET(makeRequest('acme'))
+
+    expect(res.status).toBe(404)
+  })
+
+  it('keeps the request scoped when the domain service fails', async () => {
+    resolveByHostname.mockRejectedValue(new Error('[internal] domain service unavailable'))
+
+    await expect(GET(makeRequest('acme', { host: 'shop.acme.com' }))).rejects.toThrow('domain service unavailable')
+    expect(find).not.toHaveBeenCalled()
   })
 
   it('ignores an inactive domain mapping and keeps the global resolution', async () => {
-    resolveByHostname.mockResolvedValue({ tenantId: otherTenantId, status: 'pending' })
+    resolveByHostname.mockResolvedValue({ tenantId, organizationId, status: 'pending' })
 
     const res = await GET(makeRequest('acme', { host: 'pending.acme.com' }))
 
     expect(res.status).toBe(200)
-    const [, filter] = findOne.mock.calls[0]
+    const [, filter] = find.mock.calls[0]
     expect(filter).not.toHaveProperty('tenant')
   })
 
@@ -108,7 +131,7 @@ describe('GET /api/directory/organizations/lookup', () => {
     const res = await GET(makeRequest('acme', { host: 'shop.acme.com' }))
 
     expect(res.status).toBe(200)
-    const [, filter] = findOne.mock.calls[0]
+    const [, filter] = find.mock.calls[0]
     expect(filter).not.toHaveProperty('tenant')
   })
 
@@ -119,14 +142,14 @@ describe('GET /api/directory/organizations/lookup', () => {
 
     expect(res.status).toBe(429)
     expect(res.headers.get('Retry-After')).toBe('30')
-    expect(findOne).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
   })
 
   it('rejects an empty slug', async () => {
     const res = await GET(makeRequest(''))
 
     expect(res.status).toBe(400)
-    expect(findOne).not.toHaveBeenCalled()
+    expect(find).not.toHaveBeenCalled()
   })
 
   it('rate limits invalid slugs too, so the limiter cannot be bypassed with junk input', async () => {
@@ -151,6 +174,6 @@ describe('GET /api/directory/organizations/lookup', () => {
     const res = await GET(makeRequest('acme'))
 
     expect(res.status).toBe(200)
-    expect(findOne).toHaveBeenCalled()
+    expect(find).toHaveBeenCalled()
   })
 })

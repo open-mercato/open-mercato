@@ -4,6 +4,7 @@ jest.mock('@open-mercato/shared/lib/encryption/toggles', () => ({
   isEncryptionDebugEnabled: () => false,
 }))
 
+import { RawQueryFragment } from '@mikro-orm/core'
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 import { registerCliModules } from '@open-mercato/shared/modules/registry'
 import type { Module } from '@open-mercato/shared/modules/registry'
@@ -97,8 +98,11 @@ describe('mercato auth setup --orgSlug', () => {
   it('throws OrgSlugExistsError when an organization with that slug already exists, exit 1', async () => {
     findOne.mockImplementation(async (Entity: any, where: any) => {
       const name = (Entity && Entity.name) || ''
-      if (name === 'Organization' && where?.slug === 'taken') {
-        return { id: 'pre-existing-org', slug: 'taken' }
+      if (name === 'Organization') {
+        const [key] = Object.getOwnPropertySymbols(where)
+        if (key && RawQueryFragment.getKnownFragment(where[key])?.params[0] === 'taken') {
+          return { id: 'pre-existing-org', slug: 'TAKEN' }
+        }
       }
       if (name === 'Role') {
         if (where?.name === 'superadmin') return { id: 'r-superadmin', name: 'superadmin' }
@@ -118,6 +122,17 @@ describe('mercato auth setup --orgSlug', () => {
     const orgPayload = persistedEntities.find((row) => row && row.slug === 'fresh' && row.name === 'Acme')
     expect(orgPayload).toBeDefined()
     expect(orgPayload.slug).toBe('fresh')
+  })
+
+  it('uses the same CLI error for a concurrent slug reservation', async () => {
+    flush.mockResolvedValueOnce(undefined)
+    flush.mockRejectedValueOnce({ code: '23505', constraint: 'organizations_live_slug_uniq' })
+
+    await setupCommand.run([...BASE_ARGS, '--orgSlug', 'fresh', '--json'])
+
+    expect(process.exitCode).toBe(1)
+    expect(stdoutSpy).not.toHaveBeenCalled()
+    expect(stderrSpy.mock.calls.map(([value]) => String(value)).join('')).toContain('ORG_SLUG_EXISTS')
   })
 
   it('emits a single JSON line to stdout in --json mode and suppresses banners', async () => {

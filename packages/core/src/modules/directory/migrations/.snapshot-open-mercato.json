@@ -300,6 +300,15 @@
       },
       "indexes": [
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "organizations_live_slug_uniq",
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"organizations_live_slug_uniq\" on \"organizations\" (lower(\"slug\")) where \"deleted_at\" is null"
+        },
+        {
           "columnNames": [
             "id"
           ],

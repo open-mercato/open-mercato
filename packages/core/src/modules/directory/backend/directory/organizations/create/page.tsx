@@ -204,6 +204,7 @@ export default function CreateOrganizationPage() {
               selectedTenantId,
               messages: {
                 tenantRequired: t('directory.organizations.errors.tenantRequired', 'Tenant selection is required for super administrators'),
+                nameTooLong: t('directory.organizations.errors.nameTooLong', 'Name must contain at most 200 characters'),
               },
             })
           }}
@@ -236,6 +237,7 @@ export async function submitCreateOrganization(options: {
   createOrganization?: CreateOrganizationRequest
   messages?: {
     tenantRequired?: string
+    nameTooLong?: string
   }
 }): Promise<void> {
   const {
@@ -245,6 +247,11 @@ export async function submitCreateOrganization(options: {
     createOrganization = defaultCreateOrganizationRequest,
     messages,
   } = options
+
+  if (typeof values.name === 'string' && values.name.length > 200) {
+    const message = messages?.nameTooLong ?? '[internal] Organization name exceeds 200 characters'
+    throw createCrudFormError(message, { name: message })
+  }
 
   const customFields = collectCustomFieldValues(values)
 
