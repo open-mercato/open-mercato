@@ -48,6 +48,7 @@ import type { PolicyResolutionService } from '@open-mercato/core/modules/availab
 import type { SalesCalculationService } from '@open-mercato/core/modules/sales/services/salesCalculationService'
 import type { SalesAdjustmentDraft } from '@open-mercato/core/modules/sales/lib/types'
 
+import { MAX_CART_LINE_QUANTITY } from '../data/validators'
 import { Cart, CartLine } from '../data/entities'
 import type { CartChannel, CartLineActorType, CartLineOrigin } from '../data/entities'
 import {
@@ -217,8 +218,9 @@ export function checkQuantityRule(rules: QuantityRules, requestedQuantity: numbe
     return { status: 'rejected', reason: 'quantity_below_minimum', nearestValid: bumpToMinimum(minOrderQuantity) }
   }
 
-  if (maxOrderQuantity != null && requestedQuantity > maxOrderQuantity) {
-    return { status: 'accepted_clamped', quantity: maxOrderQuantity, requestedQuantity }
+  const maxQuantity = Math.min(maxOrderQuantity ?? MAX_CART_LINE_QUANTITY, MAX_CART_LINE_QUANTITY)
+  if (requestedQuantity > maxQuantity) {
+    return { status: 'accepted_clamped', quantity: maxQuantity, requestedQuantity }
   }
 
   return { status: 'accepted', quantity: requestedQuantity }
@@ -362,8 +364,8 @@ function applyPriceSnapshot(line: CartLine, resolved: ResolvedLinePrice, pricedA
  * (`line.priceRowId`), not a re-derivation of the whole tier ladder. A single row-by-id
  * lookup (cheap, no row-set fetch, no `catalogBuyerPricingService` call) is enough to
  * answer "did we leave that row's own window" — this is the check `.update` uses to decide
- * whether a re-price is even necessary, so a same-tier quantity change never calls the
- * pricing service at all.
+ * whether a quantity change crosses the stored tier, so an already visible line can
+ * keep its snapshot on a same-tier update.
  */
 async function isWithinStoredPriceTier(
   em: EntityManager,
@@ -1257,17 +1259,20 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     }
 
     const now = new Date()
-    // §5.2 trigger 1 + §5.1's `priceChanges` disclosure (Step 5.1): populated only when the
-    // tier-crossing re-price below actually moved the unit price, never for a same-tier
-    // quantity change. `Cart.lastPriceChangeAt` (§5.3: "the cart records last_price_change_at")
-    // is set on `cart` in the same locked transaction as the line's new snapshot. §8.1 (rev
-    // 10.1 — I1): the tier is judged against the line as read under the cart lock, so a
-    // concurrent update that crossed a tier is never overwritten at the stale tier's price.
+    // §5.2 trigger 1 + §5.1's `priceChanges` disclosure (Step 5.1): populated when the
+    // tier-crossing re-price below actually moved the unit price, or when a previously
+    // visibility-flagged line is restored and its stored snapshot may be stale (#9496).
+    // `Cart.lastPriceChangeAt` (§5.3: "the cart records last_price_change_at") is set on
+    // `cart` in the same locked transaction as the line's new snapshot. §8.1 (rev 10.1 —
+    // I1): the tier and flag state are judged against the line as read under the cart
+    // lock, so a concurrent update that crossed a tier is never overwritten at the stale
+    // tier's price.
     const priceChanges: CartPriceChange[] = []
     const notPriceable = new Error('[internal] cart line is not priceable under the cart lock')
     const repriceLinePhase = async () => {
       const sameTier = await isWithinStoredPriceTier(em, scope, line, finalQuantity)
-      if (!sameTier) {
+      const restoringVisibility = assortmentScope !== undefined && line.flagState === 'product_unavailable'
+      if (!sameTier || restoringVisibility) {
         const pricingContext = buildCartPricingRowFilterContext(cart)
         const variantIds = line.variantId ? [line.variantId] : []
         const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [line.productId], variantIds), line.variantId ?? null)
@@ -1299,7 +1304,7 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
             newUnitPriceNet,
             oldUnitPriceGross,
             newUnitPriceGross,
-            reason: 'tier_change',
+            reason: sameTier ? 'stale_snapshot' : 'tier_change',
           })
           cart.lastPriceChangeAt = now
         }

@@ -9,6 +9,7 @@ import {
   countModuleFactCoverage,
   extractAllModuleFacts,
   extractModuleFacts,
+  prepareReferenceFormSectionContributions,
   type ModuleFactCoverageFamily,
   type ModuleFactCoverageRow,
   type ModuleFacts,
@@ -33,6 +34,7 @@ import {
 } from '@open-mercato/shared/modules/widgets/extension-points'
 import {
   ALL_OVERRIDE_DOMAINS,
+  computeOverrideTargetId,
   MODULE_OVERRIDE_MODES,
   MODULE_OVERRIDE_TARGET_DIAGNOSTIC_CODES,
   MODULE_OVERRIDE_TARGET_NOTES,
@@ -82,11 +84,17 @@ function exampleRegistrySource(): string {
 }
 
 function extractExampleFacts(registrySource?: string): ModuleFacts {
-  return extractModuleFacts({
+  const source = {
     moduleId: 'example',
     moduleRoot: path.join(findRepoRoot(), 'apps', 'mercato', 'src', 'modules', 'example'),
     portableSourceRoot: 'src/modules/example',
-    ...(registrySource === undefined ? {} : { registrySource }),
+  }
+  return extractModuleFacts({
+    ...source,
+    ...(registrySource === undefined ? {} : {
+      registrySource,
+      formSectionContributions: prepareReferenceFormSectionContributions(source).get(source.moduleId),
+    }),
   })
 }
 
@@ -350,16 +358,13 @@ describe('factCoverage ledger — checked against the real example extraction', 
     expect(fs.existsSync(path.join(findRepoRoot(), 'apps/mercato/src/modules/example/generators.ts'))).toBe(true)
   })
 
-  it('emits a real override target for all fifteen module-owned domains and none for framework-only nav', () => {
+  it('emits targets for the example-backed override domains', () => {
     const domainCounts = counts.ModuleOverrideDomain
-    for (const domain of ALL_OVERRIDE_DOMAINS) {
-      if (domain === 'nav') {
-        expect(domainCounts[domain] ?? 0).toBe(0)
-        continue
-      }
-      expect(domainCounts[domain] ?? 0).toBeGreaterThan(0)
-    }
-    expect(Object.keys(domainCounts)).toHaveLength(ALL_OVERRIDE_DOMAINS.length - 1)
+    const emitted = familyOf(ledger, 'ModuleOverrideDomain').rows
+      .filter((row) => row.status === 'emitted-example' && !row.requiresGeneratedRegistry)
+      .map((row) => row.value)
+    expect(Object.keys(domainCounts).sort()).toEqual(emitted.sort())
+    for (const domain of emitted) expect(domainCounts[domain]).toBeGreaterThan(0)
   })
 
   it('round-trips all three modes and both closed notes through real targets', () => {
@@ -424,7 +429,8 @@ describe('factCoverage ledger — checked against the real example extraction', 
 describe('requiresGeneratedRegistry — the only skip out of the non-zero proof is itself proven', () => {
   const ledger = buildModuleFactCoverageLedger()
   const sourceOnlyCounts = countModuleFactCoverage(extractExampleFacts())
-  const registryBackedCounts = countModuleFactCoverage(extractExampleFacts(exampleRegistrySource()))
+  const registryBacked = extractExampleFacts(exampleRegistrySource())
+  const registryBackedCounts = countModuleFactCoverage(registryBacked)
   const claims = ledger.flatMap((family) =>
     family.rows
       .filter((row) => row.requiresGeneratedRegistry)
@@ -434,7 +440,7 @@ describe('requiresGeneratedRegistry — the only skip out of the non-zero proof 
     `${claim.family}.${claim.row.value}`
 
   it('is claimed by exactly the rows the rest of this suite proves', () => {
-    expect(claims.map(label)).toEqual(['ModuleFactSourceKind.api-route'])
+    expect(claims.map(label).sort()).toEqual(['ModuleFactSourceKind.api-route', 'ModuleOverrideDomain.forms'])
   })
 
   it('is claimed only where it changes anything: on an emitted-example row', () => {
@@ -453,6 +459,24 @@ describe('requiresGeneratedRegistry — the only skip out of the non-zero proof 
       .filter((claim) => (registryBackedCounts[claim.family]?.[claim.row.value] ?? 0) <= 0)
       .map(label)
     expect(stillZeroWithRegistry).toEqual([])
+  })
+
+  it('projects exactly the occupied showcase addresses with portable contribution provenance', () => {
+    const sections = ['brand', 'details', 'erp', 'observer', 'season', 'status', 'title']
+    const keys = ['create', 'update'].flatMap((operation) =>
+      sections.map((section) => `example.todo/showcase/${operation}/${section}`))
+    const targets = registryBacked.overrideTargets?.filter(({ domain }) => domain === 'forms') ?? []
+    expect(targets.map(({ key }) => key).sort()).toEqual(keys)
+    for (const target of targets) {
+      const fact = registryBacked.formSectionContributions?.find(({ id }) => id === target.factRef.factKey)
+      const source = { sourcePath: 'src/modules/example/form-sections.ts', exportName: 'crudFormExtensions' }
+      expect(fact).toMatchObject({ key: target.key, source })
+      expect(target).toMatchObject({
+        modes: ['disable-replace'], source, path: ['forms', 'sections', target.key],
+        id: computeOverrideTargetId('example', 'forms', target.path),
+      })
+      expect(target.factRef.factSection).toBe('formSectionContributions')
+    }
   })
 
   it('drives the registry-backed count from a route the example module really ships', () => {

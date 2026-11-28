@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "head": "be6aca022b098e654ac9a4564063ccad933c1391",
+  "productionRuntimeCommit": "243661d18a7cb74df34aa518b2bc094dd480dc9e",
+  "nodeVersion": "24.22.2",
+  "commands": [
+    {
+      "command": "yarn build:packages",
+      "result": "passed"
+    },
+    {
+      "command": "yarn generate",
+      "result": "passed"
+    },
+    {
+      "command": "yarn build:packages",
+      "result": "passed"
+    },
+    {
+      "command": "yarn i18n:check-sync",
+      "result": "passed"
+    },
+    {
+      "command": "yarn i18n:check-usage",
+      "result": "passed"
+    },
+    {
+      "command": "yarn typecheck",
+      "result": "passed"
+    },
+    {
+      "command": "yarn test",
+      "result": "passed"
+    },
+    {
+      "command": "yarn build:app",
+      "result": "passed"
+    }
+  ],
+  "fullWorkspaceTestTasks": "51/51 successful,4m32.262s",
+  "hostSleepOverlap": false,
+  "hostControl": "Temporary task-scoped caffeinate -is lease; no display/user-activity assertion, global setting change or thermal override.",
+  "releaseAcceptance": false,
+  "remainingGate": "20 GiB warm/cold,large-row stress and final review/report remain pending."
+}

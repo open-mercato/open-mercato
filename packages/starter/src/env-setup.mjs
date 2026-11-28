@@ -6,6 +6,48 @@ import { addEnvValue, readEnvValue, replaceEnvLine, uncommentEnvLine, writeEnvFi
 import { secretFingerprint, secretHex } from './secrets.mjs'
 import { replaceValues } from './service-modes.mjs'
 
+export function openCodeProbeOptions(repoRoot, env = process.env) {
+  let password = env.OPENCODE_PASSWORD
+  if (password === undefined) {
+    const rootEnv = path.join(repoRoot, '.env')
+    if (fs.existsSync(rootEnv)) password = parseEnv(fs.readFileSync(rootEnv, 'utf8')).OPENCODE_PASSWORD
+  }
+  if (!password?.trim()) return {}
+  return {
+    headers: { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` },
+    redirect: 'error',
+  }
+}
+
+function writeOpenCodePassword(file, text, password) {
+  const content = replaceValues(text, { OPENCODE_PASSWORD: password })
+  if (fs.existsSync(file)) fs.chmodSync(file, 0o600)
+  fs.writeFileSync(file, content, { mode: 0o600 })
+}
+
+export function ensureOpenCodePassword(repoRoot, env = process.env) {
+  if (env.OPENCODE_PASSWORD?.trim()) return false
+
+  const rootEnv = path.join(repoRoot, '.env')
+  const appEnv = path.join(repoRoot, 'apps', 'mercato', '.env')
+  const rootText = fs.existsSync(rootEnv) ? fs.readFileSync(rootEnv, 'utf8') : ''
+  const appText = fs.existsSync(appEnv) ? fs.readFileSync(appEnv, 'utf8') : null
+  const rootPassword = parseEnv(rootText).OPENCODE_PASSWORD
+  const appPassword = parseEnv(appText ?? '').OPENCODE_PASSWORD
+  if (rootPassword?.trim() && appPassword?.trim() && rootPassword !== appPassword) {
+    throw new Error('OPENCODE_PASSWORD differs between .env and apps/mercato/.env. Set the same value in both files before starting OpenCode.')
+  }
+  const password = [rootPassword, appPassword].find((value) => value?.trim()) ?? secretHex()
+  const rootNeedsPassword = !rootPassword?.trim()
+  if (rootNeedsPassword) {
+    writeOpenCodePassword(rootEnv, rootText, password)
+  }
+  if (appText !== null && !appPassword?.trim()) {
+    writeOpenCodePassword(appEnv, appText, password)
+  }
+  return rootNeedsPassword
+}
+
 // Node port of the Windows launcher's Initialize-EnvFiles: fill-missing-only,
 // machine-local secrets are generated once and never overwritten on re-runs.
 // Postgres and superadmin credentials deliberately stay on the documented dev
@@ -113,5 +155,6 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
     }
   }
 
-  return { rootEnv, appEnv, jwtSecret }
+  const openCodePasswordChanged = ensureOpenCodePassword(repoRoot, env)
+  return { rootEnv, appEnv, jwtSecret, openCodePasswordChanged }
 }

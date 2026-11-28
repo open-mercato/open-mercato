@@ -23,6 +23,7 @@ import {
 import { buildCartResponseEnvelope } from '../../../lib/cartView'
 import type { CartViewWarning } from '../../../lib/cartView'
 import { resolveCartWarningMessage } from '../../../lib/warningMessages'
+import { hashCartToken } from '../../../lib/token'
 import { enforceCartRateLimit } from '../../../lib/rateLimit'
 import { hashCartToken } from '../../../lib/token'
 
@@ -47,11 +48,11 @@ export async function POST(request: Request) {
     const container = await createRequestContainer()
     const token = readCartToken(request)
 
-    const limited = await enforceCartRateLimit(container, request, 'mutate', token)
-    if (limited) return limited
-
     const resolved = await resolveRouteContextOrError(request, container, { fresh: true })
     if (!resolved.ok) return resolved.response
+
+    const limited = await enforceCartRateLimit(container, request, 'mutate', token, resolved.routeContext.storeId)
+    if (limited) return limited
     if (!token) return notFoundCartResponse()
 
     const commandBus = container.resolve('commandBus') as CommandBus
@@ -97,6 +98,7 @@ export async function POST(request: Request) {
 
     const commandInput: CartMergeInput = {
       targetCartId: cart.id,
+      expectedTargetTokenHash: hashCartToken(token),
       tenantId: resolved.routeContext.tenantId,
       organizationId: resolved.routeContext.organizationId,
       sourceToken: body.sourceToken,
@@ -152,7 +154,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'No `X-Cart-Token` header, the token does not resolve a cart, or sourceToken does not resolve a different basket — an `abandoned` cart on either side is reactivated rather than rejected (§9)' },
         { status: 409, description: 'Optimistic-lock conflict' },
         { status: 429, description: 'Rate limited' },
-        { status: 503, description: 'No store context resolvable for this request (§6a.1a), or cart_busy after 15 seconds waiting for the cart lock. The locked merge phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second.' },
+        { status: 503, description: 'No store context resolvable for this request (§6a.1a), rate limiter unavailable, or cart_busy after 15 seconds waiting for the cart lock. The locked merge phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second.' },
       ],
     },
   },

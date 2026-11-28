@@ -9,6 +9,7 @@ import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encry
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { CRUD_QUERY_INDEX_MANAGED_PAYLOAD_KEY } from '@open-mercato/shared/lib/crud/types'
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { BasicQueryEngine } from '@open-mercato/shared/lib/query/engine'
 import { HybridQueryEngine } from './lib/engine'
@@ -19,6 +20,7 @@ import {
   resolveQueryIndexRecordScope,
   resolveQueryIndexSourceMetadata,
 } from './lib/subscriber-scope'
+import { isSearchDebugEnabled } from './lib/search-tokens'
 
 const logger = createLogger('query_index').child({ component: 'crud-bridge' })
 const LEGACY_BUS_SETUP_MAX_ATTEMPTS = 50
@@ -81,13 +83,24 @@ async function resolveBridgeRecordScope(
 
 async function recordBridgeError(input: {
   em: EntityManager | null
-  handler: 'upsert' | 'delete'
+  handler: 'upsert' | 'delete' | 'custom_field_gate'
   error: unknown
   entityType: string
   recordId: string
-  payload: unknown
+  payload?: unknown
+  tenantId?: string | null
+  organizationId?: string | null
 }): Promise<void> {
   const handler = `event:query_index.crud_bridge.${input.handler}`
+  try {
+    reportTelemetryError(input.error, {
+      module: 'query_index',
+      code: 'query_index.crud_bridge_failed',
+      attributes: { handler, entityType: input.entityType, recordId: input.recordId },
+    })
+  } catch (telemetryError) {
+    logger.warn('Failed to report CRUD bridge error', { err: telemetryError })
+  }
   if (!input.em) {
     logger.error('CRUD bridge event failed before the entity manager was resolved', {
       handler,
@@ -105,7 +118,9 @@ async function recordBridgeError(input: {
       error: input.error,
       entityType: input.entityType,
       recordId: input.recordId,
-      payload: input.payload,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      ...(input.payload === undefined ? {} : { payload: input.payload }),
     },
   ).catch((loggingError) => {
     logger.error('Failed to record CRUD bridge error', {
@@ -161,7 +176,17 @@ const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any)
         cfQuery = cfQuery.where('tenant_id' as any, 'is', null as any)
       }
       hasCustomFields = !!await cfQuery.executeTakeFirst()
-    } catch {}
+    } catch (error) {
+      await recordBridgeError({
+        em,
+        handler: 'custom_field_gate',
+        error,
+        entityType,
+        recordId: id,
+        tenantId,
+        organizationId: orgId,
+      })
+    }
     if (hasCustomFields === false) {
       if (!sourceValidated) {
         await resolveBridgeRecordScope(
@@ -172,6 +197,14 @@ const makeUpsertHandler = (entityType: string) => async (payload: any, ctx: any)
           'upsert',
           { validateCompletePayload: true },
         )
+      }
+      if (isSearchDebugEnabled()) {
+        logger.debug('Skipping CRUD index update: no active custom fields in scope', {
+          entityType,
+          recordId: id,
+          tenantId,
+          organizationId: orgId,
+        })
       }
       return
     }

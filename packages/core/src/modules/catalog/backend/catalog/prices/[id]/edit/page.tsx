@@ -7,10 +7,11 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import { usePriceFormFields, type PriceFormValues } from '../../../../../components/prices/priceFormFields'
 import { normalizePriceRecord } from '../../../../../components/prices/normalizePriceRecord'
+import { normalizePriceFormAmounts } from '../../../../../components/prices/priceFormAmounts'
 
 type PriceListResponse = {
   items?: Array<Record<string, unknown>>
@@ -26,6 +27,7 @@ function toDateInputValue(value: string | null | undefined): string {
 function buildUpdatePayload(
   id: string,
   values: PriceFormValues,
+  locale: string,
   t: (key: string, fallback?: string) => string,
 ): Record<string, unknown> {
   const productId = values.productId?.trim() || undefined
@@ -40,8 +42,7 @@ function buildUpdatePayload(
     variantId,
     priceKindId: values.priceKindId?.trim() || undefined,
     currencyCode: values.currencyCode?.trim() || undefined,
-    unitPriceNet: values.unitPriceNet?.trim() || undefined,
-    unitPriceGross: values.unitPriceGross?.trim() || undefined,
+    ...normalizePriceFormAmounts(values, locale, t),
     taxRate: values.taxRate?.trim() || undefined,
     minQuantity: values.minQuantity ?? undefined,
     maxQuantity: values.maxQuantity ?? undefined,
@@ -59,6 +60,7 @@ function buildUpdatePayload(
 export default function EditCatalogPricePage({ params }: { params?: { id?: string } }) {
   const priceId = params?.id ?? ''
   const t = useT()
+  const locale = useLocale()
   const { fields, groups } = usePriceFormFields()
   const [initialValues, setInitialValues] = React.useState<PriceFormValues | null>(null)
   const [loading, setLoading] = React.useState(true)
@@ -182,7 +184,7 @@ export default function EditCatalogPricePage({ params }: { params?: { id?: strin
           cancelHref="/backend/catalog/prices"
           successRedirect={`/backend/catalog/prices?flash=${encodeURIComponent(t('catalog.prices.flash.updated', 'Price rule updated'))}&type=success`}
           onSubmit={async (values) => {
-            const payload = buildUpdatePayload(priceId, values, t)
+            const payload = buildUpdatePayload(priceId, values, locale, t)
             await updateCrud('catalog/prices', payload)
           }}
           onDelete={async () => {

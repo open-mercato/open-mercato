@@ -1,3 +1,4 @@
+import { resolveAttachmentPartition } from '../partitionScope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -6,7 +7,6 @@ import {
   Attachment,
   AttachmentDocumentExtraction,
   AttachmentDocumentSection,
-  AttachmentPartition,
 } from '../../data/entities'
 import { assertAttachmentScopeInvariant, isSuperAdminAuth } from '../access'
 import { evaluateAttachmentAccess, type AttachmentAccessContext } from '../access-runner'
@@ -264,11 +264,6 @@ function clampInteger(value: number | undefined, min: number, max: number, fallb
   return Math.min(max, Math.max(min, Math.floor(value)))
 }
 
-function partitionMatchesScope(partition: AttachmentPartition, scope: NormalizedScope): boolean {
-  const partitionTenantId = partition.tenantId ?? null
-  return partitionTenantId === null || partitionTenantId === scope.tenantId
-}
-
 function resolvePrincipal(scope: DocumentStructureAccessScope, normalized: NormalizedScope): AuthContext {
   if (scope.auth !== undefined) return scope.auth
   return { sub: SERVICE_PRINCIPAL, tenantId: normalized.tenantId, orgId: normalized.organizationId }
@@ -368,14 +363,8 @@ export function createAttachmentDocumentStructureService(
       normalized,
     )
     if (!attachment) return null
-    const partition = await findOneWithDecryption(
-      em,
-      AttachmentPartition,
-      { code: attachment.partitionCode },
-      undefined,
-      normalized,
-    )
-    if (!partition || !partitionMatchesScope(partition, normalized)) return null
+    const partition = await resolveAttachmentPartition(em, attachment.partitionCode, attachment, { decrypt: true })
+    if (!partition) return null
     const access = await evaluateAttachmentAccess({
       auth: principal,
       attachment,

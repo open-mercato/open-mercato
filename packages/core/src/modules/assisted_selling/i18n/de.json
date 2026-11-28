@@ -1,0 +1,10 @@
+{
+  "assisted_selling.audit.settings.save": "Einstellungen für die unterstützte Verkaufsberatung speichern",
+  "assisted_selling.errors.conflict": "Dieser Datensatz wurde von jemand anderem geändert. Aktualisieren und erneut versuchen.",
+  "assisted_selling.errors.invalidInput": "Ungültige Eingabe",
+  "assisted_selling.errors.invalid_store_id": "Ungültige Shop-ID",
+  "assisted_selling.errors.load_failed": "Die Einstellungen für die unterstützte Verkaufsberatung konnten nicht geladen werden.",
+  "assisted_selling.errors.save_failed": "Die Einstellungen für die unterstützte Verkaufsberatung konnten nicht gespeichert werden.",
+  "assisted_selling.errors.store_not_found": "Shop nicht gefunden",
+  "assisted_selling.errors.unauthorized": "Nicht autorisiert"
+}

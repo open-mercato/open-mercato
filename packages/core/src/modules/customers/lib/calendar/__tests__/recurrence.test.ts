@@ -1,5 +1,5 @@
 import { expandOccurrences } from '../recurrence'
-import * as timezone from '../timezone'
+import * as timezone from '@open-mercato/core/helpers/calendar/timezone'
 import { makeCalendarItem, makePayload } from './fixtures'
 import type { CalendarItem, CalendarRange } from '../../../components/calendar/types'
 

@@ -1,3 +1,4 @@
+import type { CrudFormSectionCapabilityProviderFact } from '../../modules/form-section-facts'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ParsedExtensionHeaders } from '../umes/extension-headers'
@@ -50,6 +51,8 @@ export type InterceptorAfterResult = {
 
 export type ApiInterceptor = {
   id: string
+
+  crudFormSectionCapabilities?: readonly CrudFormSectionCapabilityProviderFact[]
   targetRoute: string
   scope?: ApiInterceptorScope
   methods: ApiInterceptorMethod[]

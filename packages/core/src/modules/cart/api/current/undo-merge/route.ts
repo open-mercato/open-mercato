@@ -20,6 +20,7 @@ import {
   resolveRouteContextOrError,
 } from '../../../lib/currentCartRoute'
 import { buildCartResponseEnvelope } from '../../../lib/cartView'
+import { hashCartToken } from '../../../lib/token'
 import { enforceCartRateLimit } from '../../../lib/rateLimit'
 import { hashCartToken } from '../../../lib/token'
 
@@ -44,11 +45,11 @@ export async function POST(request: Request) {
     const container = await createRequestContainer()
     const token = readCartToken(request)
 
-    const limited = await enforceCartRateLimit(container, request, 'mutate', token)
-    if (limited) return limited
-
     const resolved = await resolveRouteContextOrError(request, container)
     if (!resolved.ok) return resolved.response
+
+    const limited = await enforceCartRateLimit(container, request, 'mutate', token, resolved.routeContext.storeId)
+    if (limited) return limited
     if (!token) return notFoundCartResponse()
 
     const commandBus = container.resolve('commandBus') as CommandBus
@@ -93,6 +94,7 @@ export async function POST(request: Request) {
 
     const commandInput: CartMergeUndoInput = {
       cartId: cart.id,
+      expectedTargetTokenHash: hashCartToken(token),
       tenantId: resolved.routeContext.tenantId,
       organizationId: resolved.routeContext.organizationId,
       routeContext: resolved.routeContext,
@@ -135,7 +137,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'No `X-Cart-Token` header, the token does not resolve a cart, or no merge exists to undo for this cart' },
         { status: 409, description: 'Optimistic-lock conflict, or `merge_undo_window_expired` (the 15-minute window has passed)' },
         { status: 429, description: 'Rate limited' },
-        { status: 503, description: 'No store context resolvable for this request (§6a.1a), or cart_busy after 15 seconds waiting for the cart locks or after newer merges kept changing the cart pair to lock. The locked merge undo phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second.' },
+        { status: 503, description: 'No store context resolvable for this request (§6a.1a), rate limiter unavailable, or cart_busy after 15 seconds waiting for the cart locks or after newer merges kept changing the cart pair to lock. The locked merge undo phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second.' },
       ],
     },
   },

@@ -45,7 +45,7 @@ const SECTION_ENTITY = 'attachments:attachment_document_section'
 const TEST_TIMEOUT_MS = 480_000
 const POLL_TIMEOUT_MS = 120_000
 const POLL_INTERVALS_MS = [1_000, 2_000, 3_000]
-const VALID_PASSWORD = 'Valid1!Pass'
+const VALID_PASSWORD = 'QaValid1!Pass'
 const AGENT_SEARCH_FEATURES = ['ai_assistant.view', 'search.global', 'search.view', 'attachments.view']
 
 type Caller = { token: string } | { apiKey: string }

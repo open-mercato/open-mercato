@@ -171,3 +171,29 @@ test('an empty cart id list is refused before any transaction opens', async () =
   await expect(withCartLineMutationLock(em, [], [jest.fn()], 'cart.merge')).rejects.toThrow('[internal]')
   expect(manager.begin).not.toHaveBeenCalled()
 })
+
+test('locks both carts in stable order regardless of their role in a merge', async () => {
+  const first = createManager()
+  const second = createManager()
+  const mutate = jest.fn(async () => undefined)
+
+  await withCartLineMutationLock(first.em, ['cart-b', 'cart-a'], [mutate], 'cart.merge')
+  await withCartLineMutationLock(second.em, ['cart-a', 'cart-b'], [mutate], 'cart.merge')
+
+  expect(first.manager.execute.mock.calls).toEqual(second.manager.execute.mock.calls)
+  expect(first.manager.execute).toHaveBeenNthCalledWith(1, expect.any(String), ['cart:lines:cart-a'])
+  expect(first.manager.execute).toHaveBeenNthCalledWith(2, expect.any(String), ['cart:lines:cart-b'])
+  expect(mutate).toHaveBeenCalledTimes(2)
+})
+
+test('releases a partial acquisition when the other cart is busy', async () => {
+  const { manager, em } = createManager()
+  manager.execute.mockResolvedValueOnce([{ locked: true }]).mockResolvedValueOnce([{ locked: false }])
+  const mutate = jest.fn(async () => undefined)
+
+  await expect(withCartLineMutationLock(em, ['cart-b', 'cart-a'], [mutate], 'cart.mergeUndo', 0))
+    .rejects.toBeInstanceOf(CartLineMutationLockTimeoutError)
+  expect(manager.rollback).toHaveBeenCalledTimes(1)
+  expect(manager.commit).not.toHaveBeenCalled()
+  expect(mutate).not.toHaveBeenCalled()
+})

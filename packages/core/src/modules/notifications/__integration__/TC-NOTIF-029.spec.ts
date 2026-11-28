@@ -16,7 +16,7 @@ import {
   dismissNotificationIfExists,
 } from '@open-mercato/core/helpers/integration/notificationsFixtures'
 
-const PASSWORD = 'Valid1!Pass'
+const PASSWORD = 'QaValid1!Pass'
 
 type UserSession = { token: string; selectedOrgId?: string }
 

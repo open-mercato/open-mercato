@@ -17,6 +17,7 @@ import { deriveQuantityRules } from '@open-mercato/core/modules/availability/lib
 import type { QuantityRulePolicy } from '@open-mercato/core/modules/availability/lib/quantityRules'
 import type { PolicyResolutionService } from '@open-mercato/core/modules/availability/lib/policyResolution'
 
+import { MAX_CART_LINE_QUANTITY } from '../data/validators'
 import { Cart, CartLine, CartMergeLog } from '../data/entities'
 import type { CartMergeActorType, CartMergeLineDisposition, CartMergeOutcomeEntry, CartMergeStrategy } from '../data/entities'
 import { assertCartTokenHashUnchanged, generateCartToken, hashCartToken } from '../lib/token'
@@ -25,8 +26,8 @@ import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { cartVisibilityKey, evaluateCartVisibility, isVisible } from '../lib/visibility'
 import type { CartVisibilityResult } from '../lib/visibility'
 import { assertCartNotLocked } from '../lib/lockGuard'
-import { recordBasketMutationActivity } from '../lib/cartActivity'
 import { CartLineMutationLockTimeoutError, withCartLineMutationLock } from '../lib/lineMutationLock'
+import { recordBasketMutationActivity } from '../lib/cartActivity'
 import { resolveCartCurrencyDecimalPlaces } from '../lib/exactPricing'
 import { emitCartEvent } from '../events'
 import { loadCartRepriceLines, prepareCartReprice } from './cart'
@@ -243,9 +244,10 @@ function normalizeSourceSnapshot(raw: unknown): StoredSourceSnapshot {
 // ---------------------------------------------------------------------------
 
 export type CartMergeInput = {
-  /** The cart the buyer's own session/token names — resolved by the ROUTE the ordinary
-   * way (`X-Cart-Token` + `resolveCurrentCart`), never re-resolved here. */
+  /** The cart addressed by the buyer's current token. */
   targetCartId: string
+  /** Expected token hash for storefront requests, rechecked after acquiring both locks. */
+  expectedTargetTokenHash?: string
   tenantId: string
   organizationId: string
   /** Identifies the SOURCE (guest) cart — the only thing that can, since it has no
@@ -394,9 +396,9 @@ function buildMergeOutcome(
 
     const previousTargetQuantity = matched.quantity
     const summedQuantity = Number(matched.quantity) + Number(sourceLine.quantity)
-    const maxOrderQuantity = maxQuantityBySourceLineId.get(sourceLine.id) ?? null
-    const capped = maxOrderQuantity != null && summedQuantity > maxOrderQuantity
-    const finalQuantity = capped ? maxOrderQuantity! : summedQuantity
+    const maxQuantity = Math.min(maxQuantityBySourceLineId.get(sourceLine.id) ?? MAX_CART_LINE_QUANTITY, MAX_CART_LINE_QUANTITY)
+    const capped = summedQuantity > maxQuantity
+    const finalQuantity = capped ? maxQuantity : summedQuantity
     matched.quantity = String(finalQuantity)
     updatedLineIds.push(matched.id)
     outcome.push({
@@ -451,7 +453,11 @@ const mergeCartCommand: CommandHandler<CartMergeInput, CartMergeResult> = {
     // missing-resource case, e.g. `merge_undo_window_expired` below) rather than the
     // no-oracle 404 collapse used above: a mismatched store/currency is not a credential or
     // existence question, so there is nothing to protect by obscuring the reason.
-    if (guestCart.storeId !== sessionCart.storeId || guestCart.currencyCode !== sessionCart.currencyCode) {
+    if (
+      sessionCart.storeId !== input.routeContext.storeId ||
+      guestCart.storeId !== sessionCart.storeId ||
+      guestCart.currencyCode !== sessionCart.currencyCode
+    ) {
       throw new CrudHttpError(400, { error: '[internal] cart_merge_scope_mismatch', code: 'cart_merge_scope_mismatch' })
     }
     // Step 7.5 — §9: a locked TARGET (session) cart gets the distinguishable `423
