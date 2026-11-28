@@ -187,5 +187,12 @@ export const openApi = createWmsCrudOpenApi({
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
     description: 'Soft-deletes a warehouse by id.',
+    errors: [
+      {
+        status: 409,
+        description: 'The warehouse still holds stock (code `warehouse_has_stock`)',
+        schema: z.object({ error: z.string(), code: z.literal('warehouse_has_stock') }),
+      },
+    ],
   },
 })
