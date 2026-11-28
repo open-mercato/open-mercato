@@ -69,6 +69,7 @@ jest.mock('../shared', () => ({
   resolveParentResourceKind: jest.fn(() => 'customers.person'),
 }))
 
+import { LoadStrategy, LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -201,6 +202,13 @@ describe('customers.interactions.update locked snapshots', () => {
       async (em: TestEntityManager, entity: unknown, _where: unknown, options?: { populate?: string[] }) => {
         if (entity !== CustomerInteraction) return null
         if (options?.populate) {
+          if (em.releaseLock) {
+            expect(options).toMatchObject({
+              lockMode: LockMode.PESSIMISTIC_WRITE,
+              refresh: true,
+              strategy: LoadStrategy.SELECT_IN,
+            })
+          }
           if (em.commandIndex === 2) secondSnapshotCaptured.resolve()
           return interaction
         }

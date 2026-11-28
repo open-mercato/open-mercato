@@ -154,7 +154,7 @@ export async function hydrateCanonicalInteractions({
   const dealMap = new Map(deals.map((deal) => [deal.id, deal.title]))
 
   const baseItems: InteractionRecord[] = interactions.map((interaction) => {
-    const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
+    const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity?.id ?? null
     return {
       id: interaction.id,
       entityId,

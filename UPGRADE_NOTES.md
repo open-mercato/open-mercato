@@ -1,5 +1,17 @@
 # Upgrade Notes
 
+## Internal CRM Calendar activities (#5935)
+
+Non-email activities can now exist without a primary CRM record. Check
+`CustomerInteraction.entity` and `entityId` in interaction lifecycle payloads
+before dereferencing a CRM parent. Unlinked rows report null, and linked rows
+continue to return their existing CRM identifier.
+
+Apply the Customers migration and upgrade all application and worker instances
+before creating unlinked activities. To roll back the migration, first link or
+export and remove every row with a null `entity_id`. The rollback refuses to
+restore the required constraint while any unlinked row remains.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.

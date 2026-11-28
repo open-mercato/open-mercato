@@ -1,8 +1,11 @@
 import { evaluateVisitAvailability, visitAvailabilityInputSchema, visitAvailabilityWarnings } from '../visitAvailability'
 import { visitAvailabilityInterceptors } from '../visitAvailabilityGuard'
 import { getEnabledModuleIds, hasEnabledModulesRegistry } from '@open-mercato/shared/security/enabledModulesRegistry'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DefaultPlannerAvailabilityService } from '@open-mercato/core/modules/planner/services/plannerAvailabilityService'
 import type { CalendarEventTypeBehavior } from '@open-mercato/core/modules/customers/calendar-event-types'
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({ findOneWithDecryption: jest.fn() }))
 
 jest.mock('@open-mercato/shared/security/enabledModulesRegistry', () => ({
   getEnabledModuleIds: jest.fn(() => ['customers', 'example', 'staff', 'resources', 'planner']),
@@ -74,16 +77,70 @@ function setup(overrides: {
   const planner = { getMergedAvailabilityWindows: jest.fn(() => overrides.gap ? [] : [{ start: new Date('2026-10-05T09:00:00.000Z'), end: new Date('2026-10-05T11:00:00.000Z') }]) }
   const rbac = { userHasAllFeatures: jest.fn(async () => !overrides.denied) }
   const catalog = { resolveBehavior: jest.fn(async () => overrides.behavior ?? visitBehavior) }
-  const services: Record<string, unknown> = { queryEngine: { query }, plannerAvailabilityService: planner, rbacService: rbac, calendarEventTypeCatalogService: catalog }
+  const services: Record<string, unknown> = { em: {}, queryEngine: { query }, plannerAvailabilityService: planner, rbacService: rbac, calendarEventTypeCatalogService: catalog }
   const container = { hasRegistration: (name: string) => name in services, resolve: (name: string) => services[name] }
   return { container, query, planner, rbac, catalog }
 }
 
 describe('Visit availability', () => {
   beforeEach(() => {
+    jest.mocked(findOneWithDecryption).mockReset().mockResolvedValue({ id: scope.organizationId } as never)
     jest.mocked(getEnabledModuleIds).mockReturnValue(['customers', 'example', 'staff', 'resources', 'planner'])
     jest.mocked(hasEnabledModulesRegistry).mockReturnValue(true)
   })
+  it.each([undefined, null])('allows an internal Visit with parent %s in a verified organization', async (entityId) => {
+    const { container, query } = setup()
+    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.create')!
+    const result = await interceptor.beforeExecute!({
+      ...scope, entityId, interactionType: 'visit', scheduledAt: input.startAt, durationMinutes: 60,
+      participants: [{ userId: USER_ID }],
+    }, {
+      commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: scope.organizationId, container: container as never,
+    })
+    expect(result).toEqual({ ok: true })
+    expect(findOneWithDecryption).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      id: scope.organizationId, tenant: scope.tenantId, deletedAt: null, isActive: true,
+    }, { fields: ['id'] }, scope)
+    expect(query).not.toHaveBeenCalledWith('customers:customer_entity', expect.anything())
+  })
+
+  it.each(['missing', 'unauthorized', 'wrong-tenant', 'unknown-organization'])('rejects an internal Visit with %s scope before checking availability', async (failure) => {
+    const { container, query, planner } = setup()
+    if (failure === 'unknown-organization') jest.mocked(findOneWithDecryption).mockResolvedValue(null)
+    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.create')!
+    const result = await interceptor.beforeExecute!({
+      tenantId: failure === 'wrong-tenant' ? 'other-tenant' : scope.tenantId,
+      organizationId: failure === 'unauthorized' ? 'other-organization' : failure === 'missing' ? undefined : scope.organizationId,
+      entityId: null, interactionType: 'visit', scheduledAt: input.startAt, durationMinutes: 60,
+      participants: [{ userId: USER_ID }],
+    }, {
+      commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: failure === 'missing' ? null : scope.organizationId, container: container as never,
+    })
+    expect(result).toMatchObject({ ok: false, status: 403 })
+    expect(query).not.toHaveBeenCalled()
+    expect(planner.getMergedAvailabilityWindows).not.toHaveBeenCalled()
+  })
+
+  it('rejects an overlapping internal Visit using the existing availability policy', async () => {
+    const { container } = setup({ bookings: [{
+      participants: [{ userId: USER_ID }], linked_entities: [],
+      id: RULE_ID, interaction_type: 'visit', status: 'planned', scheduled_at: input.startAt, duration_minutes: 60,
+    }] })
+    const interceptor = visitAvailabilityInterceptors.find((item) => item.targetCommand === 'customers.interactions.create')!
+    const result = await interceptor.beforeExecute!({
+      ...scope, entityId: null, interactionType: 'visit', scheduledAt: input.startAt, durationMinutes: 60,
+      participants: [{ userId: USER_ID }],
+    }, {
+      commandId: 'customers.interactions.create', auth: { sub: USER_ID, tenantId: scope.tenantId } as never,
+      selectedOrganizationId: scope.organizationId, container: container as never,
+    })
+    expect(result).toMatchObject({ ok: false, status: 422, body: {
+      fieldErrors: { participants: 'example.calendar.visitAvailability.booked' },
+    } })
+  })
+
   it('maps users to active member IDs and checks a complete half-open interval', async () => {
     const { container, query, planner } = setup()
     const subjects = await evaluateVisitAvailability({ container: container as never, actorUserId: USER_ID, scope, input })
@@ -206,7 +263,7 @@ describe('Visit availability', () => {
       if (entity === 'customers:customer_interaction') return { items: [], total: 0 }
       throw new Error('unexpected availability query')
     })
-    const services: Record<string, unknown> = { queryEngine: { query }, plannerAvailabilityService: new DefaultPlannerAvailabilityService(),
+    const services: Record<string, unknown> = { em: {}, queryEngine: { query }, plannerAvailabilityService: new DefaultPlannerAvailabilityService(),
       rbacService: { userHasAllFeatures: async () => true },
     }
     const container = { resolve: (name: string) => services[name] } as never

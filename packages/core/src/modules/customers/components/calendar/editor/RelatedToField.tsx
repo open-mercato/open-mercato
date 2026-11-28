@@ -30,7 +30,7 @@ export function RelatedToField({
 }: {
   label: string
   value: EditorRelatedTo | null
-  deal: DealOption | null
+  deal: { id: string; label: string | null } | null
   onChange(next: EditorRelatedTo | null): void
   onDealChange(next: DealOption | null): void
   error?: string | null
@@ -130,15 +130,18 @@ export function RelatedToField({
           <span className="flex shrink-0 items-center">
             {deal ? (
               <UppercaseBadge className="h-7 bg-status-info-bg text-status-info-text">
-                {t('customers.calendar.editor.dealBadge', 'Deal: {name}', { name: deal.label })}
+                {deal.label
+                  ? t('customers.calendar.editor.dealBadge', 'Deal: {name}', { name: deal.label })
+                  : t('customers.calendar.editor.dealBadgeSuffix', 'Deal')}
               </UppercaseBadge>
             ) : null}
             <span aria-hidden className="h-px w-2" />
             <ChevronDown aria-hidden className="size-4 opacity-60" />
           </span>
         </Button>
-        {value ? (
+        {value || deal ? (
           <IconButton
+            type="button"
             variant="ghost"
             size="xs"
             onClick={() => {
@@ -186,7 +189,7 @@ export function RelatedToField({
                   title={composeAccessibleName([option.label, option.subtitle])}
                   onClick={() => {
                     onChange({ id: option.id, kind: option.kind, label: option.label })
-                    if (value?.id !== option.id) onDealChange(null)
+                    if (value && value.id !== option.id) onDealChange(null)
                     setQuery('')
                   }}
                   className={OPTION_ROW_CLASS}

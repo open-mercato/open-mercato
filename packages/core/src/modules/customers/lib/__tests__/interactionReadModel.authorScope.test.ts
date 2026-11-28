@@ -52,6 +52,7 @@ describe('canonical interaction author scope', () => {
 
     const interactions = [
       makeInteraction('local', 'local-user'),
+      { ...makeInteraction('unlinked', 'local-user'), entity: null },
       makeInteraction('poisoned-other-org', 'other-org-user'),
       makeInteraction('valid-other-org', 'other-org-user', otherOrganizationId),
       makeInteraction('poisoned-foreign-tenant', 'foreign-user'),
@@ -69,7 +70,10 @@ describe('canonical interaction author scope', () => {
     })
 
     expect(result.find((item) => item.id === 'local')).toMatchObject({
-      authorName: 'Local author', authorEmail: 'local@example.com',
+      entityId: 'person-1', authorName: 'Local author', authorEmail: 'local@example.com',
+    })
+    expect(result.find((item) => item.id === 'unlinked')).toMatchObject({
+      entityId: null, authorName: 'Local author', authorEmail: 'local@example.com',
     })
     expect(result.find((item) => item.id === 'valid-other-org')).toMatchObject({
       authorName: 'Other org author', authorEmail: 'other-org@example.com',

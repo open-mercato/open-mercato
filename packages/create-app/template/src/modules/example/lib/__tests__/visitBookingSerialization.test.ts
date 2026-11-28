@@ -151,7 +151,7 @@ describe('Visit booking command serialization', () => {
     jest.clearAllMocks()
   })
 
-  it('serializes two concurrent request containers so exactly one overlapping Visit wins', async () => {
+  it.each([ENTITY_ID, null])('serializes concurrent overlapping Visits with parent %s so exactly one wins', async (entityId) => {
     const manager = new AdvisoryLockManager()
     const acquiredKeys: string[] = []
     const statements: string[] = []
@@ -177,7 +177,7 @@ describe('Visit booking command serialization', () => {
     const input = {
       tenantId: TENANT_ID,
       organizationId: ORGANIZATION_ID,
-      entityId: ENTITY_ID,
+      entityId,
       interactionType: 'visit',
       scheduledAt: new Date('2026-10-01T09:00:00.000Z'),
       durationMinutes: 60,

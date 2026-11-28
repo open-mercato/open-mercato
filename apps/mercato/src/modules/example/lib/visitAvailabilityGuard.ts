@@ -1,6 +1,9 @@
 import type { CommandInterceptor, CommandInterceptorBeforeResult, CommandInterceptorContext } from '@open-mercato/shared/lib/commands/command-interceptor'
 import { isOrganizationAccessAllowed } from '@open-mercato/shared/lib/auth/organizationAccess'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CalendarEventTypeBehavior } from '@open-mercato/core/modules/customers/calendar-event-types'
 import { evaluateVisitAvailability, resolveVisitService, type VisitAvailabilitySubject } from './visitAvailability'
@@ -71,6 +74,22 @@ async function beforeVisitWrite(rawInput: unknown, context: CommandInterceptorCo
   let organizationId: string
   try {
     let record = preflightExisting
+    if (!updating && input.entityId == null) {
+      const requestedTenantId = rowValue(input, 'tenantId', 'tenant_id') ?? tenantId
+      const requestedOrganizationId = rowValue(input, 'organizationId', 'organization_id') ?? fallbackOrganizationId
+      if (requestedTenantId !== tenantId || typeof requestedOrganizationId !== 'string' || !isOrganizationAccessAllowed({
+        isSuperAdmin: context.auth?.isSuperAdmin === true,
+        allowedOrganizationIds: allowedIds,
+        targetOrganizationId: requestedOrganizationId,
+      })) return blocked('example.calendar.visitAvailability.missingScope', 403)
+      const em = resolveVisitService<EntityManager>(context.container, 'em')
+      if (!em) return blocked('example.calendar.visitAvailability.retry', 503)
+      const organization = await findOneWithDecryption(em, Organization, {
+        id: requestedOrganizationId, tenant: tenantId, deletedAt: null, isActive: true,
+      }, { fields: ['id'] }, { tenantId, organizationId: requestedOrganizationId })
+      if (!organization) return blocked('example.calendar.visitAvailability.missingScope', 403)
+      record = { organization_id: requestedOrganizationId }
+    }
     if (!record) {
       const engine = resolveVisitService<QueryEngine>(context.container, 'queryEngine')
       if (!engine) return blocked('example.calendar.visitAvailability.retry', 503)

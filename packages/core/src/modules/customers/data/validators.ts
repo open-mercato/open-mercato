@@ -15,6 +15,7 @@ export const ACTIVITY_DATE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.d
 export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.timeRequired'
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
+export const INTERACTION_EMAIL_PARENT_REQUIRED_MESSAGE_KEY = 'customers.errors.interaction_email_parent_required'
 export const INTERACTION_PARTICIPANT_IDENTITY_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.participantIdentityRequired'
 export const INTERACTION_PARTICIPANT_EMAIL_INVALID_MESSAGE_KEY = 'customers.activities.errors.participantEmailInvalid'
 
@@ -522,7 +523,7 @@ const interactionExtendedFields = {
 
 const interactionCreateBaseSchema = scopedSchema.extend({
   id: z.string().uuid().optional(),
-  entityId: z.string().uuid(),
+  entityId: z.string().uuid().nullable().optional(),
   interactionType: z.string().trim().min(1).max(100),
   enforceSelectableType: z.boolean().optional(),
   title: z.string().trim().max(500).optional().nullable(),
@@ -563,6 +564,13 @@ function deriveScheduledAtFromDateTime(date?: string | null, time?: string | nul
 
 export const interactionCreateSchema = interactionCreateBaseSchema
   .superRefine((value, ctx) => {
+    if (value.interactionType === 'email' && !value.entityId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['entityId'],
+        message: INTERACTION_EMAIL_PARENT_REQUIRED_MESSAGE_KEY,
+      })
+    }
     if (value.interactionType === 'call' && value.phoneNumber !== undefined && value.phoneNumber !== null) {
       const phone = typeof value.phoneNumber === 'string' ? value.phoneNumber.trim() : ''
       if (!phone) {
@@ -603,11 +611,7 @@ const interactionUpdateBaseSchema = z
   .merge(
     scopedSchema
       .extend({
-        // Re-link an existing interaction to a different person/company, the same way
-        // `dealId` below already re-links it to a different deal (#5938). Not nullable:
-        // `CustomerInteraction.entity` is a required relation, so there is no "detach"
-        // state to express — that depends on #5935 making the column nullable first.
-        entityId: z.string().uuid().optional(),
+        entityId: z.string().uuid().nullable().optional(),
         interactionType: z.string().trim().min(1).max(100).optional(),
         enforceSelectableType: z.boolean().optional(),
         confirmDiscardInapplicableValues: z.boolean().optional(),

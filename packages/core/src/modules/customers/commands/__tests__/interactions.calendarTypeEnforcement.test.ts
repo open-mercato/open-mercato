@@ -43,7 +43,7 @@ jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({
 }))
 
 jest.mock('../shared', () => ({
-  commandScopeWhere: jest.fn(() => ({})),
+  ...jest.requireActual('../shared'),
   ensureOrganizationScope: jest.fn(),
   ensureTenantScope: jest.fn(),
   requireTimelineParentEntity: jest.fn(async () => ({ id: ENTITY, tenantId: TENANT, organizationId: ORG, kind: 'person' })),
