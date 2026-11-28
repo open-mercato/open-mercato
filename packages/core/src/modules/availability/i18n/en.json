@@ -24,6 +24,7 @@
   "availability.errors.invalidCheckRequest": "Invalid request",
   "availability.errors.invalidPreviewRequest": "Invalid request",
   "availability.errors.organizationSelectionInvalid": "Your selected organization is no longer available. Please re-select an organization and try again.",
+  "availability.errors.organizationScopeUnavailable": "Organization access could not be verified. Try again.",
   "availability.errors.productNotFound": "No such product",
   "availability.errors.unauthorized": "Unauthorized",
   "availability.errors.variantNotFound": "No such variant",

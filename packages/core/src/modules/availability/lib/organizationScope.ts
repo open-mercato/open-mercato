@@ -13,11 +13,16 @@ export const AVAILABILITY_POLICY_ORGANIZATION_REQUIRED_MESSAGE = {
 }
 
 const INVALID_ORGANIZATION_SELECTION = 'organization_selection_invalid'
+const ORGANIZATION_SCOPE_UNAVAILABLE = 'organization_scope_unavailable'
 
 async function resolveAvailabilityReadScope(container: AwilixContainer, auth: AuthContext, request: Request) {
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request }).catch((error: unknown) => {
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request }).catch(async (error: unknown) => {
     reportTelemetryError(error, { module: 'availability', code: 'availability.organization_scope_resolution_failed' })
-    return null
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(503, {
+      error: translate('availability.errors.organizationScopeUnavailable', 'Organization access could not be verified. Try again.'),
+      code: ORGANIZATION_SCOPE_UNAVAILABLE,
+    })
   })
   if (!scope?.selectionRejected) return scope
 
@@ -36,7 +41,11 @@ export function withAvailabilityReadScope(handler: (request: Request) => Promise
     try {
       return await handler(request)
     } catch (error) {
-      if (!isCrudHttpError(error) || error.body.code !== INVALID_ORGANIZATION_SELECTION) throw error
+      if (!isCrudHttpError(error)) throw error
+      if (error.body.code === ORGANIZATION_SCOPE_UNAVAILABLE) {
+        return Response.json(error.body, { status: error.status })
+      }
+      if (error.body.code !== INVALID_ORGANIZATION_SELECTION) throw error
       return Response.json(error.body, {
         status: error.status,
         headers: { 'set-cookie': 'om_selected_org=; Path=/; Max-Age=0; SameSite=Lax' },

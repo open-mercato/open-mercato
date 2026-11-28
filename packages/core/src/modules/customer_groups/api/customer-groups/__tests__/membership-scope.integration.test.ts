@@ -1,10 +1,12 @@
 /** @jest-environment node */
 import { randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import type { StartedTestContainer } from 'testcontainers'
 import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../../../data/entities'
 import { countGroupMembershipsOutsideScope } from '../../../lib/customerScope'
+import { lockCustomerGroup } from '../../../lib/groupLock'
 import { cascadeGroupDelete } from '../crud'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -88,6 +90,55 @@ describeWithPostgres('customer group membership scope on PostgreSQL', () => {
     await expect(writer.flush()).rejects.toMatchObject({ status: 400 })
     await expect(orm.em.fork().count(CustomerGroupMembership, { id: membership.id, groupId: group.id })).resolves.toBe(1)
   })
+
+  it('refuses a reassignment waiting for a concurrent source-group removal', async () => {
+    const writer = orm.em.fork()
+    const group = await createGroup(writer)
+    const destination = writer.create(CustomerGroup, {
+      tenantId: group.tenantId, code: randomUUID(), name: 'Destination', kind: 'b2b', priority: 10,
+    })
+    const membership = writer.create(CustomerGroupMembership, {
+      tenantId: group.tenantId, groupId: group.id, customerId: randomUUID(),
+    })
+    await writer.flush()
+
+    const updater = orm.em.fork()
+    const current = await updater.findOneOrFail(CustomerGroupMembership, { id: membership.id })
+    const deleter = orm.em.fork()
+    const observer = orm.em.fork()
+    await deleter.begin()
+    let result: Promise<PromiseSettledResult<void>[]> | undefined
+    let waiting = false
+    try {
+      await lockCustomerGroup(deleter, group.tenantId, group.id)
+      const deletedAt = new Date()
+      await deleter.nativeUpdate(CustomerGroup, { id: group.id, tenantId: group.tenantId }, { deletedAt })
+      await deleter.nativeUpdate(CustomerGroupMembership, { id: membership.id, tenantId: group.tenantId }, { deletedAt })
+      current.groupId = destination.id
+      result = Promise.allSettled([updater.flush()])
+
+      const deadline = Date.now() + 5000
+      while (!waiting && Date.now() < deadline) {
+        const [row] = await observer.execute<Array<{ waiting: boolean }>>(
+          "select exists (select 1 from pg_locks where not granted) as waiting",
+        )
+        waiting = row.waiting
+        if (!waiting) await delay(25)
+      }
+      await deleter.commit()
+    } finally {
+      if (deleter.isInTransaction()) await deleter.rollback()
+    }
+
+    expect(waiting).toBe(true)
+    expect(await result).toEqual([expect.objectContaining({
+      status: 'rejected',
+      reason: expect.objectContaining({ status: 400 }),
+    })])
+    const persisted = await observer.findOneOrFail(CustomerGroupMembership, { id: membership.id })
+    expect(persisted.groupId).toBe(group.id)
+    expect(persisted.deletedAt).toBeInstanceOf(Date)
+  }, 30_000)
 
   it('excludes hard-deleted customer references while counting existing customers outside scope', async () => {
     const writer = orm.em.fork()

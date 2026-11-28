@@ -24,6 +24,7 @@
   "availability.errors.invalidCheckRequest": "Solicitud no válida",
   "availability.errors.invalidPreviewRequest": "Solicitud no válida",
   "availability.errors.organizationSelectionInvalid": "La organización seleccionada ya no está disponible. Vuelva a seleccionar una organización e inténtelo de nuevo.",
+  "availability.errors.organizationScopeUnavailable": "No se pudo verificar el acceso a la organización. Inténtalo de nuevo.",
   "availability.errors.productNotFound": "No existe el producto",
   "availability.errors.unauthorized": "No autorizado",
   "availability.errors.variantNotFound": "No existe la variante",

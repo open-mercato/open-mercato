@@ -1,3 +1,4 @@
+/** @jest-environment node */
 const resolveScopeMock = jest.fn()
 const reportTelemetryErrorMock = jest.fn()
 jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
@@ -18,6 +19,7 @@ import {
   resolveAvailabilityListOrganizationIds,
   resolveAvailabilityOrganizationId,
   scopeAvailabilityPolicyWriteInput,
+  withAvailabilityReadScope,
 } from '../organizationScope'
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
@@ -48,17 +50,6 @@ describe('resolveAvailabilityOrganizationId', () => {
     resolveScopeMock.mockResolvedValue({ selectedId: null, filterIds: null, allowedIds: null, tenantId: TENANT_ID })
 
     await expect(resolveAvailabilityOrganizationId(container, auth, request)).resolves.toBe(HOME_ORG)
-  })
-
-  it('falls back to the home organization when the scope cannot be resolved', async () => {
-    const error = new Error('[internal] rbac unavailable')
-    resolveScopeMock.mockRejectedValue(error)
-
-    await expect(resolveAvailabilityOrganizationId(container, auth, request)).resolves.toBe(HOME_ORG)
-    expect(reportTelemetryErrorMock).toHaveBeenCalledWith(error, {
-      module: 'availability',
-      code: 'availability.organization_scope_resolution_failed',
-    })
   })
 
   it('keeps an empty access scope empty when resolving one organization', async () => {
@@ -115,20 +106,28 @@ describe('resolveAvailabilityListOrganizationIds', () => {
     await expect(resolveAvailabilityListOrganizationIds(container, auth, request)).resolves.toEqual([])
   })
 
-  it('falls back to the home organization when the scope cannot be resolved', async () => {
-    resolveScopeMock.mockRejectedValue(new Error('rbac unavailable'))
-
-    await expect(resolveAvailabilityListOrganizationIds(container, auth, request)).resolves.toEqual([HOME_ORG])
-  })
-
-  it('leaves nothing in scope for a non-superadmin without an organization when the scope cannot be resolved', async () => {
-    resolveScopeMock.mockRejectedValue(new Error('rbac unavailable'))
-
-    await expect(
-      resolveAvailabilityListOrganizationIds(container, { ...auth, orgId: null } as AuthContext, request),
-    ).resolves.toEqual([])
-  })
 })
+
+it.each([resolveAvailabilityOrganizationId, resolveAvailabilityListOrganizationIds])(
+  '%p fails closed when organization access cannot be verified',
+  async (resolveOrganization) => {
+    const error = new Error('[internal] rbac unavailable')
+    resolveScopeMock.mockRejectedValue(error)
+    const handler = withAvailabilityReadScope(async () => {
+      await resolveOrganization(container, auth, request)
+      return Response.json({ available: true })
+    })
+
+    const response = await handler(request)
+    expect(response.status).toBe(503)
+    expect(response.headers.has('set-cookie')).toBe(false)
+    await expect(response.json()).resolves.toMatchObject({ code: 'organization_scope_unavailable' })
+    expect(reportTelemetryErrorMock).toHaveBeenCalledWith(error, {
+      module: 'availability',
+      code: 'availability.organization_scope_resolution_failed',
+    })
+  },
+)
 
 it.each([resolveAvailabilityOrganizationId, resolveAvailabilityListOrganizationIds])(
   '%p rejects a stale selection despite the home organization fallback',

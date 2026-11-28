@@ -4,7 +4,7 @@ import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
 import { badRequest } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { lockCustomerGroup } from '../lib/groupLock'
+import { lockCustomerGroup, lockCustomerGroupMembership } from '../lib/groupLock'
 
 export type CustomerGroupKind = 'b2c' | 'b2b' | 'internal' | 'partner'
 export type CustomerGroupMembershipSource = 'manual' | 'import' | 'rule' | 'onboarding'
@@ -174,10 +174,25 @@ export class CustomerGroupMembership {
     if (this.deletedAt) return
     const previous = changeSet?.originalEntity
     if (previous && !previous.deletedAt && previous.groupId === this.groupId && previous.customerId === this.customerId) return
-    const group = await lockCustomerGroup(em, this.tenantId, this.groupId)
-    if (group?.deleted_at === null) return
-    const { translate } = await resolveTranslations()
-    throw badRequest(translate('customer_groups.errors.membershipGroupNotFound', 'The selected customer group does not exist.'))
+    const destinationGroupId = this.groupId.toLowerCase()
+    const sourceGroupId = previous && !previous.deletedAt && typeof previous.groupId === 'string'
+      ? previous.groupId.toLowerCase()
+      : null
+    const groupIds = sourceGroupId ? [...new Set([sourceGroupId, destinationGroupId])].sort() : [destinationGroupId]
+    for (const groupId of groupIds) {
+      const group = await lockCustomerGroup(em, this.tenantId, groupId)
+      if (group?.deleted_at !== null) {
+        const { translate } = await resolveTranslations()
+        throw badRequest(translate('customer_groups.errors.membershipGroupNotFound', 'The selected customer group does not exist.'))
+      }
+    }
+    if (sourceGroupId) {
+      const membership = await lockCustomerGroupMembership(em, this.tenantId, this.id)
+      if (membership?.deleted_at !== null || membership.group_id !== sourceGroupId || membership.customer_id !== previous?.customerId) {
+        const { translate } = await resolveTranslations()
+        throw badRequest(translate('customer_groups.errors.membershipNotFound', 'Customer group membership not found.'))
+      }
+    }
   }
 }
 

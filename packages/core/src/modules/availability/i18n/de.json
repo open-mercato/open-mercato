@@ -24,6 +24,7 @@
   "availability.errors.invalidCheckRequest": "Ungültige Anfrage",
   "availability.errors.invalidPreviewRequest": "Ungültige Anfrage",
   "availability.errors.organizationSelectionInvalid": "Ihre ausgewählte Organisation ist nicht mehr verfügbar. Bitte wählen Sie eine Organisation erneut aus und versuchen Sie es noch einmal.",
+  "availability.errors.organizationScopeUnavailable": "Der Zugriff auf die Organisation konnte nicht geprüft werden. Versuchen Sie es erneut.",
   "availability.errors.productNotFound": "Produkt nicht gefunden",
   "availability.errors.unauthorized": "Nicht autorisiert",
   "availability.errors.variantNotFound": "Variante nicht gefunden",
