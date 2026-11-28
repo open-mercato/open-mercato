@@ -1,9 +1,10 @@
 // Pure CI scope resolver: changed files + PR labels → test level, integration modules, lane.
 // Config lives in .github/ci-scope.json (schema next to it). Design and rollout:
 // .ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md, Phase 2.
-// Not wired into ci.yml yet: the prepare job still runs its inline FULL_SUITE_PATTERN /
-// FORCE_FULL_SUITE logic, and scripts/__tests__/resolve-ci-scope.test.ts proves the two agree
-// for unlabelled PRs. Run with plain `node` — Node strips the type annotations.
+// The ci.yml prepare job loads this file and ci-scope.json from the PR's base commit and runs
+// them from an inline driver; keep the exports it imports (parseCiScopeConfig, resolveCiScope,
+// CiScopeError) stable. scripts/__tests__/resolve-ci-scope.test.ts proves parity with the
+// pre-resolver logic for unlabelled PRs. Run with plain `node` — Node strips the type annotations.
 
 export const SCOPE_CONTROL_PATHS: readonly string[] = [
   '.github/ci-scope.json',
