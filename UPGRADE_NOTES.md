@@ -7133,3 +7133,21 @@ MCP hides Code Mode `execute` when the mutation mode is unset, including reads t
 `GET /api/search/index` requires the view features declared by each returned entity in addition to `search.view`. A request for an unreadable entity returns an empty page. Clients can continue using the existing response shape and paging parameters. Select an authorized organization when entity features are scoped to an organization.
 
 Operators should grant the owning module's view features to diagnostic users and keys that need them. Custom searchable entities declare these features in their `search.ts` configuration. The first-party pgvector driver applies the scope before pagination. Custom vector drivers can honor the additive `entityAccess` list predicate to keep pagination over readable entries. The API filters returned rows regardless of driver support. No database migration or reindex is required.
+
+## Tenant embedding runtime isolation (#9135)
+
+Tenant embedding settings now affect only that tenant's request/job container.
+Clients sending an arbitrary public Ollama `baseUrl` to `POST /api/search/embeddings`
+receive `400` with `reason: operator_not_allowed`; use the operator-approved URL.
+Operators can retain approved destinations with the existing `OLLAMA_BASE_URL` or
+`OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST` host/host:port settings. Allowlist matches
+require HTTPS; an HTTP endpoint must exactly match `OLLAMA_BASE_URL`, including
+its scheme and path, and still satisfy the existing SSRF policy. HTTPS requests
+refuse HTTP redirects before forwarding any request body; explicitly configured
+HTTP endpoints remain supported for direct requests. No new startup or
+configuration mechanism, schema migration, provider default or index rebuild is
+required. Audit saved tenant endpoints and remove unexpected values, then restart
+web and worker processes to discard the previously shared mutable service.
+A rollback restores cross-tenant query disclosure and unrestricted tenant public
+endpoints. The security exception requires named maintainer approval before merge;
+see `.ai/specs/2026-11-18-tenant-embedding-runtime-isolation.md`.

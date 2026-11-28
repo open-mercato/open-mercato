@@ -94,13 +94,13 @@ describe('search module DI — vector singleton cache', () => {
     clearSingletonGlobals()
   })
 
-  it('returns the same EmbeddingService instance on consecutive registrations', () => {
+  it('isolates EmbeddingService instances across request/job registrations', () => {
     const c1 = makeMockContainer()
     const c2 = makeMockContainer()
     register(c1 as never)
     register(c2 as never)
 
-    expect(c1._registered.vectorEmbeddingService).toBe(c2._registered.vectorEmbeddingService)
+    expect(c1._registered.vectorEmbeddingService).not.toBe(c2._registered.vectorEmbeddingService)
   })
 
   it('returns fresh EmbeddingService instances when SEARCH_DISABLE_SINGLETON_CACHE=1', () => {

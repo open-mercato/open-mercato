@@ -43,6 +43,7 @@ jest.mock('../../lib/reindex-progress', () => ({
   cancelReindexProgress: (...args: unknown[]) => mockCancelReindexProgress(...args),
 }))
 
+import { resolveEmbeddingConfig } from '../../lib/embedding-config'
 import { POST as vectorReindexPost } from '../embeddings/reindex/route'
 import { POST as vectorReindexCancelPost } from '../embeddings/reindex/cancel/route'
 
@@ -99,6 +100,7 @@ describe('POST /api/search/embeddings/reindex', () => {
       jobsEnqueued: 0,
       entitiesProcessed: 1,
     }))
+    expect(resolveEmbeddingConfig).toHaveBeenCalledWith(mockContainer, { defaultValue: null, scope: { tenantId: 'tenant-123' } })
     expect(mockSearchIndexer.reindexEntityToVector).toHaveBeenCalledWith(
       expect.objectContaining({
         entityId: 'catalog:catalog_product_variant',
