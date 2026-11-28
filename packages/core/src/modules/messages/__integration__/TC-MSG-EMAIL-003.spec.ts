@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test'
 import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
+import { expectId, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
   clearCapturedSystemEmails,
@@ -16,9 +17,7 @@ import {
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
-import { createEmailBudgetFixture } from './emailBudgetFixture'
-
-const DAILY_LIMIT_CONFIG = 'externalEmailDailyRecipientLimit'
+import { createEmailBudgetFixture, deleteEmailBudgetSystemChannel, readEmailBudgetLedger } from './emailBudgetFixture'
 
 test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery', () => {
   let token = ''
@@ -42,17 +41,13 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
     test.skip(!seedingAvailable, 'OM_ENABLE_TEST_CHANNEL_SEEDING is not enabled.')
     systemChannelId = await seedSystemEmailChannel(request, token)
     await clearCapturedSystemEmails(request, token)
+    await fixture.setDailyLimit(1)
     await withClient(async (client) => {
       const previousDay = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
       await client.query(
         `insert into message_external_recipient_days (id, tenant_id, utc_day, recipient_hash, created_at)
          values ($1, $2, $3, $4, now())`,
         [randomUUID(), tenantId, previousDay, hashForLookup(`qa-historical-${stamp}@example.test`, 'messages.external_recipient')],
-      )
-      await client.query(
-        `insert into module_configs (id, module_id, name, value_json, tenant_id, organization_id, created_at, updated_at)
-         values ($1, 'messages', $2, '1'::jsonb, $3, null, now(), now())`,
-        [randomUUID(), DAILY_LIMIT_CONFIG, tenantId],
       )
       const current = await client.query<{ count: number }>(
         `select count(*)::int as count from message_external_recipient_days where tenant_id = $1 and utc_day = $2`,
@@ -71,7 +66,7 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
       if (systemChannelId) await clearCapturedSystemEmails(request, token)
     } finally {
       try {
-        await deleteChannelIfExists(request, token, systemChannelId)
+        await deleteEmailBudgetSystemChannel(request, token, systemChannelId)
       } finally {
         await fixture.cleanup()
       }
@@ -203,6 +198,131 @@ test.describe('TC-MSG-EMAIL-003: External email budgets reject without delivery'
     const captured = await listCapturedSystemEmails(request, token)
     expect(captured.some((email) => email.metadata?.to === secondEmail)).toBe(false)
   })
+  test('admits exactly one of two simultaneous sends at the tenant cap across organizations', async ({ request }) => {
+    if (!fixture) throw new Error('[internal] Missing email budget fixture')
+    const otherOrganizationId = await fixture.createOrganization()
+    const otherSender = await fixture.createActor(otherOrganizationId)
+    const denied = await fixture.createActor(fixture.organizationId, ['messages.view'])
+    const actors = [fixture, otherSender] as const
+    const acceptedIds: string[] = []
+    let connectedChannelId: string | null = null
+    let otherSystemChannelId: string | null = null
+
+    const listFixtureMessages = () => withClient(async (client) => {
+      const result = await client.query<{ id: string; sender_user_id: string }>(
+        'select id, sender_user_id from messages where tenant_id = $1',
+        [tenantId],
+      )
+      return result.rows
+    })
+
+    try {
+      connectedChannelId = await seedConnectedChannel(request, token)
+      otherSystemChannelId = await seedSystemEmailChannel(request, otherSender.token)
+      const rejectedSend = (senderToken: string) => apiRequest(request, 'POST', '/api/communication_channels/send-as-user', {
+        token: senderToken,
+        data: {
+          userChannelId: connectedChannelId,
+          to: [`qa-denied-${stamp}@example.test`],
+          subject: `QA denied email quota ${stamp}`,
+          body: { plain: 'An inaccessible mailbox cannot reserve quota.' },
+        },
+      })
+
+      await fixture.clearLedger()
+      const [noPermission, wrongOrganization] = await Promise.all([
+        rejectedSend(denied.token),
+        rejectedSend(otherSender.token),
+      ])
+      expect(noPermission.status()).toBe(403)
+      expect(wrongOrganization.status()).toBe(404)
+      expect(await readEmailBudgetLedger(tenantId)).toEqual({ recipients: [], windows: [] })
+      expect(await listFixtureMessages()).toEqual([])
+
+      for (let round = 1; round <= 10; round += 1) {
+        await fixture.clearLedger()
+        const addresses = actors.map((_, index) => `qa-exact-cap-${stamp}-${round}-${index}@example.test`)
+        const results = await Promise.all(actors.map((actor, index) => apiRequest(request, 'POST', '/api/messages', {
+          token: actor.token,
+          data: {
+            visibility: 'public',
+            externalEmail: addresses[index],
+            recipients: [],
+            subject: `QA concurrent email quota ${addresses[index]}`,
+            body: 'One of the two concurrent sends is admitted.',
+            sendViaEmail: true,
+          },
+        })))
+        expect(results.map((result) => result.status()).sort(), `round ${round}`).toEqual([201, 429])
+        const winner = results.findIndex((result) => result.status() === 201)
+        const accepted = await readJsonSafe<{ id?: string }>(results[winner])
+        acceptedIds.push(expectId(accepted?.id, 'Admitted concurrent message'))
+        expect(Number(results[1 - winner].headers()['retry-after'])).toBeGreaterThan(0)
+        expect(await readEmailBudgetLedger(tenantId)).toEqual({
+          recipients: [{ recipient_hash: hashForLookup(addresses[winner], 'messages.external_recipient') }],
+          windows: [
+            { scope: 'tenant', subject_id: tenantId, count: 1 },
+            { scope: 'user', subject_id: actors[winner].userId, count: 1 },
+          ],
+        })
+      }
+      expect((await listFixtureMessages()).map(({ id }) => id).sort()).toEqual(acceptedIds.sort())
+    } finally {
+      try {
+        await drainIntegrationQueue('events')
+        await drainIntegrationQueue('messages-email')
+        if (otherSystemChannelId) await clearCapturedSystemEmails(request, otherSender.token)
+      } finally {
+        try {
+          for (const message of await listFixtureMessages()) {
+            const sender = actors.find((actor) => actor.userId === message.sender_user_id)
+            await deleteMessageIfExists(request, sender?.token, message.id)
+          }
+        } finally {
+          await deleteChannelIfExists(request, token, connectedChannelId)
+          await deleteEmailBudgetSystemChannel(request, otherSender.token, otherSystemChannelId)
+        }
+      }
+    }
+  })
+
+  test('counts case-insensitive repeat sends hourly and never refunds a deleted message', async ({ request }) => {
+    const externalEmail = `qa-repeat-${stamp}@example.test`
+    const payload = {
+      visibility: 'public' as const,
+      recipients: [],
+      body: 'Daily accounting is per normalized recipient.',
+      sendViaEmail: true,
+    }
+    const firstId = await composeMessageWithToken(request, token, {
+      ...payload, externalEmail, subject: `QA quota repeat first ${stamp}`,
+    })
+    createdMessageIds.push(firstId)
+    createdMessageIds.push(await composeMessageWithToken(request, token, {
+      ...payload, externalEmail: externalEmail.toUpperCase(), subject: `QA quota repeat second ${stamp}`,
+    }))
+    const beforeDelete = await readEmailBudgetLedger(tenantId)
+    expect(beforeDelete.recipients).toContainEqual({
+      recipient_hash: hashForLookup(externalEmail, 'messages.external_recipient'),
+    })
+    expect(beforeDelete.recipients).toHaveLength(2)
+    expect(beforeDelete.windows.reduce((totals, { scope, count }) => ({
+      ...totals,
+      [scope]: (totals[scope] ?? 0) + count,
+    }), {} as Record<string, number>)).toEqual({ tenant: 2, user: 2 })
+
+    const deleted = await apiRequest(request, 'DELETE', `/api/messages/${firstId}`, { token })
+    expect(deleted.status()).toBe(200)
+    expect(await readEmailBudgetLedger(tenantId)).toEqual(beforeDelete)
+
+    const rejected = await apiRequest(request, 'POST', '/api/messages', {
+      token,
+      data: { ...payload, externalEmail: `another-${externalEmail}`, subject: `QA quota repeat denied ${stamp}` },
+    })
+    expect(rejected.status()).toBe(429)
+    expect(await readEmailBudgetLedger(tenantId)).toEqual(beforeDelete)
+  })
+
   for (const entrypoint of ['channel', 'customer'] as const) {
     test(`rejects an over-cap ${entrypoint} email before message and channel writes`, async ({ request }) => {
       const firstEmail = `qa-direct-budget-first-${stamp}@example.test`
