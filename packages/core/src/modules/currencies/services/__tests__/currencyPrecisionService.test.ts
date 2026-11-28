@@ -2,7 +2,9 @@ import { describe, it, expect, jest } from '@jest/globals'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CurrencyPrecisionService } from '../currencyPrecisionService'
 
-function createService(record: { decimalPlaces: number } | null) {
+type CurrencyRecord = { code?: string; decimalPlaces: number; symbol?: string | null; isActive?: boolean }
+
+function createService(record: CurrencyRecord | null) {
   const findOne = jest.fn(async () => record)
   const service = new CurrencyPrecisionService({ findOne } as unknown as EntityManager)
   return { service, findOne }
@@ -37,5 +39,68 @@ describe('CurrencyPrecisionService', () => {
     await expect(Promise.all([service.getDecimalPlaces(lookup), service.getDecimalPlaces(lookup)])).resolves.toEqual([8, 8])
     await expect(service.getDecimalPlaces({ ...lookup, code: 'btc' })).resolves.toBe(8)
     expect(findOne).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns the currency code, decimal places and symbol', async () => {
+    const { service } = createService({ code: 'USD', decimalPlaces: 2, symbol: '$' })
+    await expect(service.getCurrency({ code: 'usd', tenantId: 't1', organizationId: 'o1' })).resolves.toEqual({
+      code: 'USD',
+      decimalPlaces: 2,
+      symbol: '$',
+    })
+  })
+
+  it('returns a null symbol when the currency has none', async () => {
+    const { service } = createService({ code: 'ETH', decimalPlaces: 18, symbol: '' })
+    await expect(service.getCurrency({ code: 'ETH', tenantId: 't1', organizationId: 'o1' })).resolves.toEqual({
+      code: 'ETH',
+      decimalPlaces: 18,
+      symbol: null,
+    })
+  })
+
+  it('returns null currency details without an organization or for an unknown code', async () => {
+    const { service, findOne } = createService({ code: 'ETH', decimalPlaces: 18 })
+    await expect(service.getCurrency({ code: 'ETH', tenantId: 't1' })).resolves.toBeNull()
+    expect(findOne).not.toHaveBeenCalled()
+    const unknown = createService(null)
+    await expect(unknown.service.getCurrency({ code: 'XYZ', tenantId: 't1', organizationId: 'o1' })).resolves.toBeNull()
+  })
+
+  it('shares one query between getCurrency and getDecimalPlaces', async () => {
+    const { service, findOne } = createService({ code: 'JPY', decimalPlaces: 0, symbol: '¥' })
+    const lookup = { code: 'JPY', tenantId: 't1', organizationId: 'o1' }
+    await expect(service.getCurrency(lookup)).resolves.toEqual({ code: 'JPY', decimalPlaces: 0, symbol: '¥' })
+    await expect(service.getDecimalPlaces(lookup)).resolves.toBe(0)
+    expect(findOne).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the precision of an inactive currency but returns no details for new money', async () => {
+    const { service, findOne } = createService({ code: 'EUR', decimalPlaces: 2, symbol: '€', isActive: false })
+    const lookup = { code: 'EUR', tenantId: 't1', organizationId: 'o1' }
+    await expect(service.getDecimalPlaces(lookup)).resolves.toBe(2)
+    await expect(service.getCurrency(lookup)).resolves.toBeNull()
+    await expect(service.getDecimalPlaces(lookup)).resolves.toBe(2)
+    expect(findOne).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns details for an active currency', async () => {
+    const { service } = createService({ code: 'EUR', decimalPlaces: 2, symbol: '€', isActive: true })
+    await expect(service.getCurrency({ code: 'EUR', tenantId: 't1', organizationId: 'o1' })).resolves.toEqual({
+      code: 'EUR',
+      decimalPlaces: 2,
+      symbol: '€',
+    })
+  })
+
+  it('returns frozen currency details so a caller cannot change the cached precision', async () => {
+    const { service } = createService({ code: 'USD', decimalPlaces: 2, symbol: '$' })
+    const lookup = { code: 'USD', tenantId: 't1', organizationId: 'o1' }
+    const details = await service.getCurrency(lookup)
+    expect(Object.isFrozen(details)).toBe(true)
+    expect(() => {
+      ;(details as { decimalPlaces: number }).decimalPlaces = 0
+    }).toThrow(TypeError)
+    await expect(service.getDecimalPlaces(lookup)).resolves.toBe(2)
   })
 })

@@ -1,0 +1,175 @@
+---
+id: money-value-objects
+title: Money & Currency Value Objects
+sidebar_label: Money Value Objects
+---
+
+# Money & Currency Value Objects
+
+`@open-mercato/shared/lib/money` provides two immutable value objects for
+**new code** that handles monetary values:
+
+- **`Currency`**: an ISO 4217 code, the tenant's decimal places and an optional
+  display symbol. Two currencies are equal when the code **and** the decimal
+  places match. The symbol is ignored.
+- **`Money`**: an exact decimal amount (`big.js`, from
+  `@open-mercato/shared/lib/decimal`) in one `Currency`.
+
+Both are frozen, branded plain objects. Every operation is a free function, so
+it works directly as a `map` or `reduce` callback. Arithmetic across currencies
+throws `CurrencyMismatchError`.
+
+Existing modules keep their `number` + `<field>Exact` contracts. Every **new**
+monetary value uses the shape that fits its layer:
+
+| Layer | Shape |
+|-------|-------|
+| Domain code: service signatures, command internals, calculations | `Money` |
+| Validated request and response payloads (validators, API fields) | `MoneyInput` (`moneyInputSchema`, read with `resolveMoney`, written with `serializeMoney`) |
+| Trusted messages: queues, caches, events, workflow or JSON state | `MoneySnapshot` (`snapshotMoney` / `restoreMoney`) |
+| Persisted entity fields | `MoneyColumns` (`moneyToColumns` / `moneyFromColumns`) |
+
+## Resolving a currency
+
+A `Currency` comes only from the tenant's currency settings:
+
+```ts
+import { resolveCurrency } from '@open-mercato/shared/lib/money'
+
+const usd = await resolveCurrency(container, { code: 'USD', tenantId, organizationId })
+```
+
+The call does not fall back to the ISO table. It throws `CurrencyNotResolvedError`
+when the `currencies` module is disabled, the code is unknown or soft-deleted,
+the lookup has no tenant or organization (checked before any resolver runs), or
+the lookup itself fails (the original error is kept as `cause`). With the stock
+`currencies` module an inactive currency throws too, because its resolver's
+`getCurrency` returns `null` for it. A custom resolver that implements only
+`getDecimalPlaces` cannot report activity, so on that path an inactive currency is
+not rejected. An inactive currency still restores from a stored snapshot; it only
+cannot be used for new money.
+
+## Arithmetic
+
+```ts
+import {
+  addMoney, allocateMoney, convertMoney, createMoney, divideMoney, multiplyMoney, sumMoney,
+} from '@open-mercato/shared/lib/money'
+
+const lines = items.map((item) => multiplyMoney(createMoney(item.unitPrice, usd), item.quantity))
+const subtotal = sumMoney(usd, lines)
+const perSeat = divideMoney(subtotal, seats, { decimalPlaces: 2, mode: 'halfEven' })
+const installments = allocateMoney(subtotal, [1, 1, 1], { decimalPlaces: usd.decimalPlaces })
+const inEur = convertMoney(subtotal, rate, eur, { decimalPlaces: eur.decimalPlaces, mode: 'halfUp' })
+```
+
+- Amounts are exact at any scale. Nothing rounds implicitly.
+- `divideMoney`, `convertMoney`, `rescaleMoney` and `roundMoney` take a
+  `{ decimalPlaces, mode }` rounding (`down`, `halfUp`, `halfEven`, `up`; `down`
+  and `up` round toward and away from zero). The result is rounded **once**.
+- `allocateMoney` uses the largest-remainder method on exact integer remainders.
+  The parts always sum exactly to the total. The amount must already have at most
+  `decimalPlaces` decimals.
+- Every `Money` stays within the decimal toolkit's size caps (300 integer digits,
+  1000 significant digits, nothing below `1e-1000`), so snapshots always
+  round-trip. A result is never rounded to fit: a sum, product, conversion or
+  rounding carry whose exact result is outside the caps throws `Decimal result out
+  of range`. Inputs follow the same rule: an amount, factor, divisor or rate
+  passed as a `Big` is copied exactly, and one beyond the caps throws
+  `Decimal value out of range` instead of being rounded (an out-of-range
+  `allocateMoney` ratio throws `InvalidAllocationError`). `convertMoney` and `allocateMoney` compute their intermediates exactly
+  and only check the final result. Real money never comes close.
+- `allocateMoney` accepts at most 1000 ratios, each with at most 50 integer digits
+  and 50 decimals, which keeps its exact integer work small.
+- `convertMoney` takes the rate from its caller (for example `exchangeRateService`)
+  and rejects a target with the same code. `rescaleMoney` moves an amount between
+  two currencies with the same code and different decimal places.
+
+## Moving money between processes
+
+| Shape | Produced by | Read back with |
+|-------|-------------|----------------|
+| `MoneyInput` `{ amount, currencyCode }` (untrusted) | Clients: request bodies, imports, webhooks | `moneyInputSchema` then `await resolveMoney(container, scope, input)` (the tenant's current precision) |
+| `MoneySnapshot` `{ amount, currencyCode, currencyDecimalPlaces }` (trusted) | This system: `snapshotMoney(money)` | `restoreMoney(snapshot)`, synchronous, keeps the precision at snapshot time |
+
+`moneyInputSchema` accepts the amount only as a decimal **string**. A JSON number
+may already have lost digits when the body was parsed (`90071992547409.93` arrives
+as `90071992547409.94`), so numbers are rejected.
+
+`resolveMoney` keeps a client amount exact, so `0.001` USD stays `0.001`. Where a
+field must be in the currency's minor units (a price, a payment amount), check
+`fitsCurrencyPrecision(money)` and answer with a 400 when it is `false`.
+
+API responses use `serializeMoney(money)`. Queues, caches, events and workflow
+state carry a `MoneySnapshot`. Never pass request input to `restoreMoney`:
+`moneyInputSchema` strips a client-sent `currencyDecimalPlaces`.
+
+## Persisting money (`MoneyColumns`)
+
+1. Embed `MoneyColumns` in the new entity:
+
+   ```ts
+   import { Embedded, Entity, PrimaryKey } from '@mikro-orm/decorators/legacy'
+   import { MoneyColumns } from '@open-mercato/shared/lib/db/moneyColumns'
+
+   @Entity({ tableName: 'billing_invoices' })
+   export class BillingInvoice {
+     @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+     id!: string
+
+     @Embedded(() => MoneyColumns, { prefix: 'total_' })
+     total!: MoneyColumns
+
+     @Embedded(() => MoneyColumns, { prefix: 'discount_', nullable: true })
+     discount?: MoneyColumns | null
+   }
+   ```
+
+2. Run `yarn db:generate`. Each money field adds three columns:
+   `<prefix>amount numeric`, `<prefix>currency_code text` and
+   `<prefix>currency_decimal_places int`. MikroORM discovers the embeddable from
+   the entity that references it.
+3. Convert at the command or service boundary. Entities hold `MoneyColumns`, never `Money`:
+
+   ```ts
+   import { moneyFromColumns, moneyToColumns } from '@open-mercato/shared/lib/db/moneyColumns'
+
+   invoice.total = moneyToColumns(total)
+   const discount = invoice.discount ? moneyFromColumns(invoice.discount) : null
+   ```
+
+### Entities that also reference a currency by id
+
+If the entity also references `currencies.Currency` by `currency_id` (an FK-id, as
+ledger, payables and cash documents do), keep that column as the relational link
+for joins, reporting and rate lookups, and keep `MoneyColumns` per amount as the
+snapshot. This is the platform's "FK-id + snapshot" pattern:
+
+- On write, load the currency row for the id with the same tenant and organization
+  scope (`findOneWithDecryption`, `deletedAt: null`), resolve its code with
+  `resolveCurrency`, and store the id next to `moneyToColumns(money)`.
+- Never rebuild a stored `Money`'s currency from the id on read. The referenced
+  currency can since have been disabled, soft-deleted, renamed (its code changed)
+  or re-scaled; the `MoneyColumns` snapshot restores exactly as written.
+
+Stored money keeps the precision it was written with. If a tenant later changes a
+currency's decimal places, mixing stored and freshly resolved money throws
+`CurrencyMismatchError`. Call `rescaleMoney(stored, freshCurrency, rounding)` at
+the read boundary.
+
+## Errors
+
+All errors extend `Error` and their messages start with `[internal]`. They signal
+programmer errors and are never shown to users. A route that wants a 400 maps
+them explicitly.
+
+| Error | Thrown when |
+|-------|-------------|
+| `CurrencyMismatchError` | Arithmetic or comparison across unequal currencies (carries `left` and `right`) |
+| `CurrencyNotResolvedError` | `resolveCurrency` cannot resolve the code (carries `code` and `cause`) |
+| `InvalidAllocationError` | Invalid `allocateMoney` input |
+| `InvalidMoneyRoundingError` | A missing or invalid `{ decimalPlaces, mode }` |
+| `InvalidMoneyInputError` | `resolveMoney` received input `moneyInputSchema` rejects (`cause` is the `ZodError`) |
+| `InvalidMoneySnapshotError` | `restoreMoney` / `moneyFromColumns` received a snapshot or row `moneySnapshotSchema` rejects (`cause` is the `ZodError`) |
+
+The full design is in the [Money and Currency Value Objects spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-10-22-money-value-object.md).

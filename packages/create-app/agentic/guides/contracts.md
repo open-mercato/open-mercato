@@ -10,6 +10,7 @@ For entities, APIs, commands, scoping, compatibility, migrations, events, worker
 - Use UUID primary keys, explicit scalar FK IDs, and module-prefixed plural table names. Do not create cross-module ORM relations.
 - Store sensitive/PII fields through `encryption.ts` `defaultEncryptionMaps`; use the framework decryption find helpers with both scope IDs. Add a deterministic hash sibling only when equality lookup requires it.
 - Model nullable/optional/clearable fields consistently through validator, command, entity, response, and form. Test create, edit, reload, and clearing to `null`.
+- A new monetary value (entity, validator, command, service, or API field) MUST use `Money` + `MoneyColumns`, never a new `number`, decimal-string, or `<field>Exact` field: `om-data-model-design` `references/schema-design.md` Money Contract.
 
 ## Migration Workflow
 

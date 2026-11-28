@@ -1,0 +1,4 @@
+{
+  "description": "Intentional exceptions for `yarn money:check-new-code` (scripts/money-check-new-code.mjs, spec .ai/specs/2026-10-22-money-value-object.md). Add an entry only when a flagged line is deliberate, for example extending an existing `<field>Exact` contract that has not moved to Money yet, or a non-monetary `*_value` / `*_total` numeric column. Shape: { \"path\": \"<glob (** and *) or path prefix>\", \"pattern\": \"<optional regex tested on the added line>\", \"reason\": \"<why this is not a new monetary field>\" }.",
+  "entries": []
+}
