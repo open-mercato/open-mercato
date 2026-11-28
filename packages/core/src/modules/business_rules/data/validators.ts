@@ -134,15 +134,19 @@ function toDateOrNull(value: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+export function isEffectiveDateRangeInverted(effectiveFrom: unknown, effectiveTo: unknown): boolean {
+  const from = toDateOrNull(effectiveFrom)
+  const to = toDateOrNull(effectiveTo)
+  if (from === null || to === null) return false
+  return to.getTime() <= from.getTime()
+}
+
 export function refineEffectiveDateRange(
   data: { effectiveFrom?: unknown; effectiveTo?: unknown },
   ctx: z.RefinementCtx,
   message: string = EFFECTIVE_DATE_RANGE_DEFAULT_MESSAGE,
 ): void {
-  const from = toDateOrNull(data.effectiveFrom)
-  const to = toDateOrNull(data.effectiveTo)
-  if (from === null || to === null) return
-  if (to.getTime() <= from.getTime()) {
+  if (isEffectiveDateRangeInverted(data.effectiveFrom, data.effectiveTo)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message,

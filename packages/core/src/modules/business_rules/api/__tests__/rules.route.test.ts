@@ -1346,6 +1346,99 @@ describe('Business Rules API - /api/business_rules/rules', () => {
     })
   })
 
+  describe('PUT - effective window checked against the stored rule', () => {
+    const ruleId = '123e4567-e89b-12d3-a456-426614174020'
+    const effectiveToBeforeFromError = `Validation failed: effectiveTo: ${enStrings['business_rules.rules.form.errors.effectiveToBeforeFrom']}`
+
+    function primeStoredRule(effectiveFrom: Date | null, effectiveTo: Date | null) {
+      const storedRule = {
+        id: ruleId,
+        ruleId: 'RULE-WINDOW',
+        ruleName: 'Window rule',
+        ruleType: 'GUARD',
+        entityType: 'WorkOrder',
+        tenantId: validTenantId,
+        organizationId: validOrgId,
+        deletedAt: null,
+        successActions: null,
+        failureActions: null,
+        effectiveFrom,
+        effectiveTo,
+      }
+      mockEm.findOne.mockResolvedValue(storedRule)
+      mockEm.assign.mockImplementation((target: object, data: object) => Object.assign(target, data))
+      mockEm.flush.mockResolvedValue(undefined)
+      return storedRule
+    }
+
+    async function putRule(patch: Record<string, unknown>) {
+      return PUT(new Request('http://localhost:3000/api/business_rules/rules', {
+        method: 'PUT',
+        body: JSON.stringify({ id: ruleId, ...patch }),
+      }))
+    }
+
+    test('rejects an effectiveFrom-only patch that moves the start past the stored end', async () => {
+      const storedRule = primeStoredRule(new Date('2026-01-01T00:00:00.000Z'), new Date('2026-02-01T00:00:00.000Z'))
+
+      const response = await putRule({ effectiveFrom: '2026-03-01T00:00:00.000Z' })
+
+      expect(response.status).toBe(400)
+      expect((await response.json()).error).toBe(effectiveToBeforeFromError)
+      expect(mockEm.assign).not.toHaveBeenCalled()
+      expect(mockEm.flush).not.toHaveBeenCalled()
+      expect(storedRule.effectiveFrom).toEqual(new Date('2026-01-01T00:00:00.000Z'))
+    })
+
+    test('rejects an effectiveTo-only patch that moves the end before the stored start', async () => {
+      primeStoredRule(new Date('2026-03-01T00:00:00.000Z'), new Date('2026-04-01T00:00:00.000Z'))
+
+      const response = await putRule({ effectiveTo: '2026-02-01T00:00:00.000Z' })
+
+      expect(response.status).toBe(400)
+      expect((await response.json()).error).toBe(effectiveToBeforeFromError)
+      expect(mockEm.flush).not.toHaveBeenCalled()
+    })
+
+    test('rejects a one-sided patch that makes the window zero-length', async () => {
+      primeStoredRule(new Date('2026-01-01T00:00:00.000Z'), new Date('2026-02-01T00:00:00.000Z'))
+
+      const response = await putRule({ effectiveFrom: '2026-02-01T00:00:00.000Z' })
+
+      expect(response.status).toBe(400)
+      expect(mockEm.flush).not.toHaveBeenCalled()
+    })
+
+    test('accepts a one-sided patch that keeps the window ordered', async () => {
+      const storedRule = primeStoredRule(new Date('2026-01-01T00:00:00.000Z'), new Date('2026-02-01T00:00:00.000Z'))
+
+      const response = await putRule({ effectiveFrom: '2026-01-15T00:00:00.000Z' })
+
+      expect(response.status).toBe(200)
+      expect(mockEm.flush).toHaveBeenCalled()
+      expect(storedRule.effectiveFrom).toEqual(new Date('2026-01-15T00:00:00.000Z'))
+      expect(storedRule.effectiveTo).toEqual(new Date('2026-02-01T00:00:00.000Z'))
+    })
+
+    test('accepts clearing the stored end with null', async () => {
+      const storedRule = primeStoredRule(new Date('2026-03-01T00:00:00.000Z'), new Date('2026-04-01T00:00:00.000Z'))
+
+      const response = await putRule({ effectiveTo: null })
+
+      expect(response.status).toBe(200)
+      expect(storedRule.effectiveTo).toBeNull()
+    })
+
+    test('still saves a patch that leaves both dates alone on a rule stored with an inverted window', async () => {
+      const storedRule = primeStoredRule(new Date('2026-03-01T00:00:00.000Z'), new Date('2026-02-01T00:00:00.000Z'))
+
+      const response = await putRule({ ruleName: 'Renamed' })
+
+      expect(response.status).toBe(200)
+      expect(storedRule.ruleName).toBe('Renamed')
+    })
+  })
+
   describe('CALL_OPEN_MERCATO API key profile grant ceiling', () => {
     const privilegedKeyId = '123e4567-e89b-42d3-a456-426614174077'
     const ruleId = '123e4567-e89b-42d3-a456-426614174000'
