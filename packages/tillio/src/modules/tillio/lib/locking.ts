@@ -10,13 +10,16 @@ import type { IntegrationScope } from '@open-mercato/shared/modules/integrations
  * it releases with the transaction, so a request that dies mid-section cannot leave it held. The
  * transaction exists to own the lock: the work inside writes through its own services and is not
  * made atomic by it.
+ *
+ * The lock MUST be taken through `tx.execute`. `tx.getConnection().execute` runs on a separate
+ * pooled connection in autocommit, so the lock would be released before `run` starts.
  */
 export type TillioLockRunner = <T>(run: () => Promise<T>) => Promise<T>
 
 export function createTillioLock(em: EntityManager, key: string): TillioLockRunner {
   return async <T>(run: () => Promise<T>): Promise<T> =>
     em.transactional(async (tx) => {
-      await tx.getConnection().execute('select pg_advisory_xact_lock(hashtext(?::text))', [key])
+      await tx.execute('select pg_advisory_xact_lock(hashtext(?::text))', [key])
       return run()
     })
 }
