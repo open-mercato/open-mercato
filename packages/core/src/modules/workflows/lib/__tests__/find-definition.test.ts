@@ -305,6 +305,49 @@ describe('findDefinitionForInstance()', () => {
     expect(mockEm.findOne).toHaveBeenCalledWith(WorkflowDefinition, { id: dbDef.id })
   })
 
+  test('with a scope, the database read carries the tenant and organization', async () => {
+    const dbDef = makeDbDef()
+    mockEm.findOne.mockResolvedValue(dbDef)
+
+    await findDefinitionForInstance(
+      mockEm as any,
+      { ...virtualInstance, definitionId: dbDef.id },
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(mockEm.findOne).toHaveBeenCalledWith(WorkflowDefinition, {
+      id: dbDef.id,
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+  })
+
+  test('a scoped miss keeps the code fallback, built in the instance scope', async () => {
+    mockEm.findOne.mockResolvedValue(null)
+    registerCodeWorkflows([makeCodeDef()])
+
+    const result = await findDefinitionForInstance(mockEm as any, virtualInstance, {
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+
+    expect(result?.id).toBe(virtualInstance.definitionId)
+    expect(result?.organizationId).toBe('org-1')
+  })
+
+  test('a scoped miss resolves to nothing for a persisted definition id', async () => {
+    mockEm.findOne.mockResolvedValue(null)
+    registerCodeWorkflows([makeCodeDef()])
+
+    const result = await findDefinitionForInstance(
+      mockEm as any,
+      { ...virtualInstance, definitionId: 'db-uuid-in-another-organization' },
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+    )
+
+    expect(result).toBeNull()
+  })
+
   test('falls back to the code registry when the DB misses and the UUID matches', async () => {
     mockEm.findOne.mockResolvedValue(null)
     registerCodeWorkflows([makeCodeDef()])
