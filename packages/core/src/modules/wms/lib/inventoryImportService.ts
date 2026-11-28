@@ -1,13 +1,18 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  beginTransactionLifetime,
+  completeTransactionLifetime,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { E } from '#generated/entities.ids.generated'
 import {
   InventoryBalance,
   InventoryLot,
+  InventoryMovement,
   Warehouse,
   WarehouseLocation,
 } from '../data/entities'
@@ -542,6 +547,129 @@ export async function validateInventoryImport(
   }
 }
 
+function buildImportRowReferenceId(importBatchId: string, rowNumber: number): string {
+  const seed = `wms:csv-import:${importBatchId.toLowerCase()}:${rowNumber}`
+  const bytes = createHash('sha256').update(seed).digest().subarray(0, 16)
+  bytes[6] = (bytes[6] & 0x0f) | 0x50
+  bytes[8] = (bytes[8] & 0x3f) | 0x80
+  const hex = bytes.toString('hex')
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`
+}
+
+function resolveRelationId(value: { id?: string } | string | null | undefined): string | null {
+  if (typeof value === 'string') return value
+  return typeof value?.id === 'string' ? value.id : null
+}
+
+const MOVEMENT_QUANTITY_SCALE = 4
+
+// wms_inventory_movements.quantity is numeric(16,4); Postgres rounds to that scale on
+// insert, so a raw delta with more fractional digits must be rounded the same way before
+// comparing against a persisted movement, or an identical retry reports a false mismatch.
+function roundToMovementScale(value: number): number {
+  const factor = 10 ** MOVEMENT_QUANTITY_SCALE
+  return Math.round(value * factor) / factor
+}
+
+/**
+ * A replayed row must have posted the same target bucket and amount as the current row;
+ * a CSV edited between a failed apply and its retry (same importBatchId/rowNumber) must
+ * not be reported as applied against a stale movement.
+ */
+function movementMatchesRow(
+  movement: InventoryMovement,
+  row: { warehouseId: string; locationId: string; catalogVariantId: string; lotId?: string | null; serialNumber?: string | null; delta: number },
+): boolean {
+  return (
+    resolveRelationId(movement.warehouse) === row.warehouseId &&
+    resolveRelationId(movement.locationTo) === row.locationId &&
+    movement.catalogVariantId === row.catalogVariantId &&
+    resolveRelationId(movement.lot) === (row.lotId ?? null) &&
+    (movement.serialNumber ?? null) === (row.serialNumber ?? null) &&
+    Math.abs(toNumber(movement.quantity) - roundToMovementScale(row.delta)) < 0.00001
+  )
+}
+
+/**
+ * Pre-fix rows (posted before buildImportRowReferenceId existed) carry no deterministic
+ * referenceId, so they can only be recognized by their import batch/row metadata. The
+ * movement table has no index on those JSON fields, so this is loaded once per batch
+ * instead of once per row — a per-row scan does not scale to a multi-thousand-row import.
+ */
+async function loadLegacyImportRowMovementIds(
+  em: EntityManager,
+  scope: ImportScope,
+  importBatchId: string,
+): Promise<Map<number, string>> {
+  const rows = await em.getConnection().execute<Array<{ id: string; row_number: string | null }>>(
+    `select id, metadata->>'importRowNumber' as row_number
+     from wms_inventory_movements
+     where organization_id = ?
+       and tenant_id = ?
+       and deleted_at is null
+       and reference_type = 'manual'
+       and metadata->>'source' = 'csv_import'
+       and metadata->>'importBatchId' = ?
+     order by created_at asc`,
+    [scope.organizationId, scope.tenantId, importBatchId],
+  )
+  const byRow = new Map<number, string>()
+  for (const row of rows) {
+    const rowNumber = Number(row.row_number)
+    if (!Number.isFinite(rowNumber) || byRow.has(rowNumber)) continue
+    byRow.set(rowNumber, row.id)
+  }
+  return byRow
+}
+
+const IMPORT_ROW_LOCK_SQL = 'select pg_advisory_xact_lock(hashtextextended(?, 0))'
+
+// Serializes the check-then-adjust section below per tenant/organization/batch/row, so two
+// overlapping apply requests for the same CSV row cannot both miss the existing-movement
+// lookup and post two movements for it.
+function buildImportRowLockKey(scope: ImportScope, importBatchId: string, rowNumber: number): string {
+  return [
+    'wms:csv-import-row',
+    scope.tenantId.toLowerCase(),
+    scope.organizationId.toLowerCase(),
+    importBatchId.toLowerCase(),
+    String(rowNumber),
+  ].join(':')
+}
+
+// Opens (or joins) the row's transaction and gives it an owned transaction lifetime, so
+// wms.inventory.adjust can tell this is an ambient, not-yet-really-committed transaction
+// (see the matching check in inventory-actions.ts) and defer publishing its side effects
+// until the commit below has actually happened — a SAVEPOINT release inside the adjust
+// command's own nested transaction is not that commit.
+async function runInTransaction<TResult>(
+  em: EntityManager,
+  operation: (trx: EntityManager) => Promise<TResult>,
+): Promise<TResult> {
+  const transactionalEm = em as EntityManager & {
+    transactional?: (callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+  }
+  if (typeof transactionalEm.transactional !== 'function') {
+    return operation(em)
+  }
+  let trx: EntityManager | undefined
+  let lifetime: ReturnType<typeof beginTransactionLifetime> | undefined
+  try {
+    const result = await transactionalEm.transactional((inner) => {
+      trx = inner
+      lifetime = beginTransactionLifetime(inner)
+      return operation(inner)
+    })
+    if (trx && lifetime) await completeTransactionLifetime(trx, lifetime, 'committed')
+    return result
+  } catch (error) {
+    if (trx && lifetime) {
+      await completeTransactionLifetime(trx, lifetime, 'rolled_back').catch(() => undefined)
+    }
+    throw error
+  }
+}
+
 export async function applyInventoryImport(
   ctx: CommandRuntimeContext,
   input: InventoryImportApplyInput,
@@ -561,6 +689,13 @@ export async function applyInventoryImport(
   let skipped = 0
   let failed = 0
 
+  let legacyMovementIdsByRow: Map<number, string> | Error
+  try {
+    legacyMovementIdsByRow = await loadLegacyImportRowMovementIds(em, scope, input.importBatchId)
+  } catch (error) {
+    legacyMovementIdsByRow = error instanceof Error ? error : new Error('apply_failed')
+  }
+
   for (const row of applyRows) {
     if (Math.abs(row.delta) < 0.000001) {
       skipped += 1
@@ -569,35 +704,74 @@ export async function applyInventoryImport(
     }
 
     try {
-      const execution = await commandBus.execute('wms.inventory.adjust', {
-        input: {
-          organizationId: input.organizationId,
-          tenantId: input.tenantId,
-          warehouseId: row.warehouseId,
-          locationId: row.locationId,
-          catalogVariantId: row.catalogVariantId,
-          lotId: row.lotId,
-          serialNumber: row.serialNumber,
-          delta: row.delta,
-          reason: input.reason,
-          referenceType: 'manual' as const,
-          referenceId: randomUUID(),
-          performedBy: input.performedBy,
-          metadata: {
-            importBatchId: input.importBatchId,
-            importRowNumber: row.rowNumber,
-            source: 'csv_import',
-            ...(mode === 'reconcile' ? { targetQuantity: row.quantity } : {}),
+      if (legacyMovementIdsByRow instanceof Error) throw legacyMovementIdsByRow
+      const referenceId = buildImportRowReferenceId(input.importBatchId, row.rowNumber)
+      const legacyMovementId = legacyMovementIdsByRow.get(row.rowNumber)
+
+      const outcome = await runInTransaction(em, async (trx) => {
+        // Holds the row's lock for the whole check-then-adjust section below, including
+        // the wms.inventory.adjust call, so a concurrent retry blocks until this one commits.
+        // Must go through em.execute (not em.getConnection().execute), which binds to trx's
+        // active transaction — otherwise pg_advisory_xact_lock runs on its own auto-committed
+        // statement and releases the lock immediately instead of holding it for the section.
+        await trx.execute(IMPORT_ROW_LOCK_SQL, [buildImportRowLockKey(scope, input.importBatchId, row.rowNumber)])
+
+        const indexedMovement = await findOneWithDecryption(
+          trx,
+          InventoryMovement,
+          { organizationId: scope.organizationId, referenceType: 'manual', referenceId, deletedAt: null },
+          undefined,
+          scope,
+        )
+        const existingMovement =
+          indexedMovement ??
+          (legacyMovementId
+            ? await findOneWithDecryption(
+                trx,
+                InventoryMovement,
+                { id: legacyMovementId, organizationId: scope.organizationId, deletedAt: null },
+                undefined,
+                scope,
+              )
+            : null)
+
+        if (existingMovement) {
+          if (!movementMatchesRow(existingMovement, row)) {
+            throw new CrudHttpError(409, { error: 'import_row_replay_mismatch', rowNumber: row.rowNumber })
+          }
+          return { movementId: existingMovement.id }
+        }
+
+        const execution = await commandBus.execute('wms.inventory.adjust', {
+          input: {
+            organizationId: input.organizationId,
+            tenantId: input.tenantId,
+            warehouseId: row.warehouseId,
+            locationId: row.locationId,
+            catalogVariantId: row.catalogVariantId,
+            lotId: row.lotId,
+            serialNumber: row.serialNumber,
+            delta: row.delta,
+            reason: input.reason,
+            referenceType: 'manual' as const,
+            referenceId,
+            performedBy: input.performedBy,
+            metadata: {
+              importBatchId: input.importBatchId,
+              importRowNumber: row.rowNumber,
+              source: 'csv_import',
+              ...(mode === 'reconcile' ? { targetQuantity: row.quantity } : {}),
+            },
           },
-        },
-        ctx,
+          // Let the adjust command reuse this row's lock transaction instead of opening a
+          // second pooled connection — see the matching note in inventory-actions.ts.
+          ctx: { ...ctx, transactionalEm: trx },
+        })
+        return { movementId: (execution.result as { movementId?: string }).movementId }
       })
+
       applied += 1
-      resultRows.push({
-        rowNumber: row.rowNumber,
-        status: 'applied',
-        movementId: (execution.result as { movementId?: string }).movementId,
-      })
+      resultRows.push({ rowNumber: row.rowNumber, status: 'applied', movementId: outcome.movementId })
     } catch (error) {
       failed += 1
       const message =

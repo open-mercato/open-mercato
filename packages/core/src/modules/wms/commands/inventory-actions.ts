@@ -33,6 +33,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  getTransactionLifetime,
+  onTransactionLifetimeComplete,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { emitWmsEvent } from '../events'
 import { E } from '#generated/entities.ids.generated'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
@@ -1352,11 +1356,16 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
   id: 'wms.inventory.adjust',
   // See "WMS Inventory Mutation Commands — Undo Policy" at top of file.
   isUndoable: false,
+  /**
+   * Reuses `ctx.transactionalEm` when set (e.g. the CSV import row lock) instead of
+   * forking a second pooled connection: a holder of a blocking advisory lock that also
+   * needs a connection of its own for this call can starve the pool under contention.
+   */
   async execute(rawInput, ctx) {
     const input = inventoryAdjustSchema.parse(rawInput ?? {})
     ensureTenantScope(ctx, input.tenantId)
     ensureOrganizationScope(ctx, input.organizationId)
-    const em = resolveEm(ctx)
+    const em = ctx.transactionalEm ?? resolveEm(ctx)
     const result = await runInTransaction(em, async (trx) => {
       const scope = resolveScope(ctx, input)
       await requireWarehouse(trx, ctx, input.warehouseId, scope)
@@ -1458,25 +1467,39 @@ const adjustInventoryCommand: CommandHandler<InventoryAdjustInput, { movementId:
       }
     })
     if (!result.idempotentReplay) {
-      await emitInventorySideEffects(ctx, {
-        movements: [{ entity: result.movementEntity, action: 'created' }],
-        balances: [{ entity: result.balanceEntity, action: result.balanceAction }],
-      })
-      void emitWmsEvent('wms.inventory.adjusted', {
-        id: result.movementId,
-        movementId: result.movementId,
-        warehouseId: result.warehouseId,
-        catalogVariantId: result.catalogVariantId,
-        quantity: toNumericString(result.quantity),
-        tenantId: result.tenantId,
-        organizationId: result.organizationId,
-      }).catch(() => undefined)
-      void emitLowStockEventIfNeeded(
-        resolveEm(ctx),
-        ctx,
-        { tenantId: result.tenantId, organizationId: result.organizationId },
-        result.catalogVariantId,
-      ).catch(() => undefined)
+      const publishAdjustSideEffects = async () => {
+        await emitInventorySideEffects(ctx, {
+          movements: [{ entity: result.movementEntity, action: 'created' }],
+          balances: [{ entity: result.balanceEntity, action: result.balanceAction }],
+        })
+        void emitWmsEvent('wms.inventory.adjusted', {
+          id: result.movementId,
+          movementId: result.movementId,
+          warehouseId: result.warehouseId,
+          catalogVariantId: result.catalogVariantId,
+          quantity: toNumericString(result.quantity),
+          tenantId: result.tenantId,
+          organizationId: result.organizationId,
+        }).catch(() => undefined)
+        void emitLowStockEventIfNeeded(
+          resolveEm(ctx),
+          ctx,
+          { tenantId: result.tenantId, organizationId: result.organizationId },
+          result.catalogVariantId,
+        ).catch(() => undefined)
+      }
+      // A caller-supplied transactionalEm (e.g. the CSV import row lock) may still be
+      // inside its own outer transaction here: the section above only released a
+      // SAVEPOINT, not the real commit that transaction owner controls. Defer publishing
+      // until that outer transaction actually commits, and drop it entirely on rollback,
+      // instead of invalidating caches and emitting events for a row nobody can read yet.
+      if (getTransactionLifetime(em)) {
+        onTransactionLifetimeComplete(em, async (outcome) => {
+          if (outcome === 'committed') await publishAdjustSideEffects()
+        })
+      } else {
+        await publishAdjustSideEffects()
+      }
     }
     return { movementId: result.movementId }
   },

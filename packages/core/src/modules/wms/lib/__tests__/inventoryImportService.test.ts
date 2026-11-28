@@ -3,9 +3,11 @@
 import {
   InventoryBalance,
   InventoryLot,
+  InventoryMovement,
   Warehouse,
   WarehouseLocation,
 } from '../../data/entities'
+import { inventoryAdjustSchema } from '../../data/validators'
 import {
   applyInventoryImport,
   validateInventoryImport,
@@ -28,11 +30,25 @@ const queryEngine = {
   query: jest.fn(),
 }
 
+function createEm(legacyMovementRows: Array<{ id: string }> = [], lookupError?: Error) {
+  return {
+    getConnection: () => ({
+      execute: jest.fn(async () => {
+        if (lookupError) throw lookupError
+        return legacyMovementRows
+      }),
+    }),
+    // Real EntityManager.execute binds to the active transaction (unlike
+    // getConnection().execute); the per-row advisory lock call goes through this.
+    execute: jest.fn(async () => []),
+  }
+}
+
 function createCtx() {
   return {
     container: {
       resolve: (name: string) => {
-        if (name === 'em') return {}
+        if (name === 'em') return createEm()
         if (name === 'queryEngine') return queryEngine
         if (name === 'commandBus') {
           return {
@@ -354,7 +370,7 @@ describe('applyInventoryImport', () => {
     const ctx = {
       container: {
         resolve: (name: string) => {
-          if (name === 'em') return {}
+          if (name === 'em') return createEm()
           if (name === 'commandBus') return { execute: executeMock }
           throw new Error(`Unexpected resolve: ${name}`)
         },
@@ -389,6 +405,52 @@ describe('applyInventoryImport', () => {
     expect(result.summary.applied).toBe(1)
   })
 
+  // The row lock (pg_advisory_xact_lock) holds its own pooled connection for the whole
+  // check-then-adjust section; if the adjust command opened a second connection of its
+  // own, a contended row could need two pooled connections per holder and starve the
+  // pool. Passing the lock's transaction through as transactionalEm lets the adjust
+  // command reuse it instead.
+  it('passes the row lock transaction to wms.inventory.adjust as transactionalEm instead of letting it open its own connection', async () => {
+    mockWarehouseLocationVariant(0)
+    const em = createEm()
+    const executeMock = jest.fn(async () => ({ result: { movementId: 'movement-1' } }))
+    const ctx = {
+      container: {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          if (name === 'commandBus') return { execute: executeMock }
+          throw new Error(`Unexpected resolve: ${name}`)
+        },
+      },
+      auth: { sub: USER_ID, tenantId: TENANT, orgId: ORG },
+      organizationScope: null,
+      selectedOrganizationId: ORG,
+      organizationIds: [ORG],
+    }
+
+    await applyInventoryImport(ctx, {
+      tenantId: TENANT,
+      organizationId: ORG,
+      importBatchId: '88888888-8888-4888-8888-888888888888',
+      performedBy: USER_ID,
+      rows: [
+        {
+          rowNumber: 1,
+          warehouseId: WAREHOUSE_ID,
+          locationId: LOCATION_ID,
+          catalogVariantId: VARIANT_ID,
+          quantity: 5,
+          delta: 5,
+        },
+      ],
+    })
+
+    expect(executeMock).toHaveBeenCalledWith(
+      'wms.inventory.adjust',
+      expect.objectContaining({ ctx: expect.objectContaining({ transactionalEm: em }) }),
+    )
+  })
+
   // Reconcile mode restores the pre-#4105 opening-balance semantics, but only when the
   // caller explicitly opts in via mode: 'reconcile'; the delta is recalculated server-side
   // against the live balance rather than trusting the client-submitted value.
@@ -398,7 +460,7 @@ describe('applyInventoryImport', () => {
     const ctx = {
       container: {
         resolve: (name: string) => {
-          if (name === 'em') return {}
+          if (name === 'em') return createEm()
           if (name === 'commandBus') return { execute: executeMock }
           throw new Error(`Unexpected resolve: ${name}`)
         },
@@ -444,7 +506,7 @@ describe('applyInventoryImport', () => {
     const ctx = {
       container: {
         resolve: (name: string) => {
-          if (name === 'em') return {}
+          if (name === 'em') return createEm()
           if (name === 'commandBus') return { execute: jest.fn() }
           throw new Error(`Unexpected resolve: ${name}`)
         },
@@ -476,6 +538,245 @@ describe('applyInventoryImport', () => {
     ).rejects.toMatchObject({
       status: 400,
       body: { error: 'import_delta_tampering', rowNumber: 1, expectedDelta: -3 },
+    })
+  })
+
+  describe('retry idempotency', () => {
+    async function captureReferenceIds(importBatchId: string, rowNumbers: number[]): Promise<string[]> {
+      const executeMock = jest.fn(
+        async (_commandId: string, _payload: { input: { referenceId: string } }) => ({
+          result: { movementId: 'movement-1' },
+        }),
+      )
+      const ctx = {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return createEm()
+            if (name === 'commandBus') return { execute: executeMock }
+            throw new Error(`Unexpected resolve: ${name}`)
+          },
+        },
+        auth: { sub: USER_ID, tenantId: TENANT, orgId: ORG },
+        organizationScope: null,
+        selectedOrganizationId: ORG,
+        organizationIds: [ORG],
+      }
+      await applyInventoryImport(ctx, {
+        tenantId: TENANT,
+        organizationId: ORG,
+        importBatchId,
+        performedBy: USER_ID,
+        rows: rowNumbers.map((rowNumber) => ({
+          rowNumber,
+          warehouseId: WAREHOUSE_ID,
+          locationId: LOCATION_ID,
+          catalogVariantId: VARIANT_ID,
+          quantity: 5,
+          delta: 5,
+        })),
+      })
+      return executeMock.mock.calls.map(([, payload]) => payload.input.referenceId)
+    }
+
+    it('reuses the same movement referenceId when the same import batch is applied again', async () => {
+      mockWarehouseLocationVariant(0)
+      const first = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1])
+      const retry = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1])
+      const upperCaseRetry = await captureReferenceIds('AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA', [1])
+      const lowerCaseRetry = await captureReferenceIds('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', [1])
+
+      expect(retry[0]).toBe(first[0])
+      expect(upperCaseRetry[0]).toBe(lowerCaseRetry[0])
+    })
+
+    it('produces referenceIds that wms.inventory.adjust accepts as UUIDs', async () => {
+      mockWarehouseLocationVariant(0)
+      const rowNumbers = Array.from({ length: 200 }, (_, index) => index + 1)
+      const referenceIds = await captureReferenceIds('88888888-8888-4888-8888-888888888888', rowNumbers)
+
+      const rejected = referenceIds.filter(
+        (referenceId) => !inventoryAdjustSchema.shape.referenceId.safeParse(referenceId).success,
+      )
+      expect(referenceIds).toHaveLength(200)
+      expect(rejected).toEqual([])
+    })
+
+    it('keeps referenceIds distinct across rows and across import batches', async () => {
+      mockWarehouseLocationVariant(0)
+      const [rowOne, rowTwo] = await captureReferenceIds('88888888-8888-4888-8888-888888888888', [1, 2])
+      const [otherBatchRowOne] = await captureReferenceIds('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', [1])
+
+      expect(rowTwo).not.toBe(rowOne)
+      expect(otherBatchRowOne).not.toBe(rowOne)
+    })
+
+    it('treats a row applied before this fix (random referenceId) as already applied instead of posting it again', async () => {
+      const LEGACY_MOVEMENT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+      findOneWithDecryption.mockImplementation(async (_em, entity) => {
+        if (entity === InventoryMovement) {
+          return {
+            id: LEGACY_MOVEMENT_ID,
+            warehouse: { id: WAREHOUSE_ID },
+            locationTo: { id: LOCATION_ID },
+            catalogVariantId: VARIANT_ID,
+            lot: null,
+            serialNumber: null,
+            quantity: '5',
+          }
+        }
+        return null
+      })
+      const executeMock = jest.fn(async () => ({ result: { movementId: 'movement-1' } }))
+      const ctx = {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return createEm([{ id: LEGACY_MOVEMENT_ID }])
+            if (name === 'commandBus') return { execute: executeMock }
+            throw new Error(`Unexpected resolve: ${name}`)
+          },
+        },
+        auth: { sub: USER_ID, tenantId: TENANT, orgId: ORG },
+        organizationScope: null,
+        selectedOrganizationId: ORG,
+        organizationIds: [ORG],
+      }
+
+      const result = await applyInventoryImport(ctx, {
+        tenantId: TENANT,
+        organizationId: ORG,
+        importBatchId: '88888888-8888-4888-8888-888888888888',
+        performedBy: USER_ID,
+        rows: [
+          {
+            rowNumber: 1,
+            warehouseId: WAREHOUSE_ID,
+            locationId: LOCATION_ID,
+            catalogVariantId: VARIANT_ID,
+            quantity: 5,
+            delta: 5,
+          },
+        ],
+      })
+
+      expect(executeMock).not.toHaveBeenCalled()
+      expect(result.summary.applied).toBe(1)
+      expect(result.rows[0]).toMatchObject({
+        rowNumber: 1,
+        status: 'applied',
+        movementId: LEGACY_MOVEMENT_ID,
+      })
+    })
+
+    it('reports a row conflict instead of replaying when the retried row no longer matches the recorded movement', async () => {
+      const LEGACY_MOVEMENT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+      findOneWithDecryption.mockImplementation(async (_em, entity) => {
+        if (entity === InventoryMovement) {
+          return {
+            id: LEGACY_MOVEMENT_ID,
+            warehouse: { id: WAREHOUSE_ID },
+            locationTo: { id: LOCATION_ID },
+            catalogVariantId: VARIANT_ID,
+            lot: null,
+            serialNumber: null,
+            // Recorded movement posted 5; the retried CSV now asks for 7.
+            quantity: '5',
+          }
+        }
+        return null
+      })
+      const executeMock = jest.fn(async () => ({ result: { movementId: 'movement-1' } }))
+      const ctx = {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return createEm([{ id: LEGACY_MOVEMENT_ID }])
+            if (name === 'commandBus') return { execute: executeMock }
+            throw new Error(`Unexpected resolve: ${name}`)
+          },
+        },
+        auth: { sub: USER_ID, tenantId: TENANT, orgId: ORG },
+        organizationScope: null,
+        selectedOrganizationId: ORG,
+        organizationIds: [ORG],
+      }
+
+      const result = await applyInventoryImport(ctx, {
+        tenantId: TENANT,
+        organizationId: ORG,
+        importBatchId: '88888888-8888-4888-8888-888888888888',
+        performedBy: USER_ID,
+        continueOnError: true,
+        rows: [
+          {
+            rowNumber: 1,
+            warehouseId: WAREHOUSE_ID,
+            locationId: LOCATION_ID,
+            catalogVariantId: VARIANT_ID,
+            quantity: 7,
+            delta: 7,
+          },
+        ],
+      })
+
+      expect(executeMock).not.toHaveBeenCalled()
+      expect(result.summary).toMatchObject({ applied: 0, failed: 1 })
+      expect(result.rows[0]).toMatchObject({
+        rowNumber: 1,
+        status: 'failed',
+        error: 'import_row_replay_mismatch',
+      })
+    })
+
+    it('counts a replay lookup failure into the row result instead of letting it propagate out of applyInventoryImport', async () => {
+      mockWarehouseLocationVariant(0)
+      const executeMock = jest.fn(async () => ({ result: { movementId: 'movement-2' } }))
+      const lookupError = new Error('connection reset')
+      const ctx = {
+        container: {
+          resolve: (name: string) => {
+            if (name === 'em') return createEm([], lookupError)
+            if (name === 'commandBus') return { execute: executeMock }
+            throw new Error(`Unexpected resolve: ${name}`)
+          },
+        },
+        auth: { sub: USER_ID, tenantId: TENANT, orgId: ORG },
+        organizationScope: null,
+        selectedOrganizationId: ORG,
+        organizationIds: [ORG],
+      }
+
+      const result = await applyInventoryImport(ctx, {
+        tenantId: TENANT,
+        organizationId: ORG,
+        importBatchId: '88888888-8888-4888-8888-888888888888',
+        performedBy: USER_ID,
+        continueOnError: true,
+        rows: [
+          {
+            rowNumber: 1,
+            warehouseId: WAREHOUSE_ID,
+            locationId: LOCATION_ID,
+            catalogVariantId: VARIANT_ID,
+            quantity: 5,
+            delta: 5,
+          },
+          {
+            rowNumber: 2,
+            warehouseId: WAREHOUSE_ID,
+            locationId: LOCATION_ID,
+            catalogVariantId: VARIANT_ID,
+            quantity: 5,
+            delta: 5,
+          },
+        ],
+      })
+
+      // The adjustment command must never run when the replay lookup itself failed.
+      expect(executeMock).not.toHaveBeenCalled()
+      expect(result.summary).toMatchObject({ applied: 0, failed: 2 })
+      expect(result.rows).toEqual([
+        { rowNumber: 1, status: 'failed', error: 'apply_failed' },
+        { rowNumber: 2, status: 'failed', error: 'apply_failed' },
+      ])
     })
   })
 })
