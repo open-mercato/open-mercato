@@ -1,15 +1,28 @@
 /** @jest-environment node */
 
+import { createRecordingKysely, isCountQuery } from '../../../../lib/__tests__/recordingKysely'
 import { GET } from '../route'
 
 const TENANT_ID = '123e4567-e89b-41d3-a456-426614174010'
 const ORG_1 = '123e4567-e89b-41d3-a456-426614174001'
+const LEGACY_HEAD_ID = '123e4567-e89b-41d3-a456-426614174020'
+const CANONICAL_HEAD_ID = '123e4567-e89b-41d3-a456-426614174021'
+
+const mockKysely = createRecordingKysely((query) =>
+  isCountQuery(query)
+    ? [{ total: '2' }]
+    : [
+        { id: CANONICAL_HEAD_ID, legacy: false },
+        { id: LEGACY_HEAD_ID, legacy: true },
+      ],
+)
 
 const mockEm = {
   find: jest.fn(),
   findOne: jest.fn(),
   findAndCount: jest.fn(),
   count: jest.fn(),
+  getKysely: () => mockKysely.db,
 }
 
 const mockContainer = {
@@ -105,9 +118,10 @@ function expectNoQueries() {
   expect(mockEm.find).not.toHaveBeenCalled()
   expect(mockEm.findAndCount).not.toHaveBeenCalled()
   expect(mockEm.count).not.toHaveBeenCalled()
+  expect(mockKysely.queries).toHaveLength(0)
 }
 
-function expectTenantWideQueries() {
+function expectTenantWideQueries(options: { mergedSql: boolean } = { mergedSql: true }) {
   const calls = [...mockEm.find.mock.calls, ...mockEm.findAndCount.mock.calls]
   expect(calls.length).toBeGreaterThan(0)
   for (const call of calls) {
@@ -115,11 +129,17 @@ function expectTenantWideQueries() {
     expect(where.tenantId).toBe(TENANT_ID)
     expect(where.organizationId).toBeUndefined()
   }
+  expect(mockKysely.queries.length > 0).toBe(options.mergedSql)
+  for (const query of mockKysely.queries) {
+    expect(query.sql).not.toContain('organization_id')
+    expect(query.parameters).toContain(TENANT_ID)
+  }
 }
 
 describe('interactions/tasks GET organization scoping', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockKysely.queries.length = 0
     setFlags()
     mockEm.find.mockImplementation(async () => [])
     mockEm.findAndCount.mockImplementation(async () => [[], 0])
@@ -217,7 +237,7 @@ describe('interactions/tasks GET organization scoping', () => {
         new Request('http://localhost/api/customers/interactions/tasks?page=1&pageSize=50'),
       )
       expect(res.status).toBe(200)
-      expectTenantWideQueries()
+      expectTenantWideQueries({ mergedSql: false })
     },
   )
 
@@ -243,6 +263,11 @@ describe('interactions/tasks GET organization scoping', () => {
     expect(calls.length).toBeGreaterThan(0)
     for (const call of calls) {
       expect((call[1] as Record<string, unknown>).organizationId).toEqual({ $in: [ORG_1] })
+    }
+    expect(mockKysely.queries.length).toBeGreaterThan(0)
+    for (const query of mockKysely.queries) {
+      expect(query.sql.match(/"organization_id" in \(\$\d+\)/g)).toHaveLength(3)
+      expect(query.parameters.filter((value) => value === ORG_1)).toHaveLength(3)
     }
   })
 })

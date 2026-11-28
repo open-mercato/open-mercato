@@ -13,6 +13,7 @@ import {
   filterTodoRows,
   listCanonicalTodoRows,
   listLegacyTodoRows,
+  listMergedTodoPage,
   normalizeTodoSearch,
   paginateTodoRows,
   sortTodoRows,
@@ -89,6 +90,30 @@ export async function GET(request: Request): Promise<Response> {
         page: exportAll ? 1 : query.page,
         pageSize: exportAll ? canonical.items.length : query.pageSize,
         totalPages: exportAll ? 1 : Math.max(1, Math.ceil(total / query.pageSize)),
+      })
+    }
+
+    if (!exportAll && !search) {
+      const merged = await listMergedTodoPage(
+        em,
+        queryEngine,
+        container,
+        auth,
+        selectedOrganizationId,
+        organizationIds,
+        {
+          entityId: query.entityId,
+          page: query.page,
+          pageSize: query.pageSize,
+          isUnrestricted,
+        },
+      )
+      return NextResponse.json({
+        items: merged.items,
+        total: merged.total,
+        page: query.page,
+        pageSize: query.pageSize,
+        totalPages: Math.max(1, Math.ceil(merged.total / query.pageSize)),
       })
     }
 
