@@ -8,6 +8,7 @@ import { CustomerTokenService } from '@open-mercato/core/modules/customer_accoun
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 import { emitCustomerEmailVerified, verifyCustomerEmail } from '../../lib/verifyCustomerEmail'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
@@ -32,7 +33,10 @@ export async function POST(req: Request) {
 
   const em = container.resolve('em') as EntityManager
   const result = await em.transactional(async (tx) => {
-    const identity = await customerTokenService.verifyPasswordResetToken(parsed.data.token, undefined, tx)
+    const identity = await customerTokenService.verifyPasswordResetToken(
+      parsed.data.token, undefined, tx,
+      (tenantId) => requireCustomerPortalEnabled(container, tenantId),
+    )
     if (!identity) return null
     return verifyCustomerEmail(tx, identity, customerSessionService, {
       password: parsed.data.password,
@@ -73,6 +77,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Password reset successful', schema: successSchema },
   ],
   errors: [
+    { status: 403, description: 'Customer portal is disabled', schema: errorSchema },
     { status: 400, description: 'Invalid or expired token', schema: errorSchema },
   ],
 }

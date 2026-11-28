@@ -244,10 +244,13 @@ export class CustomerInvitationService {
       scope: { tenantId: string; organizationId: string },
       transactionEm?: EntityManager,
     ) => Promise<boolean>,
+    beforeConsume?: (tenantId: string) => Promise<void>,
   ): Promise<{ user: CustomerUser; invitation: CustomerUserInvitation } | null> {
     const invitation = await this.findByToken(token)
     if (!invitation) return null
     if (!(await isCustomerTenantActive(this.em, invitation.tenantId))) return null
+
+    await beforeConsume?.(invitation.tenantId)
 
     const passwordHash = await hash(password, BCRYPT_COST)
     try {

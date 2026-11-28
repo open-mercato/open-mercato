@@ -63,7 +63,13 @@ export class CustomerTokenService {
     return rawToken
   }
 
-  async verifyEmailToken(token: string, purpose: string, tenantId?: string, em = this.em): Promise<{ userId: string; tenantId: string } | null> {
+  async verifyEmailToken(
+    token: string,
+    purpose: string,
+    tenantId?: string,
+    em = this.em,
+    beforeConsume?: (tenantId: string) => Promise<void>,
+  ): Promise<{ userId: string; tenantId: string } | null> {
     const tokenHashed = hashToken(token)
     const record = await em.findOne(CustomerUserEmailVerification, {
       token: tokenHashed,
@@ -76,6 +82,8 @@ export class CustomerTokenService {
     const user = record.user as CustomerUser
     if (tenantId && user?.tenantId !== tenantId) return null
     if (purpose === 'magic_link' && !(await isCustomerTenantActive(em, user?.tenantId))) return null
+
+    await beforeConsume?.(user.tenantId)
 
     const db = getKysely(em)
     const updateResult = await db
@@ -93,7 +101,12 @@ export class CustomerTokenService {
     return { userId: resolvedUserId, tenantId: resolvedTenantId }
   }
 
-  async verifyPasswordResetToken(token: string, tenantId?: string, em = this.em): Promise<{ userId: string; tenantId: string } | null> {
+  async verifyPasswordResetToken(
+    token: string,
+    tenantId?: string,
+    em = this.em,
+    beforeConsume?: (tenantId: string) => Promise<void>,
+  ): Promise<{ userId: string; tenantId: string } | null> {
     const tokenHashed = hashToken(token)
     const record = await em.findOne(CustomerUserPasswordReset, {
       token: tokenHashed,
@@ -104,6 +117,8 @@ export class CustomerTokenService {
 
     const user = record.user as CustomerUser
     if (tenantId && user?.tenantId !== tenantId) return null
+
+    await beforeConsume?.(user.tenantId)
 
     const db = getKysely(em)
     const updateResult = await db

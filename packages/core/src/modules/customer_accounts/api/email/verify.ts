@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib
 import { emailVerifySchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 import type { CustomerSessionService } from '../../services/customerSessionService'
 import type { CustomerUserService } from '../../services/customerUserService'
 import { emitCustomerEmailVerified, verifyCustomerEmail } from '../../lib/verifyCustomerEmail'
@@ -30,7 +31,10 @@ export async function POST(req: Request) {
   const sessions = container.resolve<CustomerSessionService>('customerSessionService')
   const { token, password } = parsed.data
   const result = await em.transactional(async (tx) => {
-    const identity = await customerTokenService.verifyEmailToken(token, 'email_verification', undefined, tx)
+    const identity = await customerTokenService.verifyEmailToken(
+      token, 'email_verification', undefined, tx,
+      (tenantId) => requireCustomerPortalEnabled(container, tenantId),
+    )
     if (!identity) return null
     const credentials = password === undefined
       ? undefined
@@ -61,6 +65,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Email verified', schema: successSchema },
   ],
   errors: [
+    { status: 403, description: 'Customer portal is disabled', schema: errorSchema },
     { status: 400, description: 'Invalid or expired token', schema: errorSchema },
   ],
 }

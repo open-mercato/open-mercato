@@ -24,6 +24,7 @@ import {
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 import { isCustomerTenantActive } from '@open-mercato/core/modules/customer_accounts/lib/tenantEligibility'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
@@ -78,6 +79,7 @@ export async function POST(req: Request) {
   if (rateLimitError) return rateLimitError
 
   const container = await createRequestContainer()
+  await requireCustomerPortalEnabled(container, tenantId)
   const customerUserService = container.resolve('customerUserService') as CustomerUserService
   const customerSessionService = container.resolve('customerSessionService') as CustomerSessionService
   const customerRbacService = container.resolve('customerRbacService') as CustomerRbacService

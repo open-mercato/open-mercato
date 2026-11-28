@@ -13,6 +13,8 @@ import {
   customerPasswordResetIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 import { getPasswordResetDeliveryQueue } from '@open-mercato/core/modules/customer_accounts/lib/authLinkQueue'
 import { detectLocale } from '@open-mercato/shared/lib/i18n/server'
 
@@ -54,6 +56,9 @@ export async function POST(req: Request) {
     throw err
   }
 
+  const container = await createRequestContainer()
+  await requireCustomerPortalEnabled(container, tenantId)
+
   // Lookup, token minting and email delivery all happen inside a queue worker
   // (see workers/passwordResetDelivery.ts) so the response never depends on
   // whether the account exists — known and unknown emails return identically,
@@ -82,6 +87,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Request accepted', schema: successSchema },
   ],
   errors: [
+    { status: 403, description: 'Customer portal is disabled', schema: z.object({ ok: z.literal(false), error: z.string() }) },
     { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
   ],
 }

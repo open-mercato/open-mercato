@@ -13,6 +13,8 @@ import {
   customerMagicLinkIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 import { getMagicLinkDeliveryQueue } from '@open-mercato/core/modules/customer_accounts/lib/authLinkQueue'
 import { detectLocale } from '@open-mercato/shared/lib/i18n/server'
 
@@ -53,6 +55,9 @@ export async function POST(req: Request) {
     throw err
   }
 
+  const container = await createRequestContainer()
+  await requireCustomerPortalEnabled(container, tenantId)
+
   // Lookup, token minting and email delivery all happen inside a queue worker
   // (see workers/magicLinkDelivery.ts) so the response never depends on
   // whether the account exists — known and unknown emails return identically,
@@ -70,7 +75,7 @@ const successSchema = z.object({ ok: z.literal(true) })
 
 const methodDoc: OpenApiMethodDoc = {
   summary: 'Request magic link login',
-  description: 'Sends a magic link to the customer email. Always returns 200 to prevent enumeration.',
+  description: 'Sends a magic link to the customer email. When the customer portal is enabled, the response is independent of account existence.',
   tags: ['Customer Authentication'],
   requestBody: {
     schema: magicLinkRequestSchema,
@@ -80,6 +85,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 200, description: 'Request accepted', schema: successSchema },
   ],
   errors: [
+    { status: 403, description: 'Customer portal is disabled', schema: z.object({ ok: z.literal(false), error: z.string() }) },
     { status: 429, description: 'Too many requests', schema: rateLimitErrorSchema },
   ],
 }

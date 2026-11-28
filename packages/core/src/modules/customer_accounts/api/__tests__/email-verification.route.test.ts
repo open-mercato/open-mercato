@@ -69,7 +69,7 @@ test('email verification without a new password clears the prior digest and sess
   const response = await verifyEmail(request('email/verify'))
 
   expect(response.status).toBe(200)
-  expect(mockVerifyToken).toHaveBeenCalledWith('verification-fixture', 'email_verification', undefined, mockTx)
+  expect(mockVerifyToken).toHaveBeenCalledWith('verification-fixture', 'email_verification', undefined, mockTx, expect.any(Function))
   expect(mockTx.nativeUpdate).toHaveBeenCalledWith(CustomerUser, scope, {
     emailVerifiedAt: expect.any(Date),
     passwordHash: null,

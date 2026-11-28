@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CustomerSessionService } from '@open-mercato/core/modules/customer_accounts/services/customerSessionService'
 import { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
 import { readCookieFromHeader } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -35,6 +36,8 @@ export async function POST(req: Request) {
   if (!user || user.deletedAt || !user.isActive) {
     return NextResponse.json({ ok: false, error: 'Account not active' }, { status: 401 })
   }
+
+  await requireCustomerPortalEnabled(container, user.tenantId)
 
   const resolvedFeatures = await customerRbacService.getEffectiveFeatures(user.id, {
     tenantId: user.tenantId,
@@ -67,7 +70,10 @@ const methodDoc: OpenApiMethodDoc = {
   description: 'Uses the session cookie to issue a fresh JWT access token.',
   tags: ['Customer Portal'],
   responses: [{ status: 200, description: 'Token refreshed', schema: successSchema }],
-  errors: [{ status: 401, description: 'Invalid session', schema: errorSchema }],
+  errors: [
+    { status: 401, description: 'Invalid session', schema: errorSchema },
+    { status: 403, description: 'Customer portal is disabled', schema: errorSchema },
+  ],
 }
 
 export const openApi: OpenApiRouteDoc = {

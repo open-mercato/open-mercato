@@ -2,6 +2,10 @@
 
 const mockEnqueue = jest.fn()
 
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: async () => ({ resolve: () => undefined }),
+}))
+
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/authLinkQueue', () => ({
   getMagicLinkDeliveryQueue: () => ({ enqueue: (...args: unknown[]) => mockEnqueue(...args) }),
 }))

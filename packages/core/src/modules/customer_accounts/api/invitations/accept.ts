@@ -18,6 +18,7 @@ import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_a
 import { getClientIp } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
+import { requireCustomerPortalEnabled } from '@open-mercato/core/modules/customer_accounts/lib/portalAccess'
 
 export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
 
@@ -70,6 +71,7 @@ export async function POST(req: Request) {
           scope,
         )
       },
+      (tenantId) => requireCustomerPortalEnabled(container, tenantId),
     )
   } catch (error) {
     if (isCustomerInvitationEmailConflictError(error)) {
@@ -164,7 +166,7 @@ const methodDoc: OpenApiMethodDoc = {
   ],
   errors: [
     { status: 400, description: 'Invalid or expired invitation', schema: errorSchema },
-    { status: 403, description: 'Request was submitted cross-site', schema: errorSchema },
+    { status: 403, description: 'Customer portal is disabled or request was submitted cross-site', schema: errorSchema },
     { status: 409, description: 'An account with this email address already exists', schema: errorSchema },
   ],
 }
