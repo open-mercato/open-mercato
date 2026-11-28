@@ -1,15 +1,12 @@
 /** @jest-environment node */
 import { decryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createKmsService, type KmsService, type TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import { createCredentialsService } from '../../credentials-service'
 import { pinTenantDek } from '../pin-tenant-dek'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn().mockResolvedValue([]),
 }))
-
-const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ENVELOPE_KEY = '__om_encrypted_credentials_blob_v1'
@@ -61,6 +58,7 @@ type MockEntityManager = {
   persist: (entity: PersistedRow) => MockEntityManager
   flush: () => Promise<void>
   execute: () => Promise<Array<{ id: string; updated_at: Date }>>
+  isInTransaction: () => boolean
 }
 
 function createMockEntityManager(): { em: MockEntityManager; persisted: PersistedRow[] } {
@@ -73,6 +71,7 @@ function createMockEntityManager(): { em: MockEntityManager; persisted: Persiste
     },
     flush: async () => undefined,
     execute: async () => [{ id: 'map-1', updated_at: new Date() }],
+    isInTransaction: () => true,
   }
   return { em, persisted }
 }
@@ -82,7 +81,6 @@ describe('pinTenantDek', () => {
 
   beforeEach(() => {
     jest.restoreAllMocks()
-    mockFindOneWithDecryption.mockReset()
     for (const name of ENV_NAMES) delete process.env[name]
     process.env.TENANT_DATA_ENCRYPTION = 'yes'
   })
@@ -115,7 +113,6 @@ describe('pinTenantDek', () => {
     expect(unpinnedKey).not.toBe(vaultKey)
     const fetchCallsAfterOutage = fetchMock.mock.calls.length
 
-    mockFindOneWithDecryption.mockResolvedValue(null)
     const { em, persisted } = createMockEntityManager()
     const invalidateMap = jest.fn(async () => undefined)
     await createCredentialsService(em as never, { invalidateMap }, { kms: pin })
