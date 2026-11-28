@@ -1,6 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CustomerEntity } from '../data/entities'
+import { findBlindIndexMatches, MATCH_CANDIDATE_LIMIT, normalizedPlaintextFilter } from './findBlindIndexMatches'
+
+export { MATCH_CANDIDATE_LIMIT }
 
 /**
  * Lower-cases, trims, and dedupes a list of email-shaped strings.
@@ -32,27 +35,8 @@ export interface MatchedPerson {
 }
 
 /**
- * Max rows scanned by in-memory fallback matches over encrypted contact
- * columns (`primary_email` here, `primary_phone` in the check-phone route).
- * These columns are GDPR-encrypted with a random IV (see
- * `customers/encryption.ts`), so they cannot be filtered by value in SQL when
- * tenant data encryption is on — fallbacks decrypt recent rows and compare in
- * memory instead. Bounded to keep interactive lookups cheap; a blind-index
- * (hash) column per field is the follow-up if tenants outgrow it (#5515).
- */
-export const MATCH_CANDIDATE_LIMIT = 500
-
-/**
- * Batch lookup of CustomerEntity rows (kind='person') whose `primaryEmail`
- * matches any of the given addresses (case-insensitive), scoped to the tenant
- * and organization. Returns at most one MatchedPerson per resolved person.
- *
- * `primary_email` is encrypted with a non-deterministic IV, so a `WHERE
- * primary_email = ?` filter silently matches nothing when encryption is on. We
- * therefore try a direct equality match first (the fast path when encryption is
- * off) and, for any address it leaves unresolved, fall back to scanning recent
- * decrypted person rows and comparing in memory — the same dual-mode pattern as
- * `inbox-actions.ts`.
+ * Resolves scoped person emails through the blind index, then plaintext equality
+ * and a bounded scan of recent records during backfill.
  */
 export async function findPeopleByAddresses(
   em: EntityManager,
@@ -60,50 +44,31 @@ export async function findPeopleByAddresses(
   tenantId: string,
   organizationId: string | null = null,
 ): Promise<MatchedPerson[]> {
-  const normalized = normalizeAddresses(addresses)
-  if (normalized.length === 0) return []
-  if (!organizationId) return []
-  const dscope = { tenantId, organizationId }
-  const resolved = new Map<string, string>()
+  const values = normalizeAddresses(addresses)
+  if (!organizationId || values.length === 0) return []
 
-  // Fast path: direct equality match. Matches exactly when tenant data encryption
-  // is off; returns nothing against encrypted (random-IV) ciphertext, which the
-  // in-memory fallback below covers.
-  const direct = (await findWithDecryption(
+  const scope = { tenantId, organizationId }
+  const where = { ...scope, kind: 'person' as const, deletedAt: null }
+  const rows = await findBlindIndexMatches(
     em,
-    CustomerEntity,
-    { primaryEmail: { $in: normalized }, kind: 'person', tenantId, organizationId, deletedAt: null },
-    undefined,
-    dscope,
-  )) as Array<{ id: string; primaryEmail?: string | null }>
-  for (const row of direct) {
-    const rowEmail = row.primaryEmail?.trim().toLowerCase()
-    if (rowEmail && !resolved.has(rowEmail)) resolved.set(rowEmail, row.id)
-  }
-
-  // Fallback for unresolved addresses (the encryption-on path): scan recent person
-  // rows and compare decrypted emails in memory.
-  if (normalized.some((email) => !resolved.has(email))) {
-    const candidates = (await findWithDecryption(
-      em,
-      CustomerEntity,
-      { kind: 'person', tenantId, organizationId, deletedAt: null },
-      { limit: MATCH_CANDIDATE_LIMIT, orderBy: { createdAt: 'DESC' } },
-      dscope,
-    )) as Array<{ id: string; primaryEmail?: string | null }>
-    for (const row of candidates) {
-      const rowEmail = row.primaryEmail?.trim().toLowerCase()
-      if (rowEmail && !resolved.has(rowEmail)) resolved.set(rowEmail, row.id)
-    }
-  }
-
-  const seen = new Set<string>()
-  const out: MatchedPerson[] = []
-  for (const email of normalized) {
-    const id = resolved.get(email)
-    if (!id || seen.has(id)) continue
-    seen.add(id)
-    out.push({ id, email })
-  }
-  return out
+    scope,
+    { entityId: 'customers:customer_entity', column: 'primary_email' },
+    values,
+    {
+      byHash: (hashes) => findWithDecryption(
+        em, CustomerEntity, { ...where, primaryEmailHash: { $in: hashes } }, undefined, scope,
+      ),
+      byPlaintext: (emails) => findWithDecryption(
+        em, CustomerEntity, { ...where, ...normalizedPlaintextFilter('primary_email', emails) }, undefined, scope,
+      ),
+      recent: () => findWithDecryption(em, CustomerEntity, where, {
+        limit: MATCH_CANDIDATE_LIMIT,
+        orderBy: { createdAt: 'DESC' },
+      }, scope),
+      id: (row) => row.id,
+      value: (row) => row.primaryEmail,
+      normalize: (email) => email.trim().toLowerCase(),
+    },
+  )
+  return rows.map(({ id, value }) => ({ id, email: value }))
 }

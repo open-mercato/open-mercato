@@ -19,6 +19,22 @@ export type IndexCustomFieldValue = {
 
 export const AGGREGATE_SEARCH_FIELD = 'search_text'
 
+export function omitCustomerLookupHashes(
+  doc: Record<string, unknown>,
+  entityType: string | null | undefined,
+): Record<string, unknown> {
+  if (
+    entityType !== 'customers:customer_entity'
+    && entityType !== 'customers:customer_person_profile'
+    && entityType !== 'customers:customer_company_profile'
+  ) return doc
+
+  const filtered = { ...doc }
+  delete filtered.primary_email_hash
+  delete filtered.domain_hash
+  return filtered
+}
+
 /**
  * Controls which fields may contribute text to the `search_text` aggregate.
  *
@@ -146,7 +162,7 @@ export function buildIndexDocument(
   options: AggregateSearchOptions = {},
 ): Record<string, unknown> {
   const doc: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(baseRow)) {
+  for (const [key, value] of Object.entries(omitCustomerLookupHashes(baseRow, options.entityType))) {
     doc[key] = value
   }
 
