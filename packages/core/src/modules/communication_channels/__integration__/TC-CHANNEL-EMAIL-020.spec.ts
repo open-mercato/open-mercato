@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/authFixtures'
 import { apiRequest } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import {
   deleteChannelIfExists,
@@ -44,17 +45,25 @@ test.describe('TC-CHANNEL-EMAIL-020: rich-content widget composes with messages 
 
     const stamp = crypto.randomUUID()
     const subject = `Monthly report ${stamp}`
+    const senderAddress = `report-${stamp}@example.test`
     const rawHtml = `<p style="font-size:125%;padding:100px">${subject}</p>`
     const channelId = await seedConnectedChannel(request, token, {
       displayName: subject,
       externalIdentifier: `report-${stamp}@test-seed.local`,
     })
     let seeded: { channelLinkId: string; messageId: string; conversationId: string } | null = null
+    let personId: string | null = null
 
     try {
+      personId = await createPersonFixture(request, token, {
+        firstName: 'Report',
+        lastName: 'Sender',
+        displayName: `Report Sender ${stamp}`,
+        primaryEmail: senderAddress,
+      })
       const { status, channelLinkId, messageId, conversationId } = await ingestInboundEmailMessage(request, token, {
         channelId,
-        senderAddress: `report-${stamp}@example.test`,
+        senderAddress,
         subject,
         body: 'Monthly report summary',
         html: rawHtml,
@@ -81,6 +90,7 @@ test.describe('TC-CHANNEL-EMAIL-020: rich-content widget composes with messages 
     } finally {
       await purgeSeededInboundMessage(request, token, channelId, seeded)
       await deleteChannelIfExists(request, token, channelId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', personId)
     }
   })
 })

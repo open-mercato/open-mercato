@@ -228,6 +228,14 @@ The attachment library automatically fills in assignment labels and links only w
 
 Server callers of `resolveAssignmentEnrichments` that want automatic enrichment must pass `authorization: { auth, container }` from the verified request and a matching tenant and organization. Calls without that context return an empty enrichment map. Operators should use existing target-module grants for roles that already need that data and adjust custom record grants separately. No data migration is required.
 
+## CRM admission for inbound email (#5468)
+
+Ordinary inbound email now imports senders who match a CRM person in the receiving channel's tenant and organization, plus replies that match an existing thread in that channel. The ingest command returns `skipped` for other email, and provider workers consume the skip as they advance their cursor. Custom callers of `communication_channels.message.ingest_inbound` can handle `skipped` alongside `created` and `duplicate`.
+
+Operators can still import historical email explicitly. Existing imported messages remain accessible.
+
+A missing CRM email decryption policy or unavailable tenant key leaves the affected inbound message queued for retry. When the policy and key are available, unreadable contact rows are skipped and reported without logging email addresses. Repair those contact records to restore first-time sender matching.
+
 ## New module: `assisted_selling` with per-store settings (assisted selling spec, step AS1)
 
 **Additive (`@open-mercato/core`).** The `assisted_selling` module is registered and enabled in the app (it requires `cart`; it stays commented out in the `create-mercato-app` template with the rest of the commerce suite). It adds one table, `assisted_selling_store_settings`, and `GET/PUT /api/assisted_selling/settings/:storeId`. A store's `mode` defaults to `off` and the Release 5 API accepts `rep` or `off` only. There is no settings page yet. The six new ACL features (`assisted_selling.threads.view`, `.threads.participate`, `.messages.post`, `.proposals.author`, `.attributions.view`, `.settings.manage`) gate only the settings API until the conversation routes land. `admin` gets `assisted_selling.*`; `employee` gets `threads.view`, `threads.participate`, `messages.post` and `cart.proposals.view`.

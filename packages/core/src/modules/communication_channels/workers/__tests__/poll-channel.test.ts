@@ -1,6 +1,7 @@
 import handler, { POLL_CHANNEL_MAX_ATTEMPTS, metadata, type PollChannelJobPayload } from '../poll-channel'
 import type { QueuedJob } from '@open-mercato/queue'
 import { ChannelIngestDeadLetter } from '../../data/entities'
+import { encodeCursor } from '../../lib/email-mime'
 
 const mockReportError = jest.fn()
 jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
@@ -375,6 +376,69 @@ describe('poll-channel worker behaviour', () => {
     await handler(makeJob(), ctx)
     expect(channel.lastError).toBeNull()
     expect(channel.lastPolledAt?.getTime() ?? 0).toBeGreaterThan(beforePoll.getTime())
+  })
+
+  it.each([
+    {
+      providerKey: 'imap',
+      startingState: { uidValidity: 7, uidNext: 100 },
+      skippedState: { uidValidity: 7, uidNext: 101 },
+      endingState: { uidValidity: 7, uidNext: 102 },
+    },
+    {
+      providerKey: 'gmail',
+      startingState: { historyId: '100' },
+      skippedState: { historyId: '200' },
+      endingState: { historyId: '300' },
+    },
+  ])('consumes an unrelated email and resumes $providerKey at the next cursor', async ({
+    providerKey, startingState, skippedState, endingState,
+  }) => {
+    const channel = {
+      id: 'c',
+      isActive: true,
+      status: 'connected',
+      providerKey,
+      channelType: 'email',
+      capabilities: { realtimePush: false },
+      channelState: startingState,
+      lastPolledAt: null,
+      lastError: null,
+    }
+    const unrelated = { externalMessageId: 'unrelated' }
+    const eligibleReply = { externalMessageId: 'eligible-reply' }
+    const laterPage = { messages: [eligibleReply], nextCursor: encodeCursor(endingState) }
+    const fetchHistory = jest.fn()
+      .mockResolvedValueOnce({ messages: [unrelated], nextCursor: encodeCursor(skippedState) })
+      .mockResolvedValue(laterPage)
+    const failure = Object.assign(new Error('Email admission lookup failed'), { transient: true })
+    const execute = jest.fn()
+      .mockResolvedValueOnce({ result: { status: 'skipped' } })
+      .mockRejectedValueOnce(failure)
+      .mockResolvedValueOnce({ result: { status: 'created' } })
+    const { ctx, em } = makeCtx(channel, { providerKey, fetchHistory }, undefined, execute)
+
+    await handler(makeJob(), ctx)
+
+    expect(channel.channelState).toEqual(skippedState)
+    const lastSuccessfulPoll = channel.lastPolledAt
+    expect(lastSuccessfulPoll).toBeInstanceOf(Date)
+
+    await handler(makeJob(), ctx)
+
+    expect(channel.channelState).toEqual(skippedState)
+    expect(channel.lastPolledAt).toBe(lastSuccessfulPoll)
+
+    await handler(makeJob({ attempt: 2 }), ctx)
+
+    expect(channel.channelState).toEqual(endingState)
+    expect(fetchHistory.mock.calls.map(([input]) => input.channelState)).toEqual([
+      startingState, skippedState, skippedState,
+    ])
+    expect(execute.mock.calls.map(([, { input }]) => input.message)).toEqual([
+      unrelated, eligibleReply, eligibleReply,
+    ])
+    expect(em.create).not.toHaveBeenCalled()
   })
 
   describe('adapter scope (#6331)', () => {

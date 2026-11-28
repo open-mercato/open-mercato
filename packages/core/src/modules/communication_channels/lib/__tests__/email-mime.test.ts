@@ -419,6 +419,19 @@ describe('normalizeMimeInbound', () => {
     expect((result.channelMetadata as { headers: Record<string, string> }).headers).toEqual({ 'x-trace': 'abc' })
   })
 
+  it('normalizes a display-name-only From header without inventing an address', () => {
+    const result = normalizeMimeInbound({
+      parsed: { ...baseParsed, from: { value: [{ address: '', name: 'Unidentified sender' }] } },
+      accountIdentifier: 'bob@x.com',
+      fallbackMessageId: 'fallback:1@bob@x.com',
+      resolveConversationId: ({ messageId }) => messageId,
+    })
+
+    expect(result.senderIdentifier).toBe('bob@x.com')
+    expect(result.channelPayload.from).toEqual({ address: '', name: 'Unidentified sender' })
+    expect(result.replyToExternalId).toBe('parent@x.com')
+  })
+
   describe('timestamp (#6095)', () => {
     const normalize = (parsed: ParsedMail, extra: { receivedAt?: Date; fallbackDate?: Date } = {}) =>
       normalizeMimeInbound({

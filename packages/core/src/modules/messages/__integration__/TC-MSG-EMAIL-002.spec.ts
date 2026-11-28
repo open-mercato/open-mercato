@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { createPersonFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { drainIntegrationQueue } from '@open-mercato/core/helpers/integration/queue'
 import {
@@ -14,6 +15,10 @@ import {
   waitForCapturedSystemEmail,
 } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
 import { composeMessageWithToken, deleteMessageIfExists } from './helpers'
+
+export const integrationMeta = {
+  dependsOnModules: ['communication_channels', 'customers', 'messages'],
+}
 
 /**
  * TC-MSG-EMAIL-002 — an inbound channel email is never echoed to its sender.
@@ -51,6 +56,7 @@ test.describe('TC-MSG-EMAIL-002: inbound channel email is not echoed to its send
     const outboundSubject = `QA outbound public message ${stamp}`
 
     let channelId: string | null = null
+    let inboundPersonId: string | null = null
     let inboundSeeded: {
       messageId: string
       conversationId: string
@@ -62,6 +68,12 @@ test.describe('TC-MSG-EMAIL-002: inbound channel email is not echoed to its send
       channelId = await seedConnectedChannel(request, token, {
         displayName: `TC-MSG-EMAIL-002 ${stamp}`,
         externalIdentifier: `tc-msg-email-002-${stamp}@test-seed.local`,
+      })
+      inboundPersonId = await createPersonFixture(request, token, {
+        firstName: 'QA Inbound',
+        lastName: 'Sender',
+        displayName: `QA Inbound Sender ${stamp}`,
+        primaryEmail: inboundSender,
       })
 
       // (1) Inbound: the real ingest path — adapter.normalizeInbound → ingest command
@@ -127,6 +139,7 @@ test.describe('TC-MSG-EMAIL-002: inbound channel email is not echoed to its send
       await deleteMessageIfExists(request, token, outboundMessageId)
       await purgeSeededInboundMessage(request, token, channelId, inboundSeeded)
       await deleteChannelIfExists(request, token, channelId)
+      await deleteEntityIfExists(request, token, '/api/customers/people', inboundPersonId)
       await clearCapturedSystemEmails(request, token)
     }
   })

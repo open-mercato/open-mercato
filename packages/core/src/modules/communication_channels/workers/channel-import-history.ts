@@ -4,6 +4,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import {
+  COMMUNICATION_CHANNELS_HISTORY_IMPORT_ORIGIN,
   COMMUNICATION_CHANNELS_INGEST_INBOUND_COMMAND_ID,
   type IngestInboundMessageInput,
 } from '../commands/ingest-inbound-message'
@@ -156,6 +157,7 @@ export default async function handle(
       organizationScope: null,
       selectedOrganizationId: scope.organizationId,
       organizationIds: [scope.organizationId],
+      syncOrigin: COMMUNICATION_CHANNELS_HISTORY_IMPORT_ORIGIN,
     }
 
     let cursor: string | undefined

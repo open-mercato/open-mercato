@@ -1,5 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { CustomerEntity } from '../data/entities'
 
 /**
@@ -106,4 +110,91 @@ export async function findPeopleByAddresses(
     out.push({ id, email })
   }
   return out
+}
+
+const INBOUND_EMAIL_CONTACT_PAGE_SIZE = 100
+const logger = createLogger('customers').child({ component: 'inbound-email-contact-lookup' })
+
+type ContactEmailEncryption = Pick<TenantDataEncryptionService, 'isEnabled' | 'getEncryptedFieldNames' | 'getDek'>
+
+type ContactScope = { tenantId: string; organizationId: string | null }
+
+export function createInboundEmailContactLookup(em: EntityManager, encryption?: ContactEmailEncryption) {
+  const contactsByScope = new Map<string, Promise<Map<string, string>>>()
+
+  return async (email: string, { tenantId, organizationId }: ContactScope): Promise<string | undefined> => {
+    const [address] = normalizeAddresses([email])
+    if (!address || !organizationId) return undefined
+
+    const key = JSON.stringify([tenantId, organizationId])
+    let contacts = contactsByScope.get(key)
+    if (!contacts) {
+      contacts = loadInboundEmailContacts(em, { tenantId, organizationId }, encryption).catch((error: unknown) => {
+        contactsByScope.delete(key)
+        throw error
+      })
+      contactsByScope.set(key, contacts)
+    }
+    return (await contacts).get(address)
+  }
+}
+
+async function loadInboundEmailContacts(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  encryption?: ContactEmailEncryption,
+): Promise<Map<string, string>> {
+  const contacts = new Map<string, string>()
+  let lastPersonId: string | undefined
+  let firstUnreadablePersonId: string | undefined
+  let unreadableCount = 0
+
+  while (true) {
+    const people = await findWithDecryption(
+      em,
+      CustomerEntity,
+      {
+        ...scope,
+        kind: 'person',
+        deletedAt: null,
+        primaryEmail: { $ne: null },
+        ...(lastPersonId ? { id: { $gt: lastPersonId } } : {}),
+      },
+      {
+        fields: ['id', 'tenantId', 'organizationId', 'primaryEmail'],
+        orderBy: { id: 'ASC' },
+        limit: INBOUND_EMAIL_CONTACT_PAGE_SIZE,
+        disableIdentityMap: true,
+      },
+      scope,
+    )
+    for (const person of people) {
+      if (isEncryptedPayloadShape(person.primaryEmail)) {
+        if (unreadableCount === 0) {
+          const fields = encryption?.isEnabled()
+            ? await encryption.getEncryptedFieldNames('customers:customer_entity', scope.tenantId, scope.organizationId, { em })
+            : []
+          const hasEmailPolicy = fields.includes('primary_email') || fields.includes('primaryEmail')
+          if (!hasEmailPolicy || !(await encryption?.getDek(scope.tenantId))) {
+            throw new Error('[internal] CRM contact email decryption is unavailable')
+          }
+          firstUnreadablePersonId = person.id
+        }
+        unreadableCount += 1
+        continue
+      }
+      const [address] = normalizeAddresses([person.primaryEmail])
+      if (address && !contacts.has(address)) contacts.set(address, person.id)
+    }
+    if (people.length < INBOUND_EMAIL_CONTACT_PAGE_SIZE) break
+    lastPersonId = people.at(-1)?.id
+  }
+
+  if (unreadableCount > 0) {
+    const attributes = { ...scope, unreadableCount, firstUnreadablePersonId }
+    const error = new Error('[internal] CRM contact rows contain unreadable email addresses')
+    logger.warn(error.message, attributes)
+    getTelemetryRuntime()?.reportError(error, { module: 'customers', code: 'customers.inbound_email_decryption_failed', attributes })
+  }
+  return contacts
 }

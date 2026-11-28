@@ -150,6 +150,10 @@ describe('channel-import-history worker', () => {
     expect(importHistory.mock.calls[0][0].conversationId).toBe('me@example.com')
     expect(importHistory.mock.calls[1][0].cursor).toBe('page2')
     expect(commandBus.execute).toHaveBeenCalledTimes(3)
+    for (const [commandId, { ctx: ingestContext }] of commandBus.execute.mock.calls) {
+      expect(commandId).toBe('communication_channels.message.ingest_inbound')
+      expect(ingestContext.syncOrigin).toBe('communication_channels.import_history')
+    }
     expect(progressService.completeJob).toHaveBeenCalledWith(
       'progress-1',
       expect.objectContaining({

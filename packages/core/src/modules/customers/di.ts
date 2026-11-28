@@ -2,6 +2,7 @@ import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/
 import { asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import type { OptimisticLockCurrentReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { createCalendarEventTypeRegistry } from './calendar-event-types'
@@ -9,6 +10,7 @@ import { resolveCatalogEventType, resolveScopedCalendarEventTypes } from './lib/
 import type { OrganizationHierarchyService } from '@open-mercato/shared/lib/auth/principal-service'
 import { CustomerEntity, CustomerAddress, CustomerInteraction } from './data/entities'
 import { loadCustomerAuditRedactionContext, redactCustomerAuditEntry } from './lib/auditRedaction'
+import { createInboundEmailContactLookup } from './lib/findPeopleByAddresses'
 
 const RESOURCE_KIND_COMPANY = 'customers.company'
 // The CRUD factory derives resourceKind via singularize-the-second-segment of
@@ -76,6 +78,12 @@ export function register(container: AppContainer) {
     CustomerEntity: asValue(CustomerEntity),
     CustomerAddress: asValue(CustomerAddress),
     CustomerInteraction: asValue(CustomerInteraction),
+    inboundEmailContactLookup: asScopedService((container) =>
+      createInboundEmailContactLookup(
+        container.resolve<EntityManager>('em'),
+        container.resolve<TenantDataEncryptionService>('tenantEncryptionService', { allowUnregistered: true }),
+      ),
+    ),
     calendarEventTypeRegistry: asValue(calendarEventTypeRegistry),
     calendarEventTypeCatalogService: asScopedService((container) => ({
       async resolveBehavior(input: { tenantId: string; organizationId: string; key: string }) {

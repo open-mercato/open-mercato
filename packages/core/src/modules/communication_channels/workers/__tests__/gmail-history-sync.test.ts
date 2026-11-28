@@ -2,6 +2,7 @@ import handler, { metadata, type GmailHistorySyncJobPayload } from '../gmail-his
 import type { QueuedJob } from '@open-mercato/queue'
 import { CommunicationChannel, ChannelIngestDeadLetter } from '../../data/entities'
 import { PUSH_STATE_KEYS } from '../../lib/push-state'
+import { encodeCursor } from '../../lib/email-mime'
 
 const enqueueMock = jest.fn(async () => 'next-job')
 jest.mock('../../lib/queue', () => {
@@ -281,6 +282,33 @@ describe('gmail-history-sync worker behaviour', () => {
     expect(ingestExecute).toHaveBeenCalledTimes(1)
     expect(em.create).not.toHaveBeenCalled()
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  it('advances Gmail push history past a skipped email and dispatches a later reply', async () => {
+    const startingState = { historyId: '100' }
+    const skippedState = { historyId: '200' }
+    const endingState = { historyId: '300' }
+    const channel = baseChannel({ channelState: startingState })
+    const unrelated = { externalMessageId: 'unrelated' }
+    const eligibleReply = { externalMessageId: 'eligible-reply' }
+    const applyPushNotification = jest.fn()
+      .mockResolvedValueOnce({ messages: [unrelated], nextCursor: encodeCursor(skippedState) })
+      .mockResolvedValueOnce({ messages: [eligibleReply], nextCursor: encodeCursor(endingState) })
+    const execute = jest.fn()
+      .mockResolvedValueOnce({ result: { status: 'skipped' } })
+      .mockResolvedValueOnce({ result: { status: 'created' } })
+    const { ctx, em } = makeCtx(channel, { providerKey: 'gmail', applyPushNotification }, execute)
+
+    await handler(makeJob(), ctx)
+    expect(channel.channelState).toEqual(skippedState)
+
+    await handler(makeJob(), ctx)
+    expect(channel.channelState).toEqual(endingState)
+    expect(applyPushNotification.mock.calls.map(([input]) => input.channelState)).toEqual([
+      startingState, skippedState,
+    ])
+    expect(execute.mock.calls.map(([, { input }]) => input.message)).toEqual([unrelated, eligibleReply])
+    expect(em.create).not.toHaveBeenCalled()
   })
 
   // Happy path: dispatches each message through the ingest command with the
