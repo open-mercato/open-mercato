@@ -1,6 +1,8 @@
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { hashToken } from '@open-mercato/shared/lib/search/tokenize'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import {
   createCompanyFixture,
@@ -18,6 +20,7 @@ type SearchResultItem = {
   url?: string | null
 }
 type GlobalSearchResponse = { results?: SearchResultItem[] }
+type ListSearchResponse = { items?: Array<{ id?: string }> }
 
 const DEFAULT_STRATEGIES = ['fulltext', 'vector', 'tokens']
 const PERSON_PROFILE = 'customers:customer_person_profile'
@@ -110,8 +113,8 @@ async function waitForIndexedProfile(
 }
 
 /**
- * Fixtures are seeded with the `admin` token, never the `superadmin` one, even though every
- * search-side operation below runs as `superadmin`.
+ * Fixture setup and list-index readiness checks use `admin`. The palette and browser list
+ * searches run as `superadmin`.
  *
  * `withScopedPayload` (`packages/shared/src/lib/api/scoped.ts`) rejects a create with
  * `400 organizationRequired` unless an organization resolves from
@@ -284,48 +287,10 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
   })
 
   /**
-   * End-to-end sanity arm for the deliberate read-side-only decision behind #5073: #5073 stopped
-   * the token strategy from OFFERING base `customers:customer_entity` rows, but deliberately kept
-   * writing them, because the People/Companies list search resolves ids through them. This arm
-   * asserts that a customer is still findable through the list search boxes.
-   *
-   * What this arm pins is exactly that — the customer stays findable — and NOT the write-side
-   * decision, so a future engineer weighing a `search_tokens` cleanup should not read a green run
-   * here as clearance. Searching by `displayName` can be served by three different paths:
-   *
-   *   1. The `customers:customer_entity` token source — the one the read-side-only decision is
-   *      about.
-   *   2. The `customers:customer_person_profile` / `customer_company_profile` token source. Both
-   *      list routes pass TWO sources to `findMatchingEntityIdsBySearchTokensAcrossSources`
-   *      (`api/people/route.ts`, `api/companies/route.ts`), the profile source also indexes
-   *      `display_name`, and `api/utils.ts` UNIONS the per-source ids.
-   *   3. The `$or` ILIKE fallback both routes take when that union comes back null or empty.
-   *
-   * Path 2 is why a green run here says nothing about path 1, and the mechanism is the union
-   * rather than anything about encryption. A source that queries successfully and matches nothing
-   * returns `[]`, not `null` — `findEntityIdsBySearchTokensCompat` reserves `null` for a blank
-   * query alone (`shared/lib/search/tokenLookup.ts`) — so ONE matching source keeps the union
-   * non-empty, and the route then takes `applyEntityIdRestriction` and never builds the ILIKE
-   * `$or` at all. Drop the base rows write-side and the profile source still resolves
-   * `display_name` by itself, because a profile's index document merges the parent
-   * `customer_entities` row before tokenizing (`query_index/lib/indexer.ts`). The union stays
-   * non-empty, the customer is still found, and this arm stays green — encrypted or not.
-   *
-   * Pinning the write-side property IS reachable, just not by this query. `next_interaction_name`
-   * is listed by the base source in BOTH routes and by NEITHER profile source, and the token
-   * lookup restricts its query to the field names its source declares (`tokenLookup.ts`), so no
-   * profile-source token can answer it. It is also declared encrypted for
-   * `customers:customer_entity` (`packages/core/src/modules/customers/encryption.ts`), so the
-   * ILIKE fallback cannot serve it either: against a known-encrypted column the query engine
-   * rewrites the ILIKE back into a `search_tokens` EXISTS subquery, or — once the availability
-   * probe finds no tokens at all — runs a literal ILIKE against ciphertext that matches nothing
-   * (`query_index/lib/engine.ts`). So with the base rows gone both sources return `[]`, the union
-   * empties, the route falls through to ILIKE, and a search on that field finds nothing — failing
-   * exactly when the write-side rows go away. Left for a follow-up rather than written here:
-   * `createPersonFixture` would need to accept the field first.
-   *
-   * Treat a failure here as a real signal that list search broke, and a pass as saying nothing
-   * about whether the base `customers:customer_entity` rows still exist.
+   * Both lists can match through profile tokens. The People arm searches by `next_interaction_name`
+   * and checks the matching base `customers:customer_entity` token that #5073 preserved. Profile
+   * documents include the interaction name in `search_text`, so a browser match alone can pass
+   * with the base rows missing. See #5740.
    */
   test('the People and Companies list search still finds the customer', async ({ page, request }) => {
     test.setTimeout(180_000)
@@ -333,66 +298,110 @@ test.describe('TC-SEARCH-014: a customer appears once in the global search palet
     const stamp = Date.now()
     const personName = `QASRCH014LP${stamp}`
     const companyName = `QASRCH014LC${stamp}`
-    let adminToken: string | null = null
+    const nextInteractionName = `QASRCH014Next${stamp}`
+    let cleanupToken: string | null = null
     let personId: string | null = null
     let companyId: string | null = null
 
     try {
-      adminToken = (await resolveTokens(request)).adminToken
+      const { adminToken } = await resolveTokens(request)
+      cleanupToken = adminToken
 
       personId = await createPersonFixture(request, adminToken, {
         firstName: 'QA',
         lastName: `Search 014 List ${stamp}`,
         displayName: personName,
+        nextInteractionName,
       })
       companyId = await createCompanyFixture(request, adminToken, companyName)
 
-      await login(page, 'superadmin')
-
       const listArms = [
-        { label: 'people', path: '/backend/customers/people', endpoint: '/api/customers/people', title: personName },
         {
-          label: 'companies',
+          label: 'People by display name',
+          path: '/backend/customers/people',
+          endpoint: '/api/customers/people',
+          query: personName,
+          title: personName,
+          id: personId,
+        },
+        {
+          label: 'Companies by display name',
           path: '/backend/customers/companies',
           endpoint: '/api/customers/companies',
+          query: companyName,
           title: companyName,
+          id: companyId,
         },
-      ] as const
+        {
+          label: 'People by next interaction name',
+          path: '/backend/customers/people',
+          endpoint: '/api/customers/people',
+          query: nextInteractionName,
+          title: personName,
+          id: personId,
+        },
+      ]
 
       for (const arm of listArms) {
-        await page.goto(arm.path)
-        await page.waitForLoadState('domcontentloaded')
+        let attempt = 0
+        await expect
+          .poll(async () => {
+            attempt += 1
+            const params = new URLSearchParams({ search: arm.query, qaAttempt: String(attempt) })
+            const response = await apiRequest(request, 'GET', `${arm.endpoint}?${params}`, { token: adminToken })
+            const body = await readJsonSafe<ListSearchResponse>(response)
+            return body?.items?.map((item) => item.id) ?? []
+          }, { message: `Wait for ${arm.label} to be indexed`, timeout: 30_000 })
+          .toContain(arm.id)
+      }
 
-        const searchBox = page.getByPlaceholder(LIST_SEARCH_PLACEHOLDER)
-        await expect(searchBox).toBeVisible()
+      await login(page, 'superadmin')
 
-        // Wait for the FILTERED response specifically. Asserting only that the row is
-        // visible after typing would be a false guard: a freshly created customer can
-        // already sit on the unfiltered first page, so the assertion would pass even if
-        // list search resolved no ids at all — the exact regression this arm exists to
-        // catch. Keying the wait on `search=<token>` proves the query really ran.
-        const filteredResponse = page.waitForResponse(
-          (response) => {
-            const url = new URL(response.url())
-            return (
-              url.pathname === arm.endpoint &&
-              url.searchParams.get('search') === arm.title &&
-              response.status() === 200
-            )
-          },
-          { timeout: 30_000 },
-        )
-        await searchBox.fill(arm.title)
-        await filteredResponse
+      for (const arm of listArms) {
+        await test.step(arm.label, async () => {
+          await page.goto(arm.path)
+          const searchBox = page.getByPlaceholder(LIST_SEARCH_PLACEHOLDER)
+          await expect(searchBox).toBeVisible()
 
-        await expect(
-          page.getByText(arm.title, { exact: true }).first(),
-          `${arm.label} list search must still return the customer after #5073 stopped offering base customer rows as search results`,
-        ).toBeVisible({ timeout: 20_000 })
+          const [response] = await Promise.all([
+            page.waitForResponse(
+              (response) => {
+                const url = new URL(response.url())
+                return url.pathname === arm.endpoint && url.searchParams.get('search') === arm.query
+              },
+              { timeout: 30_000 },
+            ),
+            searchBox.fill(arm.query),
+          ])
+
+          expect(response.status(), `${arm.label} should return HTTP 200`).toBe(200)
+          const body = await response.json() as ListSearchResponse
+          expect(body.items?.map((item) => item.id), `${arm.label} should return the fixture`).toContain(arm.id)
+          await expect(page.getByText(arm.title, { exact: true }).first()).toBeVisible({ timeout: 20_000 })
+
+          if (arm.query === nextInteractionName) {
+            const { tenantId, organizationId } = getTokenContext(adminToken)
+            const tokenHash = hashToken(nextInteractionName.toLowerCase())
+            await withClient(async (client) => {
+              await expect
+                .poll(async () => {
+                  const result = await client.query(
+                    `select 1 from search_tokens
+                     where entity_type = 'customers:customer_entity' and entity_id = $1
+                       and tenant_id = $2 and organization_id = $3
+                       and field = 'next_interaction_name' and token_hash = $4`,
+                    [arm.id, tenantId, organizationId, tokenHash],
+                  )
+                  return result.rowCount
+                }, { message: 'The fixture must have a base customer token for its next interaction name' })
+                .toBe(1)
+            })
+          }
+        })
       }
     } finally {
-      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
-      await deleteEntityIfExists(request, adminToken, '/api/customers/companies', companyId)
+      await deleteEntityIfExists(request, cleanupToken, '/api/customers/people', personId)
+      await deleteEntityIfExists(request, cleanupToken, '/api/customers/companies', companyId)
     }
   })
 })

@@ -204,7 +204,7 @@ test.describe('TC-PUSH-001: Push delivery detail (token secrecy + tenant scoping
   test('an org-restricted admin: 200 in-scope, 403 out-of-scope, 403 tenant-level (org-less)', async ({ request }) => {
     test.slow()
     const stamp = Date.now()
-    const password = 'Secret123!'
+    const password = 'QaSecret123!'
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId, userId } = getTokenScope(adminToken)
     const email = `tc-push-001-restricted-${stamp}@example.com`

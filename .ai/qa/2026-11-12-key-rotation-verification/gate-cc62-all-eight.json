@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "head": "cc62df6e86760a7a5049a0909b9d193c3c76f0ce",
+  "nodeVersion": "24.22.2",
+  "commands": [
+    {
+      "command": "yarn build:packages",
+      "result": "passed"
+    },
+    {
+      "command": "yarn generate",
+      "result": "passed"
+    },
+    {
+      "command": "yarn build:packages",
+      "result": "passed"
+    },
+    {
+      "command": "yarn i18n:check-sync",
+      "result": "passed"
+    },
+    {
+      "command": "yarn i18n:check-usage",
+      "result": "passed"
+    },
+    {
+      "command": "yarn typecheck",
+      "result": "passed"
+    },
+    {
+      "command": "yarn test",
+      "result": "passed"
+    },
+    {
+      "command": "yarn build:app",
+      "result": "passed"
+    }
+  ],
+  "fullWorkspaceTest": "51/51tasks passed4m57.248s;Core28031tests passed182.962s",
+  "hostSleepOverlap": false,
+  "unchangedRetry": "Earlier unrelated module-decoupling failure did not recur. No source/test fixture/assertion was modified or quarantined. Prior failure and isolated13pass remain preserved.",
+  "releaseAcceptance": false,
+  "remainingGate": "20 GiB warm/cold,large-row stress and final review/report."
+}

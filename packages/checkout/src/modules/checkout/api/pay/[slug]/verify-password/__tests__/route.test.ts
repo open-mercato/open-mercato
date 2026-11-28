@@ -89,15 +89,13 @@ describe('POST /api/checkout/pay/[slug]/verify-password', () => {
     expect(verifyCheckoutPassword).not.toHaveBeenCalled()
   })
 
-  it('rejects with 503 when no rate limiter is registered', async () => {
-    ;(createRequestContainer as jest.Mock).mockResolvedValue({
+  it('fails closed when password limiting is enabled but no limiter is registered', async () => {
+    jest.mocked(createRequestContainer).mockResolvedValue({
       hasRegistration: (name: string) => name !== 'rateLimiterService',
       resolve: (name: string) => {
-        if (name === 'rateLimiterService') throw new Error('rate limiter is not registered')
-        if (name === 'em') return {}
-        throw new Error(`Unknown dependency: ${name}`)
+        throw new Error(`[internal] Unknown dependency: ${name}`)
       },
-    })
+    } as Awaited<ReturnType<typeof createRequestContainer>>)
 
     const response = await verifyRequest()
 

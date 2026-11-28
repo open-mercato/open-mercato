@@ -28,6 +28,7 @@ export interface ChannelCapabilities {
   threading: boolean
   richText: boolean
   fileSharing: boolean
+  maxAttachmentCount?: number
   maxFileSize?: number
   /**
    * Largest total of raw attachment bytes in one outbound message, as a

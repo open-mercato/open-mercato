@@ -1027,6 +1027,10 @@ export default function EditCatalogProductPage({
             initialCategoryOptions={categorizeOptions.categories}
             initialChannelOptions={categorizeOptions.channels}
             initialTagOptions={categorizeOptions.tags}
+            productId={productId ?? ""}
+            initialCategoryIds={
+              Array.isArray(initialValues?.categoryIds) ? (initialValues.categoryIds as string[]) : []
+            }
           />
         ),
       },
@@ -1040,6 +1044,7 @@ export default function EditCatalogProductPage({
     [
       categorizeOptions,
       handleVariantDeleted,
+      initialValues,
       priceKinds,
       productId,
       refreshVariants,
