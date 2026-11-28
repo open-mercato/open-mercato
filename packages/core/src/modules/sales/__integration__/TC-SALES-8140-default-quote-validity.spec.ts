@@ -218,20 +218,41 @@ test('restores quote validity through command undo and redo without overwriting 
   expect((await readSettings(request, validity.token)).defaultQuoteValidityDays).toBe(45)
   expect(await numberingAndEditing()).toEqual(before)
 
-  const later = await apiRequest(request, 'PUT', settingsPath, {
-    token: validity.token, data: { defaultQuoteValidityDays: 60 },
-  })
-  expect(later.status()).toBe(200)
-  const stale = await apiRequest(request, 'PUT', settingsPath, {
+  const olderSave = await apiRequest(request, 'PUT', settingsPath, {
     token: validity.token, data: { defaultQuoteValidityDays: 55 },
   })
-  const staleOperation = expectOperation(stale, 'intermediate quote validity save')
-  const newer = await apiRequest(request, 'PUT', settingsPath, {
+  expect(olderSave.status()).toBe(200)
+  const olderOperation = expectOperation(olderSave, 'intermediate quote validity save')
+  const olderVersion = (await readSettings(request, validity.token)).updatedAt
+  expect(olderVersion).toBeTruthy()
+
+  const newerSave = await apiRequest(request, 'PUT', settingsPath, {
     token: validity.token, data: { defaultQuoteValidityDays: 65 },
   })
-  expect(newer.status()).toBe(200)
-  expect((await undoByToken(request, validity.token, staleOperation.undoToken)).status()).toBe(409)
-  expect((await readSettings(request, validity.token)).defaultQuoteValidityDays).toBe(65)
+  expect(newerSave.status()).toBe(200)
+  const newerOperation = expectOperation(newerSave, 'newest quote validity save')
+  const newerSettings = await readSettings(request, validity.token)
+  expect(newerSettings.defaultQuoteValidityDays).toBe(65)
+
+  const supersededUndo = await undoByToken(request, validity.token, olderOperation.undoToken)
+  expect(supersededUndo.status()).toBe(400)
+  expect(await readJsonSafe(supersededUndo)).toEqual({ error: 'Undo token not available' })
+  expect(await readSettings(request, validity.token)).toEqual(newerSettings)
+
+  await undoOk(request, validity.token, newerOperation.undoToken, 'newest quote validity save')
+  const restoredSettings = await readSettings(request, validity.token)
+  expect(restoredSettings.defaultQuoteValidityDays).toBe(55)
+  expect(restoredSettings.updatedAt).toBeTruthy()
+  expect(restoredSettings.updatedAt).not.toBe(olderVersion)
+
+  const staleVersionUndo = await undoByToken(request, validity.token, olderOperation.undoToken)
+  expect(staleVersionUndo.status()).toBe(409)
+  expect(await readJsonSafe(staleVersionUndo)).toMatchObject({
+    code: 'optimistic_lock_conflict',
+    currentUpdatedAt: restoredSettings.updatedAt,
+    expectedUpdatedAt: olderVersion,
+  })
+  expect(await readSettings(request, validity.token)).toEqual(restoredSettings)
   expect(await numberingAndEditing()).toEqual(before)
 })
 
