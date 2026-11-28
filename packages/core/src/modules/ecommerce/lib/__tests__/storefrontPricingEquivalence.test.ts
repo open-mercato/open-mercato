@@ -341,4 +341,56 @@ describe('storefrontPricing vs catalogBuyerPricingService equivalence guard (3.4
     expect(variantPrices?.get('variant-a')?.amount).toBe(buyerForA.amountNet)
     expect(variantPrices?.get('variant-b')?.amount).toBe(buyerForB.amountNet)
   })
+
+  it('(f) derives the gross side of a net-only row from its own tax rate identically on both paths', async () => {
+    const rows = [buildRow({ id: 'row-net-only', productId: 'product-1', net: '22.0900', taxRate: '5.5000' })]
+    installPriceRows(rows)
+
+    const storefront = await resolveStorefrontPrices(makeContainer(), makeStoreContext({ taxMode: 'gross' }), [
+      { productId: 'product-1', variantIds: [] },
+    ])
+    const buyerResult = await buyerPricingService().resolveLinePrice(em, rows, buyerContext(), scope)
+
+    expect(buyerResult.amountGross).toBe(23.305)
+    expect(storefront.get('product-1')?.price?.amount).toBe(buyerResult.amountGross)
+  })
+
+  it('(g) derives the gross side from the fallback sales tax rate identically on both paths', async () => {
+    const rows = [buildRow({ id: 'row-net-only', productId: 'product-1', net: '1.0300' })]
+    installPriceRows(rows, [
+      {
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        code: 'reduced',
+        rate: '5.5000',
+        channelId: null,
+        customerGroupId: null,
+        isDefault: true,
+        priority: 0,
+        startsAt: null,
+        endsAt: null,
+      },
+    ])
+
+    const storefront = await resolveStorefrontPrices(makeContainer(), makeStoreContext({ taxMode: 'gross' }), [
+      { productId: 'product-1', variantIds: [] },
+    ])
+    const buyerResult = await buyerPricingService().resolveLinePrice(em, rows, buyerContext(), scope)
+
+    expect(buyerResult.amountGross).toBe(1.0867)
+    expect(storefront.get('product-1')?.price?.amount).toBe(buyerResult.amountGross)
+  })
+
+  it('(h) derives the net side of a gross-only row identically on both paths', async () => {
+    const rows = [buildRow({ id: 'row-gross-only', productId: 'product-1', gross: '23.3050', taxRate: '5.5000' })]
+    installPriceRows(rows)
+
+    const storefront = await resolveStorefrontPrices(makeContainer(), makeStoreContext(), [
+      { productId: 'product-1', variantIds: [] },
+    ])
+    const buyerResult = await buyerPricingService().resolveLinePrice(em, rows, buyerContext(), scope)
+
+    expect(buyerResult.amountNet).toBe(22.09)
+    expect(storefront.get('product-1')?.price?.amount).toBe(buyerResult.amountNet)
+  })
 })
