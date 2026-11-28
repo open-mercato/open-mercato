@@ -67,20 +67,21 @@ async function createFeatureRole(
   adminToken: string,
   label: string,
   features: string[],
+  organizations: string[] | null = null,
 ): Promise<string> {
   const roleId = await createRoleFixture(request, adminToken, { name: `IT agent access ${label} ${uniqueStamp()}` })
-  await setRoleAclFeatures(request, adminToken, { roleId, features, organizations: null })
+  await setRoleAclFeatures(request, adminToken, { roleId, features, organizations })
   return roleId
 }
 
 export async function createScopedAgentUser(
   request: APIRequestContext,
   adminToken: string,
-  input: { label: string; features: string[] },
+  input: { label: string; features: string[]; organizations?: string[] | null },
 ): Promise<ScopedAgentUser> {
   const { organizationId } = getTokenScope(adminToken)
   const email = `it-agent-acc-${input.label}-${uniqueStamp()}@example.com`
-  const roleId = await createFeatureRole(request, adminToken, input.label, input.features)
+  const roleId = await createFeatureRole(request, adminToken, input.label, input.features, input.organizations ?? null)
   try {
     const userId = await createUserFixture(request, adminToken, {
       email,

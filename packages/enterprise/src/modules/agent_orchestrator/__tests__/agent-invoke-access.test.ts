@@ -110,7 +110,12 @@ function makeContainer(aclByPrincipal: Record<string, AclRecord>) {
   })
   const registrations: Record<string, unknown> = {
     em: { fork: () => ({}) },
-    rbacService: { loadAcl },
+    rbacService: {
+      loadAcl,
+      resolveFeatureOrganizationAccess: jest.fn(async (principalId: string) => ({
+        unrestricted: aclByPrincipal[principalId]?.organizations == null,
+      })),
+    },
   }
   const container = {
     resolve(name: string) {
@@ -211,7 +216,67 @@ describe('loadInvokerAcl', () => {
     })
     const acl = await loadInvokerAcl(container as never, invoker, scope)
     expect(loadAcl).toHaveBeenCalledWith(principalId, scope)
-    expect(acl).toEqual({ features: ['sales.orders.view'], isSuperAdmin: false })
+    expect(acl).toEqual({
+      features: ['sales.orders.view'],
+      isSuperAdmin: false,
+      hasUnrestrictedOrganizationVisibility: true,
+    })
+  })
+
+  it('marks organization-restricted ACLs as unable to change tenant-wide settings', async () => {
+    const { container } = makeContainer({
+      'user-1': { isSuperAdmin: false, features: ['agent_orchestrator.agents.manage'], organizations: [scope.organizationId!] },
+    })
+    const acl = await loadInvokerAcl(container as never, { kind: 'user', userId: 'user-1' }, scope)
+    expect(acl.hasUnrestrictedOrganizationVisibility).toBe(false)
+  })
+
+  it('recognizes a super-admin ACL as globally visible', async () => {
+    const { container } = makeContainer({
+      'user-1': { isSuperAdmin: true, features: [], organizations: null },
+    })
+    const acl = await loadInvokerAcl(container as never, { kind: 'user', userId: 'user-1' }, scope)
+    expect(acl.hasUnrestrictedOrganizationVisibility).toBe(true)
+  })
+
+  it('uses feature-specific global access instead of merged ACL visibility', async () => {
+    const { container } = makeContainer({
+      'user-1': { isSuperAdmin: false, features: ['agent_orchestrator.agents.manage', 'agent_orchestrator.trace.view_content'], organizations: null },
+    })
+    const rbacService = container.resolve('rbacService') as { resolveFeatureOrganizationAccess: jest.Mock }
+    rbacService.resolveFeatureOrganizationAccess.mockResolvedValue({ unrestricted: false })
+
+    const acl = await loadInvokerAcl(
+      container as never,
+      { kind: 'user', userId: 'user-1' },
+      scope,
+      ['agent_orchestrator.agents.manage', 'agent_orchestrator.trace.view_content'],
+    )
+
+    expect(rbacService.resolveFeatureOrganizationAccess).toHaveBeenCalledWith(
+      'user-1',
+      ['agent_orchestrator.agents.manage', 'agent_orchestrator.trace.view_content'],
+      { tenantId: scope.tenantId },
+    )
+    expect(acl.hasUnrestrictedOrganizationVisibility).toBe(false)
+  })
+
+  it('does not treat a scoped super-admin role as globally authorized', async () => {
+    const { container } = makeContainer({
+      'user-1': { isSuperAdmin: true, features: [], organizations: [scope.organizationId!] },
+    })
+    const rbacService = container.resolve('rbacService') as { resolveFeatureOrganizationAccess: jest.Mock }
+    rbacService.resolveFeatureOrganizationAccess.mockResolvedValue({ unrestricted: false })
+
+    const acl = await loadInvokerAcl(
+      container as never,
+      { kind: 'user', userId: 'user-1' },
+      scope,
+      ['agent_orchestrator.agents.manage'],
+    )
+
+    expect(acl.isSuperAdmin).toBe(true)
+    expect(acl.hasUnrestrictedOrganizationVisibility).toBe(false)
   })
 
   it('grants nothing when the organization restriction excludes the run organization', async () => {
@@ -219,7 +284,7 @@ describe('loadInvokerAcl', () => {
       'user-1': { isSuperAdmin: false, features: ['sales.*'], organizations: ['org-other'] },
     })
     const acl = await loadInvokerAcl(container as never, { kind: 'user', userId: 'user-1' }, scope)
-    expect(acl).toEqual({ features: [], isSuperAdmin: false })
+    expect(acl).toEqual({ features: [], isSuperAdmin: false, hasUnrestrictedOrganizationVisibility: false })
   })
 
   it('fails closed when the RBAC service throws', async () => {
@@ -229,7 +294,7 @@ describe('loadInvokerAcl', () => {
       },
     }
     const acl = await loadInvokerAcl(container as never, { kind: 'user', userId: 'user-1' }, scope)
-    expect(acl).toEqual({ features: [], isSuperAdmin: false })
+    expect(acl).toEqual({ features: [], isSuperAdmin: false, hasUnrestrictedOrganizationVisibility: false })
   })
 })
 

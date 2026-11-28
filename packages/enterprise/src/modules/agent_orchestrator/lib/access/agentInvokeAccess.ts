@@ -13,6 +13,7 @@ export const AGENT_INVOKE_ENFORCEMENT_ENV = 'OM_AGENT_INVOKE_ENFORCEMENT'
 export type InvokerAcl = {
   features: string[]
   isSuperAdmin: boolean
+  hasUnrestrictedOrganizationVisibility?: boolean
 }
 
 export type InvokerScope = {
@@ -25,9 +26,18 @@ type RbacServiceLike = {
     principalId: string,
     scope: { tenantId: string | null; organizationId: string | null },
   ) => Promise<{ isSuperAdmin: boolean; features: string[]; organizations?: string[] | null }>
+  resolveFeatureOrganizationAccess: (
+    principalId: string,
+    requiredFeatures: readonly string[],
+    scope: { tenantId: string | null },
+  ) => Promise<{ unrestricted: boolean }>
 }
 
-const EMPTY_ACL: InvokerAcl = { features: [], isSuperAdmin: false }
+const EMPTY_ACL: InvokerAcl = {
+  features: [],
+  isSuperAdmin: false,
+  hasUnrestrictedOrganizationVisibility: false,
+}
 
 /**
  * Invoke enforcement is ON unless `OM_AGENT_INVOKE_ENFORCEMENT=off`: the kill
@@ -75,13 +85,18 @@ export async function loadInvokerAcl(
   container: AwilixContainer,
   invoker: AgentInvoker,
   scope: InvokerScope,
+  requiredFeatures?: readonly string[],
 ): Promise<InvokerAcl> {
   try {
     const rbac = container.resolve('rbacService') as RbacServiceLike
-    const loaded = await rbac.loadAcl(principalIdForInvoker(invoker), {
+    const principalId = principalIdForInvoker(invoker)
+    const loaded = await rbac.loadAcl(principalId, {
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     })
+    const featureAccess = requiredFeatures?.length
+      ? await rbac.resolveFeatureOrganizationAccess(principalId, requiredFeatures, { tenantId: scope.tenantId })
+      : null
     const isSuperAdmin = loaded.isSuperAdmin === true
     const organizations = loaded.organizations ?? null
     if (
@@ -92,7 +107,13 @@ export async function loadInvokerAcl(
     ) {
       return EMPTY_ACL
     }
-    return { features: Array.isArray(loaded.features) ? loaded.features : [], isSuperAdmin }
+    return {
+      features: Array.isArray(loaded.features) ? loaded.features : [],
+      isSuperAdmin,
+      hasUnrestrictedOrganizationVisibility: featureAccess
+        ? featureAccess.unrestricted === true
+        : loaded.organizations === null || loaded.organizations?.includes('__all__') === true,
+    }
   } catch (err) {
     logger.warn('failed to load invoker ACL; treating as no grants', {
       invokerKind: invoker.kind,

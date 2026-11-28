@@ -27,7 +27,8 @@ import { agentOrchestratorTag } from '../../openapi'
  * Reading uses the trace view gate. Writing needs `agents.manage` AND
  * `trace.view_content` because it decides whether prompts and responses are
  * retained; the handler re-checks both so the rule holds even if the metadata
- * guard is relaxed. The write goes through an undoable command, and its
+ * guard is relaxed. Because the policy applies tenant-wide, writers also need
+ * unrestricted organization visibility. The write goes through an undoable command, and its
  * `updatedAt` is the optimistic-lock version of the tenant's config row.
  */
 
@@ -154,14 +155,14 @@ export const openApi: OpenApiRouteDoc = {
     PUT: {
       summary: 'Save the tenant trace capture policy',
       description:
-        'Writes the tenant-scoped policy through the undoable agent_orchestrator.traceCapturePolicy.update command. The complete object is required. Send the x-om-ext-optimistic-lock-expected-updated-at header with the updatedAt from GET to reject a stale save with 409. Requires agent_orchestrator.agents.manage and agent_orchestrator.trace.view_content.',
+        'Writes the tenant-scoped policy through the undoable agent_orchestrator.traceCapturePolicy.update command. The complete object is required. Send the x-om-ext-optimistic-lock-expected-updated-at header with the updatedAt from GET to reject a stale save with 409. Requires agent_orchestrator.agents.manage, agent_orchestrator.trace.view_content, and unrestricted organization visibility because the policy applies tenant-wide.',
       responses: [{ status: 200, description: 'Saved policy', schema: settingsResponseSchema }],
       errors: [
         { status: 400, description: 'Invalid policy or missing tenant', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         {
           status: 403,
-          description: 'Missing agent_orchestrator.agents.manage or agent_orchestrator.trace.view_content',
+          description: 'Missing write features or unrestricted organization visibility',
           schema: errorSchema,
         },
         { status: 409, description: 'The policy changed since it was read', schema: conflictSchema },

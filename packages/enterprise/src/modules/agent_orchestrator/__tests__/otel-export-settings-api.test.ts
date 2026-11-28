@@ -107,6 +107,7 @@ function makeContainer(options: {
   store?: ReturnType<typeof makeConfigStore>
   features?: string[]
   isSuperAdmin?: boolean
+  organizations?: string[] | null
   execute?: jest.Mock
   consume?: jest.Mock
   integration?: { credentials: Record<string, unknown> | null; enabled: boolean }
@@ -115,7 +116,10 @@ function makeContainer(options: {
   const loadAcl = jest.fn(async () => ({
     isSuperAdmin: options.isSuperAdmin ?? false,
     features: options.features ?? [],
-    organizations: null,
+    organizations: options.organizations ?? null,
+  }))
+  const resolveFeatureOrganizationAccess = jest.fn(async () => ({
+    unrestricted: options.organizations == null || options.organizations.includes('__all__'),
   }))
   const execute = options.execute ?? jest.fn()
   const consume =
@@ -127,7 +131,7 @@ function makeContainer(options: {
       if (token === 'moduleConfigService') {
         return { getRecord: store.getRecord, setValue: store.setValue, invalidate: store.invalidate }
       }
-      if (token === 'rbacService') return { loadAcl }
+      if (token === 'rbacService') return { loadAcl, resolveFeatureOrganizationAccess }
       if (token === 'commandBus') return { execute }
       if (token === 'rateLimiterService') return { consume, trustProxyDepth: 0 }
       if (token === 'integrationCredentialsService' && options.integration) {
@@ -351,6 +355,17 @@ describe('PUT /otel-export/settings', () => {
     getAuthFromRequest.mockResolvedValue(authOf())
 
     expect((await PUT(putRequest({ enabled: true }))).status).toBe(403)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  test('403 for an organization-restricted writer even when agents.manage is granted', async () => {
+    const { container, execute } = makeContainer({ features: [MANAGE], organizations: [ORG] })
+    createRequestContainer.mockResolvedValue(container)
+    getAuthFromRequest.mockResolvedValue(authOf())
+
+    const response = await PUT(putRequest({ enabled: true, content: 'none' }))
+
+    expect(response.status).toBe(403)
     expect(execute).not.toHaveBeenCalled()
   })
 
