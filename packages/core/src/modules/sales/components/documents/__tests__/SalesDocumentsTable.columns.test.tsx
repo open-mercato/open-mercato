@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, act } from '@testing-library/react'
+import { render, act, screen } from '@testing-library/react'
 import type { SortingState } from '@tanstack/react-table'
 import { SalesDocumentsTable } from '../SalesDocumentsTable'
 
@@ -15,7 +15,12 @@ type TestDataTableProps = {
   sortable?: boolean
   manualSorting?: boolean
   sorting?: SortingState
-  columns?: Array<{ id: string; enableSorting?: boolean }>
+  columns?: Array<{
+    id: string
+    enableSorting?: boolean
+    cell?: (context: { row: { original: { id: string } } }) => React.ReactNode
+  }>
+  data?: Array<{ id: string }>
   pagination?: { onPageChange?: (page: number) => void }
   onSortingChange?: (sorting: SortingState) => void
 }
@@ -27,7 +32,10 @@ jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   withDataTableNamespaces: (mappedRow: Record<string, unknown>) => mappedRow,
   DataTable: (props: TestDataTableProps) => {
     mockDataTable(props)
-    return null
+    const dateColumn = props.columns?.find((column) => column.id === 'createdAt')
+    return props.data?.map((original) => (
+      <div key={original.id}>{dateColumn?.cell?.({ row: { original } })}</div>
+    )) ?? null
   },
 }))
 
@@ -72,7 +80,7 @@ jest.mock('@open-mercato/shared/lib/frontend/useOrganizationScope', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => {
   const translate = (key: string, fallback?: string) => fallback ?? key
-  return { useT: () => translate }
+  return { useT: () => translate, useLocale: () => 'pl' }
 })
 
 jest.mock('@open-mercato/core/modules/dictionaries/components/dictionaryAppearance', () => ({
@@ -147,5 +155,40 @@ describe('SalesDocumentsTable column sorting (issue #6943)', () => {
     expect(params.get('sortDir')).toBe('asc')
     expect(params.get('page')).toBe('1')
     expect(latestProps()?.sorting).toEqual([{ id: 'number', desc: false }])
+  })
+})
+
+describe('SalesDocumentsTable Date column (issue #9625)', () => {
+  it.each(['2026-11-16T00:00:00.000Z', '2026-11-16'])(
+    'shows placedAt %s as a calendar day in the application locale',
+    async (placedAt) => {
+      mockApiCall.mockResolvedValue({
+        ok: true,
+        result: { items: [{ id: 'order-1', placedAt, createdAt: '2026-11-12T23:30:00.000Z' }] },
+      })
+
+      await act(async () => {
+        render(<SalesDocumentsTable kind="order" />)
+      })
+
+      expect(screen.getByText('16 lis 2026')).toBeInTheDocument()
+    }
+  )
+
+  it.each([
+    ['order', { createdAt: '2026-11-16T00:00:00.000Z' }, '2026-11-16T00:00:00.000Z'],
+    ['quote', { validUntil: '2026-11-16T23:30:00.000Z' }, '2026-11-16T23:30:00.000Z'],
+    ['quote', {}, null],
+  ] as const)('preserves the %s fallback display for %j', async (kind, dates, timestamp) => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      result: { items: [{ id: 'doc-1', ...dates }] },
+    })
+
+    await act(async () => {
+      render(<SalesDocumentsTable kind={kind} />)
+    })
+
+    expect(screen.getByText(timestamp ? new Date(timestamp).toLocaleString() : '—')).toBeInTheDocument()
   })
 })
