@@ -10,6 +10,7 @@ import {
 } from '../../../lib/global-search-config'
 import type { GlobalSearchSource } from '../../../lib/global-search-config'
 import type { SearchStrategyId } from '@open-mercato/shared/modules/search'
+import { reportSearchError, searchError } from '../../../../../lib/debug'
 import { globalSearchSettingsOpenApi } from '../../openapi'
 
 const updateSchema = z.object({
@@ -84,8 +85,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, enabledStrategies: parsed.data.enabledStrategies })
   } catch (error) {
+    reportSearchError('search.global_search_settings.update', error, 'search.global_search_settings_update_failed')
+    searchError('search.global_search_settings.update', 'Failed to save global search settings')
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : t('api.errors.internal', 'Internal error') },
+      { error: t('api.errors.internal', 'Internal error') },
       { status: 500 }
     )
   } finally {
