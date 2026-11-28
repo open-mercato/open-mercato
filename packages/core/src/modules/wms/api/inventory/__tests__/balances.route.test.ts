@@ -1,4 +1,4 @@
-import { transformInventoryBalanceListItem } from '../balances/route'
+import { buildHideEmptyBalanceFilters, transformInventoryBalanceListItem } from '../balances/route'
 
 describe('wms inventory balances route helpers', () => {
   it('prefers the database-computed quantity_available when present', () => {
@@ -59,5 +59,26 @@ describe('wms inventory balances route helpers', () => {
     expect(Number(highOnHandHighlyReserved.quantity_on_hand)).toBeGreaterThan(
       Number(lowOnHandUnreserved.quantity_on_hand),
     )
+  })
+
+  it('keeps every balance when hideEmpty is missing or falsy', () => {
+    expect(buildHideEmptyBalanceFilters(undefined)).toBeNull()
+    expect(buildHideEmptyBalanceFilters('false')).toBeNull()
+    expect(buildHideEmptyBalanceFilters('0')).toBeNull()
+    expect(buildHideEmptyBalanceFilters('')).toBeNull()
+  })
+
+  it('requires a non-zero on hand, reserved or allocated quantity when hideEmpty is set', () => {
+    const expected = [
+      {
+        $or: [
+          { quantity_on_hand: { $ne: 0 } },
+          { quantity_reserved: { $ne: 0 } },
+          { quantity_allocated: { $ne: 0 } },
+        ],
+      },
+    ]
+    expect(buildHideEmptyBalanceFilters('true')).toEqual(expected)
+    expect(buildHideEmptyBalanceFilters('1')).toEqual(expected)
   })
 })

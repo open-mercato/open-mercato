@@ -401,6 +401,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
 
   const [warehouseId, setWarehouseId] = React.useState<string>('all')
   const [distributionFilter, setDistributionFilter] = React.useState<DistributionFilter>('all')
+  const [showEmptyBalances, setShowEmptyBalances] = React.useState(false)
   const [distributionPage, setDistributionPage] = React.useState(1)
   const [selectedBalanceIds, setSelectedBalanceIds] = React.useState<Set<string>>(() => new Set())
   const [adjustOpen, setAdjustOpen] = React.useState(false)
@@ -472,10 +473,8 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
     },
   })
 
-  const balancesQuery = useQuery({
-    queryKey: ['wms-sku-detail', 'balances', catalogVariantId, warehouseId],
-    enabled: Boolean(catalogVariantId),
-    queryFn: async () => {
+  const fetchBalances = React.useCallback(
+    async (hideEmpty: boolean) => {
       const params = new URLSearchParams({
         catalogVariantId: catalogVariantId!,
         page: '1',
@@ -484,6 +483,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
         sortDir: 'desc',
       })
       if (warehouseId !== 'all') params.set('warehouseId', warehouseId)
+      if (hideEmpty) params.set('hideEmpty', 'true')
       const call = await apiCall<PagedResponse<InventoryBalanceRow>>(
         `/api/wms/inventory/balances?${params.toString()}`,
       )
@@ -492,6 +492,23 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
       }
       return call.result ?? { items: [], total: 0, totalPages: 1 }
     },
+    [catalogVariantId, t, warehouseId],
+  )
+
+  const stockedBalancesQuery = useQuery({
+    queryKey: ['wms-sku-detail', 'balances', catalogVariantId, warehouseId, false],
+    enabled: Boolean(catalogVariantId),
+    queryFn: () => fetchBalances(true),
+  })
+
+  const balancesQuery = useQuery({
+    queryKey: ['wms-sku-detail', 'balances', catalogVariantId, warehouseId, showEmptyBalances],
+    enabled: Boolean(catalogVariantId),
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[2] === catalogVariantId && previousQuery?.queryKey[3] === warehouseId
+        ? previousData
+        : undefined,
+    queryFn: () => fetchBalances(!showEmptyBalances),
   })
 
   const lotsQuery = useQuery({
@@ -552,7 +569,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   const pageTitle = (variantQuery.data?.sku ?? '').trim() || skuLabel
 
   const totals = React.useMemo(() => {
-    const items = balancesQuery.data?.items ?? []
+    const items = stockedBalancesQuery.data?.items ?? []
     let onHand = 0
     let reserved = 0
     let available = 0
@@ -562,7 +579,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
       available += row.quantity_available ?? 0
     }
     return { onHand, reserved, available }
-  }, [balancesQuery.data?.items])
+  }, [stockedBalancesQuery.data?.items])
 
   const daysOfSupply = React.useMemo(() => {
     const movements = movementsQuery.data ?? []
@@ -601,7 +618,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   React.useEffect(() => {
     setDistributionPage(1)
     setSelectedBalanceIds(new Set())
-  }, [distributionFilter, warehouseId])
+  }, [distributionFilter, showEmptyBalances, warehouseId])
 
   const selectedBalances = React.useMemo(
     () => filteredBalances.filter((row) => selectedBalanceIds.has(row.id)),
@@ -879,6 +896,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   const isLoading =
     variantQuery.isLoading ||
     profileQuery.isLoading ||
+    stockedBalancesQuery.isLoading ||
     balancesQuery.isLoading ||
     lotsQuery.isLoading ||
     movementsQuery.isLoading
@@ -886,7 +904,7 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
   const hasError =
     variantQuery.isError ||
     profileQuery.isError ||
-    balancesQuery.isError ||
+    stockedBalancesQuery.isError ||
     lotsQuery.isError ||
     movementsQuery.isError
 
@@ -1051,9 +1069,25 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
                       {chip.label}
                     </Button>
                   ))}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={showEmptyBalances ? 'ghost' : 'outline'}
+                    className="rounded-full"
+                    onClick={() => setShowEmptyBalances((prev) => !prev)}
+                  >
+                    {showEmptyBalances
+                      ? t('wms.backend.sku.distribution.filters.hideEmpty', 'Hide empty')
+                      : t('wms.backend.sku.distribution.filters.showEmpty', 'Show empty')}
+                  </Button>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" onClick={handleExportDistributionCsv}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={balancesQuery.isPlaceholderData}
+                    onClick={handleExportDistributionCsv}
+                  >
                     <Download className="size-4" />
                     {t('wms.backend.sku.distribution.actions.exportCsv', 'Export CSV')}
                   </Button>
@@ -1077,47 +1111,65 @@ export default function WmsSkuDetailPage({ variantId }: WmsSkuDetailPageProps) {
                   ) : null}
                 </div>
               </div>
-              <DataTable<InventoryBalanceRow>
-                embedded
-                columns={distributionColumns}
-                data={pagedBalances}
-                disableRowClick
-                entityId={E.wms.inventory_balance}
-                perspective={{ tableId: extensionPoints.hosts.skuDistributionTable.tableId }}
-                pagination={{
-                  page: distributionPage,
-                  pageSize: distributionPageSize,
-                  total: distributionTotal,
-                  totalPages: distributionTotalPages,
-                  onPageChange: setDistributionPage,
-                }}
-                emptyState={(
-                  <EmptyState
-                    title={t('wms.backend.sku.distribution.empty.title', 'No locations in this view')}
-                    description={t(
-                      'wms.backend.sku.distribution.empty.description',
-                      'Try another filter or post inventory through receipts or adjustments.',
+              {balancesQuery.isError ? (
+                <ErrorMessage
+                  label={t('wms.backend.sku.errors.balances', 'Failed to load stock distribution.')}
+                  action={(
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => balancesQuery.refetch()}
+                    >
+                      {t('wms.backend.sku.distribution.actions.retry', 'Retry')}
+                    </Button>
+                  )}
+                />
+              ) : (
+                <>
+                  <DataTable<InventoryBalanceRow>
+                    embedded
+                    columns={distributionColumns}
+                    data={pagedBalances}
+                    disableRowClick
+                    entityId={E.wms.inventory_balance}
+                    perspective={{ tableId: extensionPoints.hosts.skuDistributionTable.tableId }}
+                    pagination={{
+                      page: distributionPage,
+                      pageSize: distributionPageSize,
+                      total: distributionTotal,
+                      totalPages: distributionTotalPages,
+                      onPageChange: setDistributionPage,
+                    }}
+                    emptyState={(
+                      <EmptyState
+                        title={t('wms.backend.sku.distribution.empty.title', 'No locations in this view')}
+                        description={t(
+                          'wms.backend.sku.distribution.empty.description',
+                          'Try another filter or post inventory through receipts or adjustments.',
+                        )}
+                      />
                     )}
                   />
-                )}
-              />
-              {distributionTotal > 0 ? (
-                <div className="flex flex-col gap-2 border-t px-5 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-                  <span>
-                    {t('wms.backend.sku.distribution.footer.showing', 'Showing {shown} of {total} locations', {
-                      shown: pagedBalances.length,
-                      total: distributionTotal,
-                    })}
-                  </span>
-                  {balancesQuery.data && balancesQuery.data.total > distributionTotal ? (
-                    <LinkButton asChild variant="gray" size="sm" className="h-auto px-0">
-                      <Link href={inventoryHref}>
-                        {t('wms.backend.sku.distribution.footer.viewAll', 'View all locations →')}
-                      </Link>
-                    </LinkButton>
+                  {distributionTotal > 0 ? (
+                    <div className="flex flex-col gap-2 border-t px-5 py-3 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+                      <span>
+                        {t('wms.backend.sku.distribution.footer.showing', 'Showing {shown} of {total} locations', {
+                          shown: pagedBalances.length,
+                          total: distributionTotal,
+                        })}
+                      </span>
+                      {balancesQuery.data && balancesQuery.data.total > distributionTotal ? (
+                        <LinkButton asChild variant="gray" size="sm" className="h-auto px-0">
+                          <Link href={inventoryHref}>
+                            {t('wms.backend.sku.distribution.footer.viewAll', 'View all locations →')}
+                          </Link>
+                        </LinkButton>
+                      ) : null}
+                    </div>
                   ) : null}
-                </div>
-              ) : null}
+                </>
+              )}
             </section>
 
             <DataTable<InventoryMovementRow>

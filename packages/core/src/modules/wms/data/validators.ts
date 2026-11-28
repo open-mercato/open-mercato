@@ -210,6 +210,7 @@ export const inventoryBalanceListQuerySchema = z.object({
   lotId: uuid().optional(),
   serialNumber: z.string().trim().max(120).optional(),
   lowStock: inventoryLowStockFilterSchema.optional(),
+  hideEmpty: z.string().optional(),
   search: z.string().optional(),
 }).passthrough()
 
