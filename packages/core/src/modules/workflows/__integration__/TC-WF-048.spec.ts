@@ -202,9 +202,23 @@ test.describe('TC-WF-048: portal task ownership', () => {
         { headers: portalCookieHeaders(sessionB) },
       )
       expect(detailB.status(), 'another customer gets a 404, never a 403').toBe(404)
+      const missingTaskBody = await missingB.text()
       expect(await detailB.text(), 'the refusal is byte-identical to a nonexistent id').toBe(
-        await missingB.text(),
+        missingTaskBody,
       )
+
+      const portalHeaders = portalCookieHeaders(sessionA)
+      const [invalidDetail, invalidCompletion] = await Promise.all([
+        request.get('/api/workflows/portal/tasks/invalid-task-id', { headers: portalHeaders }),
+        request.post('/api/workflows/portal/tasks/invalid-task-id/complete', {
+          headers: portalHeaders,
+          data: { formData: { approved: true } },
+        }),
+      ])
+      for (const response of [invalidDetail, invalidCompletion]) {
+        expect(response.status()).toBe(404)
+        expect(await response.text()).toBe(missingTaskBody)
+      }
 
       // --- The two route trees do not admit each other's principals.
       const portalTokenOnBackoffice = await request.get(
