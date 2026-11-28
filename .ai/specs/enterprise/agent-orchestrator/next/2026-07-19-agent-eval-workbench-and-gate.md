@@ -647,6 +647,75 @@ honest but its subject is unpinned.*
 
 No entity removed, no event id changed, no route deleted. `DELETE /eval-cases` is **not** introduced.
 
+## Migration & Backward Compatibility
+
+### 2026-11-15 — Bounded regex evaluation (#9160)
+
+The regex scorer and tool-glob matcher reuse
+`@open-mercato/shared/lib/regex/linear.testLinearRegex` (RE2JS), replacing
+synchronous tenant-authored backtracking `RegExp` execution in request handlers
+and completed-run scoring. The function signatures, scorer keys, routes, response
+shapes, persistence and permission checks remain unchanged. No dependency or
+database migration is introduced.
+
+| Contract surface | Before | After |
+|---|---|---|
+| STABLE POST/PUT `/api/agent_orchestrator/eval-assertions` regex config | Nonempty pattern without length cap | Raw pattern at most 500 UTF-16 code units; oversized writes return 422 |
+| STABLE saved/preview regex verdicts | JavaScript backtracking semantics | RE2-compatible semantics; unsupported syntax or oversized pattern/input skips as `invalid_config` |
+| STABLE tool-name glob helper behavior | Escaped, anchored JavaScript regex without bounds | Same glob construction with the linear helper's 500 compiled-pattern and 10,000 input limits; rejection returns false |
+
+Case-insensitive decoration does not consume the raw 500-character pattern budget.
+Matching input is the selected output path converted to text, including JSON
+serialization for structured values; the 10,000-character limit applies afterward.
+Negation preserves a skipped verdict. Exact tool-name matching keeps its existing
+precedence and does not use the glob matcher.
+
+**Semantic changes and migration.** Backreferences, lookaround and JavaScript
+`\uNNNN` escapes no longer compile. Use literal Unicode characters and rewrite
+unsupported constructs. Even accepted patterns can change results: `^\s+$` on
+NBSP changes true → false, `^a.$` on `a` plus CR changes false → true, and
+case-insensitive `^\w+$` on the Kelvin sign changes false → true. Use explicit
+character classes and positive/negative fixtures for business-specific alphabets
+and line terminators. The authoring hint states RE2 compatibility and both limits
+in every shipped module locale.
+
+Clients must shorten oversized patterns before saving and handle the existing 422
+configuration-error response. Operators must inventory enabled assertions and
+case overrides, preview them on representative and negative outputs, update them
+through the tenant-scoped UI/API, and rerun affected suites before trusting gates.
+Use a narrower output `path` for oversized input; shorten oversized glob selectors
+or use exact tool names. Skipped gates are excluded from online and replay
+aggregation: a previously failing gate can disappear from a mixed verdict set.
+Hold downstream release/action approval until every required assertion evaluates
+under the new semantics. Existing result rows remain unchanged historical data.
+Restart request processes and evaluation workers together; no data migration is
+needed. Do not restore the unsafe matcher behind a compatibility toggle or roll
+back to it as an assertion-migration workaround. Detailed client and operator
+instructions are in [UPGRADE_NOTES.md](../../../../../UPGRADE_NOTES.md#agent-evaluation-regex-safety-9160).
+
+**Emergency security exception — merge condition.** The removed synchronous,
+unbounded backtracking behavior is itself the vulnerability: an eval-managing
+tenant can monopolize a shared Node event loop with an ambiguous pattern, including
+through a saved assertion. Retaining that branch for a deprecation window preserves
+the exploit. The change is limited to these two matcher call sites and the shared
+helper's existing limits; it introduces no legacy fallback. Steps 4 and 5 of the
+compatibility protocol are fulfilled by these migration notes and the upgrade
+entry. A dated contract entry records the classification and qualifying argument.
+A **named human maintainer must explicitly approve waiver of steps 1–3 on PR
+#9581 before merge**. Approval is pending; automated review cannot grant it.
+
+**Coverage and residual risk.** Registry tests exercise the write cap, skipped
+stored/invalid/unsupported configs, input limits, case-insensitive mode, path/JSON
+conversion, negation, explicit RE2 semantic differences and glob selectors. Two
+disposable-process tests run the 10,000-character issue payload and repeated-glob
+payload against the actual production helpers, each with a 10-second timeout that
+kills only its child. The old matcher must time out and the new matcher must return
+false. Existing eval-registry, scorer and assertion-resolution suites cover their
+consumers. Assertion save/preview and completed-run persistence remain manual QA
+steps before approval. Residual risk is a migrated assertion changing a business
+gate's truth value; inventory, negative fixtures and explicit maintainer/QA gates
+are required, and no compatibility path restores the vulnerable engine.
+
 ## 9. Integration Coverage
 
 Playwright, `__integration__/TC-AGENT-EVAL-<NNN>.spec.ts`, following the existing convention. The eval-run
@@ -826,6 +895,11 @@ calls `runEvalGate()`. The upstream spec edits (`prompt_hash`, `definition_snaps
 document; their CODE is that spec's Phase 4.
 
 ## Changelog
+
+- **2026-11-15 (#9160):** Documented bounded linear regex/glob evaluation, RE2
+  semantic differences, client/operator migration and skipped-gate consequences;
+  added disposable-process safety regressions and an explicit pending human
+  compatibility-waiver merge condition.
 
 - **2026-07-19:** Initial spec. Supersedes gap-04; prior-art review of promptfoo, Inspect AI, DeepEval,
   Ragas, OpenAI Evals, Langfuse and Braintrust drives choice-based judge scoring, reasoning-before-verdict,
