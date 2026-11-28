@@ -144,6 +144,8 @@ function createServiceContext(
           if ('targetIdentifier' in query && config.targetIdentifier !== query.targetIdentifier) return false
           if (query.tenantId !== undefined && config.tenantId !== query.tenantId) return false
           if (query.organizationId !== undefined && config.organizationId !== query.organizationId) return false
+          const organizations = query.$or as { organizationId: string | null }[] | undefined
+          if (organizations && !organizations.some(({ organizationId }) => organizationId === config.organizationId)) return false
           if (query.isDeveloperDefault !== undefined && config.isDeveloperDefault !== query.isDeveloperDefault) return false
           if (query.deletedAt !== undefined && config.deletedAt !== query.deletedAt) return false
           return true
@@ -238,12 +240,14 @@ describe('SudoChallengeService', () => {
     delete process.env.AUTH_JWT_SECRET
     delete process.env.AUTH_SECRET
     delete process.env.JWT_SECRET
-    mockedFindOneWithDecryption.mockResolvedValue({
-      id: 'user-1',
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
-      deletedAt: null,
-    } as never)
+    mockedFindOneWithDecryption.mockImplementation(async (em, entity, where, options) => (
+      entity === SudoChallengeConfig ? em.findOne(entity, where, options) : {
+        id: 'user-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        deletedAt: null,
+      } as never
+    ))
     registerSecuritySudoTargetEntries([
       {
         moduleId: 'security',

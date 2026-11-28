@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import { LockMode, type EntityManager, type FilterQuery } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -451,30 +451,93 @@ export class SudoChallengeService {
     return config
   }
 
+  async findWritableConfig(id: string, scope: SudoAuthScope | undefined, lockEm?: EntityManager) {
+    if (scope && !scope.isSuperAdmin && !scope.tenantId) return null
+    const where: FilterQuery<SudoChallengeConfig> = { id, deletedAt: null }
+    if (scope && !scope.isSuperAdmin) {
+      where.tenantId = scope.tenantId
+      where.isDeveloperDefault = false
+      if (scope.organizationId) {
+        where.$or = [{ organizationId: null }, { organizationId: scope.organizationId }]
+      }
+    }
+    return findOneWithDecryption(
+      lockEm ?? this.em,
+      SudoChallengeConfig,
+      where,
+      lockEm ? { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } : { refresh: true },
+      scope,
+    )
+  }
+
+  async writeConfig<TBefore, TResult>(
+    id: string,
+    scope: SudoAuthScope | undefined,
+    mutation: { data: SudoConfigUpdateInput; configuredBy: string } | null,
+    boundary: {
+      onMissing?: () => void
+      before: (config: SudoChallengeConfig) => Promise<TBefore>
+      after: (config: SudoChallengeConfig, before: TBefore) => TResult
+    },
+  ): Promise<TResult> {
+    const { result, event } = await this.em.transactional(async (em) => {
+      const config = await this.findWritableConfig(id, scope, em)
+      if (!config) {
+        boundary.onMissing?.()
+        throw new SudoChallengeServiceError('Sudo configuration not found', 404)
+      }
+      const before = await boundary.before(config)
+      if (mutation) {
+        await this.applyConfigUpdate(em, config, mutation.data, mutation.configuredBy, scope)
+      } else {
+        await this.applyConfigDelete(em, config)
+      }
+      return {
+        result: boundary.after(config, before),
+        event: { id: config.id, targetIdentifier: config.targetIdentifier },
+      }
+    })
+
+    if (mutation) {
+      await emitSecurityEvent('security.sudo.config.updated', { ...event, configuredBy: mutation.configuredBy })
+    } else {
+      await emitSecurityEvent('security.sudo.config.deleted', event)
+    }
+    return result
+  }
+
   async updateConfig(
     id: string,
     input: SudoConfigUpdateInput,
     configuredBy: string,
     scope?: SudoAuthScope,
   ): Promise<SudoChallengeConfig> {
-    await this.ensureDeveloperDefaultsRegistered()
-    const config = await this.em.findOne(SudoChallengeConfig, { id, deletedAt: null })
-    if (!config) {
-      throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-    }
-    if (scope) {
-      this.assertWriteScope(config.tenantId ?? null, config.organizationId ?? null, scope)
-      if (config.isDeveloperDefault && !scope.isSuperAdmin) {
-        throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-      }
-    }
+    return this.writeConfig(id, scope, { data: input, configuredBy }, {
+      before: async () => {},
+      after: (config) => config,
+    })
+  }
 
+  async deleteConfig(id: string, scope?: SudoAuthScope): Promise<void> {
+    await this.writeConfig(id, scope, null, {
+      before: async () => {},
+      after: () => undefined,
+    })
+  }
+
+  private async applyConfigUpdate(
+    em: EntityManager,
+    config: SudoChallengeConfig,
+    input: SudoConfigUpdateInput,
+    configuredBy: string,
+    scope?: SudoAuthScope,
+  ): Promise<void> {
     const nextTenantId = input.tenantId !== undefined ? input.tenantId ?? null : config.tenantId ?? null
     const nextOrganizationId = input.organizationId !== undefined ? input.organizationId ?? null : config.organizationId ?? null
     const nextTargetIdentifier = input.targetIdentifier ?? config.targetIdentifier
     this.validateScope(nextTenantId, nextOrganizationId)
     if (scope) this.assertWriteScope(nextTenantId, nextOrganizationId, scope)
-    await this.ensureUniqueConfig(nextTargetIdentifier, nextTenantId, nextOrganizationId, config.id)
+    await this.ensureUniqueConfig(nextTargetIdentifier, nextTenantId, nextOrganizationId, config.id, em)
 
     if (input.tenantId !== undefined) config.tenantId = input.tenantId ?? null
     if (input.organizationId !== undefined) config.organizationId = input.organizationId ?? null
@@ -484,37 +547,14 @@ export class SudoChallengeService {
     if (input.ttlSeconds !== undefined) config.ttlSeconds = this.normalizeTtl(input.ttlSeconds)
     if (input.challengeMethod !== undefined) config.challengeMethod = input.challengeMethod
     config.configuredBy = configuredBy
-    config.updatedAt = new Date()
-    await this.em.flush()
-
-    await emitSecurityEvent('security.sudo.config.updated', {
-      id: config.id,
-      targetIdentifier: config.targetIdentifier,
-      configuredBy,
-    })
-
-    return config
+    config.updatedAt = new Date(Math.max(Date.now(), config.updatedAt.getTime() + 1))
+    await em.flush()
   }
 
-  async deleteConfig(id: string, scope?: SudoAuthScope): Promise<void> {
-    const config = await this.em.findOne(SudoChallengeConfig, { id, deletedAt: null })
-    if (!config) {
-      throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-    }
-    if (scope) {
-      this.assertWriteScope(config.tenantId ?? null, config.organizationId ?? null, scope)
-      if (config.isDeveloperDefault && !scope.isSuperAdmin) {
-        throw new SudoChallengeServiceError('Sudo configuration not found', 404)
-      }
-    }
+  private async applyConfigDelete(em: EntityManager, config: SudoChallengeConfig): Promise<void> {
     config.deletedAt = new Date()
-    config.updatedAt = new Date()
-    await this.em.flush()
-
-    await emitSecurityEvent('security.sudo.config.deleted', {
-      id: config.id,
-      targetIdentifier: config.targetIdentifier,
-    })
+    config.updatedAt = new Date(Math.max(Date.now(), config.updatedAt.getTime() + 1))
+    await em.flush()
   }
 
   async registerDeveloperDefault(
@@ -595,8 +635,9 @@ export class SudoChallengeService {
     tenantId: string | null,
     organizationId: string | null,
     ignoreId?: string,
+    em = this.em,
   ): Promise<void> {
-    const existing = await this.em.findOne(SudoChallengeConfig, {
+    const existing = await em.findOne(SudoChallengeConfig, {
       targetIdentifier,
       tenantId,
       organizationId,

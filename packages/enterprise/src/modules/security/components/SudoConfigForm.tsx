@@ -18,6 +18,7 @@ type SudoFormConfig = {
 
 export type SudoConfigFormValues = {
   id?: string
+  updatedAt?: string
   tenantId: string
   organizationId: string
   label: string
@@ -33,6 +34,7 @@ export function buildSudoConfigInitialValues(
 ): SudoConfigFormValues {
   return {
     id: value?.id,
+    ...(value?.updatedAt && { updatedAt: value.updatedAt }),
     tenantId: value?.tenantId ?? '',
     organizationId: value?.organizationId ?? '',
     label: value?.label ?? '',

@@ -5,7 +5,7 @@ import { sudoConfigSchema } from '../../../data/validators'
 import { requireSudo } from '../../../lib/sudo-middleware'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
 import { securityApiError } from '../../i18n'
-import { attachSudoConfigScopeNames, mapSudoError, resolveSudoContext } from '../_shared'
+import { attachSudoConfigScopeNames, mapSudoError, readSudoConfigExpectedVersion, resolveSudoContext } from '../_shared'
 
 const sudoConfigItemSchema = z.object({
   id: z.string().uuid(),
@@ -68,6 +68,7 @@ export async function POST(req: Request) {
 
   try {
     await requireSudo(req, 'security.sudo.manage')
+    readSudoConfigExpectedVersion(req, 'create')
     const commandBus = context.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.sudo.config.create', {
       input: parsed.data,

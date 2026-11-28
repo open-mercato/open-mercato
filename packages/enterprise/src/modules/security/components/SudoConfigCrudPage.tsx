@@ -20,6 +20,7 @@ import {
 
 type SudoConfigRecord = {
   id: string
+  updatedAt: string
   tenantId: string | null
   organizationId: string | null
   label: string | null
@@ -87,6 +88,7 @@ function SudoConfigCrudPageInner({
         if (response.ok && response.result) {
           setInitialValues(buildSudoConfigInitialValues({
             id: response.result.id,
+            updatedAt: response.result.updatedAt,
             tenantId: response.result.tenantId ?? '',
             organizationId: response.result.organizationId ?? '',
             label: response.result.label ?? '',
@@ -127,10 +129,11 @@ function SudoConfigCrudPageInner({
       const payload = buildSudoConfigPayload(values)
       if (mode === 'edit' && id) {
         const configId = id
-        await updateCrud(`security/sudo/configs/${encodeURIComponent(configId)}`, payload, {
+        const { result } = await updateCrud<{ ok: true; updatedAt: string }>(`security/sudo/configs/${encodeURIComponent(configId)}`, payload, {
           headers: { 'x-sudo-token': sudoToken },
           errorMessage: t('security.admin.sudo.flash.saveError', 'Failed to save sudo configuration.'),
         })
+        if (result?.updatedAt) setInitialValues({ ...values, updatedAt: result.updatedAt })
         redirectWithFlash(t('security.admin.sudo.flash.updated', 'Sudo configuration updated.'))
       } else {
         await createCrud('security/sudo/configs', payload, {
