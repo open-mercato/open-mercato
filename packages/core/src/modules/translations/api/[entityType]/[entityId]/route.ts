@@ -70,6 +70,13 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['translations.manage'] },
 }
 
+/**
+ * Field-definition visibility (including soft-delete state) is already resolved above by
+ * `resolveTranslationTargetFields`'s own tenant+organization-scoped lookup (with its
+ * null-organization fallback), so the not-found check below skips re-probing field
+ * definitions with only `tenantId`, which could match a different organization's row for
+ * the same logical `entityId:fieldKey` pair.
+ */
 export async function GET(req: Request, ctx: { params?: { entityType?: string; entityId?: string } }) {
   try {
     const context = await resolveTranslationsRouteContext(req)
@@ -89,10 +96,6 @@ export async function GET(req: Request, ctx: { params?: { entityType?: string; e
       .where(sql<boolean>`organization_id is not distinct from ${context.organizationId}`)
       .executeTakeFirst() as Record<string, any> | undefined
 
-    // Field-definition visibility (including soft-delete state) is already resolved above by
-    // `resolveTranslationTargetFields`'s own tenant+organization-scoped lookup (with its
-    // null-organization fallback). Probing again here with only `tenantId` could match a
-    // different organization's row for the same logical `entityId:fieldKey` pair.
     if (!row || (
       entityType !== FIELD_DEFINITION_TYPE
       && await isTranslatedRecordSoftDeleted(context.em, entityType, entityId, { tenantId: context.tenantId })
