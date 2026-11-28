@@ -372,8 +372,7 @@ All list routes:
 - `POST /api/wms/inventory/cycle-count`
 - Request: `{ "warehouseId": "uuid", "locationId": "uuid", "catalogVariantId": "uuid", "countedQuantity": "12", "reason": "cycle_count" }`
 - Response: `{ "ok": true, "adjustmentDelta": "1" }`
-- Errors: `409 insufficient_stock` (body adds `countedQuantity`, `committedQuantity`) when a negative variance would drop on-hand below the bucket's `quantity_reserved + quantity_allocated`; the same availability bound as a negative `adjust`. Release the affected reservations first, then recount. Positive variances are never blocked.
-- Errors: `422 lot_required` / `serial_required`, as for adjust.
+- Errors: `409 insufficient_stock` (body adds `countedQuantity`, `committedQuantity`) when a negative variance would drop on-hand below the bucket's `quantity_reserved + quantity_allocated`; the same availability bound as a negative `adjust`. Release the affected reservations first, then recount. Positive variances are never blocked. `422 lot_required` / `serial_required` as for adjust.
 
 ### Inventory Strategy Rules
 
