@@ -2,8 +2,10 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ProgressJob } from '@open-mercato/core/modules/progress/data/entities'
 import type { ProgressService, ProgressServiceContext } from '@open-mercato/core/modules/progress/lib/progressService'
+import type { IntegrationStateService } from '@open-mercato/core/modules/integrations/lib/state-service'
 import type { SyncRunService } from '@open-mercato/core/modules/data_sync/lib/sync-run-service'
 import { startDataSyncRun } from '@open-mercato/core/modules/data_sync/lib/start-run'
 
@@ -143,6 +145,7 @@ export async function runAkeneoFirstImportSequence(params: {
   const em = container.resolve('em') as EntityManager
   const progressService = container.resolve('progressService') as ProgressService
   const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
+  const integrationStateService = container.resolve<IntegrationStateService>('integrationStateService')
   const progressContext = buildProgressContext(scope)
 
   await progressService.startJob(progressJobId, progressContext)
@@ -157,6 +160,16 @@ export async function runAkeneoFirstImportSequence(params: {
   )
 
   for (const [stepIndex, entityType] of FIRST_IMPORT_STEPS.entries()) {
+    if (!(await integrationStateService.isEnabled('sync_akeneo', scope))) {
+      const { t } = await resolveTranslations()
+      await progressService.failJob(
+        progressJobId,
+        { errorMessage: t('sync_akeneo.firstImport.integrationDisabled') },
+        progressContext,
+      )
+      return
+    }
+
     const overlap = await syncRunService.findRunningOverlap('sync_akeneo', entityType, 'import', scope)
     const run = overlap ?? (await startDataSyncRun({
       syncRunService,
