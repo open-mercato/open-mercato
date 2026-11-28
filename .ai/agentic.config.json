@@ -57,7 +57,11 @@
     "blockerLabel": "qa-blocker",
     "testers": []
   },
-  "prTriage": { "acceptanceLabel": "needs-triage" },
+  "prTriage": {
+    "ciScopeFile": ".github/ci-scope.json",
+    "areaLabelPrefix": "ci-area:",
+    "acceptanceLabel": "needs-triage"
+  },
   "ci": { "maxWaitMinutes": 40 },
   "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },
   "automerge": {
