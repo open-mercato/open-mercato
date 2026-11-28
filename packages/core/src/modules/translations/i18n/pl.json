@@ -1,5 +1,6 @@
 {
   "translations.config.nav.title": "Tłumaczenia",
+  "translations.errors.notFound": "Nie znaleziono",
   "translations.errors.undoConflict": "Te tłumaczenia zmieniły się po akcji, którą próbujesz cofnąć. Cofnięcie zostało odrzucone.",
   "translations.locales.add": "Dodaj",
   "translations.locales.addPlaceholder": "np. fr, it, ja...",

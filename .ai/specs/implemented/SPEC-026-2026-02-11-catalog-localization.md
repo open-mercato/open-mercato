@@ -537,7 +537,7 @@ The `decorateItemsWithCustomFields()` function in `packages/shared/src/lib/crud/
 
 - `translations.updated` event emitted when PUT creates/updates a translation record
 - `translations.deleted` event emitted when DELETE removes a translation record
-- Generic entity delete events (e.g., `catalog.product.deleted`) trigger a cleanup subscriber that removes the corresponding translation row — same pattern as `entity_indexes` cleanup
+- Generic entity delete events (e.g., `catalog.product.deleted`) trigger a cleanup subscriber that removes the corresponding translation row. Unlike `entity_indexes` cleanup, the row is kept while the owning record still exists with `deleted_at` set (soft delete), so undoing that delete restores the translations. While the owner is soft-deleted, `GET /api/translations/:entityType/:entityId` answers `404`
 
 ### Audit Trail
 
@@ -681,7 +681,31 @@ One generic table, one row per entity, JSONB stores all locale translations. Thi
 
 ---
 
+## Migration & Backward Compatibility
+
+### Translations of soft-deleted records (2026-11-01, #8328)
+
+| Surface | Change | Classification |
+|---|---|---|
+| Translations cleanup subscriber | Keeps `entity_translations` rows while the owner is soft-deleted; a later hard delete still removes them | ✓ Data-preserving |
+| `GET /api/translations/:entityType/:entityId` (API route, STABLE) | Also checks the owning record before answering, so a soft-deleted owner answers `404`. The entity translation authorization change (#9139) already answers `404` for soft-deleted owners, so the response contract does not change | ✓ No contract change |
+| `PUT` / `DELETE` on the same route, response schemas, database schema, event IDs, ACL features | No change | ✓ n/a |
+
+**Operator migration.** No data migration. Rows stay in `entity_translations` while their owner is soft-deleted, so direct database readers should filter by the owner's `deleted_at` where needed. Translations already lost to an earlier delete and undo are not restored.
+
+---
+
 ## Changelog
+
+### 2026-11-21
+- The soft-deleted owner `404` is no longer a breaking change of its own: #9139 already answers `404` for soft-deleted owners
+
+### 2026-11-01
+- Added the Migration & Backward Compatibility section for the soft-deleted owner `404`
+
+### 2026-10-31
+- Cleanup subscriber keeps translations of soft-deleted records so undo restores them
+- `GET /api/translations/:entityType/:entityId` answers `404` while the owning record is soft-deleted
 
 ### 2026-02-13 (v3)
 - Complete rewrite per pkarw direction (issue #527, Feb 12 comment)

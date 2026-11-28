@@ -1,5 +1,6 @@
 {
   "translations.config.nav.title": "Traducciones",
+  "translations.errors.notFound": "No encontrado",
   "translations.errors.undoConflict": "Estas traducciones cambiaron después de la acción que intentas deshacer. Se rechazó deshacer.",
   "translations.locales.add": "Añadir",
   "translations.locales.addPlaceholder": "p. ej. fr, it, ja...",
