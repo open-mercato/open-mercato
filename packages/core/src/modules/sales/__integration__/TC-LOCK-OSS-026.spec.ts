@@ -1,6 +1,7 @@
 import { expect, test, type APIRequestContext } from '@playwright/test'
 import { createSalesOrderFixture, createOrderLineFixture } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import {
   putWithLock,
@@ -161,6 +162,84 @@ test.describe('TC-LOCK-OSS-026: sales payments + shipments parent-order aggregat
       if (orderId && token) {
         await deleteOrder(request, token, orderId)
       }
+    }
+  })
+
+  test('payment (SAL-07): two contending saves yield one success, one conflict and a fresh retry', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    let orderId: string | null = null
+    let paymentId: string | null = null
+    try {
+      orderId = await createSalesOrderFixture(request, token, 'USD')
+      const created = await apiRequest(request, 'POST', '/api/sales/payments', {
+        token,
+        data: { orderId, amount: '10.00', currencyCode: 'USD', receivedAt: new Date().toISOString() },
+      })
+      expect(created.status()).toBe(201)
+      const body = (await created.json()) as { id?: string; paymentId?: string }
+      paymentId = body.id ?? body.paymentId ?? null
+      expect(paymentId).toBeTruthy()
+      const expectedVersion = await readOrderUpdatedAt(request, token, orderId)
+      const references = ['OSS-026 contender A', 'OSS-026 contender B']
+      const results = await withClient(async (client) => {
+        await client.query('begin')
+        let pending: Promise<PromiseSettledResult<Awaited<ReturnType<typeof putWithLock>>>[]> | null = null
+        try {
+          await client.query('select id from sales_orders where id = $1 for update', [orderId])
+          pending = Promise.allSettled(references.map((paymentReference) => putWithLock(
+            request,
+            token,
+            '/api/sales/payments',
+            { id: paymentId, paymentReference },
+            expectedVersion,
+          )))
+          await expect.poll(async () => {
+            const waiters = await client.query<{ waiting: string }>(
+              `with recursive blocked(pid) as (
+                 select pid from pg_stat_activity
+                 where datname = current_database()
+                   and pg_backend_pid() = any(pg_blocking_pids(pid))
+                 union
+                 select activity.pid from pg_stat_activity activity
+                 join blocked on blocked.pid = any(pg_blocking_pids(activity.pid))
+                 where activity.datname = current_database()
+               ) select count(*)::text as waiting from blocked`,
+            )
+            return Number(waiters.rows[0]?.waiting ?? 0)
+          }, { message: 'both payment transactions must wait on the fixture order lock', timeout: 15_000 }).toBe(2)
+          await client.query('commit')
+          return await pending
+        } finally {
+          await client.query('rollback')
+          if (pending) await pending
+        }
+      })
+      const responses = results.map((result) => {
+        if (result.status === 'rejected') throw result.reason
+        return result.value
+      })
+      expect(responses.map((response) => response.status()).sort()).toEqual([200, 409])
+      const winnerIndex = responses.findIndex((response) => response.status() === 200)
+      const conflict = responses.find((response) => response.status() === 409)
+      if (!conflict) throw new Error('[internal] concurrent payment save did not return a conflict')
+      const conflictBody = await expectConflictBody(conflict)
+      expect(conflictBody.expectedUpdatedAt).toBe(expectedVersion)
+      const currentVersion = await readOrderUpdatedAt(request, token, orderId)
+      expect(conflictBody.currentUpdatedAt).toBe(currentVersion)
+      expect(Date.parse(currentVersion)).toBeGreaterThan(Date.parse(expectedVersion))
+      const listed = await apiRequest(request, 'GET', `/api/sales/payments?orderId=${encodeURIComponent(orderId)}`, { token })
+      expect(listed.status()).toBe(200)
+      const payments = (await listed.json()) as { items?: Array<Record<string, unknown>> }
+      const payment = payments.items?.find((item) => item.id === paymentId)
+      expect(payment?.payment_reference ?? payment?.paymentReference).toBe(references[winnerIndex])
+      const retry = await putWithLock(request, token, '/api/sales/payments', {
+        id: paymentId,
+        paymentReference: 'OSS-026 contender retry',
+      }, currentVersion)
+      expect(retry.status()).toBe(200)
+    } finally {
+      await deleteSalesEntityIfExists(request, token, '/api/sales/payments', paymentId)
+      if (orderId) await deleteOrder(request, token, orderId)
     }
   })
 
