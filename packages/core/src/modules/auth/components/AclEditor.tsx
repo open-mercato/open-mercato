@@ -137,6 +137,8 @@ export function AclEditor({
   const [hasCustomAcl, setHasCustomAcl] = React.useState(true)
   const [overrideEnabled, setOverrideEnabled] = React.useState(false)
   const [roleDetails, setRoleDetails] = React.useState<RoleSummary[]>([])
+  const [roleDetailsFailed, setRoleDetailsFailed] = React.useState(false)
+  const [roleReloadToken, setRoleReloadToken] = React.useState(0)
 
   const actorSanitizeFeatures = React.useCallback(
     (list: unknown): string[] => {
@@ -227,27 +229,34 @@ export function AclEditor({
           if (!cancelled) setOrgOptions(normalizeOrganizationOptions(oJson.items))
         } catch {}
       }
-      if (kind === 'user' && userRoles && userRoles.length > 0) {
-        try {
-          const roleQuery = new URLSearchParams({ pageSize: '100' })
-          if (tenantId) roleQuery.set('tenantId', tenantId)
-          const roleQueryString = roleQuery.toString()
-          const rolesJson = await readJsonOr<RoleListResponse>(
-            `/api/auth/roles${roleQueryString ? `?${roleQueryString}` : ''}`,
-            undefined,
-            { items: [] },
-          )
-          if (!cancelled) {
-            const allRoles = Array.isArray(rolesJson.items) ? rolesJson.items : []
-            const userRoleDetails: RoleSummary[] = buildRoleSummaries(allRoles, userRoles)
-            setRoleDetails(userRoleDetails)
-          }
-        } catch {}
-      }
     }
     loadTenantScoped()
     return () => { cancelled = true }
-  }, [kind, canEditOrganizations, userRoles, tenantId])
+  }, [canEditOrganizations, tenantId])
+
+  React.useEffect(() => {
+    if (kind !== 'user' || !userRoles || userRoles.length === 0) return
+    let cancelled = false
+    async function loadRoleDetails(roles: string[]) {
+      const roleQuery = new URLSearchParams({ pageSize: '100' })
+      if (tenantId) roleQuery.set('tenantId', tenantId)
+      try {
+        const call = await apiCall<RoleListResponse>(`/api/auth/roles?${roleQuery.toString()}`)
+        if (cancelled) return
+        if (!call.ok) {
+          setRoleDetailsFailed(true)
+          return
+        }
+        const items = call.result?.items
+        setRoleDetails(buildRoleSummaries(Array.isArray(items) ? items : [], roles))
+        setRoleDetailsFailed(false)
+      } catch {
+        if (!cancelled) setRoleDetailsFailed(true)
+      }
+    }
+    loadRoleDetails(userRoles)
+    return () => { cancelled = true }
+  }, [kind, userRoles, tenantId, roleReloadToken])
 
   // Notify parent of changes
   React.useEffect(() => {
@@ -375,6 +384,19 @@ export function AclEditor({
                     </React.Fragment>
                   )
                 })}
+              </span>
+            )}
+            {roleDetailsFailed && (
+              <span role="alert">
+                {' '}{t('auth.acl.inherited.rolesLoadFailed', 'Assigned roles could not be loaded.')}{' '}
+                <Button
+                  type="button"
+                  variant="link"
+                  className="h-auto p-0 font-semibold text-status-info-text underline"
+                  onClick={() => setRoleReloadToken((token) => token + 1)}
+                >
+                  {t('auth.acl.inherited.rolesRetry', 'Try again')}
+                </Button>
               </span>
             )}
           </div>
