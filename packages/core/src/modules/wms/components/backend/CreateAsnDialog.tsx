@@ -91,6 +91,15 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
   const [submitting, setSubmitting] = React.useState(false)
   const [labelCache, setLabelCache] = React.useState<Record<string, string>>({})
 
+  const clearFieldError = React.useCallback((key: string) => {
+    setFieldErrors((current) => {
+      if (!(key in current)) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }, [])
+
   const closeDialog = React.useCallback(() => {
     if (submitting) return
     onOpenChange(false)
@@ -261,7 +270,10 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
             >
               <ComboboxInput
                 value={warehouseId}
-                onChange={setWarehouseId}
+                onChange={(next) => {
+                  setWarehouseId(next)
+                  clearFieldError('warehouseId')
+                }}
                 loadSuggestions={async (query) => loadWarehouseOptions(query)}
                 resolveLabel={resolveOptionLabel}
                 placeholder={t('wms.backend.asns.create.form.warehousePlaceholder', 'Select warehouse')}
@@ -279,7 +291,10 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
                 <Input
                   type="date"
                   value={expectedAt}
-                  onChange={(event) => setExpectedAt(event.target.value)}
+                  onChange={(event) => {
+                    setExpectedAt(event.target.value)
+                    clearFieldError('expectedAt')
+                  }}
                   disabled={submitting}
                 />
               </FormField>
@@ -289,7 +304,10 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
               >
                 <Input
                   value={referenceNumber}
-                  onChange={(event) => setReferenceNumber(event.target.value)}
+                  onChange={(event) => {
+                    setReferenceNumber(event.target.value)
+                    clearFieldError('referenceNumber')
+                  }}
                   disabled={submitting}
                   placeholder={t('wms.backend.asns.create.form.referencePlaceholder', 'PO / ASN ref')}
                 />
@@ -299,7 +317,10 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
             <FormField label={t('wms.backend.asns.create.form.notes', 'Notes')} error={fieldErrors.notes}>
               <Textarea
                 value={notes}
-                onChange={(event) => setNotes(event.target.value)}
+                onChange={(event) => {
+                  setNotes(event.target.value)
+                  clearFieldError('notes')
+                }}
                 disabled={submitting}
                 rows={2}
               />
@@ -336,6 +357,7 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
                             itemIndex === index ? { ...item, catalogVariantId: next.trim() } : item,
                           ),
                         )
+                        clearFieldError(`lines.${index}.catalogVariantId`)
                       }}
                       loadSuggestions={async (query) => loadCatalogVariantOptions(query)}
                       resolveLabel={resolveOptionLabel}
@@ -366,6 +388,7 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
                               : item,
                           ),
                         )
+                        clearFieldError(`lines.${index}.expectedQty`)
                       }}
                       disabled={submitting}
                     />
@@ -385,6 +408,7 @@ export function CreateAsnDialog({ open, onOpenChange, access, onCreated }: Creat
                               : item,
                           ),
                         )
+                        clearFieldError(`lines.${index}.targetStagingLocationId`)
                       }}
                       loadSuggestions={async (query) =>
                         warehouseId ? loadStagingLocationOptions(warehouseId, query) : []

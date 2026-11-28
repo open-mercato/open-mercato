@@ -114,4 +114,36 @@ describe('CreateAsnDialog', () => {
     expect(screen.queryByText(/Too small/)).toBeNull()
     expect(mockApiCall).not.toHaveBeenCalled()
   })
+  it('clears a field error as soon as the user fixes that field', async () => {
+    render(<CreateAsnDialog open onOpenChange={jest.fn()} access={access} />)
+
+    fireEvent.click(screen.getByTestId('create-asn-submit'))
+    expect(await screen.findByText('wms.backend.asns.create.errors.warehouseRequired')).toBeTruthy()
+    expect(screen.getByText('wms.backend.asns.create.errors.variantRequired')).toBeTruthy()
+
+    fireEvent.change(screen.getByTestId('combobox-Select warehouse'), {
+      target: { value: '11111111-1111-4111-8111-111111111111' },
+    })
+    expect(screen.queryByText('wms.backend.asns.create.errors.warehouseRequired')).toBeNull()
+    expect(screen.getByText('wms.backend.asns.create.errors.variantRequired')).toBeTruthy()
+
+    fireEvent.change(screen.getByTestId('combobox-Search variant or SKU'), {
+      target: { value: '22222222-2222-4222-8222-222222222222' },
+    })
+    expect(screen.queryByText('wms.backend.asns.create.errors.variantRequired')).toBeNull()
+    expect(mockApiCall).not.toHaveBeenCalled()
+  })
+
+  it('clears the quantity error when the expected quantity changes', async () => {
+    render(<CreateAsnDialog open onOpenChange={jest.fn()} access={access} />)
+
+    const quantityInput = document.querySelector('input[type="number"]') as HTMLInputElement
+    fireEvent.change(quantityInput, { target: { value: '0' } })
+    fireEvent.submit(quantityInput.closest('form') as HTMLFormElement)
+    expect(await screen.findByText('wms.backend.asns.create.errors.quantityPositive')).toBeTruthy()
+
+    fireEvent.change(quantityInput, { target: { value: '10' } })
+    expect(screen.queryByText('wms.backend.asns.create.errors.quantityPositive')).toBeNull()
+    expect(screen.getByText('wms.backend.asns.create.errors.warehouseRequired')).toBeTruthy()
+  })
 })
