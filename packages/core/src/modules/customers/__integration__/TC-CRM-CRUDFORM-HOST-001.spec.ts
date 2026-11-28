@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { createPipelineFixture, createPipelineStageFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
+import { createCompanyFixture, createPipelineFixture, createPipelineStageFixture } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { assertNativePayload, authenticateCrm, captureCrmWrites, cleanupCrmRecord, cleanupCrmPipeline, cleanupCrmFixtures, readCrmOverview, readPriorities, selectPriority, type CrmKind } from './helpers/umesFixtures'
 
 export const integrationMeta = { requiredModules: ['customers', 'example'] }
@@ -82,4 +82,19 @@ test.describe('TC-CRM-CRUDFORM-HOST-001: Canonical CRM create hosts', () => {
       }
     })
   }
+
+  test('the company People tab opens a person create dialog with the Priority field', async ({ page, request }, testInfo) => {
+    const token = await authenticateCrm(page, request)
+    const companyId = await createCompanyFixture(request, token, `Host person dialog ${Date.now()}`)
+    try {
+      await page.goto(`/backend/customers/companies-v2/${companyId}?tab=people`, { waitUntil: 'domcontentloaded' })
+      await page.getByRole('tabpanel', { name: 'People', exact: true }).getByRole('button', { name: 'Create person', exact: true }).click()
+
+      const dialog = page.getByRole('dialog', { name: 'Add new person', exact: true })
+      await expect(dialog.getByRole('combobox', { name: 'Priority', exact: true })).toBeVisible()
+      await page.screenshot({ path: testInfo.outputPath('person-create-dialog.png'), fullPage: true })
+    } finally {
+      await cleanupCrmRecord(request, token, 'companies', companyId)
+    }
+  })
 })
