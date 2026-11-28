@@ -15,6 +15,16 @@ const MOVEMENT_TYPE_FALLBACKS: Record<string, string> = {
   ship: 'Ship',
 }
 
+const LOCATION_TYPE_FALLBACKS: Record<string, string> = {
+  zone: 'Zone',
+  aisle: 'Aisle',
+  rack: 'Rack',
+  bin: 'Bin',
+  slot: 'Slot',
+  dock: 'Dock',
+  staging: 'Staging',
+}
+
 const RESERVATION_SOURCE_TYPE_FALLBACKS: Record<string, string> = {
   order: 'Sales order',
   transfer: 'Transfer',
@@ -106,6 +116,18 @@ export function inventoryMovementTypeLabel(type: string, t: InventoryDisplayTran
   return t(
     `wms.backend.dashboard.activity.types.${normalized}`,
     MOVEMENT_TYPE_FALLBACKS[normalized] ?? normalized,
+  )
+}
+
+export function inventoryLocationTypeLabel(
+  type: string | null | undefined,
+  t: InventoryDisplayTranslator,
+): string {
+  const normalized = type?.trim() ?? ''
+  if (!normalized) return '—'
+  return t(
+    `wms.backend.location.types.${normalized}`,
+    LOCATION_TYPE_FALLBACKS[normalized] ?? normalized,
   )
 }
 
