@@ -5,11 +5,17 @@ import handleCaptured from '../gateway-payment-captured'
 import handleFailed from '../gateway-payment-failed'
 
 const executeMock = jest.fn()
+const findOneMock = jest.fn()
+const refundPaymentMock = jest.fn()
 const reportErrorMock = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => ({
-    resolve: jest.fn(() => ({ execute: executeMock })),
+    resolve: jest.fn((name: string) => {
+      if (name === 'em') return { findOne: findOneMock }
+      if (name === 'paymentGatewayService') return { refundPayment: refundPaymentMock }
+      return { execute: executeMock }
+    }),
   })),
 }))
 
@@ -44,7 +50,11 @@ const subscribers = [
 ]
 
 describe.each(subscribers)('checkout $name subscriber', ({ handle, status, conflictingStatus }) => {
-  beforeEach(() => jest.clearAllMocks())
+  beforeEach(() => {
+    jest.clearAllMocks()
+    findOneMock.mockResolvedValue(undefined)
+    refundPaymentMock.mockResolvedValue({ status: 'refunded' })
+  })
 
   it('reports an unexpected status-update failure without rethrowing', async () => {
     const failure = new Error('db unavailable')
@@ -150,6 +160,47 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status, confl
     expect(executeMock).toHaveBeenCalledWith('checkout.transaction.updateStatus', expect.objectContaining({
       input: expect.objectContaining({ id: 'payment-1', status, ...scope }),
     }))
+    expect(reportErrorMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('checkout gateway-payment-captured subscriber after expiry', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    refundPaymentMock.mockResolvedValue({ status: 'refunded' })
+  })
+
+  it('automatically refunds a capture received for an expired checkout transaction', async () => {
+    findOneMock.mockResolvedValueOnce({ status: 'expired' })
+
+    await expect(handleCaptured(payload, scope)).resolves.toBeUndefined()
+
+    expect(refundPaymentMock).toHaveBeenCalledWith(
+      'gw-tx-1',
+      undefined,
+      'Checkout transaction expired before payment capture was received',
+      scope,
+      'checkout-late-capture-payment-1',
+    )
+    expect(executeMock).toHaveBeenCalledWith('checkout.transaction.updateStatus', expect.objectContaining({
+      input: expect.objectContaining({ id: 'payment-1', status: 'expired', paymentStatus: 'refunded' }),
+    }))
+  })
+
+  it('refunds when expiration wins the race with the captured-payment update', async () => {
+    const conflict = new CrudHttpError(409, {
+      error: 'Transaction status changed concurrently',
+      code: 'concurrent_status_update',
+      currentStatus: 'expired',
+      requestedStatus: 'completed',
+    })
+    findOneMock.mockResolvedValueOnce({ status: 'processing' }).mockResolvedValueOnce({ status: 'expired' })
+    executeMock.mockRejectedValueOnce(conflict)
+
+    await expect(handleCaptured(payload, scope)).resolves.toBeUndefined()
+
+    expect(refundPaymentMock).toHaveBeenCalledTimes(1)
+    expect(executeMock).toHaveBeenCalledTimes(2)
     expect(reportErrorMock).not.toHaveBeenCalled()
   })
 })
