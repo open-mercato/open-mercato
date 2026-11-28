@@ -1106,7 +1106,7 @@ export function SalesDocumentAddressesSection({
             label={lockedReason}
             className="md:col-span-2"
             action={
-              <Button size="sm" variant="outline" className="h-auto whitespace-normal text-left" disabled>
+              <Button type="button" size="sm" variant="outline" className="h-auto whitespace-normal text-left" disabled>
                 {t('sales.documents.detail.addresses.blocked', 'Addresses cannot be changed for the current status.')}
               </Button>
             }
