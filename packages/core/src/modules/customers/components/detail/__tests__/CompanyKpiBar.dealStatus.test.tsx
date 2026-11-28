@@ -4,6 +4,7 @@
 import { screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { CompanyKpiBar } from '../CompanyKpiBar'
+import polishTranslations from '../../../i18n/pl.json'
 import type { CompanyOverview, DealSummary } from '../../formConfig'
 
 // Regression for issue #4667: a deal closed through useDealClosure persists
@@ -130,6 +131,17 @@ describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
 
     expect(within(tile(ACTIVE_DEALS)).getByText('PLN 0')).toBeInTheDocument()
     expect(within(tile(LTV)).getByText('PLN 4,000')).toBeInTheDocument()
+  })
+
+  it.each([
+    [1, '1 lejek'],
+    [2, '2 lejki'],
+    [5, '5 lejków'],
+  ])('localizes a pipeline count of %i in Polish', (count, expected) => {
+    const deals = Array.from({ length: count }, (_, index) => ({ ...OPEN_DEAL, id: `deal-${index}` }))
+    renderWithProviders(<CompanyKpiBar data={buildOverview(deals)} />, { locale: 'pl', dict: polishTranslations })
+
+    expect(within(tile('AKTYWNE SZANSE')).getByText(expected)).toBeInTheDocument()
   })
 
   it('formats the tile values in the app locale rather than the runtime default', () => {

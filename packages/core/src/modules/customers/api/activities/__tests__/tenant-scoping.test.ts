@@ -70,6 +70,21 @@ jest.mock('../../../lib/interactionCompatibility', () => ({
 }))
 
 describe('activity adapter tenant scoping', () => {
+  it('forwards an explicit null date to the canonical update within the actor scope', async () => {
+    mockEm.findOne.mockResolvedValue({ id: ACTIVITY_ID, tenantId: TENANT_ID })
+    mockCommandBus.execute.mockResolvedValue({ result: {}, logEntry: null })
+    const response = await PUT(new Request('http://localhost/api/customers/activities', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: ACTIVITY_ID, date: null, occurred_at: null }),
+    }))
+    expect(response.status).toBe(200)
+    expect(mockCommandBus.execute).toHaveBeenCalledWith('customers.interactions.update', expect.objectContaining({
+      input: expect.objectContaining({ id: ACTIVITY_ID, date: null, occurredAt: null, status: 'planned' }),
+      ctx: expect.objectContaining({ auth: expect.objectContaining({ tenantId: TENANT_ID, orgId: ORG_ID }) }),
+    }))
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
 

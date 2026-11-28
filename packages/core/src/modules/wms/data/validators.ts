@@ -130,15 +130,15 @@ const inventoryLotBaseSchema = scopedSchema.extend({
   sku: z.string().trim().min(1).max(120),
   lotNumber: z.string().trim().min(1).max(120),
   batchNumber: z.string().trim().max(120).optional(),
-  manufacturedAt: z.coerce.date().optional(),
-  bestBeforeAt: z.coerce.date().optional(),
-  expiresAt: z.coerce.date().optional(),
+  manufacturedAt: z.coerce.date().nullable().optional(),
+  bestBeforeAt: z.coerce.date().nullable().optional(),
+  expiresAt: z.coerce.date().nullable().optional(),
   status: inventoryLotStatusSchema.optional(),
   metadata: metadataSchema,
 })
 
 const enforceLotDateOrdering = (
-  payload: { manufacturedAt?: Date; bestBeforeAt?: Date; expiresAt?: Date },
+  payload: { manufacturedAt?: Date | null; bestBeforeAt?: Date | null; expiresAt?: Date | null },
   ctx: z.RefinementCtx,
 ) => {
   if (payload.manufacturedAt && payload.bestBeforeAt && payload.bestBeforeAt < payload.manufacturedAt) {
@@ -187,7 +187,7 @@ type InventoryLotDateKey = 'manufacturedAt' | 'bestBeforeAt' | 'expiresAt'
 
 const inventoryLotDateKeys: InventoryLotDateKey[] = ['manufacturedAt', 'bestBeforeAt', 'expiresAt']
 
-export function keepClearedInventoryLotDates<T extends Partial<Record<InventoryLotDateKey, Date>>>(
+export function keepClearedInventoryLotDates<T extends Partial<Record<InventoryLotDateKey, Date | null>>>(
   raw: unknown,
   parsed: T,
 ): Omit<T, InventoryLotDateKey> & Partial<Record<InventoryLotDateKey, Date | null>> {

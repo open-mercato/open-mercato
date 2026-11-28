@@ -274,6 +274,14 @@ export function resolveExactDecimal(exact: unknown, legacy: unknown): string | n
 
 export type WithExactAmounts<T, K extends string> = T & { [P in K as `${P}Exact`]?: string | null }
 
+const exactAmountSources = new WeakMap<object, Record<string, unknown>>()
+
+/** Retains schema-approved raw aliases for exact recovery without adding payload fields. */
+export function withExactAmountSource<T extends object>(parsed: T, source: Record<string, unknown>): T {
+  exactAmountSources.set(parsed, source)
+  return parsed
+}
+
 function exactCandidate(source: Record<string, unknown>, field: string, value: unknown): unknown {
   if (typeof value !== 'number') return value
   const rawValue = source[field]
@@ -299,7 +307,8 @@ export function withExactAmounts<T extends object, K extends string>(
   raw: unknown,
   fields: readonly K[],
 ): WithExactAmounts<T, K> {
-  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  const normalizedSource = exactAmountSources.get(parsed)
+  const source = normalizedSource ?? (raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {})
   const values = parsed as Record<string, unknown>
   const exact: Record<string, string | null> = {}
   for (const field of fields) {
@@ -307,7 +316,8 @@ export function withExactAmounts<T extends object, K extends string>(
     if (value === undefined) continue
     exact[`${field}Exact`] = resolveExactDecimal(exactCandidate(source, field, value), value)
   }
-  return { ...parsed, ...exact } as WithExactAmounts<T, K>
+  const result = { ...parsed, ...exact } as WithExactAmounts<T, K>
+  return normalizedSource ? withExactAmountSource(result, normalizedSource) : result
 }
 
 /**
