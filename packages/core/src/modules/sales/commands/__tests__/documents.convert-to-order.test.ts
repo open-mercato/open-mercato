@@ -6,6 +6,7 @@ import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   SalesDocumentAddress,
   SalesDocumentTagAssignment,
@@ -512,5 +513,103 @@ describe('sales.quotes.convert_to_order — shipping and surcharge totals', () =
     expect(em.create.mock.calls.some(([entity]) => entity === SalesOrder)).toBe(false)
     expect(em.persist).not.toHaveBeenCalled()
     expect(em.flush).not.toHaveBeenCalled()
+  })
+})
+
+describe('sales.quotes.convert_to_order — canceled quote deprecation warning', () => {
+  const salesLogger = createLogger('sales')
+  let warnSpy: jest.SpiedFunction<typeof salesLogger.warn>
+
+  beforeAll(async () => {
+    await import('../documents')
+  })
+
+  beforeEach(() => {
+    warnSpy = jest.spyOn(salesLogger, 'warn').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    warnSpy.mockRestore()
+  })
+
+  function prepareStatusConversion(status: string) {
+    const handler = commandRegistry.get<ConvertToOrderInput, ConvertToOrderResult>(
+      'sales.quotes.convert_to_order',
+    )
+    expect(handler).toBeTruthy()
+    const quote = {
+      id: 'abcdef12-3456-4789-8abc-def123456789',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+      tenantId: '33333333-3333-4333-8333-333333333333',
+      createdAt: new Date('2026-04-12T08:00:00.000Z'),
+      quoteNumber: 'SQ-STATUS',
+      statusEntryId: null,
+      status,
+      currencyCode: 'USD',
+      subtotalNetAmount: '10',
+      subtotalGrossAmount: '10',
+      discountTotalAmount: '0',
+      taxTotalAmount: '0',
+      grandTotalNetAmount: '10',
+      grandTotalGrossAmount: '10',
+      totalsSnapshot: null,
+      lineItemCount: 0,
+      validFrom: null,
+      validUntil: null,
+      deletedAt: null,
+    }
+    const em = {
+      findOne: jest.fn(async () => null),
+      find: jest.fn(async () => []),
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
+      nativeDelete: jest.fn(async () => 0),
+      remove: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    mockedFindOneWithDecryption.mockImplementation(async (_em, entity) => (entity === SalesQuote ? quote : null))
+    mockedFindWithDecryption.mockImplementation(async () => [])
+    const container = createContainer({ injectionMode: InjectionMode.PROXY })
+    container.register({
+      em: asValue({ fork: jest.fn() }),
+      salesDocumentNumberGenerator: asValue({ generate: jest.fn(async () => ({ number: 'SO-STATUS-1' })) }),
+    })
+    const ctx: CommandRuntimeContext = {
+      container,
+      auth: null,
+      organizationScope: null,
+      selectedOrganizationId: quote.organizationId,
+      organizationIds: [quote.organizationId],
+      transactionalEm: em as unknown as CommandRuntimeContext['transactionalEm'],
+    }
+    return { execute: () => handler!.execute({ quoteId: quote.id }, ctx), em, quote }
+  }
+
+  function deprecationWarnings() {
+    return warnSpy.mock.calls.filter(([message]) => message.startsWith('[deprecated] sales.quotes.convert_to_order'))
+  }
+
+  test.each(['canceled', 'cancelled'])('logs a deprecation warning and still converts a %s quote', async (status) => {
+    const { execute, em, quote } = prepareStatusConversion(status)
+
+    const result = await execute()
+
+    expect(result.orderId).toBe(quote.id)
+    expect(em.create.mock.calls.some(([entity]) => entity === SalesOrder)).toBe(true)
+    expect(deprecationWarnings()).toEqual([
+      [
+        expect.stringContaining('canceled quote'),
+        { quoteId: quote.id, tenantId: quote.tenantId, organizationId: quote.organizationId },
+      ],
+    ])
+  })
+
+  test('does not warn when converting a quote that is not canceled', async () => {
+    const { execute, em } = prepareStatusConversion('confirmed')
+
+    await execute()
+
+    expect(em.create.mock.calls.some(([entity]) => entity === SalesOrder)).toBe(true)
+    expect(deprecationWarnings()).toEqual([])
   })
 })
