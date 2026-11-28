@@ -2,6 +2,13 @@ import { provisionAgentPrincipal } from '../lib/identity/agentPrincipalService'
 import { AgentPrincipal } from '../data/entities'
 import { User, Role, RoleAcl, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { asValue, createContainer as createAwilixContainer } from 'awilix'
+import { syncAgentPrincipals } from '../lib/identity/syncAgentPrincipals'
+import type { AgentRegistryEntry } from '../lib/sdk/defineAgent'
+
+jest.mock('../events', () => ({
+  emitAgentOrchestratorEvent: jest.fn().mockResolvedValue(undefined),
+}))
 
 /**
  * In-memory EntityManager fake covering the surface the provisioning service uses
@@ -14,6 +21,8 @@ import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
 function createFakeEm() {
   const stores = new Map<unknown, Array<Record<string, unknown>>>()
   const pending = new Set<Record<string, unknown>>()
+  const locks = new Map<string, Promise<void>>()
+  const lockKeys: string[] = []
   let idSeq = 0
 
   function storeFor(entity: unknown): Array<Record<string, unknown>> {
@@ -54,6 +63,10 @@ function createFakeEm() {
   }
 
   const em = {
+    fork: () => em,
+    async execute(_sql: string, _params: [string]): Promise<void> {
+      throw new Error('[test] provisioning lock requires a transaction')
+    },
     create(entity: unknown, data: Record<string, unknown>) {
       const row: Record<string, unknown> = { ...data }
       ;(row as { __entity?: unknown }).__entity = entity
@@ -79,26 +92,37 @@ function createFakeEm() {
     async find(entity: unknown, where: Record<string, unknown>) {
       return storeFor(entity).filter((row) => matches(row, where))
     },
-    async transactional<T>(cb: (tem: typeof em) => Promise<T>): Promise<T> {
-      return cb(em)
+    async transactional<Result>(work: (transaction: typeof em) => Promise<Result>): Promise<Result> {
+      let releaseLock: (() => void) | undefined
+      const transaction = {
+        ...em,
+        async execute(sql: string, [key]: [string]) {
+          expect(sql).toBe('select pg_advisory_xact_lock(hashtextextended(?, 0))')
+          lockKeys.push(key)
+          const previous = locks.get(key)
+          locks.set(key, new Promise<void>((resolve) => { releaseLock = resolve }))
+          await previous
+        },
+        fork(options?: { keepTransactionContext?: boolean }) {
+          expect(options?.keepTransactionContext).toBe(true)
+          return transaction
+        },
+      }
+      try {
+        return await work(transaction)
+      } finally {
+        releaseLock?.()
+      }
     },
     // Expose the stores for assertions.
     __stores: stores,
+    lockKeys,
   }
   return em
 }
 
 function createContainer(em: ReturnType<typeof createFakeEm>) {
-  return {
-    resolve(name: string) {
-      if (name === 'em') {
-        // The service forks the resolved em; return one whose .fork() yields the
-        // same fake instance so all reads/writes share one in-memory store.
-        return { ...em, fork: () => em }
-      }
-      throw new Error(`[test] unexpected resolve(${name})`)
-    },
-  } as unknown as import('awilix').AwilixContainer
+  return createAwilixContainer().register({ em: asValue(em) })
 }
 
 const SCOPE = { tenantId: 'tenant-A', organizationId: 'org-A' }
@@ -217,6 +241,70 @@ describe('provisionAgentPrincipal', () => {
     })
     expect(em.__stores.get(RoleAcl)![1].deletedAt ?? null).toBeNull()
     expect(em.__stores.get(UserRole)![1].deletedAt ?? null).toBeNull()
+  })
+
+  it('coalesces concurrent provisions into one scoped, non-interactive identity', async () => {
+    const em = createFakeEm()
+    const container = createContainer(em)
+
+    const [first, second] = await Promise.all([
+      provisionAgentPrincipal(container, SCOPE, INPUT),
+      provisionAgentPrincipal(container, SCOPE, { ...INPUT, roleFeatures: ['customers.deals.edit'] }),
+    ])
+
+    const lockKey = `agent_principal:${SCOPE.tenantId}:${INPUT.agentDefinitionId}`
+    expect(em.lockKeys).toEqual([lockKey, lockKey])
+    expect(second).toMatchObject({
+      principal: { id: first.principal.id, ...SCOPE },
+      userId: first.userId,
+      roleId: first.roleId,
+      interactiveLoginDisabled: true,
+    })
+    expect(em.__stores.get(AgentPrincipal)).toHaveLength(1)
+    expect(em.__stores.get(User)).toHaveLength(1)
+    expect(em.__stores.get(Role)).toHaveLength(1)
+    expect(em.__stores.get(UserRole)).toHaveLength(1)
+    expect(em.__stores.get(RoleAcl)).toEqual([expect.objectContaining({
+      featuresJson: ['customers.deals.edit', 'customers.deals.view'],
+      organizationsJson: [SCOPE.organizationId],
+      isSuperAdmin: false,
+    })])
+  })
+
+  it('preserves the declared role when declaration sync wins concurrent provisioning', async () => {
+    const em = createFakeEm()
+    const container = createContainer(em)
+    const agent = {
+      id: INPUT.agentDefinitionId,
+      label: INPUT.displayName,
+      principal: { roleFeatures: INPUT.roleFeatures },
+    } as AgentRegistryEntry
+
+    const [sync, external] = await Promise.all([
+      syncAgentPrincipals(container, SCOPE, {
+        agents: [agent],
+        featureCatalog: INPUT.roleFeatures,
+        disableUndeclared: false,
+      }),
+      provisionAgentPrincipal(container, SCOPE, {
+        ...INPUT,
+        credentialMode: 'authmd',
+        roleFeatures: ['customers.deals.edit'],
+      }),
+    ])
+
+    expect(sync.created).toEqual([agent.id])
+    expect(em.__stores.get(AgentPrincipal)).toEqual([external.principal])
+    expect(external.principal.credentialMode).toBe('internal')
+    expect(external.interactiveLoginDisabled).toBe(true)
+    expect(em.__stores.get(Role)).toEqual([expect.objectContaining({
+      id: external.roleId,
+      name: `agent:${agent.id}@${SCOPE.organizationId}`,
+    })])
+    expect(em.__stores.get(RoleAcl)).toEqual([expect.objectContaining({
+      featuresJson: INPUT.roleFeatures,
+      organizationsJson: [SCOPE.organizationId],
+    })])
   })
 
   it('merges newly-requested role features on re-provision (idempotent ACL grant)', async () => {

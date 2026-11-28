@@ -32,6 +32,7 @@ jest.mock('@open-mercato/core/modules/auth/lib/executionPrincipal', () => {
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { AgentPrincipal } from '../data/entities'
 import { z } from 'zod'
+import { asValue, createContainer as createAwilixContainer } from 'awilix'
 import { defineAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
 import {
   agentPrincipalKey,
@@ -57,6 +58,10 @@ function createFakeEm() {
     )
   const em = {
     fork: () => em,
+    async execute() {},
+    async transactional<Result>(work: (transaction: typeof em) => Promise<Result>): Promise<Result> {
+      return work(em)
+    },
     create(entity: unknown, data: Record<string, unknown>): Row {
       return { ...data, __entity: entity }
     },
@@ -93,12 +98,7 @@ function createFakeEm() {
 }
 
 function createContainer(em: ReturnType<typeof createFakeEm>) {
-  return {
-    resolve(name: string) {
-      if (name === 'em') return em
-      throw new Error(`[test] unexpected resolve(${name})`)
-    },
-  } as unknown as import('awilix').AwilixContainer
+  return createAwilixContainer().register({ em: asValue(em) })
 }
 
 const SCOPE = { tenantId: 'tenant-A', organizationId: 'org-A' }

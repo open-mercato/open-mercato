@@ -11,6 +11,7 @@ import {
   type ProvisionAgentPrincipalInput,
 } from '../../data/validators'
 import { AgentPrincipal } from '../../data/entities'
+import { inAgentPrincipalProvisioningTransaction } from './principalProvisioningTransaction'
 
 export type AgentPrincipalScope = { tenantId: string; organizationId: string }
 
@@ -63,66 +64,67 @@ export async function provisionAgentPrincipal(
 ): Promise<ResolvedAgentPrincipal> {
   const parsed = provisionAgentPrincipalSchema.parse(input)
   const { tenantId, organizationId } = scope
-  const em = resolveEm(container)
   const legacyRoleName = executionPrincipalRoleName(parsed.agentDefinitionId, AGENT_PRINCIPAL_NAME_PREFIX)
 
-  const existing = await findOneWithDecryption(
-    em,
-    AgentPrincipal,
-    { tenantId, organizationId, agentDefinitionId: parsed.agentDefinitionId, deletedAt: null },
-    {},
-    { tenantId, organizationId },
-  )
-  const existingRole = existing
-    ? await findOneWithDecryption(em, Role, { id: existing.roleId, tenantId }, {}, { tenantId, organizationId: null })
-    : null
-  const ownedElsewhere = Boolean(existing && existingRole?.name !== legacyRoleName)
+  return inAgentPrincipalProvisioningTransaction(container, scope, parsed.agentDefinitionId, async (em, transactionContainer) => {
+    const existing = await findOneWithDecryption(
+      em,
+      AgentPrincipal,
+      { tenantId, organizationId, agentDefinitionId: parsed.agentDefinitionId, deletedAt: null },
+      {},
+      { tenantId, organizationId },
+    )
+    const existingRole = existing
+      ? await findOneWithDecryption(em, Role, { id: existing.roleId, tenantId }, {}, { tenantId, organizationId: null })
+      : null
+    const ownedElsewhere = Boolean(existing && existingRole?.name !== legacyRoleName)
 
-  const provisioned = ownedElsewhere
-    ? null
-    : await provisionExecutionPrincipal(container, scope, {
-        principalKey: parsed.agentDefinitionId,
-        displayName: parsed.displayName ?? parsed.agentDefinitionId,
-        features: parsed.roleFeatures,
-        kind: 'agent',
-        namePrefix: AGENT_PRINCIPAL_NAME_PREFIX,
-        mergeFeatures: true,
+    const provisioned = ownedElsewhere
+      ? null
+      : await provisionExecutionPrincipal(transactionContainer, scope, {
+          principalKey: parsed.agentDefinitionId,
+          displayName: parsed.displayName ?? parsed.agentDefinitionId,
+          features: parsed.roleFeatures,
+          kind: 'agent',
+          namePrefix: AGENT_PRINCIPAL_NAME_PREFIX,
+          mergeFeatures: true,
+        })
+
+    const userId = existing?.userId ?? provisioned?.userId
+    const user = userId
+      ? await findOneWithDecryption(em, User, { id: userId, tenantId }, {}, { tenantId, organizationId })
+      : null
+    if (!user || user.kind !== 'agent') {
+      throw new Error('[internal] resolved a non-agent User for an agent principal')
+    }
+
+    let principal = existing
+    if (!principal && provisioned) {
+      principal = em.create(AgentPrincipal, {
+        tenantId,
+        organizationId,
+        userId: provisioned.userId,
+        agentDefinitionId: parsed.agentDefinitionId,
+        roleId: provisioned.roleId,
+        credentialMode: parsed.credentialMode,
+        enabled: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       })
+      em.persist(principal)
+      await em.flush()
+    }
+    if (!principal) {
+      throw new Error('[internal] agent principal could not be provisioned')
+    }
 
-  const userId = existing?.userId ?? provisioned?.userId
-  const user = userId
-    ? await findOneWithDecryption(em, User, { id: userId, tenantId }, {}, { tenantId, organizationId })
-    : null
-  if (!user || user.kind !== 'agent') {
-    throw new Error('[internal] resolved a non-agent User for an agent principal')
-  }
-
-  let principal = existing
-  if (!principal && provisioned) {
-    principal = em.create(AgentPrincipal, {
-      tenantId,
-      organizationId,
-      userId: provisioned.userId,
-      agentDefinitionId: parsed.agentDefinitionId,
-      roleId: provisioned.roleId,
-      credentialMode: parsed.credentialMode,
-      enabled: true,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    })
-    em.persist(principal)
-    await em.flush()
-  }
-  if (!principal) {
-    throw new Error('[internal] agent principal could not be provisioned')
-  }
-
-  return {
-    principal,
-    userId: principal.userId,
-    roleId: principal.roleId,
-    interactiveLoginDisabled: !user.passwordHash && user.isConfirmed === false,
-  }
+    return {
+      principal,
+      userId: principal.userId,
+      roleId: principal.roleId,
+      interactiveLoginDisabled: !user.passwordHash && user.isConfirmed === false,
+    }
+  })
 }
 
 /**
