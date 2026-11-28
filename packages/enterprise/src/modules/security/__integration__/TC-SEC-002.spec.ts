@@ -1,4 +1,8 @@
-import { expect, test } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { expect, test, type Response } from '@playwright/test'
+import { withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import {
   clearAuthCookie,
   createAdminApiToken,
@@ -6,6 +10,7 @@ import {
   deleteUserFixture,
   enrollTotp,
   fetchJson,
+  generateTotpCode,
   loginViaApi,
   setAuthCookie,
   verifyTotpChallenge,
@@ -125,3 +130,109 @@ test.describe('TC-SEC-002: TOTP enrollment, login, and recovery codes', () => {
     expect(staleRecoveryResponse.body.error).toContain('Invalid recovery code')
   })
 })
+
+const outageLocales = [
+  {
+    locale: 'en',
+    password: 'Password',
+    submit: 'Sign in',
+    code: 'Verification code',
+    error: 'An error occurred. Please try again.',
+  },
+  {
+    locale: 'pl',
+    password: 'Hasło',
+    submit: 'Zaloguj się',
+    code: 'Kod weryfikacyjny',
+    error: 'Wystąpił błąd. Spróbuj ponownie.',
+  },
+]
+
+function matchesEphemeralEnvironment(baseURL: string | undefined): baseURL is string {
+  const databaseUrl = process.env.DATABASE_URL
+  if (process.env.OM_INTEGRATION_TEST !== 'true' || !baseURL || !databaseUrl) return false
+
+  try {
+    const appRoot = process.env.OM_TEST_APP_ROOT || process.cwd()
+    const state: { status?: unknown; baseUrl?: unknown; databaseUrl?: unknown } = JSON.parse(
+      readFileSync(join(appRoot, '.ai', 'qa', 'ephemeral-env.json'), 'utf8'),
+    )
+    return state?.status === 'running' && state.baseUrl === baseURL && state.databaseUrl === databaseUrl
+  } catch {
+    return false
+  }
+}
+
+for (const messages of outageLocales) {
+  test(`TC-SEC-002: localized MFA outage and retry (${messages.locale})`, async ({ request, page, baseURL }) => {
+    if (!matchesEphemeralEnvironment(baseURL)) {
+      test.skip(true, 'Requires the app URL and database URL from the running ephemeral integration environment')
+      return
+    }
+    const adminToken = await createAdminApiToken(request)
+    const password = `Valid1!${randomUUID()}`
+    const user = await createUserFixture(request, adminToken, { password })
+    const constraint = `test_mfa_outage_${randomUUID().replaceAll('-', '')}`
+    let outageInstalled = false
+    const removeOutage = async () => {
+      if (!outageInstalled) return
+      await withClient(async (client) => {
+        await client.query("set lock_timeout = '2s'")
+        await client.query(`alter table mfa_challenges drop constraint if exists "${constraint}"`)
+        outageInstalled = false
+      })
+    }
+    const isLogin = (response: Response) =>
+      new URL(response.url()).pathname === '/api/auth/login' && response.request().method() === 'POST'
+
+    try {
+      const login = await loginViaApi(request, user.email, password)
+      const { secret } = await enrollTotp(request, login.token)
+      await withClient(async (client) => {
+        const { rowCount } = await client.query(
+          'select 1 from user_mfa_methods where user_id = $1 and type = $2 and is_active',
+          [user.id, 'totp'],
+        )
+        expect(rowCount, 'The disposable database must contain the TOTP enrollment just written by the app').toBe(1)
+        const { rows } = await client.query<{ ddl: string }>(
+          `select format('alter table mfa_challenges add constraint %I check (user_id <> %L::uuid) not valid',
+            $1::text, $2::uuid) as ddl`,
+          [constraint, user.id],
+        )
+        await client.query("set lock_timeout = '2s'")
+        await client.query(rows[0].ddl)
+        outageInstalled = true
+      })
+
+      await page.context().addCookies([{ name: 'locale', value: messages.locale, url: baseURL }])
+      await page.goto('/login')
+      await page.getByLabel('Email', { exact: true }).fill(user.email)
+      const passwordInput = page.getByLabel(messages.password, { exact: true })
+      await passwordInput.fill(password)
+      const submit = page.getByRole('button', { name: messages.submit, exact: true })
+      const [denied] = await Promise.all([page.waitForResponse(isLogin), submit.click()])
+      expect(denied.status()).toBe(500)
+      expect(await denied.json()).toEqual({ ok: false, error: messages.error })
+      expect(await denied.headerValues('set-cookie')).toEqual([])
+      await expect(page.getByRole('alert').and(page.getByText(messages.error, { exact: true }))).toBeVisible()
+      await expect(submit).toBeEnabled()
+      await expect(passwordInput).toBeEnabled()
+
+      await removeOutage()
+      const [pending] = await Promise.all([page.waitForResponse(isLogin), passwordInput.press('Enter')])
+      expect(pending.status()).toBe(200)
+      expect(await pending.json()).toMatchObject({ mfa_required: true, challenge_id: expect.any(String) })
+      const codeInput = page.getByLabel(messages.code, { exact: true })
+      await expect(codeInput).toBeVisible()
+      await codeInput.fill(generateTotpCode(secret))
+      await codeInput.press('Enter')
+      await expect(page).toHaveURL(/\/backend(?:[/?#]|$)/)
+    } finally {
+      try {
+        await removeOutage()
+      } finally {
+        await deleteUserFixture(request, adminToken, user.id)
+      }
+    }
+  })
+}
