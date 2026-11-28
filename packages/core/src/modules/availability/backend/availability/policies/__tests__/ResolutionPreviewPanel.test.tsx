@@ -2,11 +2,17 @@
 import * as React from 'react'
 import { act, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import enDict from '../../../../i18n/en.json'
 import plDict from '../../../../i18n/pl.json'
 import { ResolutionPreviewPanel } from '../ResolutionPreviewPanel'
 
 const apiCallMock = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  reportTelemetryError: jest.fn(),
+}))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
@@ -27,6 +33,7 @@ describe('ResolutionPreviewPanel', () => {
   beforeEach(() => {
     jest.useFakeTimers()
     apiCallMock.mockReset()
+    jest.mocked(reportTelemetryError).mockClear()
   })
 
   afterEach(() => {
@@ -53,11 +60,17 @@ describe('ResolutionPreviewPanel', () => {
   })
 
   it.each(['network', 'missing-error'])('shows a translated fallback for %s failure', async (failure) => {
-    if (failure === 'network') apiCallMock.mockRejectedValue(new Error('transport unavailable'))
+    const error = new Error('transport unavailable')
+    if (failure === 'network') apiCallMock.mockRejectedValue(error)
     else apiCallMock.mockResolvedValue({ ok: false, status: 500, result: {} })
     renderPanel()
     await finishDebounce()
     expect(screen.getByRole('alert')).toHaveTextContent(enDict['availability.policies.form.preview.failed'])
+    if (failure === 'network') {
+      expect(reportTelemetryError).toHaveBeenCalledWith(error, { module: 'availability', code: 'availability.preview_request_failed' })
+    } else {
+      expect(reportTelemetryError).not.toHaveBeenCalled()
+    }
     expect(screen.queryByText(enDict['availability.policies.form.preview.moduleDefault'], { exact: false })).not.toBeInTheDocument()
   })
 

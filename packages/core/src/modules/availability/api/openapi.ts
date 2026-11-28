@@ -16,6 +16,12 @@ export const organizationSelectionInvalidError: OpenApiResponseDoc = {
   schema: z.object({ error: z.string(), code: z.literal('organization_selection_invalid') }),
 }
 
+export const organizationScopeUnavailableError: OpenApiResponseDoc = {
+  status: 503,
+  description: 'Organization access could not be verified temporarily',
+  schema: z.object({ error: z.string(), code: z.literal('organization_scope_unavailable').optional() }),
+}
+
 export function createPagedListResponseSchema(itemSchema: ZodTypeAny) {
   return createSharedPagedListResponseSchema(itemSchema, { paginationMetaOptional: true })
 }

@@ -2,6 +2,7 @@
 import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 
 type FieldTrace = { value: unknown; policySourceId: string | null }
@@ -77,8 +78,10 @@ export function ResolutionPreviewPanel({
           }
           setTrace(call.result?.policyTrace ?? null)
         })
-        .catch(() => {
-          if (!cancelled) setError(t('availability.policies.form.preview.failed'))
+        .catch((error: unknown) => {
+          if (cancelled) return
+          reportTelemetryError(error, { module: 'availability', code: 'availability.preview_request_failed' })
+          setError(t('availability.policies.form.preview.failed'))
         })
         .finally(() => {
           if (!cancelled) setIsLoading(false)

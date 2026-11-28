@@ -5,13 +5,22 @@ export async function lockCustomerGroup(
   tenantId: string,
   groupId: string,
 ): Promise<{ deleted_at: Date | null } | undefined> {
-  const rows = await em.getConnection('write').execute(
-    'select deleted_at from customer_groups where tenant_id = ? and id = ? for update',
-    [tenantId, groupId],
+  const [row] = await lockCustomerGroups(em, tenantId, [groupId])
+  return row
+}
+
+export async function lockCustomerGroups(
+  em: EntityManager,
+  tenantId: string,
+  groupIds: readonly string[],
+): Promise<Array<{ deleted_at: Date | null }>> {
+  const placeholders = groupIds.map(() => '?').join(', ')
+  return em.getConnection('write').execute(
+    `select deleted_at from customer_groups where tenant_id = ? and id in (${placeholders}) order by id for update`,
+    [tenantId, ...groupIds],
     'all',
     em.getTransactionContext(),
-  ) as Array<{ deleted_at: Date | null }>
-  return rows[0]
+  ) as Promise<Array<{ deleted_at: Date | null }>>
 }
 
 export async function lockCustomerGroupMembership(

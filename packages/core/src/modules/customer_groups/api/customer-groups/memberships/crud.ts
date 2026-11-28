@@ -6,7 +6,7 @@ import { CrudHttpError, badRequest, conflict, isUniqueViolation, notFound } from
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
-import { CustomerGroup, CustomerGroupMembership } from '../../../data/entities'
+import { CustomerGroup, CustomerGroupMembership, bindAuthorizedMembershipUpdate } from '../../../data/entities'
 import { emitCustomerGroupsEvent } from '../../../events'
 import {
   buildCustomerScopeListFilter,
@@ -72,6 +72,7 @@ function scopeFromContext(ctx: CrudCtx): { tenantId: string } {
 // scope check and read back by the synchronous `mapToEntity`/`applyToEntity`, which
 // receive the same request context object. Keyed weakly so nothing outlives the request.
 const customerOrganizationByRequest = new WeakMap<CrudCtx, string | null>()
+const membershipUpdateSourceByRequest = new WeakMap<CrudCtx, Pick<CustomerGroupMembership, 'id' | 'groupId' | 'customerId'>>()
 
 function takeCustomerOrganization(ctx: CrudCtx): { found: boolean; organizationId: string | null } {
   if (!customerOrganizationByRequest.has(ctx)) return { found: false, organizationId: null }
@@ -420,6 +421,11 @@ export const customerGroupMembershipCrud = makeCrudRoute<
     applyToEntity: async (entity, input, ctx) => {
       const membership = entity as CustomerGroupMembership
       const parsed = parseUpdateInput(input, ctx)
+      const authorizedSource = membershipUpdateSourceByRequest.get(ctx)
+      if (authorizedSource) {
+        await bindAuthorizedMembershipUpdate(membership, authorizedSource)
+        membershipUpdateSourceByRequest.delete(ctx)
+      }
       membershipStateBeforeUpdate.set(membership, {
         groupId: membership.groupId,
         customerId: membership.customerId,
@@ -472,18 +478,17 @@ export const customerGroupMembershipCrud = makeCrudRoute<
     },
     beforeUpdate: async (input, ctx) => {
       const scope = scopeFromContext(ctx)
-      const result = customerGroupMembershipUpdateSchema.safeParse(normalizeUpdatePayload(input, ctx))
-      if (!result.success) return
-      const parsed = result.data
+      const parsed = parseUpdateInput(input, ctx)
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const existing = await em.findOne(CustomerGroupMembership, {
         id: parsed.id,
         tenantId: scope.tenantId,
         deletedAt: null,
       })
-      if (!existing) return
       const { translate } = await resolveTranslations()
+      if (!existing) throw notFound(translate('customer_groups.errors.membershipNotFound', 'Customer group membership not found.'))
       await assertExistingMembershipInScope(em, ctx, existing, translate)
+      membershipUpdateSourceByRequest.set(ctx, { id: existing.id, groupId: existing.groupId, customerId: existing.customerId })
       assertMembershipValidityWindow(existing, parsed, translate)
       if (parsed.groupId === undefined && parsed.customerId === undefined) return
       const nextGroupId = parsed.groupId ?? existing.groupId

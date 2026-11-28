@@ -16,6 +16,7 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
   organizationSelectionInvalidError,
+  organizationScopeUnavailableError,
 } from '../openapi'
 
 const routeMetadata = {
@@ -240,7 +241,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     ...policyCrudOpenApi.methods,
     ...(policyCrudOpenApi.methods.GET
-      ? { GET: { ...policyCrudOpenApi.methods.GET, errors: [organizationSelectionInvalidError] } }
+      ? { GET: { ...policyCrudOpenApi.methods.GET, errors: [organizationSelectionInvalidError, organizationScopeUnavailableError] } }
       : {}),
     ...(policyCrudOpenApi.methods.DELETE
       ? { DELETE: { ...policyCrudOpenApi.methods.DELETE, query: policyDeleteQuerySchema } }

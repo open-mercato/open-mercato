@@ -12,7 +12,7 @@ import { tryResolve } from '../../lib/tryResolve'
 import { findCatalogTargetIssue } from '../../lib/catalogTarget'
 import { resolveAvailabilityOrganizationId, withAvailabilityReadScope } from '../../lib/organizationScope'
 import type { PolicyResolutionService } from '../../lib/policyResolution'
-import { organizationSelectionInvalidError } from '../openapi'
+import { organizationScopeUnavailableError, organizationSelectionInvalidError } from '../openapi'
 
 /**
  * `POST /api/availability/check` — admin/debug reproduction of what a buyer saw,
@@ -56,6 +56,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Product or variant not found', schema: errorSchema },
         organizationSelectionInvalidError,
+        organizationScopeUnavailableError,
       ],
     },
   },

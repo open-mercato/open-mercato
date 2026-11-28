@@ -2,7 +2,7 @@ import { crudFormSectionsPrivateHeaders, crudFormSectionsResolvePath } from '@op
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type ApiRouteBeforeAuth, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { getTelemetryRuntime, reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { apiRouteFacades } from '@/.mercato/generated/api-route-shards.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
 import { bootstrap } from '@/bootstrap-api'
@@ -224,7 +224,16 @@ export async function checkAuthorization(
       auth,
       request: req,
       requiredFeatures,
+    }).catch((error: unknown) => {
+      reportTelemetryError(error, { module: 'api', code: 'api.organization_scope_resolution_failed' })
+      return null
     })
+    if (!featureContext) {
+      return NextResponse.json(
+        { error: t('api.errors.serviceUnavailable', 'Service temporarily unavailable'), code: 'organization_scope_unavailable' },
+        { status: 503, headers: { 'retry-after': '2' } },
+      )
+    }
     const { organizationId } = featureContext
     // An organization scope that resolved to no organization at all is deny-all. The
     // ACL list alone cannot tell: ids that no longer resolve (a soft-deleted

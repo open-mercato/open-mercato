@@ -43,7 +43,7 @@ export function withAvailabilityReadScope(handler: (request: Request) => Promise
     } catch (error) {
       if (!isCrudHttpError(error)) throw error
       if (error.body.code === ORGANIZATION_SCOPE_UNAVAILABLE) {
-        return Response.json(error.body, { status: error.status })
+        return Response.json(error.body, { status: error.status, headers: { 'retry-after': '2' } })
       }
       if (error.body.code !== INVALID_ORGANIZATION_SELECTION) throw error
       return Response.json(error.body, {

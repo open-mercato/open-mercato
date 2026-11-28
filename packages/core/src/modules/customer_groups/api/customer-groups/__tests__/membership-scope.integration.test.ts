@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import type { StartedTestContainer } from 'testcontainers'
-import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms } from '../../../data/entities'
+import { CustomerGroup, CustomerGroupMembership, CustomerGroupTerms, bindAuthorizedMembershipUpdate } from '../../../data/entities'
 import { countGroupMembershipsOutsideScope } from '../../../lib/customerScope'
 import { lockCustomerGroup } from '../../../lib/groupLock'
 import { cascadeGroupDelete } from '../crud'
@@ -139,6 +139,42 @@ describeWithPostgres('customer group membership scope on PostgreSQL', () => {
     expect(persisted.groupId).toBe(group.id)
     expect(persisted.deletedAt).toBeInstanceOf(Date)
   }, 30_000)
+
+  it('rechecks the authorized customer after acquiring the source lock for a field-only update', async () => {
+    const writer = orm.em.fork()
+    const group = await createGroup(writer)
+    const sourceOrganizationId = randomUUID()
+    const sourceCustomerId = randomUUID()
+    const otherOrganizationId = randomUUID()
+    const otherCustomerId = randomUUID()
+    await writer.execute(
+      'insert into customer_entities values (?, ?, ?, null), (?, ?, ?, null)',
+      [sourceCustomerId, group.tenantId, sourceOrganizationId, otherCustomerId, group.tenantId, otherOrganizationId],
+    )
+    const membership = writer.create(CustomerGroupMembership, {
+      tenantId: group.tenantId, organizationId: sourceOrganizationId, groupId: group.id, customerId: sourceCustomerId,
+    })
+    await writer.flush()
+
+    const updater = orm.em.fork()
+    const current = await updater.findOneOrFail(CustomerGroupMembership, { id: membership.id })
+    await bindAuthorizedMembershipUpdate(current, {
+      id: membership.id, groupId: group.id, customerId: sourceCustomerId,
+    })
+
+    const mover = orm.em.fork()
+    await mover.transactional(async (transaction) => {
+      await lockCustomerGroup(transaction, group.tenantId, group.id)
+      await transaction.nativeUpdate(CustomerGroupMembership, { id: membership.id, tenantId: group.tenantId }, {
+        customerId: otherCustomerId, organizationId: otherOrganizationId,
+      })
+    })
+
+    current.notes = 'Updated note'
+    await expect(updater.flush()).rejects.toMatchObject({ status: 404 })
+    const persisted = await orm.em.fork().findOneOrFail(CustomerGroupMembership, { id: membership.id })
+    expect(persisted).toMatchObject({ customerId: otherCustomerId, organizationId: otherOrganizationId, notes: null })
+  })
 
   it('excludes hard-deleted customer references while counting existing customers outside scope', async () => {
     const writer = orm.em.fork()
