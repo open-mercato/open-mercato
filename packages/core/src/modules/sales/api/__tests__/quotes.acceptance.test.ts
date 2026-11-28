@@ -3,7 +3,7 @@ import { POST as sendQuote } from '@open-mercato/core/modules/sales/api/quotes/s
 import { GET as getPublicQuote } from '@open-mercato/core/modules/sales/api/quotes/public/[token]/route'
 import { POST as acceptQuote } from '@open-mercato/core/modules/sales/api/quotes/accept/route'
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
-import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
+import { SalesOrder, SalesQuote, SalesSettings } from '@open-mercato/core/modules/sales/data/entities'
 import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
@@ -421,6 +421,39 @@ describe('quote send + accept flow', () => {
       const expected = new Date()
       expected.setUTCDate(expected.getUTCDate() + 3)
       expect(quote.validUntil?.toISOString().slice(0, 10)).toBe(expected.toISOString().slice(0, 10))
+    })
+
+    test('configured validity and CC are passed to guards before their rewrites are applied', async () => {
+      const quote = arrangeGuardedQuote()
+      const findOne = mockEm.findOne.getMockImplementation()
+      mockEm.findOne.mockImplementation(async (entity: unknown, where: { id?: string }) => {
+        if (entity === SalesSettings) return { defaultQuoteValidityDays: 30 }
+        return findOne?.(entity, where)
+      })
+      const validate = jest.fn(async () => ({
+        ok: true,
+        modifiedPayload: { validForDays: 3, cc: ['approved@example.com'] },
+      }))
+      registeredGuards.push({
+        id: 'test.quote-validity-and-cc-policy',
+        targetEntity: 'sales.quote',
+        operations: ['update'],
+        validate,
+      })
+
+      const response = await sendQuote(makeRequest({ quoteId: guardedQuoteId, cc: ['outsider@example.com'] }))
+
+      expect(response.status).toBe(200)
+      expect(validate).toHaveBeenCalledWith(expect.objectContaining({
+        mutationPayload: expect.objectContaining({ validForDays: 30, cc: ['outsider@example.com'] }),
+      }))
+      const expected = new Date()
+      expected.setUTCDate(expected.getUTCDate() + 3)
+      expect(quote.validUntil?.toISOString().slice(0, 10)).toBe(expected.toISOString().slice(0, 10))
+      expect(quote.metadata).toEqual({ recipients: { cc: ['approved@example.com'] } })
+      const recipients = await sentRecipients()
+      expect(recipients).toContain('approved@example.com')
+      expect(recipients).not.toContain('outsider@example.com')
     })
 
     test('a guard rewrite is validated again and an invalid one sends nothing', async () => {
@@ -1365,4 +1398,52 @@ describe('accept - always uses em.transactional (no fallback)', () => {
       expect.not.objectContaining({ lockMode: LockMode.PESSIMISTIC_WRITE })
     )
   })
+})
+
+describe('configured quote-send fallback (#8140)', () => {
+  it.each([{ requested: undefined, expected: 30 }, { requested: 7, expected: 7 }, { requested: null, expected: null }, { requested: 0, expected: null }, { requested: 366, expected: null }])(
+    'uses configured validity only when omitted: $requested', async ({ requested, expected }) => {
+      jest.clearAllMocks()
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveOrganizationScopeForRequest } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      jest.mocked(sendEmail).mockResolvedValue(undefined)
+      const tenantId = '00000000-0000-4000-8000-000000000000'
+      const organizationId = '11111111-1111-4111-8111-111111111111'
+      jest.mocked(getAuthFromRequest).mockResolvedValue({ sub: 'user-1', tenantId, orgId: organizationId })
+      jest.mocked(resolveOrganizationScopeForRequest).mockResolvedValue({ selectedId: organizationId, filterIds: [organizationId], allowedIds: [organizationId] })
+      mockEm.fork.mockReturnValue(mockEm)
+      const quote = {
+        id: '22222222-2222-4222-8222-222222222222', tenantId, organizationId,
+        quoteNumber: 'SQ-8140', currencyCode: 'USD', grandTotalGrossAmount: '10',
+        status: 'draft', statusEntryId: null, customerSnapshot: { customer: { primaryEmail: 'test@example.test' } },
+        metadata: null, updatedAt: new Date(), validUntil: new Date(Date.now() + 86400000), sentAt: null, acceptanceToken: null,
+      }
+      let settingsReads = 0
+      mockEm.findOne.mockImplementation(async (entity: unknown, where: object) => {
+        if (entity === SalesQuote) return quote
+        if (entity === SalesSettings) {
+          settingsReads += 1
+          expect(where).toMatchObject({ tenantId, organizationId })
+          return { defaultQuoteValidityDays: 30 }
+        }
+        if (entity === Dictionary) return { id: 'dict-1' }
+        if (entity === DictionaryEntry) return { id: 'entry-sent' }
+        return null
+      })
+      const before = Date.now()
+      const response = await sendQuote(makeRequest({ quoteId: quote.id, ...(requested === undefined ? {} : { validForDays: requested }) }))
+      if (expected === null) {
+        expect(response.status).toBe(400)
+        expect(settingsReads).toBe(0)
+        expect(mockEm.transactional).not.toHaveBeenCalled()
+        expect(mockEm.persist).not.toHaveBeenCalled()
+        expect(sendEmail).not.toHaveBeenCalled()
+      } else {
+        expect(response.status).toBe(200)
+        expect(Math.round((quote.validUntil.getTime() - before) / 86400000)).toBe(expected)
+        expect(settingsReads).toBe(requested === undefined ? 1 : 0)
+      }
+    },
+  )
 })

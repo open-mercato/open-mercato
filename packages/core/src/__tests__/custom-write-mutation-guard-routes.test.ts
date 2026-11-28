@@ -6,6 +6,9 @@ import { POST as sendQuote } from '../modules/sales/api/quotes/send/route'
 import { POST as convertQuote } from '../modules/sales/api/quotes/convert/route'
 import { POST as purgeCache } from '../modules/configs/api/cache/route'
 import { POST as sendCustomPush } from '../modules/push_notifications/api/custom-send/route'
+import { loadSalesSettings } from '../modules/sales/commands/settings'
+import { SalesSettings } from '../modules/sales/data/entities'
+import { sendEmail } from '@open-mercato/shared/lib/email/send'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
@@ -63,6 +66,8 @@ jest.mock('@open-mercato/shared/lib/email/send', () => ({
   sendEmail: jest.fn(),
 }))
 
+jest.mock('../modules/sales/commands/settings', () => ({ loadSalesSettings: jest.fn() }))
+
 function createBlockingGuard(): MutationGuard {
   return {
     id: 'test.route-lock',
@@ -85,6 +90,7 @@ describe('standalone custom write route mutation guards', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetGrantedFeatures.mockResolvedValue([requiredFeature])
+    jest.mocked(loadSalesSettings).mockResolvedValue(null)
     registerMutationGuards([{ moduleId: 'test', guards: [createBlockingGuard()] }])
   })
 
@@ -123,5 +129,22 @@ describe('standalone custom write route mutation guards', () => {
     await expect(response.json()).resolves.toEqual(blockedBody)
     expect(mockGetGrantedFeatures).toHaveBeenCalledWith(userId, { tenantId, organizationId })
     expect(mutation).not.toHaveBeenCalled()
+  })
+
+  it('guards the configured quote duration before creating a mutation context or sending email', async () => {
+    const guard = createBlockingGuard()
+    registerMutationGuards([{ moduleId: 'test', guards: [guard] }])
+    jest.mocked(loadSalesSettings).mockResolvedValue(Object.assign(new SalesSettings(), { tenantId, organizationId, defaultQuoteValidityDays: 30 }))
+    const response = await sendQuote(post('http://localhost/api/sales/quotes/send', { quoteId: recordId }))
+
+    expect(response.status).toBe(423)
+    await expect(response.json()).resolves.toEqual(blockedBody)
+    expect(loadSalesSettings).toHaveBeenCalledWith(expect.any(Object), { tenantId, organizationId })
+    expect(guard.validate).toHaveBeenCalledWith(expect.objectContaining({
+      resourceKind: 'sales.quote', resourceId: recordId, tenantId, organizationId,
+      mutationPayload: expect.objectContaining({ validForDays: 30 }),
+    }))
+    expect(mockEntityManagerFork).not.toHaveBeenCalled()
+    expect(sendEmail).not.toHaveBeenCalled()
   })
 })
