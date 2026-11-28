@@ -202,6 +202,15 @@ export async function sendAsUser(
     storedAttachments = validation.stored
   }
 
+  if (channel.channelType !== 'email') {
+    const { t } = await resolveTranslations()
+    const error = t(
+      'communication_channels.errors.emailChannelRequired',
+      'Select an email channel to send this message.',
+    )
+    return { ok: false, status: 422, error, fieldErrors: { userChannelId: error } }
+  }
+
   // Create the Message via the messages module compose command. The outbound
   // subscriber picks it up via `messages.message.sent` and routes through the
   // adapter chain.
@@ -213,9 +222,7 @@ export async function sendAsUser(
     sourceEntityType: 'communication_channels.send_as_user',
     sourceEntityId: channel.id,
     externalEmail: input.to[0],
-    ...(channel.channelType === 'email'
-      ? { externalEmailRecipients: [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])] }
-      : {}),
+    externalEmailRecipients: [...input.to, ...(input.cc ?? []), ...(input.bcc ?? [])],
     externalName: input.subject,
     recipients: [],
     subject: input.subject,

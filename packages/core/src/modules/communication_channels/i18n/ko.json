@@ -29,6 +29,7 @@
   "communication_channels.errors.attachments.tooMany": "메시지에는 첨부 파일을 최대 {max}개까지 넣을 수 있습니다.",
   "communication_channels.errors.attachments.typeNotAllowed": "첨부한 파일 중 하나가 이 메일함에서 보낼 수 없는 형식입니다.",
   "communication_channels.errors.attachments.unsupported": "이 메일함은 첨부 파일을 보낼 수 없습니다.",
+  "communication_channels.errors.emailChannelRequired": "이 메시지를 보내려면 이메일 채널을 선택하세요.",
   "communication_channels.errors.loadDetail": "채널을 불러오지 못했습니다",
   "communication_channels.errors.loadList": "채널을 불러오지 못했습니다",
   "communication_channels.errors.messageNotFound": "메시지를 찾을 수 없습니다",
