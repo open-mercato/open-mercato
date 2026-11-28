@@ -28,6 +28,7 @@ describe('llm-bootstrap — built-in provider registration', () => {
     expect(ids).toContain('azure')
     expect(ids).toContain('litellm')
     expect(ids).toContain('ollama')
+    expect(ids).toContain('cheaperinference')
 
     expect(ids.length).toBeGreaterThanOrEqual(10)
   })
@@ -70,6 +71,33 @@ describe('llm-bootstrap — built-in provider registration', () => {
     const modelIds = deepinfra?.defaultModels.map((m) => m.id) ?? []
     expect(modelIds).toContain('zai-org/GLM-5.1')
     expect(modelIds).toContain('Qwen/Qwen3-235B-A22B-Instruct-2507')
+  })
+
+  it('cheaperinference provider comes from the OpenAI-compatible preset', () => {
+    registerBuiltInLlmProviders()
+    const cheaperInference = llmProviderRegistry.get('cheaperinference')
+    expect(cheaperInference).not.toBeNull()
+    expect(cheaperInference?.name).toBe('Cheaper Inference')
+    expect(cheaperInference?.envKeys).toEqual(['CHEAPER_INFERENCE_API_KEY'])
+    expect(cheaperInference?.defaultModel).toBe('gpt-5.4-mini')
+    expect(cheaperInference?.defaultModels.map((model) => model.id)).toEqual(['gpt-5.4-mini'])
+    expect(cheaperInference?.usesVendorPrefixedModelIds).toBe(false)
+  })
+
+  it('resolveFirstConfigured picks a configured Cheaper Inference provider', () => {
+    registerBuiltInLlmProviders()
+    const picked = llmProviderRegistry.resolveFirstConfigured({
+      env: { CHEAPER_INFERENCE_API_KEY: 'cheaper-key' },
+    })
+    expect(picked?.id).toBe('cheaperinference')
+  })
+
+  it('keeps LM Studio first when both LM Studio and Cheaper Inference are configured', () => {
+    registerBuiltInLlmProviders()
+    const picked = llmProviderRegistry.resolveFirstConfigured({
+      env: { LM_STUDIO_API_KEY: 'local-key', CHEAPER_INFERENCE_API_KEY: 'cheaper-key' },
+    })
+    expect(picked?.id).toBe('lm-studio')
   })
 
   it('atlas-cloud provider comes from the OpenAI-compatible preset', () => {
