@@ -4,8 +4,9 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
-import { SalesOrder } from '../../data/entities'
+import { SalesOrder, SalesQuote } from '../../data/entities'
 import polishTranslations from '../../i18n/pl.json'
 
 const mockTranslate = jest.fn((key: string, _fallback?: string) => key)
@@ -32,25 +33,29 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
     em.findOne(entity, where, options),
 }))
 
-const ORDER_ID = '11111111-1111-4111-8111-111111111111'
+const DOCUMENT_ID = '11111111-1111-4111-8111-111111111111'
 const TENANT_ID = '22222222-2222-4222-8222-222222222222'
 const ORG_ID = '33333333-3333-4333-8333-333333333333'
 const VALIDATED_VERSION = '2026-07-17T09:30:00.500Z'
 const EDITED_VERSION = '2026-07-17T09:31:00.000Z'
 
-function setup(expectedVersion: string | null, editBeforeTransaction = false) {
-  const order = { id: ORDER_ID, tenantId: TENANT_ID, organizationId: ORG_ID, updatedAt: new Date(VALIDATED_VERSION) }
+function setup(
+  expectedVersion: string | null,
+  editBeforeTransaction = false,
+  documentType: typeof SalesOrder | typeof SalesQuote = SalesOrder,
+) {
+  const document = { id: DOCUMENT_ID, tenantId: TENANT_ID, organizationId: ORG_ID, updatedAt: new Date(VALIDATED_VERSION) }
   let inTransaction = false
   let persistedVersion = VALIDATED_VERSION
   const em = {
     findOne: jest.fn(async (entity: unknown, _where: unknown, options?: FindOptions) => {
-      if (entity !== SalesOrder) return null
+      if (entity !== documentType) return null
       if (options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
         expect(inTransaction).toBe(true)
         expect(options.refresh).toBe(true)
-        order.updatedAt = new Date(persistedVersion)
+        document.updatedAt = new Date(persistedVersion)
       }
-      return order
+      return document
     }),
     find: jest.fn(async () => []),
     nativeDelete: jest.fn(async () => 0),
@@ -66,6 +71,7 @@ function setup(expectedVersion: string | null, editBeforeTransaction = false) {
   }
   const container = createContainer()
   container.register({ em: asValue(em), dataEngine: asValue({}) })
+  const collection = documentType === SalesQuote ? 'quotes' : 'orders'
   const headers = expectedVersion ? { [OPTIMISTIC_LOCK_HEADER_NAME]: expectedVersion } : undefined
   const ctx = {
     container,
@@ -73,30 +79,30 @@ function setup(expectedVersion: string | null, editBeforeTransaction = false) {
     selectedOrganizationId: ORG_ID,
     organizationScope: null,
     organizationIds: null,
-    request: new Request('https://example.test/api/sales/orders', { method: 'DELETE', headers }),
+    request: new Request(`https://example.test/api/sales/${collection}`, { method: 'DELETE', headers }),
   } as CommandRuntimeContext
-  const handler = commandRegistry.get('sales.orders.delete')!
-  return { em, order, run: () => handler.execute({ id: ORDER_ID }, ctx) }
+  const handler = commandRegistry.get(`sales.${collection}.delete`)!
+  return { em, document, run: () => handler.execute({ id: DOCUMENT_ID }, ctx) }
 }
 
-describe('sales.orders.delete optimistic locking', () => {
-  beforeAll(async () => { await import('../documents') })
-  beforeEach(() => {
-    jest.clearAllMocks()
-    mockTranslate.mockImplementation((key) => key)
-  })
+beforeAll(async () => { await import('../documents') })
+beforeEach(() => {
+  jest.clearAllMocks()
+  mockTranslate.mockImplementation((key) => key)
+})
 
+describe('sales.orders.delete optimistic locking', () => {
   it('refuses an order edited between version validation and the deletion transaction', async () => {
-    const { em, order, run } = setup(VALIDATED_VERSION, true)
+    const { em, document, run } = setup(VALIDATED_VERSION, true)
 
     await expect(run()).rejects.toMatchObject({
       status: 409,
       body: { code: 'optimistic_lock_conflict', expectedUpdatedAt: VALIDATED_VERSION, currentUpdatedAt: EDITED_VERSION },
     })
 
-    expect(order.updatedAt.toISOString()).toBe(EDITED_VERSION)
+    expect(document.updatedAt.toISOString()).toBe(EDITED_VERSION)
     expect(em.findOne).toHaveBeenLastCalledWith(SalesOrder,
-      { id: ORDER_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      { id: DOCUMENT_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
       { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
     expect(em.nativeDelete).not.toHaveBeenCalled()
     expect(em.remove).not.toHaveBeenCalled()
@@ -106,19 +112,19 @@ describe('sales.orders.delete optimistic locking', () => {
   })
 
   it.each([VALIDATED_VERSION, null])('deletes with expected version %s', async (expectedVersion) => {
-    const { em, order, run } = setup(expectedVersion)
+    const { em, document, run } = setup(expectedVersion)
 
-    await expect(run()).resolves.toEqual({ orderId: ORDER_ID })
+    await expect(run()).resolves.toEqual({ orderId: DOCUMENT_ID })
 
-    expect(em.remove).toHaveBeenCalledWith(order)
+    expect(em.remove).toHaveBeenCalledWith(document)
     expect(em.commit).toHaveBeenCalledTimes(1)
     expect(em.rollback).not.toHaveBeenCalled()
     expect(emitCrudSideEffects).toHaveBeenCalledTimes(1)
   })
 
   it('returns a Polish 404 without deletion when the locked order no longer exists', async () => {
-    const { em, order, run } = setup(VALIDATED_VERSION)
-    em.findOne.mockResolvedValueOnce(order).mockResolvedValueOnce(null)
+    const { em, document, run } = setup(VALIDATED_VERSION)
+    em.findOne.mockResolvedValueOnce(document).mockResolvedValueOnce(null)
     mockTranslate.mockImplementation(createFallbackTranslator(polishTranslations))
 
     await expect(run()).rejects.toMatchObject({
@@ -127,7 +133,7 @@ describe('sales.orders.delete optimistic locking', () => {
     })
 
     expect(em.findOne).toHaveBeenLastCalledWith(SalesOrder,
-      { id: ORDER_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      { id: DOCUMENT_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
       { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
     expect(em.begin).toHaveBeenCalledTimes(1)
     expect(em.rollback).toHaveBeenCalledTimes(1)
@@ -135,5 +141,42 @@ describe('sales.orders.delete optimistic locking', () => {
     expect(em.remove).not.toHaveBeenCalled()
     expect(em.commit).not.toHaveBeenCalled()
     expect(emitCrudSideEffects).not.toHaveBeenCalled()
+  })
+})
+
+describe('sales.quotes.delete optimistic locking', () => {
+  it('refuses a stale delete after a late edit, before reading or deleting quote children', async () => {
+    const { em, run } = setup(VALIDATED_VERSION, true, SalesQuote)
+
+    await expect(run()).rejects.toMatchObject({
+      status: 409,
+      body: { code: 'optimistic_lock_conflict', expectedUpdatedAt: VALIDATED_VERSION, currentUpdatedAt: EDITED_VERSION },
+    })
+
+    expect(em.findOne).toHaveBeenLastCalledWith(SalesQuote,
+      { id: DOCUMENT_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true })
+    expect(findWithDecryption).not.toHaveBeenCalled()
+    expect(em.find).not.toHaveBeenCalled()
+    expect(em.nativeDelete).not.toHaveBeenCalled()
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(em.commit).not.toHaveBeenCalled()
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+  })
+
+  it.each([VALIDATED_VERSION, null])('deletes a quote with expected version %s', async (expectedVersion) => {
+    const { em, document, run } = setup(expectedVersion, false, SalesQuote)
+
+    await expect(run()).resolves.toEqual({ quoteId: DOCUMENT_ID })
+
+    const lockCallOrder = em.findOne.mock.invocationCallOrder.at(-1)!
+    expect(lockCallOrder).toBeLessThan(jest.mocked(findWithDecryption).mock.invocationCallOrder[0])
+    expect(lockCallOrder).toBeLessThan(em.find.mock.invocationCallOrder[0])
+    expect(em.remove).toHaveBeenCalledWith(document)
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(em.rollback).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).toHaveBeenCalledTimes(1)
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(jest.mocked(emitCrudSideEffects).mock.invocationCallOrder[0])
   })
 })
