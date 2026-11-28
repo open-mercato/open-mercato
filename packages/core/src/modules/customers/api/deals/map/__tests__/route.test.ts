@@ -19,6 +19,7 @@ const getAuthMock = jest.fn()
 const queryMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
 const resolveScopeMock = jest.fn()
+const resolveFeatureOrganizationAccessMock = jest.fn()
 // Raw-SQL seam used by buildDealListFilters' People/Companies association resolver
 // (fetchDealIdsMatchingAssociations → em.getConnection().execute). Default: no association rows.
 const executeMock = jest.fn()
@@ -29,6 +30,7 @@ const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'queryEngine') return { query: queryMock }
+    if (name === 'rbacService') return { resolveFeatureOrganizationAccess: resolveFeatureOrganizationAccessMock }
     throw new Error(`Unexpected container resolve: ${name}`)
   }),
 }
@@ -58,17 +60,44 @@ jest.mock('../../../utils', () => {
 })
 
 import { GET } from '../route'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../../utils'
 import {
   CustomerAddress,
   CustomerDealCompanyLink,
   CustomerDealPersonLink,
+  CustomerEntity,
 } from '../../../../data/entities'
 
 const findMatchingMock = findMatchingEntityIdsBySearchTokensAcrossSources as jest.Mock
 
-function mockLinksAndAddresses() {
-  findWithDecryptionMock.mockImplementation(async (_em: unknown, entity: unknown) => {
+type ContactFilter = {
+  id?: { $in: string[] }
+  kind?: string
+  organizationId?: { $in: string[] }
+}
+
+function mockLinksAndAddresses(personOrganizationId = scopedOrgId) {
+  const company = { id: companyEntityId, kind: 'company', organizationId: scopedOrgId, displayName: 'Volt Energia SA' }
+  const person = { id: personEntityId, kind: 'person', organizationId: personOrganizationId, displayName: 'Anna Nowak' }
+  const matches = (contact: typeof company, filter: ContactFilter) =>
+    (!filter.id || filter.id.$in.includes(contact.id))
+    && (!filter.kind || filter.kind === contact.kind)
+    && (!filter.organizationId || filter.organizationId.$in.includes(contact.organizationId))
+  findWithDecryptionMock.mockImplementation(async (
+    _em: unknown, entity: unknown,
+    filter: { company?: ContactFilter; person?: ContactFilter; id?: ContactFilter['id']; $or?: ContactFilter[] },
+  ) => {
+    if (entity === Organization) {
+      return [...new Set([scopedOrgId, personOrganizationId])]
+        .filter((id) => !filter.id || filter.id.$in.includes(id))
+        .map((id) => ({ id, ancestorIds: [] }))
+    }
+    if (entity === CustomerEntity) {
+      return [company, person].filter((contact) =>
+        filter.id?.$in.includes(contact.id) && filter.$or?.some((scope) => matches(contact, scope)),
+      )
+    }
     if (entity === CustomerAddress) {
       return [
         {
@@ -96,19 +125,21 @@ function mockLinksAndAddresses() {
       ]
     }
     if (entity === CustomerDealCompanyLink) {
+      if (filter.company && !matches(company, filter.company)) return []
       return [
         {
           deal: { id: locatedDealId },
-          company: { id: companyEntityId, displayName: 'Volt Energia SA' },
+          company: { id: companyEntityId },
           createdAt: new Date('2026-01-01T00:00:00Z'),
         },
       ]
     }
     if (entity === CustomerDealPersonLink) {
+      if (filter.person && !matches(person, filter.person)) return []
       return [
         {
           deal: { id: locatedDealId },
-          person: { id: personEntityId, displayName: 'Anna Nowak' },
+          person: { id: personEntityId },
           createdAt: new Date('2026-01-02T00:00:00Z'),
         },
       ]
@@ -122,6 +153,7 @@ describe('customers deals map route', () => {
     jest.clearAllMocks()
     getAuthMock.mockResolvedValue({ sub: userId, tenantId, orgId: organizationId })
     resolveScopeMock.mockResolvedValue({ tenantId, filterIds: [scopedOrgId] })
+    resolveFeatureOrganizationAccessMock.mockResolvedValue({ unrestricted: true })
     queryMock.mockResolvedValue({
       items: [
         {
@@ -255,12 +287,12 @@ describe('customers deals map route', () => {
     expect(lightCompanyCall?.[2]).toEqual({ company: { $in: [companyEntityId, personEntityId] } })
     expect(lightCompanyCall?.[3]).toEqual({ fields: ['deal'] })
 
-    // Stage 2 — HEAVY, page-bounded fetch: decrypted/populated links + addresses for THIS page only.
+    // Stage 2: associations, labels, and addresses for this page.
     const heavyCompanyCall = findWithDecryptionMock.mock.calls.find(
-      (call) => call[1] === CustomerDealCompanyLink && call[3]?.populate,
+      (call) => call[1] === CustomerDealCompanyLink && call[2]?.deal,
     )
     expect(heavyCompanyCall?.[2]).toEqual({ deal: { $in: [locatedDealId] } })
-    expect(heavyCompanyCall?.[3]).toEqual({ populate: ['company'] })
+    expect(heavyCompanyCall?.[3]).toEqual({ fields: ['deal', 'company', 'createdAt'] })
     expect(heavyCompanyCall?.[4]).toEqual({ tenantId, organizationId: scopedOrgId })
 
     const heavyAddressCall = findWithDecryptionMock.mock.calls.find(
@@ -532,5 +564,56 @@ describe('customers deals map route', () => {
     mockLinksAndAddresses()
     await GET(new Request('http://localhost/api/customers/deals/map?status=open'))
     expect(findMatchingMock).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { feature: 'customers.companies.view', companyLabel: 'Volt Energia SA', personLabel: null },
+    { feature: 'customers.people.view', companyLabel: null, personLabel: 'Anna Nowak' },
+    { feature: null, companyLabel: null, personLabel: null },
+  ])('uses $feature for association labels and keeps deal locations', async ({ feature, companyLabel, personLabel }) => {
+    mockLinksAndAddresses()
+    resolveFeatureOrganizationAccessMock.mockImplementation(async (_actor, [required]) => ({
+      unrestricted: false,
+      filterOrganizationIds: () => required === feature ? [scopedOrgId] : [],
+    }))
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/map'))
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.items).toEqual([expect.objectContaining({
+      id: locatedDealId,
+      companies: [{ id: companyEntityId, label: companyLabel }],
+      people: [{ id: personEntityId, label: personLabel }],
+      location: expect.objectContaining({ addressId: companyAddressId }),
+    })])
+  })
+
+  it.each([
+    { feature: 'customers.companies.view', personOrg: organizationId, permittedDeal: true },
+    { feature: 'customers.people.view', personOrg: scopedOrgId, permittedDeal: true },
+    { feature: 'customers.people.view', personOrg: organizationId, permittedDeal: false },
+    { feature: null, personOrg: organizationId, permittedDeal: false },
+  ])('scopes linked search for $feature with the person in $personOrg', async ({ feature, personOrg, permittedDeal }) => {
+    mockLinksAndAddresses(personOrg)
+    resolveScopeMock.mockResolvedValue({ tenantId, filterIds: [scopedOrgId, organizationId] })
+    resolveFeatureOrganizationAccessMock.mockImplementation(async (_actor, [required]) => ({
+      unrestricted: false,
+      filterOrganizationIds: () => required === feature ? [scopedOrgId] : [],
+    }))
+    findMatchingMock.mockImplementation(async ({ sources }) =>
+      sources[0].entityType === 'customers:customer_entity' ? [companyEntityId, personEntityId] : [],
+    )
+
+    const response = await GET(new Request('http://localhost/api/customers/deals/map?search=fixture'))
+
+    expect(response.status).toBe(200)
+    expect(queryMock.mock.calls[0][1].filters.id).toEqual(
+      permittedDeal ? { $in: [locatedDealId] } : { $eq: '00000000-0000-0000-0000-000000000000' },
+    )
+    expect(resolveFeatureOrganizationAccessMock).toHaveBeenCalledWith(userId, ['customers.people.view'], { tenantId })
+    expect(resolveFeatureOrganizationAccessMock).toHaveBeenCalledWith(userId, ['customers.companies.view'], { tenantId })
+    if (!feature) {
+      expect(findMatchingMock).toHaveBeenCalledTimes(1)
+    }
   })
 })

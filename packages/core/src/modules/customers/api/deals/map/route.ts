@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
@@ -14,6 +16,7 @@ import {
   CustomerAddress,
   CustomerDealCompanyLink,
   CustomerDealPersonLink,
+  CustomerEntity,
 } from '../../../data/entities'
 import { buildDealListFilters, dealListQuerySchema } from '../route'
 import { applyEntityIdRestriction, findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
@@ -91,7 +94,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Paginated deals that have a resolvable map location',
       description:
-        'Returns a page of deals that have a coordinate-bearing linked company/person address, each enriched with one resolved location (company primary first, then earliest created; person addresses as fallback). Deals with no coordinate-bearing address are excluded entirely, so every item carries a non-null location in normal operation; the schema keeps location nullable only for the rare case where the address is deleted between the located-deal resolution and the page fetch.',
+        'Returns a page of deals that have a coordinate-bearing linked company/person address, each enriched with one resolved location (company primary first, then earliest created; person addresses as fallback). Linked customer labels and search matches require the corresponding customer view permission in the linked record’s organization. Unavailable labels are returned as null. Deals with no coordinate-bearing address are excluded entirely, so every item carries a non-null location in normal operation; the schema keeps location nullable only for the rare case where the address is deleted between the located-deal resolution and the page fetch.',
       query: querySchema,
       responses: [
         { status: 200, description: 'Paged located deals', schema: createPagedListResponseSchema(dealMapItemSchema) },
@@ -107,41 +110,71 @@ export const openApi: OpenApiRouteDoc = {
 
 type DealMapAssociation = z.infer<typeof dealMapAssociationSchema>
 
-type LinkRow = {
-  dealId: string
-  entityId: string
-  label: string
-  createdAt: Date | string | null
+type ContactKind = 'company' | 'person'
+type ContactFilter = {
+  kind: ContactKind
+  tenantId: string
+  deletedAt: null
+  organizationId?: { $in: string[] }
 }
 
-function readEntityRef(ref: unknown): { id: string | null; record: Record<string, unknown> | null } {
-  if (typeof ref === 'string') return { id: ref, record: null }
+function readEntityId(ref: unknown): string | null {
+  if (typeof ref === 'string') return ref
   if (ref && typeof ref === 'object') {
     const record = ref as Record<string, unknown>
-    return { id: typeof record.id === 'string' ? record.id : null, record }
+    return typeof record.id === 'string' ? record.id : null
   }
-  return { id: null, record: null }
+  return null
 }
 
-function readLinkRow(link: { deal: unknown; createdAt?: Date | string | null }, linkedRef: unknown): LinkRow | null {
-  const { id: dealId } = readEntityRef(link.deal)
-  if (!dealId) return null
-  const { id: entityId, record } = readEntityRef(linkedRef)
-  if (!entityId) return null
-  const label = record && typeof record.displayName === 'string' ? record.displayName : ''
-  return { dealId, entityId, label, createdAt: link.createdAt ?? null }
+function readLinkRow(link: { deal: unknown; createdAt?: Date | string | null }, linkedRef: unknown): DealMapLink | null {
+  const dealId = readEntityId(link.deal)
+  const entityId = readEntityId(linkedRef)
+  if (!dealId || !entityId) return null
+  return { dealId, entityId, createdAt: link.createdAt ?? null }
 }
 
-function groupAssociations(rows: LinkRow[]): Map<string, DealMapAssociation[]> {
+function groupAssociations(rows: DealMapLink[], labels: Map<string, string>): Map<string, DealMapAssociation[]> {
   const byDeal = new Map<string, DealMapAssociation[]>()
   for (const row of rows) {
     const bucket = byDeal.get(row.dealId) ?? []
     if (!bucket.some((entry) => entry.id === row.entityId)) {
-      bucket.push({ id: row.entityId, label: row.label })
+      bucket.push({ id: row.entityId, label: labels.get(row.entityId) ?? null })
       byDeal.set(row.dealId, bucket)
     }
   }
   return byDeal
+}
+
+async function resolveContactFilters(
+  em: EntityManager,
+  rbac: RbacService,
+  actorId: string,
+  tenantId: string,
+  organizationIds: string[] | null,
+): Promise<Record<ContactKind, ContactFilter | null>> {
+  const [companyAccess, personAccess] = await Promise.all([
+    rbac.resolveFeatureOrganizationAccess(actorId, ['customers.companies.view'], { tenantId }),
+    rbac.resolveFeatureOrganizationAccess(actorId, ['customers.people.view'], { tenantId }),
+  ])
+  const organizations = companyAccess.unrestricted && personAccess.unrestricted
+    ? []
+    : await findWithDecryption(
+      em,
+      Organization,
+      { tenant: tenantId, deletedAt: null, ...(organizationIds ? { id: { $in: organizationIds } } : {}) },
+      { fields: ['id', 'ancestorIds'] },
+      { tenantId },
+    )
+  const filterFor = (
+    kind: ContactKind,
+    access: typeof companyAccess,
+  ): ContactFilter | null => {
+    const visibleIds = access.unrestricted ? organizationIds : access.filterOrganizationIds(organizations)
+    if (visibleIds?.length === 0) return null
+    return { kind, tenantId, deletedAt: null, ...(visibleIds ? { organizationId: { $in: visibleIds } } : {}) }
+  }
+  return { company: filterFor('company', companyAccess), person: filterFor('person', personAccess) }
 }
 
 function toStringOrNull(value: unknown): string | null {
@@ -171,7 +204,7 @@ function collectRefIds(rows: unknown[], key: string): string[] {
   const ids = new Set<string>()
   for (const row of rows) {
     if (!row || typeof row !== 'object') continue
-    const { id } = readEntityRef((row as Record<string, unknown>)[key])
+    const id = readEntityId((row as Record<string, unknown>)[key])
     if (id) ids.add(id)
   }
   return Array.from(ids)
@@ -195,7 +228,7 @@ function emptyMapResponse(page: number, pageSize: number) {
 
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId) {
+  if (!auth?.tenantId || !auth.sub) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -261,7 +294,7 @@ export async function GET(req: Request) {
   // Located-only, resolved in two stages so the per-request cost stays page-bounded:
   // 1) LIGHT id-only queries (FK columns only, no decryption) determine which deals have a
   //    coordinate-bearing linked company/person, so pagination + `total` operate on located deals.
-  // 2) The HEAVY decrypted/populated fetch (labels + address coordinates) runs only for the deals
+  // 2) The decrypted label and address fetch runs only for the deals
   //    that actually land on the requested page — never the whole located universe.
   const coordinateEntityRows = await findWithDecryption(
     em,
@@ -306,6 +339,11 @@ export async function GET(req: Request) {
     return emptyMapResponse(query.page, query.pageSize)
   }
 
+  const contactFilters = await resolveContactFilters(
+    em, container.resolve<RbacService>('rbacService'), auth.sub, effectiveTenantId, orgScopeIds,
+  )
+  const visibleContactFilters = [contactFilters.company, contactFilters.person].filter((filter) => filter !== null)
+
   const ctx: CrudCtx = {
     container,
     auth,
@@ -325,35 +363,51 @@ export async function GET(req: Request) {
   // matches, and union them with the deal-field matches. The sentinel "no match" id from the
   // deal-field search drops out naturally at the located intersection below, so no special-casing.
   let searchAllowlist = existingAllowlist
-  if (query.search && locatedEntityIds.length > 0) {
-    const nameMatchedEntityIds = await findMatchingEntityIdsBySearchTokensAcrossSources({
-      ctx,
-      query: query.search,
-      sources: [
-        {
+  if (query.search && visibleContactFilters.length) {
+    const visibleLocatedContacts = await findWithDecryption<CustomerEntity>(
+      em,
+      CustomerEntity,
+      { id: { $in: locatedEntityIds }, $or: visibleContactFilters },
+      { fields: ['id', 'kind'] },
+      decryptionScope,
+    )
+    const nameMatchedEntityIds = visibleLocatedContacts.length
+      ? await findMatchingEntityIdsBySearchTokensAcrossSources({
+        ctx: {
+          ...ctx,
+          auth: { ...auth, tenantId: effectiveTenantId },
+          selectedOrganizationId: scope.selectedId ?? null,
+        },
+        query: query.search,
+        sources: [{
           entityType: E.customers.customer_entity,
           fields: ['display_name', 'primary_email', 'primary_phone', 'description'],
-        },
-      ],
-    })
-    const locatedEntitySet = new Set(locatedEntityIds)
-    const locatedMatchedEntityIds = (nameMatchedEntityIds ?? []).filter((id) => locatedEntitySet.has(id))
-    if (locatedMatchedEntityIds.length > 0) {
+        }],
+      })
+      : []
+    const matchedIds = new Set(nameMatchedEntityIds ?? [])
+    const companyMatchIds = visibleLocatedContacts.flatMap((contact) =>
+      contact.kind === 'company' && matchedIds.has(contact.id) ? [contact.id] : [],
+    )
+    const personMatchIds = visibleLocatedContacts.flatMap((contact) =>
+      contact.kind === 'person' && matchedIds.has(contact.id) ? [contact.id] : [],
+    )
+    if (companyMatchIds.length || personMatchIds.length) {
       const [companyNameLinkRows, personNameLinkRows] = await Promise.all([
-        findWithDecryption(
+        companyMatchIds.length && contactFilters.company ? findWithDecryption(
           em,
           CustomerDealCompanyLink,
-          { company: { $in: locatedMatchedEntityIds } },
+          { company: { ...contactFilters.company, id: { $in: companyMatchIds } } },
           { fields: ['deal'] },
           decryptionScope,
-        ),
-        findWithDecryption(
+        ) : [],
+        personMatchIds.length && contactFilters.person ? findWithDecryption(
           em,
           CustomerDealPersonLink,
-          { person: { $in: locatedMatchedEntityIds } },
+          { person: { ...contactFilters.person, id: { $in: personMatchIds } } },
           { fields: ['deal'] },
           decryptionScope,
-        ),
+        ) : [],
       ])
       let nameMatchedDealIds = [
         ...collectRefIds(companyNameLinkRows, 'deal'),
@@ -437,22 +491,21 @@ export async function GET(req: Request) {
     .map((row) => (typeof row.id === 'string' && row.id.trim().length ? row.id : null))
     .filter((value): value is string => value !== null)
 
-  // Heavy fetch, page-bounded: pull decrypted links (for labels) and coordinate-bearing addresses
-  // only for the deals on this page.
+  // Links supply the association and location IDs for the current page.
   const [companyLinks, personLinks] = dealIds.length
     ? await Promise.all([
         findWithDecryption(
           em,
           CustomerDealCompanyLink,
           { deal: { $in: dealIds } },
-          { populate: ['company'] },
+          { fields: ['deal', 'company', 'createdAt'] },
           decryptionScope,
         ),
         findWithDecryption(
           em,
           CustomerDealPersonLink,
           { deal: { $in: dealIds } },
-          { populate: ['person'] },
+          { fields: ['deal', 'person', 'createdAt'] },
           decryptionScope,
         ),
       ])
@@ -460,16 +513,30 @@ export async function GET(req: Request) {
 
   const companyRows = companyLinks
     .map((link) => readLinkRow(link, link.company))
-    .filter((row): row is LinkRow => row !== null)
+    .filter((row): row is DealMapLink => row !== null)
   const personRows = personLinks
     .map((link) => readLinkRow(link, link.person))
-    .filter((row): row is LinkRow => row !== null)
-  const companiesByDeal = groupAssociations(companyRows)
-  const peopleByDeal = groupAssociations(personRows)
+    .filter((row): row is DealMapLink => row !== null)
 
   const linkedEntityIds = Array.from(
     new Set([...companyRows, ...personRows].map((row) => row.entityId)),
   )
+  const labelRows = linkedEntityIds.length && visibleContactFilters.length
+    ? await findWithDecryption<CustomerEntity>(
+        em,
+        CustomerEntity,
+        { id: { $in: linkedEntityIds }, $or: visibleContactFilters },
+        { fields: ['id', 'kind', 'displayName', 'tenantId', 'organizationId'] },
+        decryptionScope,
+      )
+    : []
+  const labels = { company: new Map<string, string>(), person: new Map<string, string>() }
+  for (const row of labelRows) {
+    if (row.kind === 'company' || row.kind === 'person') labels[row.kind].set(row.id, row.displayName)
+  }
+  const companiesByDeal = groupAssociations(companyRows, labels.company)
+  const peopleByDeal = groupAssociations(personRows, labels.person)
+
   const addresses = linkedEntityIds.length
     ? await findWithDecryption(
         em,
@@ -488,7 +555,7 @@ export async function GET(req: Request) {
 
   const addressRows: DealMapAddress[] = []
   for (const address of addresses) {
-    const { id: entityId } = readEntityRef(address.entity)
+    const entityId = readEntityId(address.entity)
     if (!entityId) continue
     addressRows.push({
       id: address.id,
@@ -503,15 +570,10 @@ export async function GET(req: Request) {
     })
   }
 
-  const toLink = (row: LinkRow): DealMapLink => ({
-    dealId: row.dealId,
-    entityId: row.entityId,
-    createdAt: row.createdAt,
-  })
   const locationByDeal: Map<string, DealMapLocation | null> = resolveDealLocations(
     dealIds,
-    companyRows.map(toLink),
-    personRows.map(toLink),
+    companyRows,
+    personRows,
     addressRows,
   )
 
