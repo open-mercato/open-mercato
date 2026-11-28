@@ -11,7 +11,6 @@ type LockSlots = {
   waiters: Set<() => void>
 }
 
-const DEFAULT_LOCK_WAIT_MS = 15_000
 const LOCK_BACKOFF = { baseDelayMs: 50, maxJitterMs: 25 }
 const lockBusy = { acquired: false } as const
 const tillioPoolSlotsKey = Symbol.for('@open-mercato/tillio/lockPoolSlots')
@@ -32,7 +31,7 @@ function getLockWaitMs(em: EntityManager): number {
   const options = em.config.get('driverOptions')
   const timeouts = [options?.lock_timeout, options?.statement_timeout]
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
-  return timeouts.length > 0 ? Math.min(...timeouts) : DEFAULT_LOCK_WAIT_MS
+  return timeouts.length > 0 ? Math.min(...timeouts) : Number.POSITIVE_INFINITY
 }
 
 function unavailable(): Error {
@@ -57,10 +56,12 @@ async function acquireSlot(slots: LockSlots, deadline: number): Promise<void> {
       clearTimeout(timer)
       resolve()
     }
-    const timer = setTimeout(() => {
-      slots.waiters.delete(resume)
-      reject(unavailable())
-    }, remaining)
+    const timer = Number.isFinite(remaining)
+      ? setTimeout(() => {
+        slots.waiters.delete(resume)
+        reject(unavailable())
+      }, remaining)
+      : undefined
     slots.waiters.add(resume)
   })
 }
@@ -81,11 +82,13 @@ function releaseSlot(slots: LockSlots): void {
  * request EntityManager joins the lock transaction through MikroORM's transaction context.
  * The hashtext key also serializes against Tillio on older replicas. A contended key
  * releases its transaction and slot before retrying so it cannot block unrelated scopes.
+ * A configured database lock or statement timeout bounds retries after the first busy response.
  */
 export function createTillioLock(em: EntityManager, key: string): TillioLockRunner {
   return async <T>(run: () => Promise<T>): Promise<T> => {
     const slots = getLockSlots(em)
-    const deadline = performance.now() + getLockWaitMs(em)
+    const lockWaitMs = getLockWaitMs(em)
+    let deadline = Number.POSITIVE_INFINITY
     for (let attempt = 1; ; attempt += 1) {
       await acquireSlot(slots, deadline)
       try {
@@ -103,6 +106,7 @@ export function createTillioLock(em: EntityManager, key: string): TillioLockRunn
       } finally {
         releaseSlot(slots)
       }
+      if (attempt === 1) deadline = performance.now() + lockWaitMs
       const backoff = calculateBackoffDelayMs(Math.min(attempt, 5), LOCK_BACKOFF)
       await delay(Math.min(backoff, remainingTime(deadline)))
     }

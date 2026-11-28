@@ -62,10 +62,11 @@ describe('createTillioLock', () => {
   })
 
   it('waits outside the transaction across lock kinds and frees the slot after failure', async () => {
+    jest.useFakeTimers()
     const connection = {}
     const order: string[] = []
     const { em: operatorEm } = fakeEntityManager(order, connection)
-    const { em: pullEm } = fakeEntityManager(order, connection)
+    const { em: pullEm } = fakeEntityManager(order, connection, 100)
     let finishOperator!: () => void
     const operatorWork = new Promise<void>((resolve) => {
       finishOperator = resolve
@@ -79,42 +80,32 @@ describe('createTillioLock', () => {
     const pull = createTillioLock(pullEm, 'tillio:pull:other-tn:other-org')(async () => 'done')
 
     try {
-      await Promise.resolve()
+      await jest.advanceTimersByTimeAsync(20_000)
       expect(operatorEm.transactional).toHaveBeenCalledTimes(1)
       expect(pullEm.transactional).not.toHaveBeenCalled()
     } finally {
       finishOperator()
-      await operatorResult
-      await expect(pull).resolves.toBe('done')
+      try {
+        await operatorResult
+        await expect(pull).resolves.toBe('done')
+      } finally {
+        jest.useRealTimers()
+      }
     }
     expect(pullEm.transactional).toHaveBeenCalledTimes(1)
   })
 
-  it('removes a timed-out waiter without running its callback or leaking the slot', async () => {
-    jest.useFakeTimers()
-    const connection = {}
-    const { em: holderEm } = fakeEntityManager([], connection)
-    const { em: waiterEm } = fakeEntityManager([], connection, 100)
-    let finishHolder!: () => void
-    const held = new Promise<void>((resolve) => {
-      finishHolder = resolve
-    })
-    const holder = createTillioLock(holderEm, 'tillio:operators:tn:org')(() => held)
-    const withLock = createTillioLock(waiterEm, 'tillio:pull:other-tn:other-org')
+  it('honors the configured lock timeout after a busy probe without running its callback', async () => {
+    const { em, tx } = fakeEntityManager([], {}, 25)
+    const withLock = createTillioLock(em, 'tillio:pull:tn:org')
     const callback = jest.fn(async () => 'done')
-    const waiter = expect(withLock(callback)).rejects.toThrow('wait deadline')
+    tx.execute.mockResolvedValue([{ locked: false }])
 
-    try {
-      await jest.advanceTimersByTimeAsync(100)
-      await waiter
-      expect(waiterEm.transactional).not.toHaveBeenCalled()
-      expect(callback).not.toHaveBeenCalled()
-    } finally {
-      finishHolder()
-      await holder
-      jest.useRealTimers()
-    }
+    await expect(withLock(callback)).rejects.toThrow('wait deadline')
+    expect(tx.execute).toHaveBeenCalled()
+    expect(callback).not.toHaveBeenCalled()
 
+    tx.execute.mockResolvedValue([{ locked: true }])
     await expect(withLock(callback)).resolves.toBe('done')
   })
 })
