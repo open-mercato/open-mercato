@@ -6,7 +6,7 @@ type FakeTransaction = {
   getConnection: jest.Mock
 }
 
-function fakeEntityManager(order: string[], connection = {}, lockTimeout = 0): { em: EntityManager; tx: FakeTransaction } {
+function fakeEntityManager(order: string[], connection = {}): { em: EntityManager; tx: FakeTransaction } {
   const connectionExecute = jest.fn(async () => {
     order.push('lock-outside-transaction')
     return []
@@ -20,7 +20,7 @@ function fakeEntityManager(order: string[], connection = {}, lockTimeout = 0): {
   }
   const em = {
     getConnection: () => connection,
-    config: { get: (key: string) => (key === 'pool' ? { max: 2 } : { lock_timeout: lockTimeout }) },
+    config: { get: () => ({ max: 2 }) },
     transactional: jest.fn(async (callback: (transaction: FakeTransaction) => Promise<unknown>) => {
       order.push('begin')
       const result = await callback(tx)
@@ -66,7 +66,7 @@ describe('createTillioLock', () => {
     const connection = {}
     const order: string[] = []
     const { em: operatorEm } = fakeEntityManager(order, connection)
-    const { em: pullEm } = fakeEntityManager(order, connection, 100)
+    const { em: pullEm } = fakeEntityManager(order, connection)
     let finishOperator!: () => void
     const operatorWork = new Promise<void>((resolve) => {
       finishOperator = resolve
@@ -95,18 +95,19 @@ describe('createTillioLock', () => {
     expect(pullEm.transactional).toHaveBeenCalledTimes(1)
   })
 
-  it('honors the configured lock timeout after a busy probe without running its callback', async () => {
-    const { em, tx } = fakeEntityManager([], {}, 25)
-    const withLock = createTillioLock(em, 'tillio:pull:tn:org')
+  it('lets PostgreSQL acquire a busy lock within a short wait and restores the session timeout', async () => {
+    const { em, tx } = fakeEntityManager([])
+    const key = 'tillio:pull:tn:org'
     const callback = jest.fn(async () => 'done')
-    tx.execute.mockResolvedValue([{ locked: false }])
+    tx.execute
+      .mockResolvedValueOnce([{ locked: false }])
+      .mockResolvedValueOnce([{ milliseconds: 25 }, { milliseconds: 0 }])
+      .mockResolvedValueOnce([{ lock_timeout: '0' }])
 
-    await expect(withLock(callback)).rejects.toThrow('wait deadline')
-    expect(tx.execute).toHaveBeenCalled()
-    expect(callback).not.toHaveBeenCalled()
-
-    tx.execute.mockResolvedValue([{ locked: true }])
-    await expect(withLock(callback)).resolves.toBe('done')
+    await expect(createTillioLock(em, key)(callback)).resolves.toBe('done')
+    expect(tx.execute).toHaveBeenNthCalledWith(5, 'select pg_advisory_xact_lock(hashtext(?::text))', [key])
+    expect(tx.execute).toHaveBeenLastCalledWith("select set_config('lock_timeout', ?, true)", ['0'])
+    expect(callback).toHaveBeenCalledTimes(1)
   })
 })
 

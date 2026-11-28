@@ -28,12 +28,16 @@ function databaseUrl(): string {
   return connectionString
 }
 
-function createOrm(poolMax: number) {
+function createOrm(poolMax: number, options?: string) {
   return MikroORM.init({
     clientUrl: databaseUrl(),
     discovery: { warnWhenNoEntities: false },
     pool: { min: 0, max: poolMax },
-    driverOptions: { connectionTimeoutMillis: CONNECTION_TIMEOUT_MS, statement_timeout: OBSERVATION_TIMEOUT_MS },
+    driverOptions: {
+      connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
+      statement_timeout: OBSERVATION_TIMEOUT_MS,
+      options,
+    },
   })
 }
 
@@ -126,6 +130,24 @@ test.describe('TC-PHONE-006: Tillio advisory lock', () => {
     } finally {
       await observer.query('rollback')
       await Promise.allSettled([contender])
+    }
+  })
+
+  test('honors a lock timeout set by PostgreSQL connection options', async () => {
+    const scopedOrm = await createOrm(2, '-c lock_timeout=25')
+    const key = scopedKey()
+    let entered = false
+
+    try {
+      await observer.query('begin')
+      await observer.query('select pg_advisory_xact_lock(hashtext($1::text))', [key])
+      const withLock = createTillioLock(scopedOrm.em.fork(), key)
+      await expect(withLock(async () => { entered = true })).rejects.toThrow('lock timeout')
+      expect(entered).toBe(false)
+      expect(await readLockRows(observer, key)).toEqual({ granted: 1, waiting: 0 })
+    } finally {
+      await observer.query('rollback')
+      await scopedOrm.close(true)
     }
   })
 
