@@ -392,6 +392,7 @@ export async function ingestInboundEmailMessage(
     senderDisplayName?: string;
     subject?: string;
     body?: string;
+    html?: string;
     externalMessageId: string;
     externalConversationId: string;
   },

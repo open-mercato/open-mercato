@@ -14,7 +14,8 @@ import sanitizeHtml from 'sanitize-html'
  *
  * Allowlist is tuned for email + chat HTML:
  *   - Preserves typical email layout primitives (table-based layouts, inline images, basic typography).
- *   - Strips `<script>`, `<style>`, `<iframe>`, all event-handler attributes (`on*`).
+ *   - Defers network images until the reader explicitly opts in for that message.
+ *   - Strips `<script>`, `<style>`, `<iframe>`, event handlers, and sender-supplied CSS classes.
  *   - Blocks `javascript:` and `data:` URLs except `data:image/*;base64,…` (inline base64 images, common in email).
  */
 
@@ -55,7 +56,7 @@ const ALLOWED_TAGS = [
 
 const ALLOWED_SCHEMES = ['http', 'https', 'mailto', 'tel']
 const ALLOWED_SCHEMES_BY_TAG = {
-  img: ['http', 'https', 'data'],
+  img: ['data'],
 }
 
 /**
@@ -68,31 +69,64 @@ const ALLOWED_SCHEMES_BY_TAG = {
 const SAFE_CSS_COLOR =
   /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$|^rgba?\(\s*[\d.,\s%]+\)$|^hsla?\(\s*[\d.,\s%]+\)$|^[a-z]+$/i
 
+function boundedCssNumber(integer: string): string {
+  return String.raw`0*(?:${integer}(?:\.\d+)?|\.\d+)`
+}
+
+const CSS_ZERO = String.raw`(?:0+(?:\.0+)?|\.0+)`
+const SAFE_CSS_LENGTH = String.raw`(?:${CSS_ZERO}|${boundedCssNumber('[0-9]{1,2}')}px|${boundedCssNumber('[0-4]')}r?em)`
+const SAFE_CSS_SPACING = String.raw`(?:${SAFE_CSS_LENGTH}|${boundedCssNumber('[0-4]?[0-9]')}%)`
+const SAFE_CSS_BORDER_PART = String.raw`(?:${CSS_ZERO}|${boundedCssNumber('[0-9]')}px|${boundedCssNumber('0')}r?em|[a-z]+)`
+
+const SAFE_CSS_FONT_SIZE = new RegExp(String.raw`^(?:${SAFE_CSS_LENGTH}|${boundedCssNumber('[0-4]?[0-9]{1,2}')}%)$`, 'i')
+const SAFE_CSS_BOX_SPACING = new RegExp(String.raw`^${SAFE_CSS_SPACING}(?:\s+${SAFE_CSS_SPACING}){0,3}$`, 'i')
+const SAFE_CSS_BORDER = new RegExp(String.raw`^${SAFE_CSS_BORDER_PART}(?:\s+${SAFE_CSS_BORDER_PART}){0,2}$`, 'i')
+const SAFE_CSS_BORDER_RADIUS = new RegExp(String.raw`^(?:${SAFE_CSS_LENGTH}|${boundedCssNumber('[0-9]{1,2}')}%|0*100(?:\.0+)?%)$`, 'i')
+
 const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: ALLOWED_TAGS,
   allowedAttributes: {
-    a: ['href', 'title', 'class'],
-    img: ['src', 'alt', 'title', 'class', 'width', 'height'],
-    '*': ['class', 'style', 'colspan', 'rowspan', 'width', 'height'],
+    a: ['href', 'title'],
+    img: ['src', 'alt', 'title', 'width', 'height', 'data-channel-remote-src'],
+    '*': ['style', 'colspan', 'rowspan', 'width', 'height'],
   },
   allowedSchemes: ALLOWED_SCHEMES,
   allowedSchemesByTag: ALLOWED_SCHEMES_BY_TAG,
   allowedSchemesAppliedToAttributes: ['href', 'src'],
   allowProtocolRelative: false,
+  transformTags: {
+    img: (tagName, attributes) => {
+      const { src } = attributes
+      const safeAttributes = { ...attributes }
+      delete safeAttributes.src
+      delete safeAttributes['data-channel-remote-src']
+      if (!src) return { tagName, attribs: safeAttributes }
+      if (/^data:/i.test(src)) return { tagName, attribs: { ...safeAttributes, src } }
+      try {
+        const remoteUrl = new URL(src.startsWith('//') ? `https:${src}` : src)
+        if (remoteUrl.protocol === 'http:' || remoteUrl.protocol === 'https:') {
+          safeAttributes['data-channel-remote-src'] = remoteUrl.href
+        }
+      } catch {
+        return { tagName, attribs: safeAttributes }
+      }
+      return { tagName, attribs: safeAttributes }
+    },
+  },
   // disable inline scripts in style attributes
   allowedStyles: {
     '*': {
       'background-color': [SAFE_CSS_COLOR],
       color: [SAFE_CSS_COLOR],
       'text-align': [/^left$|^right$|^center$|^justify$/i],
-      'font-size': [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
+      'font-size': [SAFE_CSS_FONT_SIZE],
       'font-weight': [/^\d{3}$|^bold$|^normal$/],
       'font-style': [/^italic$|^normal$/],
       'text-decoration': [/^underline$|^line-through$|^none$/],
-      padding: [/^[\d\s.]+(?:px|em|rem|%)?$/],
-      margin: [/^[\d\s.]+(?:px|em|rem|%)?$/],
-      border: [/^[\d\s\w.]+$/],
-      'border-radius': [/^\d+(?:\.\d+)?(?:px|em|rem|%)$/],
+      padding: [SAFE_CSS_BOX_SPACING],
+      margin: [SAFE_CSS_BOX_SPACING],
+      border: [SAFE_CSS_BORDER],
+      'border-radius': [SAFE_CSS_BORDER_RADIUS],
       // Permit only `display:none` so the hidden thread-token footer span
       // (`buildBodyFooter`) stays hidden when a sent email body is re-rendered.
       // Every other display value is stripped.
@@ -107,7 +141,7 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
   exclusiveFilter: (frame) => {
     if (frame.tag === 'img' && frame.attribs?.src) {
       const src = frame.attribs.src
-      if (src.startsWith('data:') && !/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(src)) {
+      if (/^data:/i.test(src) && !/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(src)) {
         return true
       }
     }
