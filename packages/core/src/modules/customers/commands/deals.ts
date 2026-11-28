@@ -271,13 +271,33 @@ async function upsertDealStageTransition(
 
 async function deleteDealStageTransitions(em: EntityManager, deal: CustomerDeal): Promise<void> {
   try {
-    await em.nativeDelete(CustomerDealStageTransition, { deal: deal.id })
+    if (em.isInTransaction?.()) {
+      await em.transactional(async (stageEm) => {
+        await stageEm.nativeDelete(CustomerDealStageTransition, { deal: deal.id })
+      }, { clear: true })
+    } else {
+      await em.nativeDelete(CustomerDealStageTransition, { deal: deal.id })
+    }
   } catch (error) {
     if (!isMissingDealStageTransitionTable(error)) {
       throw error
     }
     warnMissingDealStageTransitionTable('customers.commands.deals.deleteTransitions')
   }
+}
+
+function removeDeal(em: EntityManager, deal: CustomerDeal): Promise<void> {
+  return withAtomicFlush(em, [async () => {
+    await deleteDealStageTransitions(em, deal)
+    await em.nativeDelete(CustomerDealPersonLink, { deal })
+    await em.nativeDelete(CustomerDealCompanyLink, { deal })
+    await em.nativeDelete(CustomFieldValue, {
+      entityId: DEAL_ENTITY_ID,
+      recordId: deal.id,
+      $or: [{ tenantId: deal.tenantId }, { tenantId: null }],
+    })
+    em.remove(deal)
+  }], { transaction: true })
 }
 
 async function restoreDealStageTransitions(
@@ -722,13 +742,20 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     const dealId = logEntry?.resourceId
     if (!dealId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const deal = await findOneWithDecryption(em, CustomerDeal, { id: dealId })
+    const deal = await findOneWithDecryption(em, CustomerDeal, { id: dealId, ...commandScopeWhere(ctx) })
     if (!deal) return
-    await deleteDealStageTransitions(em, deal)
-    await em.nativeDelete(CustomerDealPersonLink, { deal })
-    await em.nativeDelete(CustomerDealCompanyLink, { deal })
-    em.remove(deal)
-    await em.flush()
+    ensureTenantScope(ctx, deal.tenantId)
+    ensureOrganizationScope(ctx, deal.organizationId)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await removeDeal(em, deal)
+    await emitCrudUndoSideEffects({
+      dataEngine: de,
+      action: 'deleted',
+      entity: deal,
+      identifiers: { id: deal.id, organizationId: deal.organizationId, tenantId: deal.tenantId },
+      indexer: dealCrudIndexer,
+      events: dealCrudEvents,
+    })
   },
   redo: async ({ logEntry, ctx }) => {
     const after = resolveRedoSnapshot<DealSnapshot>(logEntry)
@@ -1207,14 +1234,8 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       if (!record) throw notFound('Deal not found')
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
-      await deleteDealStageTransitions(em, record)
-      await em.nativeDelete(CustomerDealPersonLink, { deal: record })
-      await em.nativeDelete(CustomerDealCompanyLink, { deal: record })
-      await em.nativeDelete(CustomFieldValue, { entityId: DEAL_ENTITY_ID, recordId: record.id })
-      em.remove(record)
-      await em.flush()
-
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      await removeDeal(em, record)
       await emitCrudSideEffects({
         dataEngine: de,
         action: 'deleted',
@@ -1251,44 +1272,58 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
       const payload = extractUndoPayload<DealUndoPayload>(logEntry)
       const before = payload?.before
       if (!before) return
+      const { id, tenantId, organizationId } = before.deal
+      ensureTenantScope(ctx, tenantId)
+      ensureOrganizationScope(ctx, organizationId)
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      let deal = await findOneWithDecryption(em, CustomerDeal, { id: before.deal.id })
-      if (!deal) {
-        deal = em.create(CustomerDeal, {
-          id: before.deal.id,
-          organizationId: before.deal.organizationId,
-          tenantId: before.deal.tenantId,
-          title: before.deal.title,
-          description: before.deal.description,
-          status: before.deal.status,
-          pipelineStage: before.deal.pipelineStage,
-          pipelineId: before.deal.pipelineId,
-          pipelineStageId: await resolveRestorablePipelineStageId(
-            em,
-            before.deal.pipelineStageId,
-            before.deal.tenantId,
-            before.deal.organizationId,
-          ),
-          valueAmount: before.deal.valueAmount,
-          valueCurrency: before.deal.valueCurrency,
-          probability: before.deal.probability,
-          expectedCloseAt: coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt'),
-          ownerUserId: before.deal.ownerUserId,
-          source: before.deal.source,
-          closureOutcome: before.deal.closureOutcome,
-          lossReasonId: before.deal.lossReasonId,
-          lossNotes: before.deal.lossNotes,
-        })
-        em.persist(deal)
-      }
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
+      let deal!: CustomerDeal
       await withAtomicFlush(em, [
+        async () => {
+          const existing = await findOneWithDecryption(em, CustomerDeal, { id, tenantId, organizationId })
+          if (existing) {
+            deal = existing
+            return
+          }
+          deal = em.create(CustomerDeal, {
+            id,
+            tenantId,
+            organizationId,
+            title: before.deal.title,
+            description: before.deal.description,
+            status: before.deal.status,
+            pipelineStage: before.deal.pipelineStage,
+            pipelineId: before.deal.pipelineId,
+            pipelineStageId: await resolveRestorablePipelineStageId(em, before.deal.pipelineStageId, tenantId, organizationId),
+            valueAmount: before.deal.valueAmount,
+            valueCurrency: before.deal.valueCurrency,
+            probability: before.deal.probability,
+            expectedCloseAt: coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt'),
+            ownerUserId: before.deal.ownerUserId,
+            source: before.deal.source,
+            closureOutcome: before.deal.closureOutcome,
+            lossReasonId: before.deal.lossReasonId,
+            lossNotes: before.deal.lossNotes,
+          })
+          em.persist(deal)
+        },
         () => syncDealPeople(em, deal, before.people, before.primaryPersonEntityId),
         () => syncDealCompanies(em, deal, before.companies),
         () => deleteDealStageTransitions(em, deal),
         () => restoreDealStageTransitions(em, deal, before.transitions),
+        () => setCustomFieldsIfAny({
+          dataEngine: de,
+          transactionalEm: em,
+          entityId: DEAL_ENTITY_ID,
+          recordId: deal.id,
+          organizationId: deal.organizationId,
+          tenantId: deal.tenantId,
+          values: resetValues,
+          notify: false,
+        }),
       ], { transaction: true })
 
-      const de = (ctx.container.resolve('dataEngine') as DataEngine)
       await emitCrudUndoSideEffects({
         dataEngine: de,
         action: 'created',
@@ -1301,19 +1336,6 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         indexer: dealCrudIndexer,
         events: dealCrudEvents,
       })
-
-      const resetValues = buildCustomFieldResetMap(before.custom, undefined)
-      if (Object.keys(resetValues).length) {
-        await setCustomFieldsIfAny({
-          dataEngine: de,
-          entityId: DEAL_ENTITY_ID,
-          recordId: deal.id,
-          organizationId: deal.organizationId,
-          tenantId: deal.tenantId,
-          values: resetValues,
-          notify: false,
-        })
-      }
     },
   }
 

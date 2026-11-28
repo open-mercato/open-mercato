@@ -108,6 +108,7 @@ describe('customers.deals.delete custom field cleanup', () => {
     expect(em.nativeDelete).toHaveBeenCalledWith(CustomFieldValue, {
       entityId: DEAL_ENTITY_ID,
       recordId: DEAL_ID,
+      $or: [{ tenantId: deal.tenantId }, { tenantId: null }],
     })
     expect(em.remove).toHaveBeenCalledWith(deal)
   })
@@ -119,6 +120,23 @@ describe('customers.deals.delete custom field cleanup', () => {
     await expect(handler().execute!({ body: { id: DEAL_ID } }, ctx)).rejects.toBeDefined()
 
     expect(em.nativeDelete).not.toHaveBeenCalledWith(CustomFieldValue, expect.anything())
+  })
+
+  it('cleans up custom fields before queuing the create-undo delete effect', async () => {
+    const deal = makeDeal()
+    const em = makeEm(deal)
+    const { ctx, engine } = makeCtx(em)
+    const createHandler = commandRegistry.get('customers.deals.create') as CommandHandler
+
+    await createHandler.undo!({ input: undefined, logEntry: { resourceId: DEAL_ID }, ctx })
+
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomFieldValue, {
+      entityId: DEAL_ENTITY_ID,
+      recordId: DEAL_ID,
+      $or: [{ tenantId: deal.tenantId }, { tenantId: null }],
+    })
+    expect(engine.markOrmEntityChange).toHaveBeenCalledWith(expect.objectContaining({ action: 'deleted', entity: deal }))
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(engine.markOrmEntityChange.mock.invocationCallOrder[0])
   })
 
   it('restores the deleted custom field values on undo', async () => {
