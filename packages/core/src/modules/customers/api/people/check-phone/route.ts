@@ -4,12 +4,20 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
-import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { CustomerEntity } from '../../../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { MATCH_CANDIDATE_LIMIT } from '../../../lib/findPeopleByAddresses'
+import {
+  hasPersonPhoneLookupPepper,
+  normalizePhoneLookupDigits,
+  personPhoneHashCandidates,
+} from '../../../lib/personPhoneLookup'
+
+const INDEXED_MATCH_PAGE_SIZE = 50
 
 const querySchema = z.object({
   digits: z
@@ -22,8 +30,13 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
 }
 
-function normalizePhoneDigits(value: string | null | undefined): string {
-  return typeof value === 'string' ? value.replace(/\D/g, '') : ''
+function respondWithMatch(person?: Pick<CustomerEntity, 'id' | 'displayName'>) {
+  return NextResponse.json({
+    match: person ? {
+      id: person.id,
+      displayName: isEncryptedPayloadShape(person.displayName) ? null : person.displayName ?? null,
+    } : null,
+  })
 }
 
 export async function GET(req: Request) {
@@ -53,86 +66,60 @@ export async function GET(req: Request) {
     return NextResponse.json({ match: null })
   }
 
-  // SQL fast path, gated on the encryption toggle: it can only match stored
-  // plaintext digits, so running it while tenant data encryption is enabled
-  // (the default) would pay a per-row scan that provably returns nothing.
-  // When encryption is off it serves the pre-encryption single-query behavior,
-  // including legacy plaintext rows. Encrypted rows written before the toggle
-  // was turned off are not resolvable by either path by design; plaintext
-  // legacy rows under an enabled toggle still resolve through the decrypted
-  // scan below, where decryption no-ops on non-ciphertext values.
-  if (!isTenantDataEncryptionEnabled()) {
-    const qb = em.createQueryBuilder(CustomerEntity, 'person')
-    qb.select(['person.id', 'person.displayName'])
-    qb.where({ kind: 'person', deletedAt: null })
-    qb.andWhere('person.primary_phone is not null')
-    qb.andWhere("regexp_replace(person.primary_phone, '\\D', '', 'g') = ?", [parse.data.digits])
-    if (auth.tenantId) {
-      qb.andWhere({ tenantId: auth.tenantId })
-    }
-    qb.andWhere({ organizationId: { $in: Array.from(allowedOrgIds) } })
-    qb.limit(1)
-
-    const fastMatch = await qb.getSingleResult()
-    if (fastMatch) {
-      return NextResponse.json({
-        match: {
-          id: fastMatch.id,
-          displayName: fastMatch.displayName,
-        },
-      })
-    }
-  }
-
-  // Encryption-on path: primary_phone holds random-IV ciphertext, so digit
-  // normalization must run in application code over decrypted rows instead of
-  // SQL against the stored column (issue #3840).
-  // Encryption-on path: primary_phone holds random-IV ciphertext, so digit
-  // normalization must run in application code over decrypted rows instead of
-  // SQL against the stored column (issue #3840). The scan is bounded newest-
-  // first and projected to the columns the route uses plus tenantId/
-  // organizationId, which the decryption path reads per row to resolve each
-  // row's own key (a request-level fallback cannot cover multi-org scans or
-  // null-tenant sessions). A primary_phone blind index is the exact O(1)
-  // follow-up (#5515).
-  const where: FilterQuery<CustomerEntity> = {
-    kind: 'person',
+  const organizationIds = Array.from(allowedOrgIds)
+  const where = {
+    kind: 'person' as const,
     deletedAt: null,
     primaryPhone: { $ne: null },
-    organizationId: { $in: Array.from(allowedOrgIds) },
+    organizationId: { $in: organizationIds },
+    ...(auth.tenantId ? { tenantId: auth.tenantId } : {}),
   }
-  if (auth.tenantId) {
-    where.tenantId = auth.tenantId
+  const fields = ['id', 'displayName', 'primaryPhone', 'tenantId', 'organizationId'] as const
+  const decryptScope = {
+    tenantId: auth.tenantId ?? null,
+    organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
+  }
+  const digits = parse.data.digits
+  const hashes = organizationIds.flatMap((organizationId) => personPhoneHashCandidates(digits, organizationId))
+  const matchesDigits = (candidate: Pick<CustomerEntity, 'primaryPhone'>) =>
+    normalizePhoneLookupDigits(candidate.primaryPhone) === digits
+
+  async function findIndexedMatch() {
+    if (hashes.length === 0) return undefined
+    let lastId: string | undefined
+    for (;;) {
+      const indexed = await findWithDecryption(
+        em,
+        CustomerEntity,
+        { ...where, primaryPhoneDigitsHash: { $in: hashes }, ...(lastId ? { id: { $gt: lastId } } : {}) },
+        { fields, orderBy: { id: 'ASC' }, limit: INDEXED_MATCH_PAGE_SIZE },
+        decryptScope,
+      )
+      const match = indexed.find(matchesDigits)
+      if (match || indexed.length < INDEXED_MATCH_PAGE_SIZE) return match
+      lastId = indexed[indexed.length - 1].id
+    }
   }
 
-  const candidates = await findWithDecryption(
-    em,
-    CustomerEntity,
-    where,
-    {
-      limit: MATCH_CANDIDATE_LIMIT,
-      orderBy: { createdAt: 'DESC' },
-      fields: ['id', 'displayName', 'primaryPhone', 'tenantId', 'organizationId'],
-    },
-    {
-      tenantId: auth.tenantId ?? null,
-      organizationId: resolveSingleOrganizationIdOrDeny(scope, auth) ?? null,
-    },
+  const indexedMatch = await findIndexedMatch()
+  if (indexedMatch) return respondWithMatch(indexedMatch)
+
+  const fallbackWhere = hasPersonPhoneLookupPepper() ? { ...where, primaryPhoneDigitsHash: null } : where
+  if (!isTenantDataEncryptionEnabled()) {
+    const person = await em.createQueryBuilder(CustomerEntity, 'person')
+      .select(['person.id', 'person.displayName', 'person.primaryPhone'])
+      .where(fallbackWhere)
+      .andWhere("person.primary_phone not like '%:%:%:v1'")
+      .andWhere("regexp_replace(person.primary_phone, '\\D', '', 'g') = ?", [digits])
+      .limit(1)
+      .getSingleResult()
+    return respondWithMatch(person && matchesDigits(person) ? person : await findIndexedMatch())
+  }
+
+  const legacy = await findWithDecryption(
+    em, CustomerEntity, fallbackWhere, { limit: MATCH_CANDIDATE_LIMIT, orderBy: { createdAt: 'DESC' }, fields }, decryptScope,
   )
-
-  const match = candidates.find(
-    (candidate) => normalizePhoneDigits(candidate.primaryPhone) === parse.data.digits,
-  )
-  if (!match) {
-    return NextResponse.json({ match: null })
-  }
-
-  return NextResponse.json({
-    match: {
-      id: match.id,
-      displayName: match.displayName,
-    },
-  })
+  return respondWithMatch(legacy.find(matchesDigits) ?? await findIndexedMatch())
 }
 
 const phoneCheckSuccessSchema = z.object({

@@ -4,6 +4,7 @@ import { createRequestContainer, type AppContainer } from '@open-mercato/shared/
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
+import { z } from 'zod'
 import { Dictionary, DictionaryEntry, type DictionaryManagerVisibility } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { installCustomEntitiesFromModules } from '@open-mercato/core/modules/entities/lib/install-from-ce'
 import type { CacheStrategy } from '@open-mercato/cache/types'
@@ -14,6 +15,7 @@ import { createProgressBar } from '@open-mercato/shared/lib/cli/progress'
 import { buildIndexDocument, type IndexCustomFieldValue } from '@open-mercato/core/modules/query_index/lib/document'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
@@ -34,6 +36,8 @@ import {
   CustomerTag,
 } from './data/entities'
 import { ensureDictionaryEntry } from './commands/shared'
+import { backfillPersonPhoneDigests } from './lib/backfillPersonPhoneDigests'
+import { hashPersonPhoneDigits } from './lib/personPhoneLookup'
 import { recomputeNextInteraction } from './lib/interactionProjection'
 import {
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
@@ -2095,6 +2099,7 @@ async function seedCustomerStressTest(
     owner_user_id: string | null
     primary_email: string | null
     primary_phone: string | null
+    primary_phone_digits_hash?: string | null
     status: string | null
     lifecycle_stage: string | null
     source: string | null
@@ -2372,6 +2377,7 @@ async function seedCustomerStressTest(
     const email = `${emailHandle}.${sequence}@${STRESS_TEST_EMAIL_DOMAIN}`
     const timezone = randomChoice(STRESS_TEST_TIMEZONES)
     const personEntityId = randomUUID()
+    const primaryPhone = buildPhone(sequence)
     const personEntityRow: CustomerEntityRow = {
       id: personEntityId,
       organization_id: organizationId,
@@ -2381,7 +2387,8 @@ async function seedCustomerStressTest(
       description: `Stress test contact #${sequence}`,
       owner_user_id: null,
       primary_email: email,
-      primary_phone: buildPhone(sequence),
+      primary_phone: primaryPhone,
+      primary_phone_digits_hash: hashPersonPhoneDigits(primaryPhone, organizationId),
       status: companyRecord.status,
       lifecycle_stage: companyRecord.lifecycleStage,
       source: companyRecord.source,
@@ -3143,7 +3150,37 @@ const interactionsBackfill: ModuleCli = {
   },
 }
 
-const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill]
+const phoneDigestBackfill: ModuleCli = {
+  command: 'phone-digests:backfill',
+  async run(rest) {
+    const options = z.strictObject({
+      tenant: z.uuid(),
+      org: z.uuid(),
+      'dry-run': z.string().optional(),
+    }).safeParse(parseArgs(rest))
+    if (!options.success) {
+      throw new Error('[internal] Usage: mercato customers phone-digests:backfill --tenant <uuid> --org <uuid> [--dry-run]')
+    }
+
+    const dryRunToken = options.data['dry-run']
+    const dryRun = dryRunToken === undefined ? false : parseBooleanToken(dryRunToken)
+    if (dryRun === null) {
+      throw new Error('[internal] Invalid value for --dry-run. Use true or false')
+    }
+
+    const container = await createRequestContainer()
+    const em = container.resolve('em') as EntityManager
+    const encryption = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+    const stats = await backfillPersonPhoneDigests(em, encryption, {
+      tenantId: options.data.tenant,
+      organizationId: options.data.org,
+      dryRun,
+    })
+    console.log('[phone-digests:backfill]', { dryRun, ...stats })
+  },
+}
+
+const customersCliCommands = [seedDictionaries, seedExamples, seedStressTest, interactionsBackfill, phoneDigestBackfill]
 
 export default customersCliCommands
 export async function ensureCustomerCustomFieldDefinitions(

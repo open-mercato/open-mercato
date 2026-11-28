@@ -218,9 +218,23 @@ The lookup pepper keys the hashes used for exact matches such as sign-in by emai
    yarn mercato entities rehash-lookups --tenantless
    ```
 
-4. Re-run the previews and check that they report zero rows to update. Verify email sign-in and remove `LOOKUP_HASH_OLD_PEPPER` from every instance.
+4. Run the [CRM person phone backfill](#backfilling-crm-person-phone-lookup) for each tenant and organization with indexed contacts.
+5. Re-run the previews and check that they report zero rows to update. Verify email sign-in and remove `LOOKUP_HASH_OLD_PEPPER` from every instance.
 
 The command uses the existing data-encryption keys to read encrypted sources and updates their existing hash columns in batches. It verifies each stored digest against a mapped source and the configured peppers, including legacy unkeyed digests. A preview reads the same rows without writing hashes or provisioning keys. If a source cannot be decrypted or verified, or a concurrent edit changes a row, resolve the error and re-run the same scope. Keep the previous pepper configured until every scope is complete. Coordinate any changes to encryption maps separately from the rehash.
+
+### Backfilling CRM person phone lookup
+
+After applying the Customers schema migrations, run the application backfill for each tenant and organization with existing contacts. Use the same lookup pepper and tenant encryption keys as the application.
+
+```bash
+yarn mercato customers phone-digests:backfill --tenant <tenant-uuid> --org <organization-uuid> --dry-run
+yarn mercato customers phone-digests:backfill --tenant <tenant-uuid> --org <organization-uuid>
+```
+
+The dry run reports how many digests need updating. The write run stores digests for readable plaintext and encrypted phones and reports unreadable rows and concurrent edits. Resolve key or encryption-policy issues, then rerun to cover unreadable rows. Rerun after concurrent edits or after rotating the lookup pepper, while the application still accepts the previous pepper.
+
+The CRM phone check uses indexed matches as soon as they are available. Unindexed encrypted contacts are still subject to the compatibility scan limit until backfill completes.
 
 ## Backfilling system-scoped records
 

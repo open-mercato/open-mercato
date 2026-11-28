@@ -1,14 +1,19 @@
-import { Collection, OptionalProps } from '@mikro-orm/core'
-import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Collection, OptionalProps, type EventArgs } from '@mikro-orm/core'
+import { BeforeCreate, BeforeUpdate, Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { DictionaryEntrySortMode } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import type { CalendarEventTypeBehavior } from '../calendar-event-types'
+import { hashPersonPhoneDigits } from '../lib/personPhoneLookup'
 
 export type CustomerEntityKind = 'person' | 'company'
 export type CustomerAddressFormat = 'line_first' | 'street_first'
 
 @Entity({ tableName: 'customer_entities' })
 @Index({ name: 'customer_entities_org_tenant_kind_idx', properties: ['organizationId', 'tenantId', 'kind'] })
+@Index({
+  name: 'customer_entities_phone_digits_hash_org_idx',
+  properties: ['primaryPhoneDigitsHash', 'organizationId'],
+})
 @Index({
   name: 'idx_ce_tenant_org_person_id',
   expression:
@@ -58,6 +63,28 @@ export class CustomerEntity {
 
   @Property({ name: 'primary_phone', type: 'text', nullable: true })
   primaryPhone?: string | null
+
+  @Property({ name: 'primary_phone_digits_hash', type: 'text', nullable: true, hidden: true })
+  primaryPhoneDigitsHash?: string | null
+
+  @BeforeCreate()
+  setPrimaryPhoneDigitsHash(): void {
+    this.primaryPhoneDigitsHash = this.kind === 'person'
+      ? hashPersonPhoneDigits(this.primaryPhone, this.organizationId)
+      : null
+  }
+
+  @BeforeUpdate()
+  updatePrimaryPhoneDigitsHash({ changeSet }: EventArgs<CustomerEntity>): void {
+    const payload = changeSet?.payload
+    if (payload && (
+      Object.hasOwn(payload, 'primaryPhone')
+      || Object.hasOwn(payload, 'organizationId')
+      || Object.hasOwn(payload, 'kind')
+    )) {
+      this.setPrimaryPhoneDigitsHash()
+    }
+  }
 
   @Property({ name: 'status', type: 'text', nullable: true })
   status?: string | null

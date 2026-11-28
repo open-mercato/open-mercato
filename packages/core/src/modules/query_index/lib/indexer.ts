@@ -18,7 +18,7 @@ import { tryGetModules } from '@open-mercato/shared/lib/modules/registry'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { replaceSearchTokensForRecord, deleteSearchTokensForRecord, resolveCiphertextGuard } from './search-tokens'
-import { attachAggregateSearchField, rebuildAggregateSearchField } from './document'
+import { attachAggregateSearchField, omitCustomerPhoneLookupField, rebuildAggregateSearchField } from './document'
 import { applyIndexDocEnrichers } from './doc-enrichers'
 import {
   createSearchTokenGateQueryEngine,
@@ -113,6 +113,7 @@ export async function buildIndexDoc(em: EntityManager, params: BuildDocParams): 
   for (const source of docSources) {
     for (const [k, v] of Object.entries(source)) doc[k] = v
   }
+  omitCustomerPhoneLookupField(doc, params.entityType)
 
   // Attach custom fields under flat keys 'cf:<key>'
   let cfQuery = db
