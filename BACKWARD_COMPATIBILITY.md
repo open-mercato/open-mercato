@@ -585,6 +585,10 @@ SCIM adds 429/503 before credentials; honor Retry-After. Optional `beforeAuth: A
 
 STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 waived by @pkarw. [Migration and approval](.ai/specs/2026-11-06-production-bootstrap-credentials.md).
 
+## MCP HTTP session token, no fallback (2026-11-14, #5173)
+
+STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
 ## File-agent attachment read authorization (2026-11-10, #9117)
 
 STABLE call contract. Nonempty attachment inputs require the execution principal and owner read access. A bridge retaining unauthorized reads would preserve the disclosure. [Migration guidance](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). The [main-line waiver](https://github.com/open-mercato/open-mercato/pull/9127#issuecomment-6852864115) documents the original release decision. The v0.9 release requires its own maintainer acceptance and personal QA after the [required owner-policy support](https://github.com/open-mercato/open-mercato/issues/10762) is settled.

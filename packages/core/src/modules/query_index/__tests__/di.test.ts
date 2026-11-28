@@ -1,4 +1,15 @@
-const mockRecordIndexerError = jest.fn(async () => undefined)
+const mockRecordIndexerError = jest.fn(async (..._args: unknown[]) => undefined)
+const mockReportError = jest.fn()
+const mockDebug = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/telemetry/runtime'),
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
+}))
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => ({ child: () => ({ debug: mockDebug, warn: jest.fn(), error: jest.fn() }) }),
+}))
 
 jest.mock('@open-mercato/shared/lib/indexers/error-log', () => ({
   recordIndexerError: (...args: unknown[]) => mockRecordIndexerError(...args),
@@ -95,7 +106,7 @@ function createBridgeHarness(input: {
     }),
     register: jest.fn(),
   }
-  return { handlers, emitEvent, db, sourceBuilder, em, container }
+  return { handlers, emitEvent, db, sourceBuilder, customFieldBuilder, em, container }
 }
 
 const globalMetadata = createMetadata({
@@ -121,6 +132,58 @@ describe('query_index DI CRUD bridge', () => {
 
   afterAll(() => {
     registerEntityIds({})
+  })
+
+  it('reports a scoped custom-field gate failure while preserving the existing upsert fallback', async () => {
+    const entityType = 'customers:customer_person'
+    const { handlers, emitEvent, customFieldBuilder, container, em } = createBridgeHarness({ entityType, metadata: scopedMetadata })
+    register(container as never)
+    await flushRegistration()
+    const failure = new Error('custom-field lookup unavailable')
+    customFieldBuilder.executeTakeFirst.mockRejectedValueOnce(failure)
+
+    await handlers.get('customers.customer_person.created')!({
+      id: 'person-1', tenantId: 'tenant-1', organizationId: 'org-1',
+    }, { resolve: container.resolve })
+
+    expect(emitEvent).toHaveBeenCalledWith('query_index.upsert_one', {
+      entityType, recordId: 'person-1', tenantId: 'tenant-1', organizationId: 'org-1',
+    })
+    expect(mockRecordIndexerError).toHaveBeenCalledWith({ em }, expect.objectContaining({
+      source: 'query_index', handler: 'event:query_index.crud_bridge.custom_field_gate',
+      entityType, recordId: 'person-1', tenantId: 'tenant-1', organizationId: 'org-1', error: failure,
+    }))
+    expect(mockRecordIndexerError.mock.calls[0][1]).not.toHaveProperty('payload')
+    expect(mockReportError).toHaveBeenCalledWith(failure, expect.objectContaining({ module: 'query_index' }))
+  })
+
+  it.each(['true', 'false'])('skips a scope without custom fields with OM_SEARCH_DEBUG=%s', async (debug) => {
+    const entityType = 'customers:customer_person'
+    const { handlers, emitEvent, container } = createBridgeHarness({
+      entityType, metadata: scopedMetadata, hasCustomField: false,
+      sourceRow: { tenant_id: 'tenant-1', organization_id: 'org-1' },
+    })
+    register(container as never)
+    await flushRegistration()
+
+    const environment = jest.replaceProperty(process, 'env', { ...process.env, OM_SEARCH_DEBUG: debug })
+    try {
+      await handlers.get('customers.customer_person.created')!({
+        id: 'person-1', tenantId: 'tenant-1', organizationId: 'org-1',
+      }, { resolve: container.resolve })
+    } finally {
+      environment.restore()
+    }
+
+    expect(emitEvent).not.toHaveBeenCalled()
+    if (debug === 'true') {
+      expect(mockDebug).toHaveBeenCalledWith(expect.any(String), {
+        entityType, recordId: 'person-1', tenantId: 'tenant-1', organizationId: 'org-1',
+      })
+    } else {
+      expect(mockDebug).not.toHaveBeenCalled()
+    }
+    expect(mockRecordIndexerError).not.toHaveBeenCalled()
   })
 
   it('does not duplicate upsert or delete work owned by the data engine', async () => {

@@ -37,7 +37,7 @@ describe('MCP delegated credential revocation', () => {
     mockSessionKey.mockReset()
   })
 
-  it('preserves independent machine-key execution without the creator session policy', async () => {
+  it('rejects header-only HTTP tool calls without evaluating the creator session policy', async () => {
     const isUserSessionEligible = jest.fn().mockResolvedValue(false)
     const loadAcl = jest.fn().mockResolvedValue({ features: [], isSuperAdmin: false })
     const context = {
@@ -48,13 +48,13 @@ describe('MCP delegated credential revocation', () => {
       id: 'machine-key', createdBy: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-1',
     } as ApiKey)
 
-    await handlers.get('test-tool')!({})
+    expect(await handlers.get('test-tool')!({})).toMatchObject({ isError: true })
 
-    expect(mockExecuteTool).toHaveBeenCalledTimes(1)
+    expect(mockExecuteTool).not.toHaveBeenCalled()
     expect(isUserSessionEligible).not.toHaveBeenCalled()
   })
 
-  it.each(['header', 'session'])('keeps an old %s credential dead after deactivation and reactivation even when its context holds the old row', async (mode) => {
+  it('keeps an old session credential revoked after deactivation and reactivation', async () => {
     let deactivated = false
     let keyAlive = true
     const key = { id: 'key-1', sessionUserId: 'user-1', createdBy: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' } as ApiKey
@@ -72,7 +72,7 @@ describe('MCP delegated credential revocation', () => {
     } as unknown as McpToolContext
     mockSessionKey.mockResolvedValue({ key, secret: 'delegated-secret' })
     createMcpServerForRequest({ name: 'test', version: '1' }, context, key)
-    const invoke = () => handlers.get('test-tool')!(mode === 'session' ? { _sessionToken: 'sess_old' } : {})
+    const invoke = () => handlers.get('test-tool')!({ _sessionToken: 'sess_old' })
 
     await invoke()
     expect(mockExecuteTool).toHaveBeenCalledTimes(1)
