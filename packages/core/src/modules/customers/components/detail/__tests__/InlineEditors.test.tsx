@@ -3,7 +3,8 @@
  */
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { InlineMultilineEditor, InlineTextEditor, renderMultilineMarkdownDisplay } from '../InlineEditors'
+import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { InlineMultilineEditor, InlineNextInteractionEditor, InlineTextEditor, renderMultilineMarkdownDisplay } from '../InlineEditors'
 
 // jsdom does not provide requestAnimationFrame by default.
 ;(global as any).requestAnimationFrame =
@@ -67,6 +68,35 @@ jest.mock('@open-mercato/core/modules/dictionaries/components/AppearanceSelector
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string) => fallback ?? key,
 }))
+
+describe('Inline next interaction editor', () => {
+  it('shows the scheduled date and name while keeping the reference ID in edit mode', () => {
+    const scheduledAt = '2026-11-20T14:00:00.000Z'
+    const activityName = 'Follow-up call'
+    const referenceId = '8eea1658-bc4d-4566-9624-ac2bf04d3680'
+
+    render(
+      <InlineNextInteractionEditor
+        label="Next interaction"
+        valueAt={scheduledAt}
+        valueName={activityName}
+        valueRefId={referenceId}
+        valueIcon={null}
+        valueColor={null}
+        emptyLabel="No next interaction"
+        onSave={jest.fn()}
+      />,
+    )
+
+    expect(screen.getByText(formatDateTime(scheduledAt))).toBeInTheDocument()
+    expect(screen.getByText(activityName)).toBeInTheDocument()
+    expect(screen.queryByText(referenceId, { exact: false })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+
+    expect(screen.getByDisplayValue(referenceId)).toBeInTheDocument()
+  })
+})
 
 describe('Inline multiline editors', () => {
   it('renders markdown preview and falls back to empty label', () => {
