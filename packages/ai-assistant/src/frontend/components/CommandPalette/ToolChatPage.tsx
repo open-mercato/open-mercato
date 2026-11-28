@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRef, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { AI_MARKDOWN_PLUGINS } from '@open-mercato/ui/ai/imagePolicy'
 import { Button } from '@open-mercato/ui/primitives/button'
 import type { ToolInfo, ChatMessage, PendingToolCall, OpenCodeQuestion, AgentStatus } from '../../types'
 import { MessageBubble } from './MessageBubble'
@@ -84,7 +84,7 @@ export function ToolChatPage({
               <span>{pendingQuestion.questions[0].header || 'Confirmation Required'}</span>
             </div>
             <div className="text-sm prose prose-sm dark:prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-1 [&_strong]:font-semibold">
-              <Markdown remarkPlugins={[remarkGfm]}>
+              <Markdown remarkPlugins={AI_MARKDOWN_PLUGINS}>
                 {pendingQuestion.questions[0].question}
               </Markdown>
             </div>

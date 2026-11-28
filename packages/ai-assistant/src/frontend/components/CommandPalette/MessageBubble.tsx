@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { User, Bot } from 'lucide-react'
 import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { AI_MARKDOWN_PLUGINS } from '@open-mercato/ui/ai/imagePolicy'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { ChatMessage } from '../../types'
 
@@ -62,7 +62,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
             // Blockquotes
             '[&_blockquote]:border-l-2 [&_blockquote]:border-muted-foreground/30 [&_blockquote]:pl-3 [&_blockquote]:italic'
           )}>
-            <Markdown remarkPlugins={[remarkGfm]}>
+            <Markdown remarkPlugins={AI_MARKDOWN_PLUGINS}>
               {message.content}
             </Markdown>
           </div>
