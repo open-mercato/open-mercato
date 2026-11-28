@@ -37,7 +37,7 @@ import {
 const ACTIONS = '/api/ai_assistant/ai/actions';
 const AGENT_ID = 'catalog.merchandising_assistant';
 const TOOL_NAME = 'catalog.update_product';
-const PASSWORD = 'Secret123!';
+const PASSWORD = 'QaSecret123!';
 
 type Cleanup = () => Promise<void>;
 

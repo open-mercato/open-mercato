@@ -1,3 +1,4 @@
+import { resolveAttachmentPartition } from '../../../lib/partitionScope'
 import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { getAttachmentStoragePolicy } from '../../../lib/drivers/storageValidation'
 import { LockMode } from '@mikro-orm/core'
@@ -14,7 +15,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Attachment, AttachmentPartition } from '../../../data/entities'
+import { Attachment } from '../../../data/entities'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -106,7 +107,7 @@ async function getAttachment(req: NextRequest, ctx: RouteContext) {
   await assertAttachmentOwnerAccess({ em, context: createAttachmentAccessContext(container), auth, attachment: record, action: 'metadata' })
   const metadata = readAttachmentMetadata(record.storageMetadata)
   const partition = record.partitionCode
-    ? await em.findOne(AttachmentPartition, { code: record.partitionCode })
+    ? await resolveAttachmentPartition(em, record.partitionCode, record)
     : null
   const customFieldValues = await loadCustomFieldValues({
     em,

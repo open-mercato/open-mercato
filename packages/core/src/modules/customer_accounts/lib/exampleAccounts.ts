@@ -16,3 +16,25 @@ export const EXAMPLE_PORTAL_ACCOUNTS: readonly ExamplePortalAccount[] = [
   { email: 'bob.smith@example.com', displayName: 'Bob Smith', password: 'Password123!', roleSlug: 'buyer' },
   { email: 'carol.white@example.com', displayName: 'Carol White', password: 'Password123!', roleSlug: 'viewer' },
 ] as const
+
+
+// Production demo accounts require an operator-managed secret. Their credentials
+// are intentionally absent from the demo account listing.
+export function resolveExamplePortalSeedPassword(
+  account: ExamplePortalAccount,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (env.NODE_ENV?.trim().toLowerCase() !== 'production') return account.password
+
+  const password = env.OM_INIT_PORTAL_DEMO_PASSWORD
+  if (!password?.trim()) return undefined
+  if (password.trim().length < 24 || Buffer.byteLength(password) > 72) {
+    throw new Error('[internal] OM_INIT_PORTAL_DEMO_PASSWORD must contain at least 24 characters and at most 72 UTF-8 bytes')
+  }
+  return password
+}
+
+export function isPublicExamplePortalCredential(email: string, password: string): boolean {
+  if (process.env.NODE_ENV?.trim().toLowerCase() !== 'production') return false
+  return EXAMPLE_PORTAL_ACCOUNTS.some((account) => account.email === email.trim().toLowerCase() && account.password === password)
+}

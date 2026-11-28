@@ -1,5 +1,6 @@
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { withRequiredFeatures } from './featureGuard'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { LockMode } from '@mikro-orm/core'
@@ -1159,11 +1160,11 @@ const cancelPutawayTaskCommand: CommandHandler<PutawayTaskCancelInput, { taskId:
     buildCrudLog(ctx, input, result?.taskId ?? null, 'wms.audit.putaway.cancel', 'Cancel putaway task'),
 }
 
-registerCommand(createPutawayTaskCommand)
-registerCommand(updatePutawayTaskCommand)
-registerCommand(deletePutawayTaskCommand)
-registerCommand(createPutawayTaskFromBalanceCommand)
-registerCommand(assignPutawayTaskCommand)
-registerCommand(startPutawayTaskCommand)
-registerCommand(completePutawayTaskCommand)
-registerCommand(cancelPutawayTaskCommand)
+registerCommand(withRequiredFeatures(createPutawayTaskCommand, [['wms.manage_putaway']]))
+registerCommand(withRequiredFeatures(updatePutawayTaskCommand, [['wms.manage_putaway']]))
+registerCommand(withRequiredFeatures(deletePutawayTaskCommand, [['wms.manage_putaway']]))
+registerCommand(withRequiredFeatures(createPutawayTaskFromBalanceCommand, [['wms.manage_putaway']]))
+registerCommand(withRequiredFeatures(assignPutawayTaskCommand, [['wms.manage_putaway']]))
+registerCommand(withRequiredFeatures(startPutawayTaskCommand, [['wms.manage_putaway']]))
+registerCommand(withRequiredFeatures(completePutawayTaskCommand, [['wms.adjust_inventory']]))
+registerCommand(withRequiredFeatures(cancelPutawayTaskCommand, [['wms.manage_putaway']]))

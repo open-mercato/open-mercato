@@ -18,6 +18,14 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['security.profile.view'] },
 }
 
+function serializeProviderMetadata(type: string, metadata?: Record<string, unknown> | null) {
+  if (type !== 'totp' || !metadata) return metadata ?? null
+
+  const publicMetadata = { ...metadata }
+  delete publicMetadata.secret
+  return publicMetadata
+}
+
 export async function GET(req: Request) {
   const context = await resolveMfaRequestContext(req)
   if (context instanceof NextResponse) return context
@@ -29,7 +37,7 @@ export async function GET(req: Request) {
         id: method.id,
         type: method.type,
         label: method.label ?? null,
-        providerMetadata: method.providerMetadata ?? null,
+        providerMetadata: serializeProviderMetadata(method.type, method.providerMetadata),
         lastUsedAt: method.lastUsedAt ? method.lastUsedAt.toISOString() : null,
         createdAt: method.createdAt.toISOString(),
       })),

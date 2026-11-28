@@ -576,6 +576,27 @@ function assertLoopRuntimeOverrideAllowed(
 }
 
 /**
+ * Guards per-call model `callSettings` against agents that have opted out of
+ * runtime overrides by setting `allowRuntimeOverride: false` (or the
+ * deprecated `allowRuntimeModelOverride: false`). The agent's own
+ * `modelSettings` are unaffected.
+ *
+ * Throws `AgentPolicyError` with code `runtime_override_disabled` when the
+ * agent has opted out and the caller supplied at least one call setting.
+ */
+function assertCallSettingsOverrideAllowed(
+  agent: AiAgentDefinition,
+  callSettings: AiAgentCallSettings | undefined,
+): void {
+  if (Object.keys(mergeCallSettings(undefined, callSettings)).length === 0) return
+  if (resolveAllowRuntimeOverride(agent)) return
+  throw new AgentPolicyError(
+    'runtime_override_disabled',
+    `Agent "${agent.id}" has runtime override disabled (allowRuntimeOverride: false). Remove callSettings to proceed.`,
+  )
+}
+
+/**
  * Reads `<MODULE>_AI_LOOP_*` env shorthands for the given module id.
  * Returns a partial `AiAgentLoopConfig` containing only the axes that are
  * explicitly set in the environment. Missing or malformed values are silently
@@ -1942,6 +1963,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     container: input.container,
     conversationId: effectiveSessionId,
   })
+  assertCallSettingsOverrideAllowed(agent, input.callSettings)
 
   const resolvedAttachments = await resolveAttachmentPartsForAgent({
     agent,
@@ -2621,6 +2643,7 @@ export async function runAiAgentObject<TSchema = unknown>(
     apiKeyId: input.apiKeyId,
     correlationId: input.correlationId,
   })
+  assertCallSettingsOverrideAllowed(agent, input.callSettings)
   const runMutationPolicyOverride = resolveAgentRunMutationPolicyOverride({
     channel: input.channel,
     mutationMode: input.mutationMode,

@@ -43,6 +43,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ t: (key: string) => key }),
+}))
+
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   __esModule: true,
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
@@ -274,6 +278,21 @@ describe('chat route — streaming branch wires auth + em through to the handler
       },
     })
     expect(handlerInput.em).toBeDefined()
+  })
+})
+
+describe('chat route — session key creation', () => {
+  it('returns 503 without starting OpenCode when the session key cannot be persisted', async () => {
+    mockCreateSessionApiKey.mockRejectedValueOnce(new Error('[internal] Session storage unavailable'))
+
+    const response = await POST(buildRequest({
+      messages: [{ role: 'user', content: 'hello' }],
+    }))
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({ error: 'ai_assistant.session.error.failed' })
+    expect(mockHandleOpenCodeMessageStreaming).not.toHaveBeenCalled()
+    expect(mockBindOpencodeSessionToApiKey).not.toHaveBeenCalled()
   })
 })
 

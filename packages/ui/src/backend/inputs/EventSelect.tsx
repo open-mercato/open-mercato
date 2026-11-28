@@ -27,6 +27,9 @@ export interface EventDefinition {
   module?: string
   entity?: string
   excludeFromTriggers?: boolean
+  workflowEmittable?: boolean
+  portalBroadcast?: boolean
+  crossProcessBroadcast?: boolean
   payloadSchema?: EventPayloadSchema
 }
 

@@ -52,7 +52,7 @@ function profileSnapshot() {
 
 function buildCtx(record: Record<string, unknown>) {
   return {
-    auth: { tenantId: TENANT, orgId: ORG },
+    auth: { sub: '99999999-9999-4999-8999-999999999999', tenantId: TENANT, orgId: ORG },
     selectedOrganizationId: ORG,
     container: {
       resolve: (name: string) => {
@@ -64,6 +64,7 @@ function buildCtx(record: Record<string, unknown>) {
             }),
           }
         }
+        if (name === 'rbacService') return { userHasAllFeatures: async () => true }
         throw new Error(`unexpected resolve: ${name}`)
       },
     },

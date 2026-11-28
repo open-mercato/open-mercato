@@ -29,10 +29,12 @@ const logger = jest.requireMock<{ createLogger: () => LoggerMock }>('@open-merca
 
 const payload = {
   paymentId: 'payment-1',
-  organizationId: 'org-1',
-  tenantId: 'tenant-1',
+  organizationId: 'untrusted-org',
+  tenantId: 'untrusted-tenant',
   transactionId: 'gw-tx-1',
 }
+
+const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
 const subscribers = [
   { name: 'gateway-payment-authorized', handle: handleAuthorized, status: 'completed', conflictingStatus: 'expired' },
@@ -48,7 +50,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status, confl
     const failure = new Error('db unavailable')
     executeMock.mockRejectedValueOnce(failure)
 
-    await expect(handle(payload)).resolves.toBeUndefined()
+    await expect(handle(payload, scope)).resolves.toBeUndefined()
 
     expect(reportErrorMock).toHaveBeenCalledTimes(1)
     expect(reportErrorMock).toHaveBeenCalledWith(failure, expect.objectContaining({
@@ -72,7 +74,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status, confl
     })
     executeMock.mockRejectedValueOnce(refusal)
 
-    await expect(handle(payload)).resolves.toBeUndefined()
+    await expect(handle(payload, scope)).resolves.toBeUndefined()
 
     expect(reportErrorMock).toHaveBeenCalledTimes(1)
     expect(reportErrorMock).toHaveBeenCalledWith(refusal, expect.objectContaining({
@@ -91,7 +93,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status, confl
     })
     executeMock.mockRejectedValueOnce(conflict)
 
-    await expect(handle(payload)).resolves.toBeUndefined()
+    await expect(handle(payload, scope)).resolves.toBeUndefined()
 
     expect(reportErrorMock).toHaveBeenCalledTimes(1)
     expect(reportErrorMock).toHaveBeenCalledWith(conflict, expect.objectContaining({
@@ -103,7 +105,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status, confl
     const missingLink = new CrudHttpError(404, { error: 'Payment link not found' })
     executeMock.mockRejectedValueOnce(missingLink)
 
-    await expect(handle(payload)).resolves.toBeUndefined()
+    await expect(handle(payload, scope)).resolves.toBeUndefined()
 
     expect(reportErrorMock).toHaveBeenCalledTimes(1)
     expect(reportErrorMock).toHaveBeenCalledWith(missingLink, expect.objectContaining({
@@ -114,7 +116,7 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status, confl
   it('stays quiet when the payment does not belong to a checkout transaction', async () => {
     executeMock.mockRejectedValueOnce(new CrudHttpError(404, { error: 'Transaction not found' }))
 
-    await expect(handle(payload)).resolves.toBeUndefined()
+    await expect(handle(payload, scope)).resolves.toBeUndefined()
 
     expect(reportErrorMock).not.toHaveBeenCalled()
     expect(logger.error).not.toHaveBeenCalled()
@@ -129,19 +131,24 @@ describe.each(subscribers)('checkout $name subscriber', ({ handle, status, confl
       requestedStatus: status,
     }))
 
-    await expect(handle(payload)).resolves.toBeUndefined()
+    await expect(handle(payload, scope)).resolves.toBeUndefined()
 
     expect(reportErrorMock).not.toHaveBeenCalled()
     expect(logger.error).not.toHaveBeenCalled()
   })
 
+  it('refuses a payment update without trusted scope', async () => {
+    await expect(handle(payload, {})).rejects.toThrow('requires trusted event scope')
+    expect(executeMock).not.toHaveBeenCalled()
+  })
+
   it('does not report a successful status update', async () => {
     executeMock.mockResolvedValueOnce({ ok: true })
 
-    await expect(handle(payload)).resolves.toBeUndefined()
+    await expect(handle(payload, scope)).resolves.toBeUndefined()
 
     expect(executeMock).toHaveBeenCalledWith('checkout.transaction.updateStatus', expect.objectContaining({
-      input: expect.objectContaining({ id: 'payment-1', status }),
+      input: expect.objectContaining({ id: 'payment-1', status, ...scope }),
     }))
     expect(reportErrorMock).not.toHaveBeenCalled()
   })
@@ -160,7 +167,7 @@ describe.each(subscribers.filter(({ status }) => status !== 'completed'))(
         requestedStatus: status,
       }))
 
-      await expect(handle(payload)).resolves.toBeUndefined()
+      await expect(handle(payload, scope)).resolves.toBeUndefined()
 
       expect(reportErrorMock).not.toHaveBeenCalled()
       expect(logger.error).not.toHaveBeenCalled()

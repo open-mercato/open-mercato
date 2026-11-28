@@ -42,15 +42,21 @@ describe('translations injection-table', () => {
     expect(injectionTable['crud-form:dictionaries.entry:header']).toBeUndefined()
   })
 
-  it('uses the correct widget ID for all entries', () => {
+  it('uses the existing manager widget for CRUD form headers', () => {
     const widgetId = 'translations.injection.translation-manager'
-    for (const slots of Object.values(injectionTable)) {
+    for (const [spotId, slots] of Object.entries(injectionTable)) {
+      if (!spotId.startsWith('crud-form:')) continue
       const slotsArray = Array.isArray(slots) ? slots : [slots]
       for (const slot of slotsArray) {
         const resolved = typeof slot === 'string' ? slot : slot.widgetId
         expect(resolved).toBe(widgetId)
       }
     }
+  })
+
+  it('contributes dedicated actions to the dictionary and field-definition hosts', () => {
+    expect(injectionTable['dictionaries:entry:actions']).toBe('translations.injection.dictionary-entry-translation')
+    expect(injectionTable['entities:field-definition:actions']).toBe('translations.injection.field-definition-translation')
   })
 
   it('includes resources:resources_resource in both full and short form', () => {

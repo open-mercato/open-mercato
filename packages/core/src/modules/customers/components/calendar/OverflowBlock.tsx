@@ -25,6 +25,7 @@ export type OverflowBlockProps = {
   width: string
   open: boolean
   conflictIds: Set<string>
+  conflictDescriptions?: ReadonlyMap<string, string>
   showConflicts: boolean
   highlightItemId?: string | null
   typeIcons?: Record<string, string | null>
@@ -68,6 +69,7 @@ export function OverflowBlock({
   width,
   open,
   conflictIds,
+  conflictDescriptions,
   showConflicts,
   highlightItemId,
   typeIcons,
@@ -143,6 +145,7 @@ export function OverflowBlock({
             const title = item.title || untitled
             const timeRange = formatTimeRange(locale, item.start, item.end)
             const joinUrl = resolveJoinUrl(item.location)
+            const conflictDescription = showConflicts ? conflictDescriptions?.get(item.id) : undefined
             const rowClassName = cn(
               'flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-start',
               showConflicts && conflictIds.has(item.id) && 'ring-1 ring-status-warning-icon',
@@ -167,6 +170,8 @@ export function OverflowBlock({
                     type="button"
                     variant="ghost"
                     aria-label={`${title}, ${timeRange}`}
+                    aria-description={conflictDescription}
+                    title={conflictDescription}
                     className={cn('h-auto whitespace-normal', rowClassName)}
                     onClick={() => {
                       onOpenChange(false)
@@ -192,6 +197,8 @@ export function OverflowBlock({
                       type="button"
                       variant="ghost"
                       aria-label={`${title}, ${timeRange}`}
+                      aria-description={conflictDescription}
+                      title={conflictDescription}
                       className={cn('h-auto whitespace-normal', rowClassName)}
                     >
                       {rowContent}

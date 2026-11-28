@@ -1,3 +1,24 @@
+# 0.10.1 (2026-11-25)
+
+<!-- Release notes generated using configuration in .github/release.yml at c8272a5ac8ad23b35b702eaa9cf9313eb9d6304a -->
+
+## What's Changed
+### 🔒 Security
+* fix(sso): keep normalized return redirects on the application origin (#9019) by @open-mercato-assistant[bot] in https://github.com/open-mercato/open-mercato/pull/10394
+* fix(core): decrypt rehydrated user and customer activity lists (#5447) by @open-mercato-assistant[bot] in https://github.com/open-mercato/open-mercato/pull/10403
+* security(audit_logs): deny action-log list and export on an empty organization scope by @open-mercato-assistant[bot] in https://github.com/open-mercato/open-mercato/pull/10445
+* fix(security): deny login when the MFA challenge cannot be created by @open-mercato-assistant[bot] in https://github.com/open-mercato/open-mercato/pull/10498
+* fix(encryption): keep lookups working during pepper rotation (#10177) by @open-mercato-assistant[bot] in https://github.com/open-mercato/open-mercato/pull/10228
+* fix(security): harden extension header parsing and analytics SQL identifiers (#10331, #10332) by @open-mercato-assistant[bot] in https://github.com/open-mercato/open-mercato/pull/10455
+* fix(deps): patch Hono middleware bypass vulnerabilities by @open-mercato-assistant[bot] in https://github.com/open-mercato/open-mercato/pull/10566
+* security(record_locks): deny lock routes on an empty organization scope by @open-mercato-assistant[bot] in https://github.com/open-mercato/open-mercato/pull/10640
+* fix(entities): backport relation options authorization (#9106) by @pkarw in https://github.com/open-mercato/open-mercato/pull/10545
+### 🐛 Fixes
+* fix(cli): let module add read unset Yarn registry settings (#10569) by @open-mercato-assistant[bot] in https://github.com/open-mercato/open-mercato/pull/10575
+
+
+**Full Changelog**: https://github.com/open-mercato/open-mercato/compare/v0.10.0...v0.10.1
+
 # 0.10.0 (2026-11-23)
 
 ## Highlights

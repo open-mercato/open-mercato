@@ -127,7 +127,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
   const credentials = await resolveOAuthClientCredentials(credentialsService, provider, {
     tenantId: auth.tenantId as string,
     organizationId: (auth as { orgId?: string | null }).orgId ?? null,
-  })
+  }, { requireComplete: true })
   if (!credentials) {
     return NextResponse.json(
       {
@@ -218,6 +218,7 @@ export const openApi = {
         { status: 200, description: 'Authorize URL + state cookie set' },
         { status: 400, description: 'Invalid provider or unsupported (no OAuth)' },
         { status: 401, description: 'Unauthorized' },
+        { status: 409, description: 'OAuth client configuration is missing or incomplete' },
         { status: 422, description: 'Invalid request body' },
         { status: 500, description: 'OAuth state secret missing or state encryption failed' },
         { status: 502, description: 'Adapter failed to build authorize URL' },

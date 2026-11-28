@@ -403,13 +403,12 @@ export function MerchandisingAssistantSheet({
           data-ai-merchandising-trigger=""
           aria-label={triggerLabel}
           title={triggerLabel}
-          className="relative"
         >
           <AiIcon className="size-4" />
           <span>{labelText}</span>
           {hasSelection ? (
             <span
-              className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-medium leading-none text-primary-foreground"
+              className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-xs font-medium leading-none text-primary-foreground"
               data-ai-merchandising-selected-count={selectedCount}
             >
               {selectedCount}

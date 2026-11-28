@@ -1,6 +1,6 @@
 ---
 title: "Assert auth redirect responses before following them"
-modules: ["auth", "sso"]
+modules: ["auth", "sso", "security"]
 areas: ["integration", "testing"]
 topics: ["testing", "api-contracts", "redirects", "session-revocation"]
 ---
@@ -12,3 +12,5 @@ The #7824 SCIM regression expected `GET /api/auth/session/refresh` to return 401
 Check the handler and its existing route tests before asserting authentication status codes. For browser endpoints, set `maxRedirects: 0` and assert the redirect status and destination. Verify the JSON API separately: `POST /api/auth/session/refresh` accepts `{ refreshToken }` and returns 401 for the revoked credential. A final response status after redirects does not establish whether the original endpoint accepted the credential.
 
 Evidence: `packages/core/src/modules/auth/api/session/refresh.ts`; `packages/core/src/modules/auth/api/__tests__/session.refresh.test.ts`; `packages/enterprise/src/modules/sso/__integration__/api/TC-SSO-007-deactivation-login.spec.ts`; [CI job for PR #8088](https://github.com/open-mercato/open-mercato/actions/runs/40594390188/job/122511460353).
+
+The MFA enrollment page intentionally consumes `reason`, `overdue`, and `redirect` parameters after displaying its notice. Capture the navigation response before visiting the protected page to assert the incoming parameters, then assert the clean final URL and visible overdue notice. Waiting for the final URL to retain consumed parameters caused TC-SEC-005 to time out in PR #9753; TC-SEC-001 already specifies their removal.
