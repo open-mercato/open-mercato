@@ -1077,6 +1077,10 @@ Playwright API-level tests verifying end-to-end rate limiting behavior:
 
 ## Changelog
 
+### Auth fallback isolation
+
+Staff login and password reset, and customer login, signup, password reset, and magic-link requests, scope both configured quotas to the hashed identifier when no trusted client address is available. Invalid requests without a usable identifier and endpoints that do not opt in retain their endpoint-wide fallback quota. Configure the exact trusted proxy depth to enforce a per-client quota across identifiers. The proxy trust policy and HTTP 429 response contract are unchanged.
+
 ### 2026-07-10 (Direct and Proxy Rate-Limit Hardening — #4041)
 - Defaulted proxy trust depth to safe direct mode (`0`) and made invalid values warn and fall back to direct mode.
 - Preserved `getClientIp(req, depth)` while rejecting undersized forwarded chains and keeping exact one-/multi-proxy extraction.

@@ -163,6 +163,17 @@ function normalizeLookupValue(value: string): string {
   return value.toLowerCase().trim()
 }
 
+function normalizeLookupPepper(value: string | undefined): string | null {
+  return value?.trim().replace(/(?:^['"]|['"]$)/g, '') || null
+}
+
+function keyedLookupHash(value: string, pepper: string, context?: string): string {
+  const normalized = normalizeLookupValue(value)
+  const message = context ? `${context}:${normalized}` : normalized
+  const digest = crypto.createHmac('sha256', pepper).update(message).digest('hex')
+  return `${LOOKUP_HASH_V2_PREFIX}${digest}`
+}
+
 /**
  * Legacy, unkeyed lookup digest (`sha256(lower(trim(value)))`).
  *
@@ -195,8 +206,7 @@ function resolveLookupPepper(): string | null {
     process.env.TENANT_DATA_ENCRYPTION_KEY,
   ]
   for (const candidate of candidates) {
-    if (typeof candidate !== 'string') continue
-    const normalized = candidate.trim().replace(/(?:^['"]|['"]$)/g, '')
+    const normalized = normalizeLookupPepper(candidate)
     if (normalized) return normalized
   }
   return null
@@ -215,26 +225,22 @@ function resolveLookupPepper(): string | null {
  */
 export function hashForLookup(value: string, context?: string): string {
   const pepper = resolveLookupPepper()
-  const normalized = normalizeLookupValue(value)
-  if (!pepper) {
-    return legacyHashForLookup(value)
-  }
-  const message = context ? `${context}:${normalized}` : normalized
-  const digest = crypto.createHmac('sha256', pepper).update(message).digest('hex')
-  return `${LOOKUP_HASH_V2_PREFIX}${digest}`
+  return pepper ? keyedLookupHash(value, pepper, context) : legacyHashForLookup(value)
 }
 
 /**
- * Candidate lookup hashes for matching a value against `*_hash` columns that may hold
- * either the new keyed (`v2:`) digest or a legacy unkeyed digest. Use this in `$in` /
- * `IN (...)` filters during the migration window so reads keep matching rows written
- * before the keyed format. Once a backfill has recomputed all columns this can collapse
- * back to a single {@link hashForLookup} value.
+ * Match the current keyed digest, an optional digest under `LOOKUP_HASH_OLD_PEPPER`,
+ * and the legacy unkeyed digest. Writes always use {@link hashForLookup}.
  */
 export function lookupHashCandidates(value: string, context?: string): string[] {
-  const primary = hashForLookup(value, context)
+  const pepper = resolveLookupPepper()
+  const previousPepper = normalizeLookupPepper(process.env.LOOKUP_HASH_OLD_PEPPER)
   const legacy = legacyHashForLookup(value)
-  return primary === legacy ? [primary] : [primary, legacy]
+  const candidates = pepper ? [keyedLookupHash(value, pepper, context), legacy] : [legacy]
+  if (previousPepper && previousPepper !== pepper) {
+    candidates.splice(1, 0, keyedLookupHash(value, previousPepper, context))
+  }
+  return candidates
 }
 
 /**

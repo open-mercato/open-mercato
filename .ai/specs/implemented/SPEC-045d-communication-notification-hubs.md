@@ -1274,6 +1274,16 @@ send-as-user parent provenance with/without a reply link, explicit selection,
 invalid scope/channel/provider records, ambiguity, single-mapping native sends,
 missing explicit mappings, and terminal delivery states.
 
+**Native replies to send-as-user email (#9071):** When the reply link lacks a
+recipient, delivery uses the reply's saved recipient and subject, and derives
+the RFC reply headers from the outbound parent link in the resolved conversation.
+The same lookup applies to retries of failed links. The worker retries when
+the parent is still in flight or its provider-native thread is still being adopted.
+Providers such as SMTP that retain an `outbound:` reference do not wait for
+adoption after the parent has been delivered. Regression coverage runs delivery
+through the Gmail and SMTP converters and checks that the adapter is skipped
+while the reply is waiting to retry.
+
 **Failure handling**: If `sendMessage` fails:
 - `MessageChannelLink.deliveryStatus = 'failed'`
 - Error logged to `integrationLog`
@@ -2339,7 +2349,9 @@ None.
 
 ## Changelog
 
+- 2026-11-24: Keep SMTP-style replies deliverable when the parent retains its `outbound:` reference; wait only for adoption of provider-native references (#9071).
 - 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
+- 2026-11-22: Supply recipient and RFC reply headers for native replies to send-as-user email (#9071).
 
 - 2026-10-29: Block channel-email remote image loads until per-message consent (#7819); preserve safe embedded raster images and add sanitizer, enricher, widget, and browser network-request regression coverage.
 

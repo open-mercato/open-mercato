@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
@@ -14,27 +15,41 @@ import {
 } from './lib/webhook-handler'
 import { formatTpayWebhookResponse } from './lib/webhook-response'
 
-export function register(container: AppContainer) {
-  registerGatewayAdapter(tpayAdapterV1, { version: 'v1' })
-  registerWebhookHandler('tpay', (input) => verifyTpayNotification(input), {
-    readPaymentIdHint: readTpayPaymentIdHint,
-    rawBody: 'bytes',
-    maxBodyBytes: TPAY_WEBHOOK_MAX_BODY_BYTES,
-    formatResponse: formatTpayWebhookResponse,
+function registerWithActivation(container: AppContainer, activate: (callback: () => void) => void) {
+  activate(() => {
+    registerGatewayAdapter(tpayAdapterV1, { version: 'v1' })
   })
-  registerPaymentGatewayDescriptor({
-    providerKey: 'tpay',
-    label: 'Tpay',
-    requiresPayerFields: ['email', 'name'],
-    sessionConfig: {
-      fields: [],
-      supportedCurrencies: ['PLN'],
-      supportedPaymentTypes: [{ value: 'pay_by_link', label: 'Online transfer / BLIK (Tpay hosted page)' }],
-      presentation: 'redirect',
-    },
+  activate(() => {
+    registerWebhookHandler('tpay', (input) => verifyTpayNotification(input), {
+      readPaymentIdHint: readTpayPaymentIdHint,
+      rawBody: 'bytes',
+      maxBodyBytes: TPAY_WEBHOOK_MAX_BODY_BYTES,
+      formatResponse: formatTpayWebhookResponse,
+    })
+  })
+  activate(() => {
+    registerPaymentGatewayDescriptor({
+      providerKey: 'tpay',
+      label: 'Tpay',
+      requiresPayerFields: ['email', 'name'],
+      sessionConfig: {
+        fields: [],
+        supportedCurrencies: ['PLN'],
+        supportedPaymentTypes: [{ value: 'pay_by_link', label: 'Online transfer / BLIK (Tpay hosted page)' }],
+        presentation: 'redirect',
+      },
+    })
   })
 
   container.register({
     tpayHealthCheck: asValue(tpayHealthCheck),
   })
 }
+
+export function register(container: AppContainer): void {
+  registerWithActivation(container, (activate) => activate())
+}
+
+defineProcessDiRegistrar((container: AppContainer) => {
+  registerWithActivation(container, (activate) => registerProcessActivation(container, activate))
+}, { legacy: register })

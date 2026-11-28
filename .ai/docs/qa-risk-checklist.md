@@ -58,6 +58,7 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 
 - Check page title, breadcrumb and visual editors as well as the form body.
 - Dictionary entries have two translation paths, and a screen may use only one.
+- Check the translation input's accessible name and full width at mobile and desktop sizes. Saving a custom-field label must leave the indexer error log clear.
 - The product default is English; saved preferences may choose another locale. Select Polish explicitly for decimal-comma checks and record the selected language.
 
 ## Data integrity
@@ -79,6 +80,11 @@ Recurring risks from manual QA of Open Mercato, grouped by area. `om-auto-qa-pr`
 - Long operations need polling while active, plus a manual refresh.
 - Persistent events run with a delay. Wait before reporting that a trigger did not fire.
 - An async workflow step must resume in a separate worker process.
+
+## Optional modules
+
+- With Attachments disabled, try sending, replying, forwarding and saving a draft through the message composer. The unavailable attachment control should stay hidden.
+- With Configs disabled, saving custom-entity settings should explain why storage is unavailable. With Translations disabled, initializing the query index should leave the translation error log clear.
 
 ## Undo and audit
 

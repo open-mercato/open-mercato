@@ -4,7 +4,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import type { ProgressService } from '../../../../progress/lib/progressService'
+import { resolveProgressService } from '../../../lib/resolve-progress-service'
 import type { SyncRunService } from '../../../lib/sync-run-service'
 import { retrySyncSchema } from '../../../data/validators'
 import { startDataSyncRun } from '../../../lib/start-run'
@@ -53,7 +53,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
 
   const container = await createRequestContainer()
   const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
-  const progressService = container.resolve('progressService') as ProgressService
+  const progressService = resolveProgressService(container)
   const scope = { organizationId, tenantId: auth.tenantId }
 
   const previous = await syncRunService.getRun(parsedParams.data.id, scope)

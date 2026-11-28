@@ -14,7 +14,13 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 const mockFindWithDecryption = jest.fn(async () => [])
-const mockFindOneWithDecryption = jest.fn(async () => null)
+const mockFindOneWithDecryption = jest.fn(async (...args: unknown[]): Promise<unknown> => {
+  const [manager, entity, where, options] = args as [
+    { findOne: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown> },
+    unknown, unknown, unknown,
+  ]
+  return manager.findOne(entity, where, options)
+})
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args as []),
@@ -175,8 +181,6 @@ describe('customers.companies.delete — dependent guard', () => {
     const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
     expect(handler).toBeDefined()
 
-    mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
-
     await handler.execute({ body: { id: COMPANY_ID } }, ctx)
 
     expect(em.transactional).toHaveBeenCalledTimes(1)
@@ -188,8 +192,6 @@ describe('customers.companies.delete — dependent guard', () => {
     const em = makeEm(entity, { personLinks: 0, softDeletedPersonLinks: 1 })
     const ctx = makeCtx(em)
     const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
-
-    mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
 
     await expect(handler.execute({ body: { id: COMPANY_ID } }, ctx)).resolves.toEqual({
       entityId: COMPANY_ID,
@@ -296,8 +298,6 @@ describe('customers.companies.delete — row lock (issue #7613)', () => {
     const em = makeEm(entity, { personLinks: 0, dealLinks: 0, directPeople: 0 }, opLog)
     const ctx = makeCtx(em)
     const handler = commandRegistry.get('customers.companies.delete') as CommandHandler
-
-    mockFindOneWithDecryption.mockResolvedValueOnce(entity as unknown as null)
 
     await handler.execute({ body: { id: COMPANY_ID } }, ctx)
 

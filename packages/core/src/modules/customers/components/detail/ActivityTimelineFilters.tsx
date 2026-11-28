@@ -40,6 +40,8 @@ interface ActivityTimelineFiltersProps {
   onDateToChange: (value: string) => void
   onReset: () => void
   sortControl?: React.ReactNode
+  /** Reloads the per-type counts whenever it changes, so the chips follow activities created or deleted on the page. */
+  refreshKey?: number
 }
 
 const CHIP_BASE = 'inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-sm font-medium transition-colors'
@@ -56,6 +58,7 @@ export function ActivityTimelineFilters({
   onDateToChange,
   onReset,
   sortControl,
+  refreshKey = 0,
 }: ActivityTimelineFiltersProps) {
   const t = useT()
   const hasActiveFilters = activeTypes.length > 0 || dateFrom || dateTo
@@ -88,7 +91,7 @@ export function ActivityTimelineFilters({
       }
     })()
     return () => controller.abort()
-  }, [entityId])
+  }, [entityId, refreshKey])
 
   const handleTypeToggle = React.useCallback((type: string) => {
     if (activeTypes.includes(type)) {

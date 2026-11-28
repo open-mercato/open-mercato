@@ -6,6 +6,7 @@ import {
   runBulkReplay,
   type BulkReplayJobPayload,
 } from '../lib/bulk-replay'
+import { tryResolve } from '../lib/tryResolve'
 
 type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T
@@ -34,18 +35,22 @@ export default async function handle(
       scope: job.payload.scope,
     })
   } catch (error) {
-    const progressService = container.resolve('progressService') as ProgressService
-    await progressService.failJob(
-      job.payload.progressJobId,
-      {
-        errorMessage: error instanceof Error ? error.message : 'Workflow bulk replay failed',
-      },
-      {
-        tenantId: job.payload.scope.tenantId,
-        organizationId: job.payload.scope.organizationId,
-        userId: job.payload.scope.userId,
-      }
-    )
+    const progressService = job.payload.progressJobId
+      ? tryResolve<ProgressService>(container, 'progressService')
+      : undefined
+    if (progressService && job.payload.progressJobId) {
+      await progressService.failJob(
+        job.payload.progressJobId,
+        {
+          errorMessage: error instanceof Error ? error.message : 'Workflow bulk replay failed',
+        },
+        {
+          tenantId: job.payload.scope.tenantId,
+          organizationId: job.payload.scope.organizationId,
+          userId: job.payload.scope.userId,
+        }
+      )
+    }
     throw error
   }
 }

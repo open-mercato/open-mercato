@@ -6,13 +6,19 @@ export function normalizeDomain(domain: string): string {
   return domain.trim().toLowerCase()
 }
 
-export function validateDomain(domain: string): { valid: boolean; error?: string } {
+export interface DomainValidationResult {
+  valid: boolean
+  error?: string
+  errorKey?: string
+}
+
+export function validateDomain(domain: string): DomainValidationResult {
   const normalized = normalizeDomain(domain)
 
-  if (!normalized) return { valid: false, error: 'Domain cannot be empty' }
-  if (normalized.length > 253) return { valid: false, error: 'Domain exceeds maximum length of 253 characters' }
-  if (!DOMAIN_REGEX.test(normalized)) return { valid: false, error: 'Invalid domain format — only DNS hostnames are accepted' }
-  if (!normalized.includes('.')) return { valid: false, error: 'Domain must include at least one dot (e.g., example.com)' }
+  if (!normalized) return { valid: false, error: 'Domain cannot be empty', errorKey: 'sso.errors.domain.empty' }
+  if (normalized.length > 253) return { valid: false, error: 'Domain exceeds maximum length of 253 characters', errorKey: 'sso.errors.domain.tooLong' }
+  if (!DOMAIN_REGEX.test(normalized)) return { valid: false, error: 'Invalid domain format — only DNS hostnames are accepted', errorKey: 'sso.errors.domain.invalidFormat' }
+  if (!normalized.includes('.')) return { valid: false, error: 'Domain must include at least one dot (e.g., example.com)', errorKey: 'sso.errors.domain.missingDot' }
 
   return { valid: true }
 }

@@ -32,6 +32,7 @@ import {
   computeDurationMinutes,
   createDefaultFormState,
   parseItemToFormState,
+  parseLinkedEntities,
   resolveSavedOwnerUserId,
   type EditorFormState,
 } from '../../lib/calendar/editorPayload'
@@ -157,7 +158,6 @@ const TimezoneField = React.memo(function TimezoneField({
 })
 
 const TypeSwitcher = React.memo(SegmentGroup) as typeof SegmentGroup
-const NO_RESOURCES: EditorFormState['resources'] = []
 const MemoRelatedToField = React.memo(RelatedToField)
 
 // CrudForm re-invokes the group renderer on every one of its own renders;
@@ -220,8 +220,9 @@ const EditorBody = React.memo(function EditorBody({
   // Self-exclude by the underlying interaction id (raw.id): findEditorConflictItems
   // drops candidates by raw.id, and every expanded occurrence of a recurring series
   // shares it — so the edited record never conflicts with itself.
-  // Resources count toward a conflict only when the selected type can book them.
-  const draftResources = resourcesEnabled && definition.behavior.fields.resources ? form.resources : NO_RESOURCES
+  const draftResources = resourcesEnabled && definition.behavior.fields.resources
+    ? form.resources
+    : parseLinkedEntities(isEdit ? item?.raw.linkedEntities : undefined).resources
   const conflict = useConflictProbe(open, form, config, isEdit && item ? item.raw.id : null, draftOwnerUserId, conflictScope, currentUserId, draftResources)
 
   const typeOptions = React.useMemo(

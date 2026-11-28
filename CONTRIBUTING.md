@@ -101,6 +101,10 @@ This ensures design decisions are documented and the codebase remains well-under
 
 ### Stabilization CI
 
+**Draft PRs get no CI; mark ready for review to run checks.** On a draft PR only the cheap guards run: `audit-scope` (it detects the draft), the enterprise contribution guard and the mutation-testing `scope` check. Every other `ci.yml` job skips, except the required `test` check, which **fails by design** with "Draft pull request" so a draft never shows all required checks green. That red `test` is expected: mark the PR ready for review to start the full run, which replaces it with the real result. The draft state is read live, so re-running an old draft run after the PR is ready also does the real work. Pushes to `main` and release lines are unaffected.
+
+A failed or cancelled dependency audit (`audit`, not itself a required check) makes the required `test` and `documents-multi-instance` checks fail with "Audit failed" instead of skipping, because a skipped required check reads as passing.
+
 Use a same-repository branch under `stabilize/` (for example `stabilize/main-2026-11-05`) for a stabilization PR. CI automatically runs full typechecking, the full unit suite, and all 15 integration shards when that PR opens, reopens, or receives a new commit. Ordinary PRs retain affected scope; shared-code and workflow edits can still require broader validation. Existing pushes to `main` and release lines retain full validation.
 
 Label changes do not start or cancel CI. The `ci-full` label selects full typechecking, the full unit suite, and all 15 integration shards for same-repository PRs on their next opened, synchronize, or reopened event. Use the stabilization branch convention for new stabilization work so the initial run has full scope. Fork PRs retain normal scope, including when they have the label or branch prefix.

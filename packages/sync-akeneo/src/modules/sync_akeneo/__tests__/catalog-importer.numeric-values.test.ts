@@ -97,6 +97,7 @@ function createImporterWorld(attributes: AkeneoAttribute[], seededMappings: Mapp
   }
 
   const em = {
+    getMetadata: () => ({ has: () => true }),
     getConnection: () => ({ execute: async () => [] }),
     flush: jest.fn(async () => undefined),
     persist: jest.fn(),

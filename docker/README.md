@@ -14,11 +14,14 @@ The infra compose file (`starters/docker/compose.infra.yml`, wrapped by `yarn in
 
 ### Full app in dev mode (with watch)
 
-Run the entire stack in Docker with live reload:
+Run the entire stack in Docker with live reload. Set a fresh OpenCode password in the repository-root `.env` or export it in your shell before starting:
 
 ```bash
+export OPENCODE_PASSWORD="$(openssl rand -hex 32)"
 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
+
+Every published development port binds to `127.0.0.1` by default. `INFRA_BIND_HOST` explicitly overrides that host binding for all published services. OpenCode requires HTTP Basic authentication as user `opencode`; the compose stack passes `OPENCODE_PASSWORD` to the app and as `OPENCODE_SERVER_PASSWORD` to the server. Missing or empty passwords stop compose before containers start. For a local probe, use `curl -u "opencode:$OPENCODE_PASSWORD" http://127.0.0.1:4096/global/health`. The standalone template uses the same settings. Production and hybrid compose behavior is unchanged.
 
 The app container mounts the repo, runs `yarn dev` (packages watch + Next.js dev server), and does init/migrate + generate on start. Named volumes keep `node_modules` and `.next` in the container.
 
@@ -372,3 +375,7 @@ automatically.
 Run `node docker/tests/storage-init-smoke.mjs` with Docker available. The test builds an isolated runtime fixture using the production Dockerfile's package installation and user/sudo configuration plus the real storage and Railway scripts. Yarn is stubbed, so no database is migrated and no application dependencies are installed.
 
 The only runtime sudo command is the root-owned `/usr/local/sbin/om-init-storage`, with no arguments. It changes ownership of the storage mount directory alone. Existing data must already be provisioned for UID/GID `1001:1001`; see the Railway deployment documentation for backup migration. Deployment maintainer review is required before releasing this startup change.
+
+## Enterprise recovery maintenance
+
+See [RECOVERY.md](RECOVERY.md) for the opt-in non-root maintenance profile, supported PostgreSQL clients and owner-private persistent recovery volume. It does not start application writers, weaken database TLS, repair volume ownership or grant commercial rights.

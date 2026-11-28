@@ -1,13 +1,14 @@
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
-const entityType = 'catalog:product'
+const entityType = 'catalog:catalog_product'
 const entityId = '44444444-4444-4444-8444-444444444444'
 const rowId = '55555555-5555-4555-8555-555555555555'
 
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const commandBusExecuteMock = jest.fn()
+const resolveTranslationTargetFieldsMock = jest.fn()
 
 const db = {
   selectFrom: jest.fn().mockReturnThis(),
@@ -51,8 +52,14 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/translations/lib/target-access', () => ({
+  ...jest.requireActual('@open-mercato/core/modules/translations/lib/target-access'),
+  resolveTranslationTargetFields: (...args: unknown[]) => resolveTranslationTargetFieldsMock(...args),
+}))
+
 import { CommandInterceptorError } from '@open-mercato/shared/lib/commands/errors'
-import { PUT, DELETE } from '../route'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { GET, PUT, DELETE } from '../route'
 
 const makePutRequest = () =>
   new Request(`http://localhost/api/translations/${entityType}/${entityId}`, {
@@ -72,6 +79,7 @@ const routeParams = { params: { entityType, entityId } }
 describe('translations entity write routes mutation guard', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    resolveTranslationTargetFieldsMock.mockResolvedValue(new Set(['title']))
     db.selectFrom.mockReturnThis()
     db.select.mockReturnThis()
     db.selectAll.mockReturnThis()
@@ -87,6 +95,46 @@ describe('translations entity write routes mutation guard', () => {
     validateCrudMutationGuardMock.mockResolvedValue({ ok: true, shouldRunAfterSuccess: true, metadata: { token: 'guard' } })
     runCrudMutationGuardAfterSuccessMock.mockResolvedValue(undefined)
     commandBusExecuteMock.mockResolvedValue({ result: { rowId }, logEntry: null })
+  })
+
+  it.each([
+    { method: 'GET', handle: GET, action: 'view' },
+    { method: 'PUT', handle: PUT, action: 'manage' },
+    { method: 'DELETE', handle: DELETE, action: 'manage' },
+  ])('checks target access before processing a $method request', async ({ method, handle, action }) => {
+    resolveTranslationTargetFieldsMock.mockRejectedValue(new CrudHttpError(403, { error: 'Forbidden' }))
+    const request = new Request('http://localhost/api/translations', { method })
+
+    expect((await handle(request, routeParams)).status).toBe(403)
+    expect(resolveTranslationTargetFieldsMock).toHaveBeenCalledWith(context, entityType, entityId, action)
+    expect(db.selectFrom).not.toHaveBeenCalled()
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('rejects unregistered fields before calling the mutation guard or writing', async () => {
+    resolveTranslationTargetFieldsMock.mockResolvedValue(new Set(['description']))
+
+    const response = await PUT(makePutRequest(), routeParams)
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({ code: 'unregistered_translation_field' })
+    expect(validateCrudMutationGuardMock).not.toHaveBeenCalled()
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+  })
+
+  it('only returns registered fields from existing translation rows', async () => {
+    db.executeTakeFirst.mockResolvedValue({
+      entity_type: entityType,
+      entity_id: entityId,
+      translations: { en: { title: 'A title', subtitle: 'An unregistered subtitle' }, fr: {} },
+    })
+
+    const response = await GET(new Request('http://localhost/api/translations'), routeParams)
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.translations).toEqual({ en: { title: 'A title' }, fr: {} })
   })
 
   it('runs the mutation guard and after-success hook when saving translations (PUT)', async () => {

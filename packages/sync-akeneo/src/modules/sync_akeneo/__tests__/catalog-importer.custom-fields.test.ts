@@ -131,6 +131,7 @@ function createWorld(extraAttributeCodes: string[] = []) {
     available: true,
   }
   const em = {
+    getMetadata: () => ({ has: () => true }),
     clear: jest.fn(),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
     persist: jest.fn(),

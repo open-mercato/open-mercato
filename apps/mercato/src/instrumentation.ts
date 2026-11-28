@@ -1,3 +1,4 @@
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { isTelemetryBackendEnabled } from '@open-mercato/shared/lib/telemetry/runtime'
 
 export async function register(): Promise<void> {
@@ -42,4 +43,16 @@ export async function register(): Promise<void> {
       nodeProcess.exit(1)
     }
   }
+
+  if (
+    process.env.NEXT_RUNTIME === 'nodejs'
+    && process.env.NEXT_PHASE !== 'phase-production-build'
+    && parseBooleanWithDefault(process.env.OM_PROCESS_CONTAINER_ROOT, false)
+  ) {
+    const { bootstrap } = await import('./bootstrap-api')
+    bootstrap()
+    const { initializeProcessContainer } = await import('@open-mercato/shared/lib/di/container')
+    await initializeProcessContainer()
+  }
+
 }

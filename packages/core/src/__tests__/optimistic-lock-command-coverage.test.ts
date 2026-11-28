@@ -45,6 +45,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — per-entity encryption-map admin config; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/entities/api/definitions.batch.ts':
     'OSS-only — entity field-definition batch save is an admin schema-config surface (issue #3152) guarded by an aggregate updated_at version, not a per-row record; the OSS floor guards the two-tab schema-edit race. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/entities/api/definitions.ts':
+    'OSS-only — deleting a field definition checks the admin schema aggregate version used by batch save, so a stale draft cannot delete a field after another part of the schema changed. The existing per-definition mutation guard still runs.',
   'packages/core/src/modules/integrations/api/[id]/credentials/route.ts':
     'OSS-only — integration credentials are single-admin config keyed by bundle id (integrations.integration); OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/integrations/api/[id]/state/route.ts':

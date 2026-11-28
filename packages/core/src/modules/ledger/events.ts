@@ -13,10 +13,9 @@ import { createModuleEvents } from '@open-mercato/shared/modules/events'
  * `packages/events/AGENTS.md`'s ban on direct cross-module calls — `ledger`
  * has no subscribers of its own and no knowledge of any consumer.
  *
- * Whether a given subscriber needs at-least-once delivery is that
- * subscriber's own choice (`metadata.persistent` on the subscription, not a
- * property of this declaration — **corrected 2026-09-18** per an
- * independent review's M2 finding).
+ * Both commands request persistent delivery after commit so the event bus
+ * enqueues the posting for subscribers with `metadata.persistent`.
+ * When the caller owns the transaction, it publishes after its own commit.
  *
  * See `.ai/specs/2026-08-18-general-ledger-core-engine.md` § Events for the
  * payload's rationale (enough for an idempotent subscriber to act without a

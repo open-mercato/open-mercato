@@ -4,7 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { SsoConfigService } from '../../../../services/ssoConfigService'
 import { ssoDomainAddSchema } from '../../../../data/validators'
 import { resolveSsoAdminContext } from '../../../admin-context'
-import { handleSsoAdminApiError } from '../../../error-handler'
+import { handleSsoAdminApiError, ssoErrorResponse } from '../../../error-handler'
 
 type RouteContext = { params: Promise<{ id: string }> }
 
@@ -24,7 +24,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     const config = await service.getById(scope, id)
 
     if (!config) {
-      return NextResponse.json({ error: 'SSO configuration not found' }, { status: 404 })
+      return ssoErrorResponse('sso.admin.error.notFound', 'SSO configuration not found', 404)
     }
 
     return NextResponse.json({ domains: config.allowedDomains })
@@ -41,7 +41,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     const body = await req.json()
     const parsed = ssoDomainAddSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
+      return ssoErrorResponse('sso.errors.invalidRequest', 'Invalid request', 400, { details: parsed.error.flatten() })
     }
 
     const container = await createRequestContainer()
@@ -62,7 +62,7 @@ export async function DELETE(req: Request, ctx: RouteContext) {
     const url = new URL(req.url)
     const domain = url.searchParams.get('domain')
     if (!domain) {
-      return NextResponse.json({ error: 'Missing domain query parameter' }, { status: 400 })
+      return ssoErrorResponse('sso.errors.domainParamRequired', 'Missing domain query parameter', 400)
     }
 
     const container = await createRequestContainer()

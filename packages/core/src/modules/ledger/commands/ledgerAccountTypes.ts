@@ -454,51 +454,59 @@ const deleteLedgerAccountTypeCommand: CommandHandler<LedgerAccountTypeDeleteInpu
   id: 'ledger.deleteLedgerAccountType',
   async execute(rawInput, ctx) {
     const parsed = ledgerAccountTypeDeleteSchema.parse(rawInput ?? {})
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-
-    const record = await em.findOne(LedgerAccountType, { id: parsed.id, deletedAt: null })
+    const rootEm = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
-    if (!record) throw notFound(translate('ledger.errors.accountTypeNotFound', 'Ledger account type not found.'))
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
-    if (await accountTypeHasPostedEntries(em, record.id, scope)) {
-      throw conflict(
-        translate(
-          'ledger.errors.accountTypeHasPostedEntriesCannotDelete',
-          'This account type cannot be deleted because an account of this type has posted entries.',
-        ),
+    const record = await rootEm.transactional(async (em) => {
+      const record = await em.findOne(
+        LedgerAccountType,
+        { id: parsed.id, deletedAt: null },
+        { lockMode: LockMode.PESSIMISTIC_WRITE },
       )
-    }
-    if (await accountTypeStillInUse(em, record.id, scope)) {
-      throw conflict(
-        translate(
-          'ledger.errors.accountTypeStillInUseCannotDelete',
-          'This account type cannot be deleted because an account still uses it.',
-        ),
-      )
-    }
+      if (!record) throw notFound(translate('ledger.errors.accountTypeNotFound', 'Ledger account type not found.'))
+      ensureTenantScope(ctx, record.tenantId)
+      ensureOrganizationScope(ctx, record.organizationId)
+      const scope: Scope = { organizationId: record.organizationId, tenantId: record.tenantId }
 
-    await runCrudCommandWrite({
-      ctx,
-      em,
-      entityId: LEDGER_ACCOUNT_TYPE_ENTITY_ID,
-      action: 'deleted',
-      scope,
-      events: ledgerAccountTypeCrudEvents,
-      indexer: ledgerAccountTypeCrudIndexer,
-      sideEffect: () => ({
-        entity: record,
-        identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
-      }),
-      phases: [
-        () => {
-          record.deletedAt = new Date()
-          record.updatedAt = new Date()
-          em.persist(record)
-        },
-      ],
+      if (await accountTypeHasPostedEntries(em, record.id, scope)) {
+        throw conflict(
+          translate(
+            'ledger.errors.accountTypeHasPostedEntriesCannotDelete',
+            'This account type cannot be deleted because an account of this type has posted entries.',
+          ),
+        )
+      }
+      if (await accountTypeStillInUse(em, record.id, scope)) {
+        throw conflict(
+          translate(
+            'ledger.errors.accountTypeStillInUseCannotDelete',
+            'This account type cannot be deleted because an account still uses it.',
+          ),
+        )
+      }
+
+      await runCrudCommandWrite({
+        ctx,
+        em,
+        entityId: LEDGER_ACCOUNT_TYPE_ENTITY_ID,
+        action: 'deleted',
+        scope,
+        events: ledgerAccountTypeCrudEvents,
+        indexer: ledgerAccountTypeCrudIndexer,
+        sideEffect: () => ({
+          entity: record,
+          identifiers: { id: record.id, organizationId: record.organizationId, tenantId: record.tenantId },
+        }),
+        phases: [
+          () => {
+            record.deletedAt = new Date()
+            record.updatedAt = new Date()
+            em.persist(record)
+          },
+        ],
+      })
+
+      return record
     })
 
     return { ledgerAccountTypeId: record.id }

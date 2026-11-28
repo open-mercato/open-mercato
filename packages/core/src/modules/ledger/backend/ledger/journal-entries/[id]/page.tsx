@@ -9,10 +9,10 @@ import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/deta
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { formatAmountOrBlank, formatAmountUnits, sumAmountUnits } from '../../../../lib/decimalAmount'
+import { formatAmountOrBlank, formatAmountUnits, formatPostedDecimal, sumAmountUnits } from '../../../../lib/decimalAmount'
 
 // Read-only detail of one posted journal entry: header fields and the posted
-// lines (account number, name, debit, credit). Nothing here edits or deletes —
+// lines with their recorded amounts and exchange rates. Nothing here edits or deletes —
 // a posted entry is only ever corrected by a reversal (see
 // api/journal-entries/route.ts and commands/reverseJournalEntry.ts).
 type JournalEntryType = 'NORMAL' | 'OPENING' | 'CLOSING' | 'REVERSAL'
@@ -24,6 +24,10 @@ type JournalEntryLineRow = {
   accountName: string | null
   debit: string
   credit: string
+  currencyId: string
+  currencyCode?: string
+  exchangeRate: string
+  amountCurrency: string
 }
 
 type JournalEntryDetail = {
@@ -256,6 +260,15 @@ export default function JournalEntryDetailPage({ params }: { params?: { id?: str
                     <th className="px-3 py-2 font-medium">
                       {t('ledger.journal_entries.detail.lines.columns.accountName', 'Account name')}
                     </th>
+                    <th className="px-3 py-2 font-medium">
+                      {t('ledger.journal_entries.detail.lines.columns.currency', 'Currency')}
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      {t('ledger.journal_entries.detail.lines.columns.exchangeRate', 'Exchange rate')}
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      {t('ledger.journal_entries.detail.lines.columns.originalAmount', 'Original amount')}
+                    </th>
                     <th className="px-3 py-2 text-right font-medium">
                       {t('ledger.journal_entries.detail.lines.columns.debit', 'Debit')}
                     </th>
@@ -269,6 +282,9 @@ export default function JournalEntryDetailPage({ params }: { params?: { id?: str
                     <tr key={line.id} className="border-t">
                       <td className="px-3 py-2 font-mono">{line.accountNumber ?? line.accountId}</td>
                       <td className="px-3 py-2">{line.accountName || '—'}</td>
+                      <td className="px-3 py-2">{line.currencyCode || line.currencyId}</td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums">{formatPostedDecimal(line.exchangeRate, locale)}</td>
+                      <td className="px-3 py-2 text-right font-mono tabular-nums">{formatPostedDecimal(line.amountCurrency, locale)}</td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmountOrBlank(line.debit, locale)}</td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmountOrBlank(line.credit, locale)}</td>
                     </tr>
@@ -276,7 +292,7 @@ export default function JournalEntryDetailPage({ params }: { params?: { id?: str
                 </tbody>
                 <tfoot>
                   <tr className="border-t bg-muted/50 font-medium">
-                    <td className="px-3 py-2" colSpan={2}>
+                    <td className="px-3 py-2" colSpan={5}>
                       {t('ledger.journal_entries.detail.lines.total', 'Total')}
                     </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmountUnits(totalDebit, locale)}</td>

@@ -60,7 +60,9 @@ describe.each([
   })
 
   function renderCreatePage() {
-    const view = renderWithProviders(<CreatePage />)
+    const view = renderWithProviders(<CreatePage />, {
+      dict: { 'ui.navigation.back': 'Back', 'ui.forms.actions.cancel': 'Cancel' },
+    })
     const form = view.container.querySelector('form')!
     fireEvent.change(view.getByRole('textbox', { name: 'Name' }), { target: { value: 'New customer' } })
     return { ...view, form }
@@ -101,12 +103,33 @@ describe.each([
     expect(container.querySelector('button[type="submit"]')).toBeDisabled()
   })
 
-  it('preserves the returnTo destination', async () => {
-    returnTo = '/backend/customers/deals'
-    const { form } = renderCreatePage()
+  it('preserves the backend returnTo destination for back, cancel and save', async () => {
+    const destination = '/backend/customers/deals?view=pipeline#filters'
+    returnTo = destination
+    const { form, getByRole, getAllByRole } = renderCreatePage()
+
+    expect(getByRole('link', { name: /Back$/ })).toHaveAttribute('href', destination)
+    for (const cancel of getAllByRole('link', { name: 'Cancel' })) {
+      expect(cancel).toHaveAttribute('href', destination)
+    }
     await act(async () => { fireEvent.submit(form) })
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(returnTo))
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith(destination))
   })
+
+  it.each(['https://example.invalid', '//example.invalid', '/backend/../account', ''])(
+    'uses the list for back, cancel and save when returnTo is %j',
+    async (destination) => {
+      returnTo = destination
+      const { form, getByRole, getAllByRole } = renderCreatePage()
+
+      expect(getByRole('link', { name: /Back$/ })).toHaveAttribute('href', listHref)
+      for (const cancel of getAllByRole('link', { name: 'Cancel' })) {
+        expect(cancel).toHaveAttribute('href', listHref)
+      }
+      await act(async () => { fireEvent.submit(form) })
+      await waitFor(() => expect(pushMock).toHaveBeenCalledWith(listHref))
+    },
+  )
 
   it('preserves the list fallback when the response has no record ID', async () => {
     jest.mocked(createCrud).mockResolvedValue({ result: {}, response: {} as Response })

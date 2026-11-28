@@ -36,6 +36,7 @@ const mockEm = {
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
+    if (token === 'rbacService') return { getGrantedFeatures: async () => ['customers.*'] }
     if (token === 'queryEngine') return { query: jest.fn(async () => ({ items: [] })) }
     return null
   }),

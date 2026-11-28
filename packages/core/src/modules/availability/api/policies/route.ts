@@ -169,7 +169,9 @@ export async function GET(req: Request) {
   if (isActive === 'false') filter.isActive = false
 
   const orderBy: Record<string, 'ASC' | 'DESC'> = {}
-  orderBy[sortField ?? 'createdAt'] = sortDir === 'asc' ? 'ASC' : 'DESC'
+  const direction = sortDir === 'asc' ? 'ASC' : 'DESC'
+  orderBy[sortField ?? 'createdAt'] = direction
+  orderBy.id = direction
 
   const offset = (page - 1) * pageSize
   const [rows, total] = await findAndCountWithDecryption(

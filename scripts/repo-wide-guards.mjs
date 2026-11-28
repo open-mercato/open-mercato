@@ -69,6 +69,10 @@ export const REPO_WIDE_GUARDS = [
         scans: 'every packages/* and apps/mercato module acl.ts — localized ACL feature catalog coverage and English title drift (#5500)',
       },
       {
+        path: 'src/modules/entities/lib/__tests__/entityAcl.firstPartyCoverage.test.ts',
+        scans: 'first-party entity and ACL declarations across packages and apps — relation target permissions (#9106)',
+      },
+      {
         path: 'src/__tests__/feature-policy-authorization-coverage.test.ts',
         scans: 'server runtime roots across packages and app templates — low-level ACL authorization bypasses',
       },

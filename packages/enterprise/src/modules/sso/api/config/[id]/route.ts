@@ -4,7 +4,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { SsoConfigService } from '../../../services/ssoConfigService'
 import { ssoConfigAdminUpdateSchema } from '../../../data/validators'
 import { resolveSsoAdminContext } from '../../admin-context'
-import { handleSsoAdminApiError } from '../../error-handler'
+import { handleSsoAdminApiError, ssoErrorResponse } from '../../error-handler'
 import { ScimToken } from '../../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
@@ -26,7 +26,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     const config = await service.getById(scope, id)
 
     if (!config) {
-      return NextResponse.json({ error: 'SSO configuration not found' }, { status: 404 })
+      return ssoErrorResponse('sso.admin.error.notFound', 'SSO configuration not found', 404)
     }
 
     const em = container.resolve<EntityManager>('em')
@@ -46,7 +46,7 @@ export async function PUT(req: Request, ctx: RouteContext) {
     const body = await req.json()
     const parsed = ssoConfigAdminUpdateSchema.safeParse(body)
     if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid request', details: parsed.error.flatten() }, { status: 400 })
+      return ssoErrorResponse('sso.errors.invalidRequest', 'Invalid request', 400, { details: parsed.error.flatten() })
     }
 
     const container = await createRequestContainer()

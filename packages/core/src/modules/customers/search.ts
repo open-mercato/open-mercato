@@ -572,7 +572,7 @@ function resolvePersonPresenter(
   if (summary) subtitlePieces.push(summary)
   return {
     title: String(title),
-    subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
+    subtitle: subtitlePieces.length ? subtitlePieces.join(', ') : undefined,
     icon: 'user',
     badge: pickValue(entity, 'display_name', 'displayName')
       ? translate('customers.search.badge.person', 'Person')
@@ -626,7 +626,7 @@ function resolveCompanyPresenter(
   }
   return {
     title: String(title),
-    subtitle: subtitlePieces.length ? subtitlePieces.join(' · ') : undefined,
+    subtitle: subtitlePieces.length ? subtitlePieces.join(', ') : undefined,
     icon: 'building',
     badge: pickValue(entity, 'display_name', 'displayName')
       ? translate('customers.search.badge.company', 'Company')
@@ -949,7 +949,7 @@ export const searchConfig: SearchModuleConfig = {
           text: lines,
           presenter: {
             title: String(record.title ?? t('customers.search.fallback.deal', 'Deal')),
-            subtitle: subtitleParts.join(' · ') || undefined,
+            subtitle: subtitleParts.join(', ') || undefined,
             icon: 'briefcase',
             badge: t('customers.search.badge.deal', 'Deal'),
           },
@@ -977,7 +977,7 @@ export const searchConfig: SearchModuleConfig = {
 
         return {
           title: title ?? t('customers.search.fallback.deal', 'Deal'),
-          subtitle: subtitleParts.length ? subtitleParts.join(' · ') : undefined,
+          subtitle: subtitleParts.length ? subtitleParts.join(', ') : undefined,
           icon: 'briefcase',
           badge: t('customers.search.badge.deal', 'Deal'),
         }

@@ -121,6 +121,21 @@ describe('sanitizeChannelHtml', () => {
     expect(out).toMatch(/<em>italic<\/em>/)
   })
 
+  it('strips sender-supplied classes while preserving allowed formatting and attributes', () => {
+    const html = [
+      '<p class="email-body greeting" style="color:red">Hello</p>',
+      '<a class="email-link" href="https://example.com">Read more</a>',
+      '<img class="email-image" alt="Logo" src="data:image/png;base64,iVBORw0KGgo=" />',
+    ].join('')
+    const out = sanitizeChannelHtml(html)
+
+    expect(out).not.toMatch(/\sclass=/i)
+    expect(out).toContain('<p style="color:red">Hello</p>')
+    expect(out).toContain('<a href="https://example.com">Read more</a>')
+    expect(out).toContain('alt="Logo"')
+    expect(out).toContain('src="data:image/png;base64,iVBORw0KGgo="')
+  })
+
   it('keeps safe color/background-color style values', () => {
     const hex = sanitizeChannelHtml('<p style="color:#ff0000;background-color:#0a0">hi</p>')
     expect(hex).toMatch(/color:#ff0000/)

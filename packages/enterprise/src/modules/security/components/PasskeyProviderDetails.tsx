@@ -2,9 +2,10 @@
 
 import * as React from 'react'
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, type Locale as DateFnsLocale } from 'date-fns'
 import { Eye, EyeOff, Loader2, Shield, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDateFnsLocale } from '@open-mercato/ui/primitives/date-locale'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Badge } from '@open-mercato/ui/primitives/badge'
@@ -48,11 +49,11 @@ type PasskeyProviderDetailsProps = {
   onMethodAdded?: () => Promise<void> | void
 }
 
-function formatRelative(value: string | null, fallback: string): string {
+function formatRelative(value: string | null, fallback: string, locale?: DateFnsLocale): string {
   if (!value) return fallback
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return fallback
-  return formatDistanceToNow(parsed, { addSuffix: true })
+  return formatDistanceToNow(parsed, { addSuffix: true, locale })
 }
 
 export default function PasskeyProviderDetails({
@@ -62,6 +63,7 @@ export default function PasskeyProviderDetails({
   onMethodAdded,
 }: PasskeyProviderDetailsProps) {
   const t = useT()
+  const dateLocale = useDateFnsLocale()
   const [label, setLabel] = React.useState('')
   const [loading, setLoading] = React.useState(false)
 
@@ -160,9 +162,9 @@ export default function PasskeyProviderDetails({
                   {method.label ?? t('security.profile.mfa.providers.passkey.title', 'Security key')}
                 </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {t('ui.table.registeredAt', 'Registered')}: {formatRelative(method.createdAt, t('security.profile.mfa.method.unknownTime', 'Unknown'))}
+                  {t('ui.table.registeredAt', 'Registered')}: {formatRelative(method.createdAt, t('security.profile.mfa.method.unknownTime', 'Unknown'), dateLocale)}
                   {' '}|{' '}
-                  {t('security.profile.mfa.method.lastUsed', 'Last used')}: {formatRelative(method.lastUsedAt, t('security.profile.mfa.method.neverUsed', 'Never used'))}
+                  {t('security.profile.mfa.method.lastUsed', 'Last used')}: {formatRelative(method.lastUsedAt, t('security.profile.mfa.method.neverUsed', 'Never used'), dateLocale)}
                 </p>
               </div>
               {onRemoveMethod ? (

@@ -613,7 +613,7 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
   - **Tokens:** the first design skipped token writes for gated entities and relied on the `SearchIndexer` token path, which only runs from the fulltext/vector workers — sections were never token-indexed without Meilisearch and a vector provider. Found by `TC-ATT-STRUCT-006`; the writer now evaluates `shouldIndex` per record.
   - **`releaseScoped(…, { flush: false })`** returns a search-only cleanup callback when the stored file is still shared, so indexed sections are still removed.
   - **Tenant partitions** fan out across all of the tenant's organizations (partition codes are unique; the worker looks them up by code); stale toggle jobs whose mode no longer matches the partition are skipped.
-  - **Known gap:** an attachment purged between a toggle-off fan-out and its delete job can leave a few section records until a reindex.
+  - **Toggle-off purge race:** resolved by #8926 (2026-11-20); purge retains every scoped section ID for post-commit deletion, independent of the extraction's mutable `searchIndexed` flag.
   - **No client citation resolver:** the ui registry has no module registration hook; attachment citations use their label and the server-side library link.
   - Residual risk unchanged: no per-record search post-filter, so `attachments.view` holders in the organization can see snippets of indexed sections; opening an attachment still enforces access.
 
@@ -638,4 +638,9 @@ OCR integration tests stay unit-level (mocked `OcrService`), so CI needs no prov
   - The principal-less service path (no `scope.auth`, used by the `attachments structure dump|extract` CLI) runs the same `evaluateAttachmentAccess` as the service principal with no access context: unprotected attachments read as before, owner-protected ones are denied (`policy_context_missing`), consistent with D4 of `2026-11-03-attachment-direct-reader-owner-access.md`. The CLI reports such an attachment as not found. An explicit `auth: null` is still denied. The extraction worker and search indexing do not read through the service.
   - `attachments.get_document_sections` reads as the API key itself for API-key callers (`api_key:<id>`, no user), as the search tools do since B-8.
   - Tests: `service-access.test.ts` (owner-protected attachment, including the principal-less path), `ai-tool.test.ts` (API-key principal), integration `TC-ATT-STRUCT-010`.
+
+### 2026-11-20
+- Fixed #8926: purge captures all scoped section IDs before removing extraction/section rows, including extractions whose `searchIndexed` flag was cleared by partition toggle-off. The existing post-commit explicit-ID jobs remove the search records even when the earlier extraction-targeted job runs after purge and finds no rows. Deletes of never-indexed sections are idempotent no-ops.
+- Regression: `purge.test.ts` exercises real toggle-off fan-out, purge, queue serialization, delayed extraction deletion, explicit-ID deletion and retry together, plus tenant/organization isolation for both joined tables and every indexing flag state. External search stores are represented by an in-memory event consumer; no live-provider result is claimed.
+- Compatibility: no route, event shape, schema, dependency, startup or configuration change. Existing orphaned search records still require the previously documented rebuild; this prevents new orphans from this ordering.
 

@@ -132,21 +132,17 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
-
+  const { tenantId, filterIds } = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const { id, page, pageSize, search, sortField, sortDir, normalBalance, accountGroupId } =
     parsed.data
-  let filter: Record<string, unknown> = {
-    tenantId: auth.tenantId,
-    deletedAt: null,
+  if (!tenantId || filterIds?.length === 0) {
+    return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
   }
-  // Selected organization (resolveOrganizationScopeForRequest), not the user's
-  // home auth.orgId — a user who switched organizations must see that
-  // organization's rows, not their home org's. Superadmin with no explicit
-  // selection still lists across every organization.
-  if (organizationId) {
-    filter.organizationId = organizationId
+
+  let filter: Record<string, unknown> = {
+    tenantId,
+    deletedAt: null,
+    ...(filterIds ? { organizationId: { $in: filterIds } } : {}),
   }
 
   if (id) filter.id = id

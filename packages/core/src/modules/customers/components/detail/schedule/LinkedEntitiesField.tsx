@@ -42,7 +42,7 @@ function resolveLinkedEntityLabel(
       ?? readLabelCandidate(item.displayName)
       ?? readLabelCandidate(item.name)
       ?? readLabelCandidate(item.title)
-    if (quoteNumber && customerName) return `${quoteNumber} · ${customerName}`
+    if (quoteNumber && customerName) return `${quoteNumber}, ${customerName}`
     if (quoteNumber) return quoteNumber
     if (customerName) return customerName
   }

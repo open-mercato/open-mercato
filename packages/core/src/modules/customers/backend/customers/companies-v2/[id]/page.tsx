@@ -479,7 +479,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
           />
 
           {/* KPI bar — always visible above zones */}
-          <CompanyKpiBar data={data} />
+          <CompanyKpiBar data={data} canViewDeals={typeof data.kpis?.activeDealsCount === 'number'} />
 
           {/* Two-zone layout: zone1 = form, zone2 = tabs */}
           <CustomerDetailSidebar spotId={extensionPoints.hosts.companySidebar.spotId} context={injectionContext} data={data} onDataChange={setData} disabled={isSaving}>
@@ -596,7 +596,6 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     entityId={E.customers.customer_entity}
                     recordId={companyId}
                     title={t('customers.companies.detail.tabs.files', 'Files')}
-                    description={t('customers.companies.detail.files.subtitle', 'Upload and manage files linked to this company.')}
                   />
                 )}
 

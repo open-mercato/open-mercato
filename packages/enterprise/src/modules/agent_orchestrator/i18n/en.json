@@ -387,6 +387,7 @@
   "agent_orchestrator.errors.timeout": "The agent run timed out before producing a result",
   "agent_orchestrator.errors.unauthorized": "Unauthorized",
   "agent_orchestrator.errors.validation_failed": "Validation failed",
+  "agent_orchestrator.errors.workflowsModuleDisabled": "Workflows module is not enabled",
   "agent_orchestrator.evalAssertions.actions.new": "New assertion",
   "agent_orchestrator.evalAssertions.confirmDelete.text": "Delete this assertion? Future runs stop being scored against it.",
   "agent_orchestrator.evalAssertions.enabled.off": "Disabled",

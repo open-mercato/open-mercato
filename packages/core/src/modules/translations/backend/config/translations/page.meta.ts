@@ -22,6 +22,7 @@ const translationsIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
+  requireFeatures: ['translations.view'],
   pageTitle: 'Translations',
   pageTitleKey: 'translations.config.nav.title',
   pageGroup: 'Module Configs',

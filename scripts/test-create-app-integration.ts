@@ -12,6 +12,7 @@ import { chromium } from '@playwright/test'
 import { createAppBin, createStandaloneInstallEnv, ensureVerdaccioPublished, VERDACCIO_URL, runCommand } from './lib/verdaccio'
 import { assertProductionBuildArtifacts } from './lib/standalone-build-artifacts.mjs'
 import { findChromiumPreflightFailure, PLAYWRIGHT_BROWSERS_DOCS_URL } from './lib/playwright-browsers.mjs'
+import { runStandalonePresetInitialization } from './lib/standalone-preset-initialization'
 import {
   EXAMPLE_ACTIVATION_ENTRY,
   assertExampleActivation,
@@ -430,6 +431,12 @@ function ensurePlaywrightBrowsersInstalled(): void {
 }
 
 async function main(): Promise<void> {
+  if (process.argv[2] === '--presets-init-only') {
+    await ensureVerdaccioPublished(ROOT)
+    await runStandalonePresetInitialization(ROOT)
+    return
+  }
+
   ensurePlaywrightBrowsersInstalled()
 
   const cleanup = process.argv.includes('--cleanup')

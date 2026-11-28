@@ -1,8 +1,11 @@
+import { z as zodV3 } from 'zod/v3'
+import { z as zodV4 } from 'zod/v4'
 import {
   mapCrudServerErrorToFormErrors,
   normalizeCrudServerError,
   raiseCrudError,
   readJsonSafe,
+  resolveFieldIssueTranslation,
 } from '../utils/serverErrors'
 
 describe('serverErrors helpers', () => {
@@ -26,6 +29,33 @@ describe('serverErrors helpers', () => {
       password: 'Too small: expected string to have >=6 characters',
     })
     expect(result.message).toBe('Too small: expected string to have >=6 characters')
+  })
+
+  it('captures the Zod issue code and params alongside the field error message', () => {
+    const error = {
+      error: 'Invalid input',
+      details: [
+        {
+          origin: 'string',
+          code: 'too_big',
+          maximum: 120,
+          path: ['lastName'],
+          message: 'Too big: expected string to have <=120 characters',
+        },
+      ],
+    }
+
+    const result = mapCrudServerErrorToFormErrors(error, { customEntity: false })
+    expect(result.fieldErrors).toEqual({
+      lastName: 'Too big: expected string to have <=120 characters',
+    })
+    expect(result.fieldIssues).toEqual({
+      lastName: {
+        code: 'too_big',
+        message: 'Too big: expected string to have <=120 characters',
+        params: { maximum: 120, origin: 'string' },
+      },
+    })
   })
 
   it('keeps provided fieldErrors when available', () => {
@@ -157,5 +187,102 @@ describe('serverErrors helpers', () => {
     const response = new Response('not json', { status: 200 })
     const result = await readJsonSafe<{ ok: boolean }>(response, { ok: true })
     expect(result).toEqual({ ok: true })
+  })
+
+  it('resolveFieldIssueTranslation maps a known Zod code to a localizable key with params', () => {
+    const translation = resolveFieldIssueTranslation(
+      { code: 'too_big', message: 'Too big: expected string to have <=120 characters', params: { maximum: 120 } },
+      'Too big: expected string to have <=120 characters',
+    )
+    expect(translation).toEqual({
+      key: 'ui.forms.errors.tooBig',
+      fallback: 'Too big: expected string to have <=120 characters',
+      params: { maximum: 120 },
+    })
+  })
+
+  it('resolveFieldIssueTranslation falls back to the raw message for an unmapped or missing code', () => {
+    expect(resolveFieldIssueTranslation({ code: 'custom', message: 'Some custom check failed' }, 'Some custom check failed')).toEqual({
+      key: '',
+      fallback: 'Some custom check failed',
+    })
+    expect(resolveFieldIssueTranslation(undefined, 'stable.i18n.key')).toEqual({
+      key: '',
+      fallback: 'stable.i18n.key',
+    })
+  })
+
+  it('resolveFieldIssueTranslation maps Zod v3 and v4 default messages for every known code', () => {
+    const defaults: Array<[string, string]> = [
+      ['too_big', 'Too big: expected number to be <=100'],
+      ['too_big', 'Number must be less than or equal to 100'],
+      ['too_big', 'String must contain at most 120 character(s)'],
+      ['too_small', 'Too small: expected string to have >=1 characters'],
+      ['too_small', 'Array must contain at least 1 element(s)'],
+      ['invalid_type', 'Invalid input: expected string, received undefined'],
+      ['invalid_type', 'Expected number, received string'],
+      ['invalid_type', 'Required'],
+    ]
+    for (const [code, message] of defaults) {
+      expect(resolveFieldIssueTranslation({ code, message }, message).key).not.toBe('')
+    }
+  })
+
+  it('recognizes actual Zod v3 and v4 defaults across bounds and types', () => {
+    for (const zod of [zodV3, zodV4]) {
+      const cases = [
+        zod.string().max(1).safeParse('long'),
+        zod.string().min(4).safeParse('x'),
+        zod.number().max(-0.5).safeParse(1),
+        zod.number().min(1e21).safeParse(1),
+        zod.array(zod.string()).max(0).safeParse(['x']),
+        zod.array(zod.string()).min(1).safeParse([]),
+        zod.bigint().max(BigInt(1)).safeParse(BigInt(2)),
+        zod.bigint().min(BigInt(2)).safeParse(BigInt(1)),
+        zod.date().max(new Date('2020-01-01')).safeParse(new Date('2021-01-01')),
+        zod.date().min(new Date('2021-01-01')).safeParse(new Date('2020-01-01')),
+        zod.string().safeParse(1),
+        zod.number().safeParse(undefined),
+      ]
+      for (const result of cases) {
+        expect(result.success).toBe(false)
+        if (result.success) continue
+        for (const issue of result.error.issues) {
+          expect(resolveFieldIssueTranslation(issue, issue.message).key).not.toBe('')
+        }
+      }
+    }
+  })
+
+  it.each([
+    ['too_big', 'Too big: use a shorter person name'],
+    ['too_small', 'Too small: select at least one warehouse'],
+    ['invalid_type', 'Invalid input: expected a valid currency'],
+    ['too_big', 'Number must be less than or equal to 100 for this policy'],
+    ['too_small', 'Too small: expected string to have >=1 characters; enter a name'],
+    ['invalid_type', 'Invalid input: expected string, received undefined; enter a name'],
+  ])('preserves custom wording for %s even when it starts like a default', (code, message) => {
+    expect(resolveFieldIssueTranslation({ code, message }, message)).toEqual({ key: '', fallback: message })
+  })
+
+  it('resolveFieldIssueTranslation preserves explicit validator messages on known Zod codes', () => {
+    expect(
+      resolveFieldIssueTranslation(
+        { code: 'too_big', message: 'availability.policies.errors.integerTooLarge', params: { maximum: 2147483647 } },
+        'availability.policies.errors.integerTooLarge',
+      ),
+    ).toEqual({ key: '', fallback: 'availability.policies.errors.integerTooLarge' })
+    expect(
+      resolveFieldIssueTranslation(
+        { code: 'too_small', message: 'Pick at least one warehouse', params: { minimum: 1 } },
+        'Pick at least one warehouse',
+      ),
+    ).toEqual({ key: '', fallback: 'Pick at least one warehouse' })
+    expect(
+      resolveFieldIssueTranslation(
+        { code: 'invalid_type', message: 'Choose a valid currency' },
+        'Choose a valid currency',
+      ),
+    ).toEqual({ key: '', fallback: 'Choose a valid currency' })
   })
 })

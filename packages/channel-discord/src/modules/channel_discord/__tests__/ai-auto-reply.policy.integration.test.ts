@@ -10,10 +10,10 @@
  * So this spec imports the real `agent-policy` and `agent-runtime`, seeds the
  * real registry with the provider's OWN shipped agent definition (imported from
  * `ai-agents.ts`, not re-declared here), and drives the subscriber through them.
- * The only thing stubbed is the model call itself, through the runtime's own
- * documented `generateObject` escape hatch — which runs AFTER every policy gate,
- * tool resolution, prompt composition and schema resolution the production path
- * runs.
+ * The model call is stubbed through the runtime's `generateObject` escape hatch,
+ * after policy checks, tool resolution, prompt composition and schema resolution.
+ * These agents have empty tool allowlists, so the test does not load the app's
+ * generated tool and API route registries.
  */
 import type { PreparedAiSdkObjectOptions } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-runtime'
 import {
@@ -27,6 +27,9 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/agent-registry'
 import type { AiAgentDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 
+jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/tool-loader', () => ({
+  ensureModuleToolsLoaded: async () => undefined,
+}))
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
 }))
@@ -171,6 +174,8 @@ describe('channel_discord auto-reply — the real agent runtime', () => {
   })
 
   it('runs the shipped agent end to end and validates against its declared schema', async () => {
+    expect(shippedAgent.allowedTools).toEqual([])
+
     const result = await runAiAgentObject({
       agentId: CHANNEL_DISCORD_AUTO_REPLY_AGENT_ID,
       input: 'What are your opening hours?',

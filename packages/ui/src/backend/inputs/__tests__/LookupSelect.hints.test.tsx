@@ -12,7 +12,14 @@ describe('LookupSelect minimum-query guidance', () => {
   it('shows generic guidance instead of a zero-character minimum when opened or cleared', () => {
     render(
       <I18nProvider locale="en" dict={en}>
-        <LookupSelect value={null} onChange={jest.fn()} minQuery={0} defaultOpen options={[]} />
+        <LookupSelect
+          value={null}
+          onChange={jest.fn()}
+          minQuery={0}
+          defaultOpen
+          options={[]}
+          startTypingLabel="Start typing to search."
+        />
       </I18nProvider>,
     )
 
@@ -24,6 +31,19 @@ describe('LookupSelect minimum-query guidance', () => {
 
     expect(screen.getByText('Start typing to search.')).toBeInTheDocument()
     expect(screen.queryByText(/Minimum characters/)).not.toBeInTheDocument()
+  })
+
+  it('shows no hint for a zero minimum when the caller passes no start-typing label', () => {
+    render(
+      <I18nProvider locale="en" dict={en}>
+        <LookupSelect value={null} onChange={jest.fn()} minQuery={0} defaultOpen options={[]} />
+      </I18nProvider>,
+    )
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'missing' } })
+
+    expect(screen.queryByText(/Minimum characters/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Start typing to search.')).not.toBeInTheDocument()
   })
 
   it.each([

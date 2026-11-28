@@ -115,7 +115,7 @@ export function ScheduleSection({
       {endsError ? <p className="text-xs text-status-error-text">{endsError}</p> : null}
       {multiDaySpan > 0 ? (
         <p className="text-xs text-muted-foreground">
-          {t('customers.calendar.editor.multiDayHint', 'Multi-day event · {count} days', { count: multiDaySpan })}
+          {t('customers.calendar.editor.multiDayHint', 'Multi-day event, {count} days', { count: multiDaySpan })}
         </p>
       ) : null}
     </div>

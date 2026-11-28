@@ -33,10 +33,11 @@ export type SearchConfig = {
    * `ZK 11/2026` and `1/2026 ZK`, where the old single-literal ILIKE matched neither.
    *
    * Set `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` to opt into declared-column ILIKE
-   * ahead of #5383 — worth doing when the #5803 wrong-record symptom is hit in practice. Leaving it
-   * unset keeps the legacy rewrite-everything behavior, including the token index's prefix matching
-   * (`?search=ware` matching `Warehouse` when `enablePartials` is on, which literal containment
-   * gives only where the fragment really is a substring).
+   * ahead of #5383. Leaving it unset keeps the token rewrite on every column, but a column the
+   * encryption map reports as plaintext gets the token match ANDed with a folded per-word
+   * containment predicate (lib/search/tokenContainment): narrowing only, diacritic- and
+   * case-insensitive like the tokenizer, so the #5803 wrong-record and match-everything results are
+   * gone on the default path too. An unknown encryption map skips that narrowing.
    */
   useIlikeForNonEncryptedFields?: boolean
   blocklistedFields: string[]

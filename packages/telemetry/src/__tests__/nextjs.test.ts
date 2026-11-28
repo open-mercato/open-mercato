@@ -22,7 +22,7 @@ function otelSpecifiersInSource(): string[] {
   const specifiers = new Set<string>()
   const visit = (dir: string) => {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-      if (entry.name === '__tests__') continue
+      if (entry.name === '__tests__' || entry.name === '__integration__') continue
       const full = path.join(dir, entry.name)
       if (entry.isDirectory()) {
         visit(full)
