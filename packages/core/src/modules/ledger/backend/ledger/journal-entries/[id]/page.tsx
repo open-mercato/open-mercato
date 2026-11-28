@@ -25,6 +25,7 @@ type JournalEntryLineRow = {
   debit: string
   credit: string
   currencyId: string
+  currencyCode?: string
   exchangeRate: string
   amountCurrency: string
 }
@@ -281,7 +282,7 @@ export default function JournalEntryDetailPage({ params }: { params?: { id?: str
                     <tr key={line.id} className="border-t">
                       <td className="px-3 py-2 font-mono">{line.accountNumber ?? line.accountId}</td>
                       <td className="px-3 py-2">{line.accountName || '—'}</td>
-                      <td className="px-3 py-2">{line.currencyId}</td>
+                      <td className="px-3 py-2">{line.currencyCode || line.currencyId}</td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums">{formatPostedDecimal(line.exchangeRate, locale)}</td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums">{formatPostedDecimal(line.amountCurrency, locale)}</td>
                       <td className="px-3 py-2 text-right font-mono tabular-nums">{formatAmountOrBlank(line.debit, locale)}</td>

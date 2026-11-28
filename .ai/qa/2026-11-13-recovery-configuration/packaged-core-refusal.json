@@ -1,0 +1,27 @@
+{
+  "oomKilled": false,
+  "readOnlyImage": true,
+  "sourceHead": "0b8c524275546a056651201ac3f2ea7f0ca5602c",
+  "image": "om-recovery-maintenance:rotation-0b8-20261113",
+  "network": "none",
+  "acknowledgmentPassed": false,
+  "mutationAuthorized": false,
+  "exitCode": 1,
+  "explicitAcknowledgmentFlagShown": true,
+  "explicitErrorShown": true,
+  "syntheticKeysOnly": true,
+  "databaseContactPossible": false,
+  "passed": true,
+  "imageConfigId": "sha256:197ba34e9a4112a00a2c33d777b70316c34303b7016d7d9d7a565e10cfd90854",
+  "buildTarget": "maintenance",
+  "buildArgs": {
+    "OM_ENABLE_ENTERPRISE_MODULES": "true",
+    "OM_ENABLE_ENTERPRISE_MODULES_BACKUPS": "true",
+    "POSTGRES_CLIENT_MAJOR": "17"
+  },
+  "imageId": "sha256:4efd554a1758b1d3815b295b3385be4e45f099d5450c40b364ff7cbb3f287985",
+  "imageIndexDigest": "sha256:4efd554a1758b1d3815b295b3385be4e45f099d5450c40b364ff7cbb3f287985",
+  "imageConfigIdProvenance": "BuildKit immutable OCI config digest; Docker inspect imageId independently matches exported image-index digest",
+  "platform": "linux/arm64",
+  "imageUser": "1001:1001"
+}

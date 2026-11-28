@@ -843,6 +843,47 @@ describe('GET /api/audit_logs/audit-logs/actions', () => {
     })
   })
 
+  // An `audit_logs.view_tenant` holder whose organization visibility list is explicitly empty
+  // resolves to no default organization, which used to drop the organization predicate and
+  // read every organization's action logs in the tenant. Deny it the way undo/redo do.
+  describe('explicitly empty organization scope', () => {
+    const emptyScopes: Array<[string, Record<string, unknown>]> = [
+      ['allowedIds: []', { selectedId: null, filterIds: null, allowedIds: [] }],
+      ['filterIds: []', { selectedId: null, filterIds: [], allowedIds: null }],
+    ]
+
+    it.each(emptyScopes)('is rejected with 403 before the action-log service is reached (%s)', async (_label, scope) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({ organizationId: null, scope })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+      expect(res.status).toBe(403)
+      expect(mockActionLogs.list).not.toHaveBeenCalled()
+    })
+
+    it('keeps the unrestricted all-organizations read unnarrowed', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+        organizationId: null,
+        scope: { selectedId: null, filterIds: null, allowedIds: null },
+      })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions'))
+
+      expect(res.status).toBe(200)
+      expect(mockActionLogs.list).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'tenant-1', organizationId: undefined, actorSubject: undefined }),
+      )
+    })
+  })
+
   it('preserves the intentional cross-tenant read for a tenant-less superadmin', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     ;(getAuthFromRequest as jest.Mock).mockResolvedValue({

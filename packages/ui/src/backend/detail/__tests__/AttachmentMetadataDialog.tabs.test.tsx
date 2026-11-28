@@ -4,13 +4,7 @@ import * as React from 'react'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 
-jest.mock('@open-mercato/core/generated-shims/entities.ids.generated', () => ({
-  E: new Proxy({}, {
-    get: (_target, moduleId) => new Proxy({}, {
-      get: (_entity, entityId) => `${String(moduleId)}:${String(entityId)}`,
-    }),
-  }),
-}))
+jest.mock('@open-mercato/core/generated-shims/entities.ids.generated', () => ({ E: {} }))
 
 jest.mock('next/dynamic', () => () => function DocumentStructurePanelStub() {
   return <div data-testid="structure-panel" />
@@ -21,9 +15,13 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
-  CrudForm: ({ hideFooterActions, submitLabel }: { hideFooterActions?: boolean; submitLabel?: string }) =>
+  CrudForm: ({ entityId, hideFooterActions, submitLabel }: {
+    entityId: string
+    hideFooterActions?: boolean
+    submitLabel?: string
+  }) =>
     hideFooterActions ? <div data-testid="crud-form" /> : (
-      <div data-testid="crud-form">
+      <div data-testid="crud-form" data-entity-id={entityId}>
         <button type="submit">{submitLabel}</button>
       </div>
     ),
@@ -59,6 +57,7 @@ describe('AttachmentMetadataDialog tabs', () => {
     )
 
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.getByTestId('crud-form')).toHaveAttribute('data-entity-id', 'attachments:attachment')
 
     selectTab(/Structure/)
     await waitFor(() => expect(screen.getByTestId('structure-panel')).toBeInTheDocument())

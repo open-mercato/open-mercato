@@ -124,7 +124,7 @@ Both paths require populated `search_tokens` for the entity, encrypted field, an
 
 When fallback would compare with ciphertext, both engines retain the existing warn-once log. Outside production, `meta.ciphertextSearchWarnings` additionally reports entity, field, reason and remediation hint on every affected query/list response, including `no-search-tokens`. No values, hashes or tenant IDs are exposed. Production response metadata is unchanged.
 
-- `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default.
+- `OM_SEARCH_USE_ILIKE_FOR_NON_ENCRYPTED_FIELDS=true` routes plaintext columns to per-word SQL containment; encrypted columns retain token lookup. The flag remains off by default; off, plaintext-column token matches are ANDed with folded containment (`lib/search/tokenContainment`).
 - Direct `…WithDecryption` helpers warn outside production about `$like`/`$ilike`/`$re` in encrypted-field ORM predicates (`lib/encryption/likeFilterWarning`); they decrypt returned rows but cannot repair a ciphertext filter.
 
 ### Boolean Parsing — MUST use instead of ad-hoc parsing

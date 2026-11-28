@@ -7,6 +7,7 @@ import { CustomerComment } from '../data/entities'
 import { commentCreateSchema, commentUpdateSchema, type CommentCreateInput, type CommentUpdateInput } from '../data/validators'
 import {
   findScopedCustomerCommandRecord,
+  findScopedCustomerCommandTarget,
   ensureOrganizationScope,
   ensureTenantScope,
   requireTimelineParentEntity,
@@ -57,7 +58,7 @@ type CommentUndoPayload = {
 }
 
 async function loadCommentSnapshot(em: EntityManager, id: string, ctx: CommandRuntimeContext): Promise<CommentSnapshot | null> {
-  const comment = await findScopedCustomerCommandRecord(
+  const comment = await findScopedCustomerCommandTarget(
     em,
     CustomerComment,
     { id, deletedAt: null },
@@ -205,7 +206,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
   async execute(rawInput, ctx) {
     const parsed = commentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const comment = await findScopedCustomerCommandRecord(em, CustomerComment, { id: parsed.id, deletedAt: null }, undefined, ctx)
+    const comment = await findScopedCustomerCommandTarget(em, CustomerComment, { id: parsed.id, deletedAt: null }, undefined, ctx)
     if (!comment) throw notFound('Comment not found')
     ensureTenantScope(ctx, comment.tenantId)
     ensureOrganizationScope(ctx, comment.organizationId)
@@ -353,7 +354,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async execute(input, ctx) {
       const id = requireId(input, 'Comment id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const comment = await findScopedCustomerCommandRecord(em, CustomerComment, { id, deletedAt: null }, undefined, ctx)
+      const comment = await findScopedCustomerCommandTarget(em, CustomerComment, { id, deletedAt: null }, undefined, ctx)
       if (!comment) throw notFound('Comment not found')
       ensureTenantScope(ctx, comment.tenantId)
       ensureOrganizationScope(ctx, comment.organizationId)

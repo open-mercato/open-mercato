@@ -9,6 +9,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount } from '../../data/entities'
 import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../openapi'
+import { currencyCodeOrId, loadCurrencyCodes } from '../../lib/currencyCodes'
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
@@ -17,7 +18,9 @@ import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 // `reverseJournalEntry` (see commands/), never through this route.
 //
 // A request narrowed to one entry (`?id=`) also returns that entry's posted
-// lines (account number, name, debit, credit) for the read-only detail page.
+// lines (account number, name, debit, credit, currency code) for the read-only
+// detail page. `currencyCode` sits next to the unchanged `currencyId`; when the
+// code cannot be resolved it carries the identifier, so it is never empty.
 // The list itself stays headers only.
 //
 // `accountId` and `periodId` are not stored columns on `JournalEntry`
@@ -78,6 +81,7 @@ type JournalEntryLineRow = {
   debit: string
   credit: string
   currencyId: string
+  currencyCode: string
   exchangeRate: string
   amountCurrency: string
 }
@@ -220,7 +224,8 @@ export async function GET(req: Request) {
 
 // Lines of one entry, scoped to the entry's own organization/tenant, with the
 // account number and name resolved in one extra query (no ORM relation
-// between lines and accounts). Debit lines first, then credit lines.
+// between lines and accounts) and the currency codes in one more, in the same
+// scope. Debit lines first, then credit lines.
 async function loadEntryLines(em: EntityManager, entry: JournalEntry): Promise<JournalEntryLineRow[]> {
   const scope = { organizationId: entry.organizationId, tenantId: entry.tenantId }
   const lines = await findWithDecryption(
@@ -235,6 +240,7 @@ async function loadEntryLines(em: EntityManager, entry: JournalEntry): Promise<J
     ? await em.find(LedgerAccount, { id: { $in: accountIds }, ...scope }, { fields: ['id', 'number', 'description'] })
     : []
   const accountById = new Map(accounts.map((account) => [account.id, account]))
+  const currencyCodes = await loadCurrencyCodes(em, lines.map((line) => String(line.currencyId)), scope)
   const isDebit = (line: JournalEntryLine) => Number(line.debit) > 0
   return [...lines]
     .sort((a, b) => Number(isDebit(b)) - Number(isDebit(a)))
@@ -248,6 +254,7 @@ async function loadEntryLines(em: EntityManager, entry: JournalEntry): Promise<J
         debit: String(line.debit),
         credit: String(line.credit),
         currencyId: String(line.currencyId),
+        currencyCode: currencyCodeOrId(currencyCodes, String(line.currencyId)),
         exchangeRate: String(line.exchangeRate),
         amountCurrency: String(line.amountCurrency),
       }
@@ -281,6 +288,7 @@ const journalEntryLineSchema = z.object({
   debit: z.string(),
   credit: z.string(),
   currencyId: z.uuid(),
+  currencyCode: z.string().describe('Currency code resolved in the entry scope; the currency identifier when the code cannot be resolved'),
   exchangeRate: z.string(),
   amountCurrency: z.string(),
 })

@@ -6,6 +6,7 @@ import {
 } from '../modules/onboarding/lib/verify-redirects'
 
 const AUTH_COOKIES = ['auth_token', 'session_token', 'om_login_tenant'] as const
+const SCOPE_COOKIES = ['om_selected_org', 'om_selected_tenant'] as const
 
 function getCookie(response: ReturnType<typeof redirectWithStatus>, name: string) {
   return response.cookies.get(name)
@@ -44,6 +45,14 @@ describe('onboarding verify redirect helpers', () => {
       expect(getCookie(response, 'session_token')?.maxAge).toBe(0)
     })
 
+    it('expires the super-admin scope-selection cookies (GHSA-6729)', () => {
+      const response = redirectToPreparing('https://app.example.com', 'tenant-123')
+      for (const cookieName of SCOPE_COOKIES) {
+        expect(getCookie(response, cookieName)?.value).toBe('')
+        expect(getCookie(response, cookieName)?.maxAge).toBe(0)
+      }
+    })
+
     it('sets om_login_tenant to the provisioned tenant id', () => {
       const response = redirectToPreparing('https://app.example.com', 'tenant-123')
       const tenantCookie = getCookie(response, 'om_login_tenant')
@@ -65,6 +74,14 @@ describe('onboarding verify redirect helpers', () => {
       expect(getCookie(response, 'auth_token')?.maxAge).toBe(0)
       expect(getCookie(response, 'session_token')?.value).toBe('')
       expect(getCookie(response, 'session_token')?.maxAge).toBe(0)
+    })
+
+    it('expires the super-admin scope-selection cookies (GHSA-6729)', () => {
+      const response = redirectToLogin('https://app.example.com', 'tenant-123')
+      for (const cookieName of SCOPE_COOKIES) {
+        expect(getCookie(response, cookieName)?.value).toBe('')
+        expect(getCookie(response, cookieName)?.maxAge).toBe(0)
+      }
     })
 
     it('sets om_login_tenant to the provisioned tenant id', () => {

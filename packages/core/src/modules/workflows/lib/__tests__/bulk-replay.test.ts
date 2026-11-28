@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 import { describe, test, expect, jest, beforeEach } from '@jest/globals'
+import { asValue, createContainer } from 'awilix'
 
 const executeWorkflow = jest.fn(async () => ({ status: 'RUNNING' }))
 const completeWorkflow = jest.fn(async () => undefined)
@@ -237,5 +238,39 @@ describe('runBulkReplay', () => {
 
     expect(summary.failedCount).toBe(1)
     expect(harness.progressService.completeJob).toHaveBeenCalled()
+  })
+
+  test('replays without progress tracking when the progress module is disabled (#9217)', async () => {
+    const harness = makeHarness([makeInstance('a', 'FAILED')])
+    const container = createContainer()
+    container.register('em', asValue(harness.em))
+
+    const summary = await runBulkReplay({
+      container,
+      progressJobId: 'job-1',
+      action: 'retry',
+      ids: ['a'],
+      scope: SCOPE,
+    })
+
+    expect(summary.affectedCount).toBe(1)
+    expect(executeWorkflow).toHaveBeenCalledTimes(1)
+  })
+
+  test('skips progress calls for a job queued without a progress job id', async () => {
+    const harness = makeHarness([makeInstance('a', 'FAILED')])
+
+    const summary = await runBulkReplay({
+      container: harness.container as never,
+      progressJobId: null,
+      action: 'retry',
+      ids: ['a'],
+      scope: SCOPE,
+    })
+
+    expect(summary.affectedCount).toBe(1)
+    expect(harness.progressService.startJob).not.toHaveBeenCalled()
+    expect(harness.progressService.updateProgress).not.toHaveBeenCalled()
+    expect(harness.progressService.completeJob).not.toHaveBeenCalled()
   })
 })

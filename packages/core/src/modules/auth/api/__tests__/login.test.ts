@@ -19,6 +19,7 @@ const authServiceMock = {
   getUserRoles: jest.fn(async () => ['admin']),
   updateLastLoginAt: jest.fn(async () => undefined),
   createSession: jest.fn(async () => ({ session: { id: 'session-1' }, token: 'session-token' })),
+  deleteSessionById: jest.fn(async () => undefined),
 }
 
 const containerMock = {
@@ -47,8 +48,14 @@ jest.mock('@open-mercato/core/modules/auth/lib/rateLimitCheck', () => ({
   resetAuthRateLimit: jest.fn(async () => undefined),
 }))
 
+const mockReportError = jest.fn()
+
 jest.mock('@open-mercato/core/modules/auth/events', () => ({
   emitAuthEvent: jest.fn(async () => undefined),
+}))
+
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: () => ({ reportError: mockReportError }),
 }))
 
 function makeFormData(data: Record<string, string>) {
@@ -359,6 +366,167 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(setCookie).toContain('auth_token=pending-token')
     expect(setCookie).toMatch(/session_token=;[^,]*Max-Age=0/i)
     expect(setCookie).not.toContain('session_token=session-token')
+  })
+
+  test('expires the super-admin scope-selection cookies on a successful login (GHSA-6729)', async () => {
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    // The 30-day om_selected_* cookies outlive sessions and applySuperAdminScope
+    // honors them without checking who made the selection, so a selection left by
+    // a previous user must not survive the identity change.
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toMatch(/om_selected_org=;[^,]*Max-Age=0/i)
+    expect(setCookie).toMatch(/om_selected_tenant=;[^,]*Max-Age=0/i)
+  })
+
+  test('expires the super-admin scope-selection cookies when an interceptor replaces the issued token (GHSA-6729)', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.replace.scope-cookies',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              return {
+                replace: {
+                  ok: true,
+                  mfa_required: true,
+                  challenge_id: 'challenge-1',
+                  token: 'pending-token',
+                },
+              }
+            },
+          },
+        ],
+      },
+    ])
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(200)
+
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).toMatch(/om_selected_org=;[^,]*Max-Age=0/i)
+    expect(setCookie).toMatch(/om_selected_tenant=;[^,]*Max-Age=0/i)
+  })
+
+  test('leaves the super-admin scope-selection cookies untouched when the login fails (GHSA-6729)', async () => {
+    mockTenantLookup.mockResolvedValueOnce(null as never)
+    const res = await POST(new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret' }),
+    }))
+
+    expect(res.status).toBe(401)
+    // A failed login changes no identity — the browser keeps its current selection.
+    const setCookie = res.headers.get('set-cookie') ?? ''
+    expect(setCookie).not.toContain('om_selected_org')
+    expect(setCookie).not.toContain('om_selected_tenant')
+  })
+
+  test.each([
+    ['remember me disabled', {}],
+    ['remember me enabled', { remember: '1' }],
+  ])('fails closed without an access or refresh token when the after-interceptor fails (%s)', async (_label, extra) => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.fail',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              throw new Error('MFA challenge store unavailable')
+            },
+          },
+        ],
+      },
+    ])
+
+    const req = new Request('http://localhost/api/auth/login', {
+      method: 'POST',
+      body: makeFormData({ email: 'user@example.com', password: 'secret', ...extra }),
+    })
+
+    const res = await POST(req)
+    expect(res.status).toBe(500)
+
+    const body = await res.json()
+    expect(body).toEqual({
+      ok: false,
+      error: 'An error occurred. Please try again.',
+    })
+    expect(body.token).toBeUndefined()
+    expect(body.refreshToken).toBeUndefined()
+    expect(res.headers.get('set-cookie')).toBeNull()
+    expect(authServiceMock.deleteSessionById).toHaveBeenCalledWith('session-1')
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    expect(emitAuthEvent as jest.Mock).not.toHaveBeenCalledWith('auth.login.success', expect.anything())
+    expect(emitAuthEvent as jest.Mock).toHaveBeenCalledWith(
+      'auth.login.failed',
+      expect.objectContaining({ email: 'user@example.com', reason: 'after_interceptor_failed' }),
+    )
+    expect(mockReportError).toHaveBeenCalledWith(
+      expect.any(Error),
+      expect.objectContaining({
+        module: 'auth',
+        code: 'auth.login_interceptor_failed',
+        attributes: { statusCode: 500 },
+      }),
+    )
+  })
+
+  test('returns the generic denied response even if session revocation and telemetry reporting both throw', async () => {
+    registerApiInterceptors([
+      {
+        moduleId: 'example',
+        interceptors: [
+          {
+            id: 'example.auth.login.fail',
+            targetRoute: 'auth/login',
+            methods: ['POST'],
+            async after() {
+              throw new Error('MFA challenge store unavailable')
+            },
+          },
+        ],
+      },
+    ])
+    authServiceMock.deleteSessionById.mockRejectedValueOnce(new Error('session store unavailable'))
+    mockReportError.mockImplementation(() => {
+      throw new Error('telemetry offline')
+    })
+
+    try {
+      const req = new Request('http://localhost/api/auth/login', {
+        method: 'POST',
+        body: makeFormData({ email: 'user@example.com', password: 'secret', remember: '1' }),
+      })
+
+      const res = await POST(req)
+      expect(res.status).toBe(500)
+      expect(await res.json()).toEqual({
+        ok: false,
+        error: 'An error occurred. Please try again.',
+      })
+      expect(res.headers.get('set-cookie')).toBeNull()
+      expect(authServiceMock.deleteSessionById).toHaveBeenCalledWith('session-1')
+    } finally {
+      mockReportError.mockReset()
+    }
   })
 })
 

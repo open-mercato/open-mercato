@@ -8,6 +8,7 @@ import {
 } from '../data/entities'
 import { normalizeGrantedFeatures, syncWorkflowDefinitionPrincipal } from './definition-grant'
 import { invalidateTriggerCache } from './event-trigger-service'
+import { createWorkflowExampleAuthoring, type WorkflowExampleAuthoring } from './example-definition-authoring'
 
 /**
  * Create-or-update of a workflow definition that ANOTHER module authors and owns.
@@ -50,7 +51,7 @@ export type OwnedWorkflowDefinitionResult =
   | { ok: true; definition: WorkflowDefinition; created: boolean }
   | { ok: false; reason: 'owned_by_other'; definition: WorkflowDefinition }
 
-export interface WorkflowDefinitionAuthoring {
+export interface WorkflowDefinitionAuthoring extends Partial<WorkflowExampleAuthoring> {
   upsertOwnedDefinition(
     em: EntityManager,
     input: OwnedWorkflowDefinitionInput,
@@ -77,6 +78,8 @@ function ownedBy(definition: WorkflowDefinition, ownerModule: string, ownerId: s
 
 export function createWorkflowDefinitionAuthoring(container: AwilixContainer): WorkflowDefinitionAuthoring {
   return {
+    ...createWorkflowExampleAuthoring(container),
+
     async findOwnedDefinition(em, params) {
       return em.findOne(
         WorkflowDefinition,

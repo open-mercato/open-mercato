@@ -1268,9 +1268,11 @@ export async function run(argv = process.argv) {
       const allModules = await buildAllModules()
 
       // Step 6: Restore configuration defaults
-      console.log('⚙️  Restoring module defaults...')
-      await runModuleCommand(allModules, 'configs', 'restore-defaults', [])
-      console.log('✅ Module defaults restored\n')
+      if (allModules.some((module) => module.id === 'configs')) {
+        console.log('⚙️  Restoring module defaults...')
+        await runModuleCommand(allModules, 'configs', 'restore-defaults', [])
+        console.log('✅ Module defaults restored\n')
+      }
 
       // Step 7: Setup RBAC (tenant/org, users, ACLs)
       const findArgValue = (names: string[], fallback: string) => {

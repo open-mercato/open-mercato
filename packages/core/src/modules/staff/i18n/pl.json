@@ -275,6 +275,7 @@
   "staff.leaveRequests.errors.accept": "Nie udało się zatwierdzić wniosku urlopowego.",
   "staff.leaveRequests.errors.alreadyFinalized": "Wniosek urlopowy został już rozpatrzony.",
   "staff.leaveRequests.errors.forbidden": "Brak dostępu",
+  "staff.leaveRequests.errors.invalidDateRange": "Data zakończenia musi być późniejsza niż data rozpoczęcia.",
   "staff.leaveRequests.errors.load": "Nie udało się załadować wniosków urlopowych.",
   "staff.leaveRequests.errors.notFound": "Nie znaleziono wniosku urlopowego.",
   "staff.leaveRequests.errors.profileLoad": "Nie udało się załadować profilu.",

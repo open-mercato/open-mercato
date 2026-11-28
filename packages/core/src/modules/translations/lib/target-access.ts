@@ -155,6 +155,7 @@ export async function resolveTranslationTargetFields(
   const owner = resolveTranslationOwnerMetadata(context.em, entityType)
   if (!owner) throw await translationTargetNotFound()
   const { metadata, source } = owner
+  if (!source.tenantColumn && !source.organizationColumn) throw await translationTargetNotFound()
   const primaryKey = metadata.primaryKeys.length === 1 ? metadata.properties[metadata.primaryKeys[0]] : undefined
   if (primaryKey?.fieldNames.length !== 1) throw await translationTargetNotFound()
   if (primaryKey.type === 'uuid' && !uuidSchema.safeParse(entityId).success) throw await translationTargetNotFound()

@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import type { EntityManager as SqlEntityManager } from '@mikro-orm/postgresql'
 import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
 import { MESSAGE_ATTACHMENT_ENTITY_ID } from './constants'
+import { isAttachmentsModuleAvailable } from './optionalModules'
 const LIBRARY_ATTACHMENT_ENTITY_ID = 'attachments:library'
 
 function buildOrganizationScopeFilter(organizationId: string | null) {
@@ -24,6 +25,7 @@ export async function linkAttachmentsToMessage(
   tenantId: string,
 ): Promise<void> {
   if (attachmentIds.length === 0) return
+  if (!(await isAttachmentsModuleAvailable(em))) return
 
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
 
@@ -102,6 +104,7 @@ export async function deleteMessageAttachmentRows(
   filter: MessageAttachmentRowsFilter,
 ): Promise<DeletedMessageAttachmentRows> {
   const sqlEm = em as unknown as SqlEntityManager
+  if (!(await isAttachmentsModuleAvailable(em))) return { deletedCount: 0, purgedSections: [] }
   const run = async (target: SqlEntityManager): Promise<DeletedMessageAttachmentRows> => {
     const rows = await selectMessageAttachmentRows(target, filter)
     if (rows.length === 0) return { deletedCount: 0, purgedSections: [] }
@@ -148,6 +151,7 @@ export async function getMessageAttachments(
   mimeType: string
   url: string
 }>> {
+  if (!(await isAttachmentsModuleAvailable(em))) return []
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
 
   const attachments = await em.find(Attachment, {
@@ -181,6 +185,7 @@ export async function getMessageEmailAttachments(
   organizationId: string | null,
   tenantId: string,
 ): Promise<MessageEmailAttachment[]> {
+  if (!(await isAttachmentsModuleAvailable(em))) return []
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
 
   const attachments = await em.find(Attachment, {
@@ -208,6 +213,7 @@ export async function linkLibraryAttachmentsToMessage(
   tenantId: string,
 ): Promise<void> {
   if (!sourceRecordId.trim()) return
+  if (!(await isAttachmentsModuleAvailable(em))) return
 
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
 
@@ -249,6 +255,7 @@ export async function copyAttachmentsForForwardMessages(
   tenantId: string,
 ): Promise<number> {
   if (sourceMessageIds.length === 0) return 0
+  if (!(await isAttachmentsModuleAvailable(em))) return 0
 
   const { Attachment } = await import('@open-mercato/core/modules/attachments/data/entities')
   const sourceAttachments = await em.find(Attachment, {

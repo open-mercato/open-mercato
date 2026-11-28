@@ -24,6 +24,7 @@
   "scheduler.details.scope": "Zakres",
   "scheduler.details.source_module": "moduł",
   "scheduler.details.source_user": "Utworzony przez użytkownika",
+  "scheduler.details.title": "Szczegóły harmonogramu",
   "scheduler.details.triggering": "Uruchamianie...",
   "scheduler.edit.title": "Edytuj harmonogram",
   "scheduler.error.access_denied": "Odmowa dostępu",

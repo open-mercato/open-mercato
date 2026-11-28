@@ -25,7 +25,7 @@ async function mountFeedbackFixture(page: Page, appRoot: string) {
   const bundle = await build({
     stdin: {
       contents: `import React from 'react'; import { createRoot } from 'react-dom/client'; import { DemoFeedbackWidget } from ${JSON.stringify(componentPath)};
-        const version = 'fixture'; const dictionaries = ${JSON.stringify(feedbackTranslations)}; const t = (key, fallbackOrParams, params) => { const dictionary = dictionaries[document.documentElement.lang || 'en']; const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : undefined; const resolvedParams = typeof fallbackOrParams === 'string' ? params : fallbackOrParams; const template = dictionary?.[key] ?? fallback ?? key; return template.replace(/\\{\\{(\\w+)\\}\\}|\\{(\\w+)\\}/g, (match, doubleKey, singleKey) => { const name = doubleKey ?? singleKey; const value = resolvedParams?.[name]; return value === undefined ? match : String(value); }); }; const Link = (props) => <a {...props}/>;
+        const version = 'fixture'; const dictionaries = window.__feedbackTranslations; const t = (key, fallbackOrParams, params) => { const dictionary = dictionaries[document.documentElement.lang || 'en']; const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : undefined; const resolvedParams = typeof fallbackOrParams === 'string' ? params : fallbackOrParams; const template = dictionary?.[key] ?? fallback ?? key; return template.replace(/\\{\\{(\\w+)\\}\\}|\\{(\\w+)\\}/g, (match, doubleKey, singleKey) => { const name = doubleKey ?? singleKey; const value = resolvedParams?.[name]; return value === undefined ? match : String(value); }); }; const Link = (props) => <a {...props}/>;
         createRoot(document.getElementById('fixture')).render(<><main id="main-content" style={{minHeight:'120vh',display:'flex',flexDirection:'column',justifyContent:'flex-end'}}>Owned page content <p>Final content row</p></main>${footer}<DemoFeedbackWidget demoModeEnabled={true}/></>);`,
       resolveDir: projectRoot,
       loader: 'tsx',
@@ -39,7 +39,7 @@ async function mountFeedbackFixture(page: Page, appRoot: string) {
       setup(builder) {
         builder.onResolve({ filter: /^(@open-mercato\/shared\/lib\/i18n\/context|@open-mercato\/ui\/ai\/AiDock|@open-mercato\/ui\/backend\/utils\/apiCall|next\/image)$/ }, (args) => ({ path: args.path, namespace: 'fixture' }))
         builder.onLoad({ filter: /.*/, namespace: 'fixture' }, (args) => {
-          if (args.path === '@open-mercato/shared/lib/i18n/context') return { resolveDir: projectRoot, contents: `import { useSyncExternalStore } from 'react'; const subscribe = (callback) => { window.addEventListener('languagechange', callback); return () => window.removeEventListener('languagechange', callback); }; export const useT = () => { useSyncExternalStore(subscribe, () => document.documentElement.lang || 'en', () => 'en'); return (key, fallbackOrParams, params) => { const dictionaries = ${JSON.stringify(feedbackTranslations)}; const dictionary = dictionaries[document.documentElement.lang || 'en']; const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : undefined; const resolvedParams = typeof fallbackOrParams === 'string' ? params : fallbackOrParams; const template = dictionary?.[key] ?? fallback ?? key; return template.replace(/\\{\\{(\\w+)\\}\\}|\\{(\\w+)\\}/g, (match, doubleKey, singleKey) => { const name = doubleKey ?? singleKey; const value = resolvedParams?.[name]; return value === undefined ? match : String(value); }); }; };` }
+          if (args.path === '@open-mercato/shared/lib/i18n/context') return { resolveDir: projectRoot, contents: `import { useSyncExternalStore } from 'react'; const subscribe = (callback) => { window.addEventListener('languagechange', callback); return () => window.removeEventListener('languagechange', callback); }; export const useT = () => { useSyncExternalStore(subscribe, () => document.documentElement.lang || 'en', () => 'en'); return (key, fallbackOrParams, params) => { const dictionaries = window.__feedbackTranslations; const dictionary = dictionaries[document.documentElement.lang || 'en']; const fallback = typeof fallbackOrParams === 'string' ? fallbackOrParams : undefined; const resolvedParams = typeof fallbackOrParams === 'string' ? params : fallbackOrParams; const template = dictionary?.[key] ?? fallback ?? key; return template.replace(/\\{\\{(\\w+)\\}\\}|\\{(\\w+)\\}/g, (match, doubleKey, singleKey) => { const name = doubleKey ?? singleKey; const value = resolvedParams?.[name]; return value === undefined ? match : String(value); }); }; };` }
           if (args.path === '@open-mercato/ui/backend/utils/apiCall') return { contents: `export const apiCall = async () => { const replies = window.__feedbackApiReplies || []; const reply = replies.shift() || {status:200,result:{ok:true}}; return {ok:reply.status >= 200 && reply.status < 300, status:reply.status, result:reply.result, response:new Response(JSON.stringify(reply.result)), cacheStatus:null} };` }
           return { contents: `export const useAiDock = () => ({state:{}}); export default () => null;` }
         })
@@ -50,6 +50,10 @@ async function mountFeedbackFixture(page: Page, appRoot: string) {
       },
     }],
   })
+  await page.addInitScript((dictionaries) => {
+    const target = window as Window & { __feedbackTranslations?: typeof dictionaries }
+    target.__feedbackTranslations = dictionaries
+  }, feedbackTranslations)
   await page.route('http://feedback.test/**', (route) => route.fulfill({ contentType: 'text/html', body: '<html><body><div id="fixture"></div></body></html>' }))
   await page.goto('http://feedback.test/')
   await page.addStyleTag({ content: stylesheet.css })

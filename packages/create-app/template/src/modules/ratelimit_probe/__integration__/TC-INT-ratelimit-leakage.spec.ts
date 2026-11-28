@@ -12,11 +12,8 @@ const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
  * Playwright run shares a single client IP across workers and burns through
  * per-route point budgets — flakiness that scales with worker count.
  *
- * The metadata-path case depends on the dev-only `ratelimit_probe` module at
- * `apps/mercato/src/modules/ratelimit_probe/`. That module ships only with
- * the open-mercato monorepo and is intentionally absent from
- * `create-mercato-app` scaffolds, so the metadata path self-skips when
- * `/api/ratelimit_probe/ping` responds with 404.
+ * The metadata-path case requires the `ratelimit_probe` module, registered
+ * when the integration runner enables `OM_INTEGRATION_TEST` during generation.
  */
 test.describe('per-route rate limits leak into OM_INTEGRATION_TEST runs', () => {
   test('metadata.rateLimit path (apps/mercato root handler): 5 POSTs to /api/ratelimit_probe/ping all return 200 with points=3', async ({ request }) => {
@@ -24,10 +21,7 @@ test.describe('per-route rate limits leak into OM_INTEGRATION_TEST runs', () => 
       headers: { 'Content-Type': 'application/json' },
       data: {},
     });
-    test.skip(
-      probe.status() === 404,
-      'ratelimit_probe module not registered (expected for create-mercato-app scaffolds)',
-    );
+    expect(probe.status(), 'OM_INTEGRATION_TEST must register ratelimit_probe').toBe(200);
 
     const statuses: number[] = [probe.status()];
     for (let i = 0; i < 4; i += 1) {

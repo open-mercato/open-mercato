@@ -33,6 +33,7 @@ export type AttributionProposal = {
 export type AttributionScope = {
   tenantId: string
   organizationId: string | null
+  organizationIds?: readonly string[]
 }
 
 const uuidSchema = z.string().uuid()
@@ -86,7 +87,9 @@ function verifiedProposalIdOf(
 function scopeFilterOf(scope: AttributionScope) {
   return {
     tenantId: scope.tenantId,
-    ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
+    ...(scope.organizationId
+      ? { organizationId: scope.organizationId }
+      : scope.organizationIds ? { organizationId: { $in: [...scope.organizationIds] } } : {}),
   }
 }
 

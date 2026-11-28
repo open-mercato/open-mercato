@@ -11,15 +11,15 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
 }))
 
-function todayCall(title: string) {
+function todayCall(title: string, status = 'planned', id = 'interaction-1') {
   const scheduledAt = new Date()
   scheduledAt.setHours(12, 0, 0, 0)
   return {
-    id: 'interaction-1',
+    id,
     interactionType: 'call',
     title,
     body: null,
-    status: 'planned',
+    status,
     scheduledAt: scheduledAt.toISOString(),
     occurredAt: null,
     createdAt: scheduledAt.toISOString(),
@@ -27,9 +27,28 @@ function todayCall(title: string) {
   }
 }
 
-describe('MiniWeekCalendar host refresh', () => {
+describe('MiniWeekCalendar', () => {
   beforeEach(() => {
     readApiResultOrThrowMock.mockReset()
+  })
+
+  it.each([
+    ['canceled', 'Canceled', true],
+    ['done', 'Done', false],
+    ['completed', 'Done', false],
+  ])('labels a %s interaction alongside a planned interaction', async (status, label, strikesTitle) => {
+    readApiResultOrThrowMock.mockResolvedValue({
+      items: [todayCall('Pricing call', status), todayCall('Follow-up call', 'planned', 'interaction-2')],
+    })
+
+    renderWithProviders(<MiniWeekCalendar entityId="person-1" />)
+
+    const terminalTitle = await screen.findByText('Pricing call')
+    const plannedTitle = screen.getByText('Follow-up call')
+    expect(terminalTitle.parentElement).toContainElement(screen.getByText(label))
+    expect(plannedTitle.parentElement).not.toContainElement(screen.getByText(label))
+    expect(terminalTitle.classList.contains('line-through')).toBe(strikesTitle)
+    expect(plannedTitle).not.toHaveClass('line-through')
   })
 
   it('reloads the week when the host refresh key changes so a deleted activity leaves the strip (#9487)', async () => {

@@ -25,6 +25,17 @@ import {
 
 type Scope = { organizationId: string; tenantId: string }
 
+function accountNumberTaken(translate: TranslateWithFallbackFn) {
+  return conflict(
+    translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'),
+  )
+}
+
+function rethrowAccountNumberConflict(error: unknown, translate: TranslateWithFallbackFn): never {
+  if (isUniqueViolation(error, 'ledger_accounts_scope_number_unique')) throw accountNumberTaken(translate)
+  throw error
+}
+
 /**
  * Whether `accountId` has any posted `JournalEntryLine` — the invariant
  * `updateLedgerAccount`'s `accountTypeId`-immutability guard checks (see
@@ -128,10 +139,6 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
     const scope: Scope = { organizationId: parsed.organizationId, tenantId: parsed.tenantId }
     const { translate } = await resolveTranslations()
 
-    const accountNumberTaken = () => conflict(
-      translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'),
-    )
-
     // Same lock protocol as `updateLedgerAccount`: `for share` on the account
     // type, taken before the prefix check and held through the insert, so a
     // concurrent `updateLedgerAccountType` (which takes `for update` on the
@@ -150,7 +157,7 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
         tenantId: scope.tenantId,
         deletedAt: null,
       })
-      if (existing) throw accountNumberTaken()
+      if (existing) throw accountNumberTaken(translate)
 
       const accountType = await requireExistingAccountType(em, parsed.accountTypeId, scope, translate)
       await requireAccountNumberMatchesType(em, parsed.number, accountType, scope, translate)
@@ -192,10 +199,7 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
       })
 
       return record
-    }).catch((error: unknown) => {
-      if (isUniqueViolation(error, 'ledger_accounts_scope_number_unique')) throw accountNumberTaken()
-      throw error
-    })
+    }).catch((error: unknown) => rethrowAccountNumberConflict(error, translate))
 
     return { ledgerAccountId: record.id }
   },
@@ -254,7 +258,7 @@ const updateLedgerAccountCommand: CommandHandler<LedgerAccountUpdateInput, { led
           deletedAt: null,
           id: { $ne: record.id },
         })
-        if (existing) throw conflict(translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'))
+        if (existing) throw accountNumberTaken(translate)
       }
 
       const changesNumber = parsed.number !== undefined && parsed.number !== record.number
@@ -326,7 +330,7 @@ const updateLedgerAccountCommand: CommandHandler<LedgerAccountUpdateInput, { led
       })
 
       return record
-    })
+    }).catch((error: unknown) => rethrowAccountNumberConflict(error, translate))
 
     return { ledgerAccountId: record.id }
   },

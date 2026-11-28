@@ -80,15 +80,22 @@ export async function GET(req: Request) {
     if (Array.isArray(scope.filterIds) && scope.filterIds.length === 0) {
       return NextResponse.json({ entries: [], limit, offset })
     }
-    const organizationId =
-      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : undefined
-    const entries = await vectorStrategy.listEntries({
+    const selectedOrganizationId =
+      typeof scope.selectedId === 'string' && scope.selectedId.trim().length > 0 ? scope.selectedId.trim() : null
+    const organizationIds = selectedOrganizationId
+      ? [selectedOrganizationId]
+      : Array.isArray(scope.filterIds) ? scope.filterIds : null
+    const listedEntries = await vectorStrategy.listEntries({
       tenantId: auth.tenantId,
-      organizationId,
+      organizationId: selectedOrganizationId ?? undefined,
+      organizationIds: organizationIds ?? undefined,
       entityId: entityIdParam ?? undefined,
       limit,
       offset,
     })
+    const entries = organizationIds
+      ? listedEntries.filter((entry) => typeof entry.organizationId === 'string' && organizationIds.includes(entry.organizationId))
+      : listedEntries
 
     return NextResponse.json({ entries, limit, offset })
   } catch (error: unknown) {
