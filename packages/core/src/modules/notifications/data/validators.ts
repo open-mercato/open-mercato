@@ -112,9 +112,17 @@ const notificationDeliveryStrategySchema = z.object({
   enabled: z.boolean().optional(),
 })
 
+const notificationEmailAddressSchema = z.string()
+  .regex(/^[^\r\n]*$/)
+  .trim()
+  .refine((value) => {
+    const namedAddress = /^[^<>]+<([^<>]+)>$/.exec(value)
+    return z.string().email().safeParse(namedAddress?.[1]?.trim() ?? value).success
+  })
+
 const notificationDeliveryEmailSchema = notificationDeliveryStrategySchema.extend({
-  from: z.string().trim().min(1).optional(),
-  replyTo: z.string().trim().min(1).optional(),
+  from: notificationEmailAddressSchema.optional(),
+  replyTo: notificationEmailAddressSchema.optional(),
   subjectPrefix: z.string().trim().min(1).optional(),
 })
 
@@ -126,7 +134,7 @@ export const notificationDeliveryConfigSchema = z.object({
   appUrl: z.string().url().optional(),
   panelPath: safeRelativeHrefSchema.optional(),
   strategies: z.object({
-    database: notificationDeliveryStrategySchema.optional(),
+    database: notificationDeliveryStrategySchema.extend({ enabled: z.literal(true).optional() }).optional(),
     email: notificationDeliveryEmailSchema.optional(),
     custom: z.record(z.string(), notificationDeliveryCustomSchema).optional(),
   }).optional(),

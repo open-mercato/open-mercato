@@ -89,7 +89,6 @@ const resolveRecipient = async (
  */
 export default async function handle(payload: NotificationCreatedPayload, ctx: ResolverContext) {
   debug('deliver notification event', payload)
-  const deliveryConfig = await resolveNotificationDeliveryConfig(ctx, { defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG })
 
   const em = ctx.resolve('em') as EntityManager
   const notification = await findOneWithDecryption(
@@ -111,6 +110,11 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
     debug('notification not found', payload.notificationId)
     return
   }
+
+  const deliveryConfig = await resolveNotificationDeliveryConfig(ctx, {
+    defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG,
+    tenantId: notification.tenantId,
+  })
 
   let encryptionService: TenantDataEncryptionService | null = null
   try {

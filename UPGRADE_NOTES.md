@@ -7133,3 +7133,13 @@ MCP hides Code Mode `execute` when the mutation mode is unset, including reads t
 `GET /api/search/index` requires the view features declared by each returned entity in addition to `search.view`. A request for an unreadable entity returns an empty page. Clients can continue using the existing response shape and paging parameters. Select an authorized organization when entity features are scoped to an organization.
 
 Operators should grant the owning module's view features to diagnostic users and keys that need them. Custom searchable entities declare these features in their `search.ts` configuration. The first-party pgvector driver applies the scope before pagination. Custom vector drivers can honor the additive `entityAccess` list predicate to keep pagination over readable entries. The API filters returned rows regardless of driver support. No database migration or reindex is required.
+
+## Notification delivery settings are tenant scoped (#9136)
+
+`GET`/`POST /api/notifications/settings` now use the authenticated tenant, including the existing actor-tenant fallback for scoped-away superadmins. A missing tenant returns `403 tenant_scope_required`. Saving changes affects only that tenant. Existing instance `notifications / delivery_strategies` values remain inherited defaults, and this endpoint no longer changes them, including for superadmins.
+
+Tenant `appUrl` must use the operator-configured HTTP(S) origin without URL credentials. Other origins return the existing invalid-settings `400`; unsafe previously stored tenant origins are ignored at delivery. Omit `appUrl` to inherit the operator URL. Custom clients must stop sending arbitrary external origins or depending on cross-tenant settings writes. Trusted server integrations may continue using unscoped config helpers for instance defaults; tenant integrations should pass `tenantId` in resolve options and `{ tenantId }` as the trailing save scope.
+
+Settings writes also return `400` when `strategies.database.enabled` is `false` or From/Reply-To contains a malformed mailbox or CR/LF. Clients must keep the in-app channel enabled and send valid addresses (named mailboxes remain supported). Legacy stored values are normalized without resetting unrelated settings.
+
+No migration, new environment variable, startup command, or provider setup is required. Before deploying, operators should audit the existing global appUrl, from/replyTo, subject prefix and channel switches for changes made by tenant administrators; this fix preserves existing data and does not repair previously compromised values automatically. See `.ai/specs/2026-11-18-notification-delivery-tenant-isolation.md`.

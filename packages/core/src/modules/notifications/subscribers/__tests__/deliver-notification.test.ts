@@ -96,6 +96,22 @@ describe('deliver-notification subscriber', () => {
     }
   }
 
+  it('resolves delivery settings using the persisted notification tenant', async () => {
+    const { default: handle } = await import('../deliver-notification')
+    const ctx = buildCtx()
+    await handle(basePayload, ctx)
+    expect(resolveNotificationDeliveryConfigMock).toHaveBeenCalledWith(
+      ctx, expect.objectContaining({ tenantId: baseNotification.tenantId }),
+    )
+  })
+
+  it('does not resolve configuration when the scoped notification does not exist', async () => {
+    findOneWithDecryptionMock.mockResolvedValue(null)
+    const { default: handle } = await import('../deliver-notification')
+    await handle(basePayload, buildCtx())
+    expect(resolveNotificationDeliveryConfigMock).not.toHaveBeenCalled()
+  })
+
   beforeEach(() => {
     jest.clearAllMocks()
     resolveNotificationDeliveryConfigMock.mockResolvedValue({

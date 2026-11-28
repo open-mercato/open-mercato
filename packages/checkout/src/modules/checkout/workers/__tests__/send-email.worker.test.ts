@@ -64,10 +64,11 @@ describe('checkout send-email worker', () => {
     })
   })
 
-  it('uses notification delivery sender settings for checkout emails', async () => {
+  it.each(['start', 'success', 'error'] as const)('uses tenant notification sender settings for %s emails', async (type) => {
     findOneWithDecryption
       .mockResolvedValueOnce({
         id: 'txn-1',
+        tenantId: 'tenant-1',
         linkId: 'link-1',
         email: 'buyer@example.com',
         firstName: 'Piotr',
@@ -88,7 +89,7 @@ describe('checkout send-email worker', () => {
     await handle(
       {
         payload: {
-          type: 'success',
+          type,
           transactionId: 'txn-1',
           tenantId: 'tenant-1',
           organizationId: 'org-1',
@@ -102,12 +103,23 @@ describe('checkout send-email worker', () => {
       } as never,
     )
 
+    expect(findOneWithDecryption).toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+    )
+    expect(resolveNotificationDeliveryConfig).toHaveBeenCalledWith(
+      expect.anything(), expect.objectContaining({ tenantId: 'tenant-1' }),
+    )
+    const expectedSubjects = {
+      start: 'Payment initiated - Spring Gala 2026',
+      success: 'Your Spring Gala ticket is confirmed',
+      error: 'Payment failed - Spring Gala 2026',
+    }
     expect(sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'buyer@example.com',
         from: 'notifications@example.com',
         replyTo: 'reply@example.com',
-        subject: 'Your Spring Gala ticket is confirmed',
+        subject: expectedSubjects[type],
       }),
     )
   })

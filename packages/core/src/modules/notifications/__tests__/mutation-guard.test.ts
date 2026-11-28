@@ -75,8 +75,17 @@ const resolveNotificationDeliveryConfigMock = jest.fn()
 
 jest.mock('../lib/deliveryConfig', () => ({
   DEFAULT_NOTIFICATION_DELIVERY_CONFIG: { strategies: {} },
+  isAllowedNotificationAppUrl: jest.fn(() => true),
   saveNotificationDeliveryConfig: (...args: unknown[]) => saveNotificationDeliveryConfigMock(...args),
   resolveNotificationDeliveryConfig: (...args: unknown[]) => resolveNotificationDeliveryConfigMock(...args),
+}))
+
+jest.mock('../lib/deliverySettings', () => ({
+  readNotificationDeliverySettings: async () => ({ settings: await resolveNotificationDeliveryConfigMock(), updatedAt: '2026-11-01T00:00:00.000Z' }),
+  saveVersionedNotificationDeliverySettings: async (resolver: unknown, tenantId: string, config: unknown) => {
+    await saveNotificationDeliveryConfigMock(resolver, config, { tenantId })
+    return { settings: await resolveNotificationDeliveryConfigMock(), updatedAt: '2026-11-01T00:00:01.000Z' }
+  },
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -404,9 +413,6 @@ describe('notification write routes fail closed on an unresolved tenant', () => 
     })
   })
 
-  // Delivery settings are instance-global and this route never sees the organization scope's
-  // `actorTenantId` fallback, so a super-admin scoped away from their own tenant must keep working
-  // rather than be caught by the guard.
   it('still accepts a settings update from a super-admin scoped away from their tenant', async () => {
     const scopedAwayAuth = { sub: userId, tenantId: null, actorTenantId: tenantId, orgId: null }
     ctx.auth = scopedAwayAuth
@@ -419,7 +425,7 @@ describe('notification write routes fail closed on an unresolved tenant', () => 
     )
 
     expect(response.status).toBe(200)
-    expect(saveNotificationDeliveryConfigMock).toHaveBeenCalled()
+    expect(saveNotificationDeliveryConfigMock).toHaveBeenCalledWith(container, expect.anything(), { tenantId })
     expect(runRouteMutationGuardsMock).toHaveBeenCalledWith(
       expect.objectContaining({ auth: expect.objectContaining({ tenantId }) }),
     )

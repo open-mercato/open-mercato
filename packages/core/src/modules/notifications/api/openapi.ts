@@ -70,11 +70,13 @@ export const actionResultResponseSchema = z.object({
 
 export const notificationSettingsResponseSchema = z.object({
   settings: notificationDeliveryConfigSchema,
+  updatedAt: z.string().datetime().optional(),
 })
 
 export const notificationSettingsUpdateResponseSchema = z.object({
   ok: z.boolean(),
   settings: notificationDeliveryConfigSchema,
+  updatedAt: z.string().datetime().optional(),
 })
 
 export {
