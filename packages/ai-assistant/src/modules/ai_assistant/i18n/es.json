@@ -214,7 +214,7 @@
   "ai_assistant.chat.mutation_cards.confirmation.invalidStatusBody": "Esta acción ya fue confirmada, cancelada o ejecutada.",
   "ai_assistant.chat.mutation_cards.confirmation.invalidStatusTitle": "Acción ya resuelta",
   "ai_assistant.chat.mutation_cards.confirmation.notFoundTitle": "Propuesta no disponible",
-  "ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody": "La firma de la herramienta cambió desde esta vista previa. Pide al asistente que vuelva a proponer el cambio.",
+  "ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody": "La entrada de la herramienta o la vista previa cambió. Cancela esta propuesta y luego pide al asistente que vuelva a proponer el cambio.",
   "ai_assistant.chat.mutation_cards.confirmation.schemaDriftTitle": "El esquema cambió",
   "ai_assistant.chat.mutation_cards.confirmation.staleVersionBody": "Uno o varios registros han cambiado desde que se generó esta vista previa. Pide al asistente que vuelva a proponer el cambio.",
   "ai_assistant.chat.mutation_cards.confirmation.staleVersionTitle": "Se requiere una nueva propuesta",

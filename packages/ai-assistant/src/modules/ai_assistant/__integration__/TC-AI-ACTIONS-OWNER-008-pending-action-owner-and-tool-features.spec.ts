@@ -207,6 +207,8 @@ test.describe('TC-AI-ACTIONS-OWNER-008: pending action owner scope and tool feat
         agentId: AGENT_ID,
         toolName: TOOL_NAME,
         normalizedInput: { productId, title: managerTitle },
+        targetRecordId: productId,
+        fieldDiff: [{ field: 'title', before: originalTitle, after: managerTitle }],
       });
       cleanups.push(() => deletePendingActionInDb(managerRow.id));
 

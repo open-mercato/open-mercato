@@ -15,7 +15,9 @@
  * This module is pure aside from DB reads; the caller owns the transaction
  * boundary. The Step 5.9 cancel route reuses {@link checkStatusAndExpiry}.
  */
+import { isDeepStrictEqual } from 'node:util'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
@@ -34,7 +36,14 @@ import { hasRequiredFeatures } from './auth'
 import { isToolExposed, resolveMcpExposureConfig, type McpExposureConfig } from './mcp-exposure'
 import { resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type { AiAgentMutationPolicy } from './ai-agent-definition'
-import { planPendingActionExecution, resolvePendingActionBatchMessages } from './pending-action-batch'
+import { matchesPreviewedValues, resolvePreviewFieldDiff } from './prepare-mutation'
+import { readToolAttachmentIds } from './tool-input'
+import {
+  planPendingActionExecution,
+  hasNarrowablePendingActionInput,
+  resolvePendingActionBatchMessages,
+  type PendingActionExecutionPlan,
+} from './pending-action-batch'
 
 export type PendingActionRecheckCode =
   | 'invalid_status'
@@ -73,6 +82,12 @@ export interface PendingActionRecheckFailResult {
 
 export type PendingActionRecheckResult =
   | PendingActionRecheckOkResult
+  | PendingActionRecheckFailResult
+
+type PendingActionConfirmationRecheckResult =
+  | (PendingActionRecheckOkResult & {
+      executionPlan: Extract<PendingActionExecutionPlan, { kind: 'run' }>
+    })
   | PendingActionRecheckFailResult
 
 export interface PendingActionAuthContext {
@@ -402,7 +417,7 @@ export async function checkAttachmentScope(
   return { ok: true }
 }
 
-async function refusePlan(staleRecordIds: string[]): Promise<PendingActionRecheckResult> {
+async function refusePlan(staleRecordIds: string[]): Promise<PendingActionRecheckFailResult> {
   const { batchNotApplicable } = await resolvePendingActionBatchMessages()
   return {
     ok: false,
@@ -413,25 +428,12 @@ async function refusePlan(staleRecordIds: string[]): Promise<PendingActionRechec
   }
 }
 
-/**
- * Guard 8: record version matches the row's captured `recordVersion`. For
- * single-record actions a mismatch is a hard 412. For batch actions we
- * compute per-record and return a `failedRecords[]` entry for each stale
- * record; the caller proceeds with the remaining records. If the batch
- * has NO remaining records (every one is stale), or its input cannot be
- * narrowed to the previewed, fresh rows (see `planPendingActionExecution`),
- * the function returns 412.
- *
- * Also acts as the schema-drift guard: re-parses `action.normalizedInput`
- * through the tool's current zod schema. A shape change between propose
- * and confirm surfaces as 412 `schema_drift` so the model re-proposes.
- */
-export async function checkRecordVersion(
+export function recheckPendingActionToolInput(
   action: AiPendingAction,
   tool: AiToolDefinition,
-  ctx: PendingActionAuthContext,
-): Promise<PendingActionRecheckResult> {
-  const parseResult = tool.inputSchema.safeParse(action.normalizedInput ?? {})
+): { ok: true; toolInput: unknown } | PendingActionRecheckFailResult {
+  const storedInput = action.normalizedInput ?? {}
+  const parseResult = tool.inputSchema.safeParse(storedInput)
   if (!parseResult.success) {
     return {
       ok: false,
@@ -442,24 +444,85 @@ export async function checkRecordVersion(
     }
   }
 
+  // Raw-tool rows already contain the parsed output used for their preview.
+  // Keep that durable value after the drift check, which can apply a transform again.
+  return { ok: true, toolInput: isRawToolPendingAction(action) ? storedInput : parseResult.data }
+}
+
+export function restorePendingActionHandlerInput(
+  action: AiPendingAction,
+  tool: AiToolDefinition,
+  plan: Extract<PendingActionExecutionPlan, { kind: 'run' }>,
+  toolInput: unknown,
+  failedRecords: AiPendingActionFailedRecord[] | null | undefined,
+): typeof plan | null {
+  if (isRawToolPendingAction(action)) return plan
+
+  const storedInput = action.normalizedInput ?? {}
+  if (plan.input === toolInput) return { ...plan, input: storedInput }
+
+  const submittedPlan = planPendingActionExecution(action, tool, failedRecords, storedInput)
+  if (submittedPlan.kind === 'refuse') return null
+  const parsed = tool.inputSchema.safeParse(submittedPlan.input)
+  if (!parsed.success || !isDeepStrictEqual(parsed.data, plan.input)) return null
+  return { ...plan, input: submittedPlan.input }
+}
+
+/**
+ * Guard 8: check schema drift and compare the current records with their
+ * captured identities and versions. Batch execution can proceed only with
+ * the approved records that survived the recheck.
+ */
+export async function checkRecordVersion(
+  action: AiPendingAction,
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+): Promise<PendingActionRecheckResult> {
+  const checkedInput = recheckPendingActionToolInput(action, tool)
+  if (!checkedInput.ok) return checkedInput
+  return toPublicRecheckResult(await checkConfirmationRecords(action, tool, ctx, checkedInput.toolInput))
+}
+
+async function refuseChangedPreview(): Promise<PendingActionRecheckFailResult> {
+  const { translate } = await resolveTranslations()
+  return {
+    ok: false,
+    status: 412,
+    code: 'schema_drift',
+    message: translate(
+      'ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody',
+      'The tool input or preview changed. Cancel this proposal, then ask the assistant to re-propose the change.',
+    ),
+  }
+}
+
+async function checkConfirmationRecords(
+  action: AiPendingAction,
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+  toolInput: unknown,
+): Promise<PendingActionConfirmationRecheckResult> {
   const handlerContext = toHandlerContext(ctx)
+  const verifyPreviewValues = !isRawToolPendingAction(action)
+  const resolverInput = verifyPreviewValues ? action.normalizedInput ?? {} : toolInput
 
   const records = Array.isArray(action.records) ? action.records : null
   if (records && records.length > 0) {
     if (!tool.loadBeforeRecords) {
-      const plan = planPendingActionExecution(action, tool, null)
+      const plan = planPendingActionExecution(action, tool, null, toolInput)
       if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
-      return { ok: true }
+      return { ok: true, executionPlan: plan }
     }
-    const currentRows = await tool.loadBeforeRecords(parseResult.data as never, handlerContext)
-    const currentVersionById = new Map<string, string | null>()
-    for (const row of currentRows ?? []) {
-      currentVersionById.set(row.recordId, row.recordVersion ?? null)
-    }
+    const currentRows = await tool.loadBeforeRecords(resolverInput as never, handlerContext)
+    const currentById = new Map((currentRows ?? []).map((row) => [row.recordId, row]))
+    const approvedById = new Map(records.map((record) => [record.recordId, record]))
+    if (!hasNarrowablePendingActionInput(toolInput) && (
+      Array.from(currentById.keys()).some((recordId) => !approvedById.has(recordId))
+    )) return refuseChangedPreview()
     const messages = await resolvePendingActionBatchMessages()
     const stale: AiPendingActionFailedRecord[] = []
     for (const record of records as AiPendingActionRecordDiff[]) {
-      const current = currentVersionById.get(record.recordId)
+      const current = currentById.get(record.recordId)
       const captured = record.recordVersion ?? null
       if (current === undefined) {
         stale.push({
@@ -468,7 +531,7 @@ export async function checkRecordVersion(
         })
         continue
       }
-      if (captured !== null && current !== captured) {
+      if (captured !== null && current.recordVersion !== captured) {
         stale.push({
           recordId: record.recordId,
           error: { code: 'stale_version', message: messages.recordStale },
@@ -484,34 +547,82 @@ export async function checkRecordVersion(
         extra: { staleRecords: stale.map((entry) => entry.recordId) },
       }
     }
-    const plan = planPendingActionExecution(action, tool, stale)
+    const plan = planPendingActionExecution(action, tool, stale, toolInput)
     if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
+    const previewChanged = verifyPreviewValues && plan.recordIds?.some((recordId) => {
+      const approved = approvedById.get(recordId)
+      const current = currentById.get(recordId)
+      return Array.isArray(approved?.fieldDiff) && current && !matchesPreviewedValues(
+        approved.fieldDiff,
+        resolvePreviewFieldDiff(current, plan.input, recordId),
+      )
+    })
+    if (previewChanged) return refuseChangedPreview()
     if (stale.length > 0) {
-      return { ok: true, failedRecords: stale }
+      return { ok: true, failedRecords: stale, executionPlan: plan }
     }
-    return { ok: true }
+    return { ok: true, executionPlan: plan }
   }
 
-  const plan = planPendingActionExecution(action, tool, null)
+  const plan = planPendingActionExecution(action, tool, null, toolInput)
   if (plan.kind === 'refuse') return refusePlan(plan.staleRecordIds)
 
   if (!tool.loadBeforeRecord) {
-    return { ok: true }
+    return { ok: true, executionPlan: plan }
   }
-  const before = await tool.loadBeforeRecord(parseResult.data as never, handlerContext)
-  if (!before) return { ok: true }
+  const before = await tool.loadBeforeRecord(resolverInput as never, handlerContext)
+  const targetRecordId = action.targetRecordId
   const captured = action.recordVersion ?? null
-  const current = before.recordVersion ?? null
-  if (captured !== null && current !== captured) {
+  const identityChanged = targetRecordId && before?.recordId !== targetRecordId
+  const versionChanged = captured !== null && before?.recordVersion !== captured
+  if (identityChanged || versionChanged) {
     return {
       ok: false,
       status: 412,
       code: 'stale_version',
       message: (await resolvePendingActionBatchMessages()).singleRecordStale,
-      extra: { recordId: before.recordId },
+      extra: { recordId: targetRecordId ?? before?.recordId },
     }
   }
-  return { ok: true }
+  if (verifyPreviewValues && before && Array.isArray(action.fieldDiff) && !matchesPreviewedValues(
+    action.fieldDiff,
+    resolvePreviewFieldDiff(before, toolInput),
+  )) {
+    return refuseChangedPreview()
+  }
+  return { ok: true, executionPlan: plan }
+}
+
+async function checkConfirmationInputAndRecords(
+  action: AiPendingAction,
+  tool: AiToolDefinition,
+  ctx: PendingActionAuthContext,
+): Promise<PendingActionConfirmationRecheckResult> {
+  const attachmentCheck = await checkAttachmentScope(action, ctx)
+  if (!attachmentCheck.ok) return attachmentCheck
+
+  const checkedInput = recheckPendingActionToolInput(action, tool)
+  if (!checkedInput.ok) return checkedInput
+
+  const storedIds = new Set(Array.isArray(action.attachmentIds) ? action.attachmentIds : [])
+  const effectiveIds = new Set(readToolAttachmentIds(checkedInput.toolInput))
+  const additionalIds = Array.from(effectiveIds).filter((id) => !storedIds.has(id))
+  if (additionalIds.length > 0) {
+    const effectiveCheck = await checkAttachmentScope({ ...action, attachmentIds: additionalIds }, ctx)
+    if (!effectiveCheck.ok) return effectiveCheck
+  }
+
+  const checkedRecords = await checkConfirmationRecords(action, tool, ctx, checkedInput.toolInput)
+  if (!checkedRecords.ok) return checkedRecords
+  const executionPlan = restorePendingActionHandlerInput(
+    action,
+    tool,
+    checkedRecords.executionPlan,
+    checkedInput.toolInput,
+    checkedRecords.failedRecords,
+  )
+  if (!executionPlan) return refuseChangedPreview()
+  return { ...checkedRecords, executionPlan }
 }
 
 function toHandlerContext(ctx: PendingActionAuthContext): McpToolContext {
@@ -535,6 +646,19 @@ function toHandlerContext(ctx: PendingActionAuthContext): McpToolContext {
 export async function runPendingActionRechecks(
   input: PendingActionRecheckInput,
 ): Promise<PendingActionRecheckResult> {
+  return toPublicRecheckResult(await runPendingActionConfirmationRechecks(input))
+}
+
+function toPublicRecheckResult(
+  result: PendingActionConfirmationRecheckResult,
+): PendingActionRecheckResult {
+  if (!result.ok) return result
+  return result.failedRecords ? { ok: true, failedRecords: result.failedRecords } : { ok: true }
+}
+
+export async function runPendingActionConfirmationRechecks(
+  input: PendingActionRecheckInput,
+): Promise<PendingActionConfirmationRecheckResult> {
   const { action, agent, tool, ctx, now, mutationPolicyOverride } = input
 
   const statusCheck = checkStatusAndExpiry(action, { now })
@@ -560,16 +684,12 @@ export async function runPendingActionRechecks(
     if (!requesterCheck.ok) return requesterCheck
   }
 
-  const attachmentCheck = await checkAttachmentScope(action, ctx)
-  if (!attachmentCheck.ok) return attachmentCheck
-
-  const versionCheck = await checkRecordVersion(action, tool!, ctx)
-  return versionCheck
+  return checkConfirmationInputAndRecords(action, tool!, ctx)
 }
 
 async function runRawToolRechecks(
   input: PendingActionRecheckInput,
-): Promise<PendingActionRecheckResult> {
+): Promise<PendingActionConfirmationRecheckResult> {
   const { action, tool, ctx, now } = input
   const exposureConfig = input.exposureConfig ?? resolveMcpExposureConfig(process.env, {})
 
@@ -582,10 +702,7 @@ async function runRawToolRechecks(
   const requesterCheck = await checkRawToolRequester(action, tool!, ctx, { now })
   if (!requesterCheck.ok) return requesterCheck
 
-  const attachmentCheck = await checkAttachmentScope(action, ctx)
-  if (!attachmentCheck.ok) return attachmentCheck
-
-  return checkRecordVersion(action, tool!, ctx)
+  return checkConfirmationInputAndRecords(action, tool!, ctx)
 }
 
 /**

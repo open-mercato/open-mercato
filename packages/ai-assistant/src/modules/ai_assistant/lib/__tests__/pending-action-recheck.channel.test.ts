@@ -41,7 +41,7 @@ function makeAction(overrides: Partial<AiPendingAction> = {}): AiPendingAction {
     agentId: AI_RAW_TOOL_AGENT_ID,
     toolName: 'catalog.update_product',
     status: 'pending',
-    fieldDiff: [],
+    fieldDiff: [{ field: 'title', before: 'Old', after: 'New' }],
     records: null,
     failedRecords: null,
     sideEffectsSummary: null,

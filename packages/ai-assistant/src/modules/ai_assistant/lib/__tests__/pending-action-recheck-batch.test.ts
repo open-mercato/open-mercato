@@ -96,19 +96,30 @@ describe('checkRecordVersion — batch input that cannot be narrowed', () => {
     })
   })
 
+  it('refuses additional resolver-derived records outside an un-narrowable preview', async () => {
+    const result = await checkRecordVersion(
+      makeAction(mediaInput),
+      makeTool({ 'm-1': 'v-1', 'm-2': 'v-1', 'm-3': 'v-1' }),
+      makeCtx(),
+    )
+    expect(result).toMatchObject({ ok: false, status: 412, code: 'schema_drift' })
+  })
+
   it('keeps answering ok when nothing is stale', async () => {
     const result = await checkRecordVersion(makeAction(mediaInput), makeTool({ 'm-1': 'v-1', 'm-2': 'v-1' }), makeCtx())
     expect(result).toEqual({ ok: true })
   })
 
   it('keeps the partial-success answer when the input follows the records[] convention', async () => {
+    const action = makeAction({
+      records: [
+        { recordId: 'm-1', title: 'a' },
+        { recordId: 'm-2', title: 'b' },
+      ],
+    })
+    action.records![0].fieldDiff = [{ field: 'title', after: 'a' }]
     const result = await checkRecordVersion(
-      makeAction({
-        records: [
-          { recordId: 'm-1', title: 'a' },
-          { recordId: 'm-2', title: 'b' },
-        ],
-      }),
+      action,
       makeTool({ 'm-1': 'v-1', 'm-2': 'v-2' }),
       makeCtx(),
     )

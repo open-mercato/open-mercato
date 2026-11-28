@@ -194,7 +194,8 @@ export function ConfirmationCard(props: ConfirmationCardProps) {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => {
+            onClick={(event) => {
+              if (event.detail > 1) return
               void handleCancel()
             }}
             disabled={!canCancel}
@@ -300,7 +301,7 @@ export function ConfirmationErrorAlert({
         <AlertDescription>
           {t(
             'ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody',
-            'The tool signature changed since this preview was generated. Ask the assistant to re-propose the change.',
+            'The tool input or preview changed. Cancel this proposal, then ask the assistant to re-propose the change.',
           )}
         </AlertDescription>
       </Alert>

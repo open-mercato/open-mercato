@@ -330,6 +330,92 @@ describe('prepareMutation', () => {
     expect(second.pendingAction.createdByUserId).toBe('u-2')
   })
 
+  it('creates a fresh same-input preview after cancelling the obsolete proposal', async () => {
+    const context = { ...baseCtx, userId: 'd076ab2a-2d57-49f0-9e53-061d925be46a' }
+    const em = mockEm()
+    const container = makeContainer(em)
+    const input = {
+      agent: makeAgent({ id: 'catalog.merch' }),
+      tool: makeTool({
+        name: 'catalog.products.update',
+        isMutation: true,
+        inputSchema: z.object({ title: z.string().transform((title) => `${title}!`) }),
+        loadBeforeRecord: async () => ({
+          recordId: 'p-1', entityType: 'catalog.product', recordVersion: 'v-1', before: { title: 'Old' },
+        }),
+      }),
+      toolCallArgs: { title: 'New' },
+    }
+    const original = await prepareMutation(input, { ...context, container })
+    input.tool.inputSchema = z.object({ title: z.string().transform((title) => `${title}!!`) })
+    const duplicate = await prepareMutation(input, { ...context, container })
+    expect(duplicate.pendingAction.id).toBe(original.pendingAction.id)
+
+    await new AiPendingActionRepository(em).setStatus(original.pendingAction.id, 'cancelled', context)
+    const replacement = await prepareMutation(input, { ...context, container })
+
+    expect(replacement.reused).toBe(false)
+    expect(replacement.pendingAction.id).not.toBe(original.pendingAction.id)
+    expect(replacement.uiPart.props.fieldDiff).toEqual([{ field: 'title', before: 'Old', after: 'New!!' }])
+    expect(original.pendingAction.status).toBe('cancelled')
+  })
+
+  it('previews parsed fields while retaining the staged input and idempotency key', async () => {
+    const container = makeContainer(mockEm())
+    const loadBeforeRecord = jest.fn().mockResolvedValue({
+      recordId: 'p-1',
+      entityType: 'catalog.product',
+      recordVersion: 'v-1',
+      before: { title: 'Old', unit: 'kg' },
+    })
+    const tool = makeTool({
+      name: 'catalog.products.update',
+      isMutation: true,
+      inputSchema: z.object({
+        productId: z.string(),
+        patch: z.object({
+          title: z.string().transform((title) => `${title}!`),
+          unit: z.string().default('g'),
+        }),
+      }),
+      loadBeforeRecord,
+    })
+    const agent = makeAgent({ id: 'catalog.merch' })
+    const toolCallArgs = { productId: 'p-1', patch: { title: 'New' } }
+    const input = { agent, tool, toolCallArgs }
+
+    const { pendingAction, uiPart } = await prepareMutation(input, { ...baseCtx, container })
+    loadBeforeRecord.mockResolvedValueOnce({
+      recordId: 'p-1',
+      entityType: 'catalog.product',
+      recordVersion: 'v-2',
+      before: { title: 'Changed', unit: 'g' },
+    })
+    const repeated = await prepareMutation(input, { ...baseCtx, container })
+
+    expect(loadBeforeRecord).toHaveBeenCalledWith(
+      { productId: 'p-1', patch: { title: 'New' } },
+      expect.anything(),
+    )
+    expect(uiPart.props.fieldDiff).toEqual([
+      { field: 'title', before: 'Old', after: 'New!' },
+      { field: 'unit', before: 'kg', after: 'g' },
+    ])
+    expect(pendingAction.normalizedInput).toEqual(toolCallArgs)
+    expect(pendingAction.idempotencyKey).toBe(computeMutationIdempotencyKey({
+      tenantId: baseCtx.tenantId,
+      organizationId: baseCtx.organizationId,
+      userId: baseCtx.userId,
+      agentId: agent.id,
+      conversationId: null,
+      toolName: tool.name,
+      normalizedInput: toolCallArgs,
+    }))
+    expect(repeated.reused).toBe(true)
+    expect(repeated.pendingAction.id).toBe(pendingAction.id)
+    expect(repeated.uiPart.props).toEqual(uiPart.props)
+  })
+
   it('fallback patch from flat args: untouched snapshot fields and envelope keys do not surface as cleared (regression #7349)', async () => {
     const em = mockEm()
     const container = makeContainer(em)

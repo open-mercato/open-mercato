@@ -25,6 +25,7 @@ export type PendingActionExecutionPlan =
   | {
       kind: 'run'
       input: unknown
+      recordIds?: string[]
       expectedRecordVersions: Record<string, string>
       notPreviewedRecordIds: string[]
       droppedDuplicateRecordIds: string[]
@@ -119,6 +120,10 @@ function readBatchEntries(input: unknown): unknown[] | null {
   return records.every((entry) => readEntryId(entry) !== null) ? records : null
 }
 
+export function hasNarrowablePendingActionInput(input: unknown): boolean {
+  return readBatchEntries(input) !== null
+}
+
 function collectVersions(
   recordIds: Iterable<string>,
   versionById: Map<string, string | null>,
@@ -135,6 +140,7 @@ export function planPendingActionExecution(
   action: PlannableAction,
   tool: PlannableTool,
   staleRecords: AiPendingActionFailedRecord[] | null | undefined,
+  toolInput: unknown = action.normalizedInput,
 ): PendingActionExecutionPlan {
   const previewed = Array.isArray(action.records) ? action.records : []
   if (previewed.length === 0) {
@@ -152,7 +158,8 @@ export function planPendingActionExecution(
     }
     return {
       kind: 'run',
-      input: action.normalizedInput,
+      input: toolInput,
+      recordIds: [],
       expectedRecordVersions,
       notPreviewedRecordIds: [],
       droppedDuplicateRecordIds: [],
@@ -170,12 +177,13 @@ export function planPendingActionExecution(
   const staleIds = new Set(staleRecordIds)
   const refuse: PendingActionExecutionPlan = { kind: 'refuse', code: 'stale_version', staleRecordIds }
 
-  const entries = readBatchEntries(action.normalizedInput)
+  const entries = readBatchEntries(toolInput)
   if (!entries) {
-    if (staleIds.size > 0) return refuse
+    if (staleIds.size > 0 || readBatchEntries(action.normalizedInput)) return refuse
     return {
       kind: 'run',
-      input: action.normalizedInput,
+      input: toolInput,
+      recordIds: Array.from(versionById.keys()),
       expectedRecordVersions: collectVersions(versionById.keys(), versionById),
       notPreviewedRecordIds: [],
       droppedDuplicateRecordIds: [],
@@ -208,8 +216,9 @@ export function planPendingActionExecution(
     kind: 'run',
     input:
       kept.length === entries.length
-        ? action.normalizedInput
-        : { ...(action.normalizedInput as Record<string, unknown>), records: kept },
+        ? toolInput
+        : { ...(toolInput as Record<string, unknown>), records: kept },
+    recordIds: Array.from(keptIds),
     expectedRecordVersions: collectVersions(keptIds, versionById),
     notPreviewedRecordIds: Array.from(notPreviewed),
     droppedDuplicateRecordIds: Array.from(droppedDuplicates),

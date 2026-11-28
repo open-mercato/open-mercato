@@ -1,8 +1,8 @@
 ---
 title: "Verify integration fixture cleanup against the actual endpoint"
-modules: ["resources","entities","customers","sales","warranty_claims","channel_discord","catalog","workflows","security"]
+modules: ["resources","entities","customers","sales","warranty_claims","channel_discord","catalog","workflows","security","ai_assistant"]
 areas: ["testing","integration"]
-topics: ["testing","fixture-cleanup","fixture-setup","api-contracts","proposal-origin","error-handling"]
+topics: ["fixture-cleanup","fixture-setup","api-contracts","proposal-origin","error-handling","response-types"]
 ---
 
 # Verify integration fixture cleanup against the actual endpoint
@@ -28,3 +28,5 @@ Review of #9657 found that an order's updated status does not prove its approval
 The subsequent hosted trace showed that empty queues still did not prove the fixture's notification transition had advanced. For undo coverage that asserts the status command and its audit history, configure notification dispatch inline in the isolated copied definition; retain the real domain event trigger, scoped grant, status mutation and undo assertions. Do not make fixture teardown depend on unrelated asynchronous notification scheduling. Queue-specific workflow tests retain their async execution configuration. Evidence: PR #9657 run 43825646616 shard 13, retry trace for `TC-WC-040`.
 
 PR #9753's global-wildcard MFA case stopped before its enforcement assertions because API-key creation intentionally forbids ordinary users from granting `*`, even when their own feature ACL is `*`. The grant helper also removes runtime `*` from all delegable features, so changing only the requested key role to `sales.*` still fails. Read the complete grant boundary before changing setup. Keep the tested cookie principal unchanged and issue the scoped key through a separate explicitly granted user in the same organization. Verify the issuer's overdue cookie is denied while its key works; clean both issuer user and role plus the separate key role. Evidence: `TC-SEC-016-api-enrollment.spec.ts`, `auth/lib/grantChecks.ts`, and shard15 key-create403 responses in runs44099607461 and44106213651.
+
+Directly invoking a Next route inside a Playwright test returns a native `Response`: read its numeric `status` property. A request made through Playwright returns `APIResponse`, whose status is read with `status()`. Keep those response contracts distinct in setup, denial assertions and cancellation cleanup. The real-storage approval regression on PR #10863 reached its first confirmation but initially stopped at the assertion because it called the native property as a function. Evidence: `TC-AI-ACTIONS-SCOPE-012-transformed-attachments.spec.ts`.

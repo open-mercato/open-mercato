@@ -214,7 +214,7 @@
   "ai_assistant.chat.mutation_cards.confirmation.invalidStatusBody": "Diese Aktion wurde bereits bestätigt, abgebrochen oder ausgeführt.",
   "ai_assistant.chat.mutation_cards.confirmation.invalidStatusTitle": "Aktion bereits abgeschlossen",
   "ai_assistant.chat.mutation_cards.confirmation.notFoundTitle": "Vorschlag nicht verfügbar",
-  "ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody": "Die Tool-Signatur hat sich seit der Vorschau geändert. Bitte den Assistenten um einen neuen Vorschlag.",
+  "ai_assistant.chat.mutation_cards.confirmation.schemaDriftBody": "Die Tool-Eingabe oder Vorschau hat sich geändert. Brich diesen Vorschlag ab und bitte den Assistenten dann um einen neuen Vorschlag.",
   "ai_assistant.chat.mutation_cards.confirmation.schemaDriftTitle": "Schema geändert",
   "ai_assistant.chat.mutation_cards.confirmation.staleVersionBody": "Ein oder mehrere Datensätze haben sich seit der Vorschau geändert. Bitte den Assistenten um einen neuen Vorschlag.",
   "ai_assistant.chat.mutation_cards.confirmation.staleVersionTitle": "Erneuter Vorschlag erforderlich",

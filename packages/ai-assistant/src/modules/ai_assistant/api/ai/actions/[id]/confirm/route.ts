@@ -16,11 +16,11 @@ import { loadAllModuleTools } from '../../../../../lib/tool-loader'
 import type { AiToolDefinition } from '../../../../../lib/types'
 import {
   isRawToolPendingAction,
-  runPendingActionRechecks,
+  runPendingActionConfirmationRechecks,
   type PendingActionRecheckResult,
 } from '../../../../../lib/pending-action-recheck'
 import {
-  executePendingActionConfirm,
+  executeRecheckedPendingActionConfirm,
   type PendingActionExecuteContext,
 } from '../../../../../lib/pending-action-executor'
 import { AiAgentMutationPolicyOverrideRepository } from '../../../../../data/repositories/AiAgentMutationPolicyOverrideRepository'
@@ -197,7 +197,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
         rawOverridePolicy && isKnownMutationPolicy(rawOverridePolicy) ? rawOverridePolicy : null
     }
 
-    const recheckResult = await runPendingActionRechecks({
+    const recheckResult = await runPendingActionConfirmationRechecks({
       action: row,
       agent,
       tool,
@@ -225,14 +225,14 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       container,
     }
 
-    const executed = await executePendingActionConfirm({
+    const executed = await executeRecheckedPendingActionConfirm({
       action: row,
       agent: agent ?? null,
       tool: tool!,
       ctx: executeCtx,
       repo,
       failedRecords: recheckResult.failedRecords ?? null,
-    })
+    }, recheckResult.executionPlan)
 
     return NextResponse.json({
       ok: executed.ok,
