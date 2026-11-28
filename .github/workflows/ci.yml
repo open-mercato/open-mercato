@@ -301,13 +301,22 @@ jobs:
         # Fails open: a missing HEAD^1, a turbo error or a base resolver without resolveJobScope
         # runs every job. The resolver and scope file are the base-commit copies the
         # integration-scope step already fetched into $RUNNER_TEMP/ci-scope.
+        # On a node_modules cache miss, `Install dependencies` has just run PR-controlled code
+        # (lifecycle scripts, the retry wrapper) that could rewrite those copies or the turbo
+        # binary, so nothing here is trusted and every job runs in full. turbo is called by path,
+        # never through `yarn turbo`, which a PR could shadow with a root `turbo` script.
         id: job-scope
         env:
           EVENT_NAME: ${{ github.event_name }}
           SCOPE_LEVEL: ${{ steps.integration-scope.outputs.level }}
+          NM_CACHE_HIT: ${{ steps.nm-cache.outputs.cache-hit }}
         run: |
           if [ "$EVENT_NAME" != "pull_request" ]; then
             echo "Package-scoped jobs: all run · ${EVENT_NAME} event" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$NM_CACHE_HIT" != "true" ]; then
+            echo "Package-scoped jobs: all run · node_modules cache miss (install ran PR code)" | tee -a "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
 
@@ -316,7 +325,7 @@ jobs:
           rm -f "$AFFECTED_FILE"
           if ! git rev-parse --quiet --verify 'HEAD^1^{commit}' >/dev/null; then
             echo "::warning::PR base commit HEAD^1 is not in the checkout; package-scoped jobs run in full"
-          elif ! yarn turbo ls --filter='[HEAD^1]...' --output=json > "$AFFECTED_FILE"; then
+          elif ! ./node_modules/.bin/turbo ls --filter='[HEAD^1]...' --output=json > "$AFFECTED_FILE"; then
             echo "::warning::turbo ls failed; package-scoped jobs run in full"
             rm -f "$AFFECTED_FILE"
           fi

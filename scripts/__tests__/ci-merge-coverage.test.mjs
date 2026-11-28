@@ -10,10 +10,10 @@ import { parse } from 'yaml'
 const workflow = parse(fs.readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
 const coverageJob = workflow.jobs['merge-coverage']
 
-function evaluateJobCondition(job, overrides = {}, { workflowCancelled = false, shardMatrix = '["1/15","2/15"]' } = {}) {
+function evaluateJobCondition(job, overrides = {}, { workflowCancelled = false, shardMatrix = '["1/15","2/15"]', prepareOutputs = {} } = {}) {
   const needs = Object.fromEntries(job.needs.map((dependency) => [dependency, { result: 'success', outputs: {} }]))
   for (const [dependency, result] of Object.entries(overrides)) needs[dependency] = { ...needs[dependency], result }
-  needs.prepare.outputs = { shard_matrix: shardMatrix, skip_integration: 'false' }
+  needs.prepare.outputs = { shard_matrix: shardMatrix, skip_integration: 'false', ...prepareOutputs }
   const expression = job.if.replace(/needs\.([\w-]+)/g, 'needs["$1"]')
   return vm.runInNewContext(expression, {
     needs,
@@ -50,6 +50,13 @@ test('ordinary CI jobs remain eligible when audit is skipped', () => {
 test('ordinary CI jobs stop when the workflow is cancelled even after successful dependencies', () => {
   for (const jobName of cancellableJobNames) {
     assert.equal(evaluateJobCondition(workflow.jobs[jobName], {}, { workflowCancelled: true }), false, jobName)
+  }
+})
+
+test('package-scoped required jobs are still scheduled when prepare marks them out of scope', () => {
+  const prepareOutputs = { run_core_timezone: 'false', run_documents_multi_instance: 'false' }
+  for (const jobName of ['core-timezone', 'documents-multi-instance', 'merge-coverage']) {
+    assert.equal(evaluateJobCondition(workflow.jobs[jobName], {}, { prepareOutputs }), true, jobName)
   }
 })
 

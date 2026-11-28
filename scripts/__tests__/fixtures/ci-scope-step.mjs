@@ -123,9 +123,14 @@ git() {
 }
 yarn() {
   printf 'yarn %s\n' "$*" >> "$STUB_CALLS"
-  if [ "$STUB_TURBO_FAILS" = "true" ]; then return 1; fi
-  printf '%s\n' "$STUB_TURBO_OUTPUT"
+  return 96
 }
+`
+
+const TURBO_STUB = `#!/bin/sh
+printf 'turbo %s\\n' "$*" >> "$STUB_CALLS"
+if [ "$STUB_TURBO_FAILS" = "true" ]; then exit 1; fi
+printf '%s\\n' "$STUB_TURBO_OUTPUT"
 `
 
 export function turboLsOutput(packageNames) {
@@ -140,6 +145,7 @@ export function runJobScopeStep({
   turboOutput,
   turboFails = false,
   baseCommitPresent = true,
+  nmCacheHit = 'true',
   resolverSource,
 } = {}) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-job-scope-step-'))
@@ -150,11 +156,15 @@ export function runJobScopeStep({
     fs.writeFileSync(path.join(scopeDir, 'resolve-ci-scope.mts'), resolverSource ?? fs.readFileSync(path.join(repoRoot, 'scripts/ci/resolve-ci-scope.mts'), 'utf8'))
     fs.copyFileSync(path.join(repoRoot, '.github/ci-scope.json'), path.join(scopeDir, 'ci-scope.json'))
     fs.writeFileSync(path.join(scopeDir, 'changed-files.txt'), changedFiles.map((file) => `${file}\n`).join(''))
+    const workspace = path.join(directory, 'workspace')
+    fs.mkdirSync(path.join(workspace, 'node_modules/.bin'), { recursive: true })
+    fs.writeFileSync(path.join(workspace, 'node_modules/.bin/turbo'), TURBO_STUB, { mode: 0o755 })
     const output = path.join(directory, 'output')
     const summary = path.join(directory, 'summary')
     const calls = path.join(directory, 'calls')
     fs.writeFileSync(calls, '')
     const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', `${JOB_SCOPE_STUBS}\n${jobScopeStep.run}`], {
+      cwd: workspace,
       env: {
         ...process.env,
         PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH}`,
@@ -163,6 +173,7 @@ export function runJobScopeStep({
         GITHUB_STEP_SUMMARY: summary,
         EVENT_NAME: eventName,
         SCOPE_LEVEL: level,
+        NM_CACHE_HIT: nmCacheHit,
         STUB_CALLS: calls,
         STUB_BASE_COMMIT_PRESENT: String(baseCommitPresent),
         STUB_TURBO_FAILS: String(turboFails),
