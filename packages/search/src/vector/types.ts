@@ -83,10 +83,12 @@ export type VectorDriverQueryResult = {
 export type VectorDriverListParams = {
   tenantId: string
   organizationId?: string | null
+  organizationIds?: string[] | null
   entityId?: EntityId
   limit?: number
   offset?: number
   orderBy?: 'created' | 'updated'
+  entityAccess?: Array<{ organizationId: string | null; entityIds: string[] | null }>
 }
 
 export type VectorDriverCountParams = {
