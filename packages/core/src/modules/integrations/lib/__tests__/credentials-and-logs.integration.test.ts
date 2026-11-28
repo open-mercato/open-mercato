@@ -74,13 +74,14 @@ describeWithPostgres('integrations credentials and logs against real PostgreSQL'
     )
   }
 
-  async function writeRawCredentials(scope: IntegrationScope, credentials: unknown): Promise<void> {
-    await fork().execute(
+  async function writeRawCredentials(scope: IntegrationScope, credentials: unknown): Promise<string> {
+    const [row] = await fork().execute<Array<{ id: string }>>(
       `insert into "integration_credentials"
          ("id", "integration_id", "credentials", "organization_id", "tenant_id", "created_at", "updated_at")
-       values (gen_random_uuid(), ?, ?::jsonb, ?, ?, now(), now())`,
+       values (gen_random_uuid(), ?, ?::jsonb, ?, ?, now(), now()) returning "id"`,
       [INTEGRATION_ID, JSON.stringify(credentials), scope.organizationId, scope.tenantId],
     )
+    return row.id
   }
 
   async function readMapRow(scope: IntegrationScope): Promise<MapRow | null> {
@@ -105,7 +106,110 @@ describeWithPostgres('integrations credentials and logs against real PostgreSQL'
     await pg?.close()
   }, 30_000)
 
+  describe('credential scope serialization', () => {
+    it('serializes first saves across connection pools and keeps one encrypted live row', async () => {
+      const scope = createScope()
+      const options = { ensureEncryptionMap: 'when-not-canonical' } as const
+      await upsertCanonicalEncryptionMap(fork(), {
+        entityId: CREDENTIALS_ENTITY_ID,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        fields: [{ field: 'credentials' }],
+        isActive: true,
+      })
+      const otherPool = await harness().openPool()
+      let concurrentSave: Promise<void> | undefined
+      try {
+        await fork().transactional(async (tx) => {
+          const [{ pid }] = await tx.execute<Array<{ pid: number }>>('select pg_backend_pid() as pid')
+          await createCredentialsService(tx).save(INTEGRATION_ID, { secret: 'first' }, scope, options)
+          concurrentSave = createCredentialsService(otherPool.em.fork()).save(
+            INTEGRATION_ID,
+            { secret: 'second' },
+            { ...scope, organizationId: scope.organizationId.toUpperCase(), userId: null },
+            options,
+          )
+          const finished = concurrentSave.then(() => false)
+          const observer = fork()
+          const deadline = Date.now() + 3_000
+          const waiting = async () => {
+            while (Date.now() < deadline) {
+              const [row] = await observer.execute<Array<{ blocked: boolean }>>(
+                `select exists (select 1 from pg_locks
+                  where locktype = 'advisory' and not granted and ? = any(pg_blocking_pids(pid))) as blocked`,
+                [pid],
+              )
+              if (row?.blocked) return true
+              await sleep(25)
+            }
+            return false
+          }
+          expect(await Promise.race([waiting(), finished])).toBe(true)
+        })
+        await concurrentSave
+      } finally {
+        await concurrentSave?.catch(() => undefined)
+        await otherPool.close()
+      }
+
+      const rows = await readStoredRows(INTEGRATION_ID, scope)
+      expect(rows).toEqual([{ id: expect.any(String), credentials: expect.anything(), deleted_at: null }])
+      expect(isEncryptedPayloadShape(rows[0]?.credentials)).toBe(true)
+      await expect(createCredentialsService(fork()).getRaw(INTEGRATION_ID, scope)).resolves.toEqual({ secret: 'second' })
+    }, CASE_TIMEOUT_MS)
+
+    it('selects the newest legacy row and retires duplicates on rotation only within the strict scope', async () => {
+      process.env.TENANT_DATA_ENCRYPTION = 'no'
+      const scope = createScope()
+      const userScope = { ...scope, userId: randomUUID() }
+      const otherOrg = { ...scope, organizationId: randomUUID() }
+      const otherTenant = { ...scope, tenantId: randomUUID() }
+      const service = () => createCredentialsService(fork())
+      const obsoleteId = await writeRawCredentials(scope, { secret: 'obsolete' })
+      const obsoleteVersion = new Date('2020-01-01T00:00:00Z')
+      await fork().execute('update integration_credentials set updated_at = ? where id = ?', [
+        obsoleteVersion,
+        obsoleteId,
+      ])
+      const currentId = await writeRawCredentials(scope, { secret: 'current' })
+      for (const [otherScope, secret] of [[userScope, 'user'], [otherOrg, 'org'], [otherTenant, 'tenant']] as const) {
+        await service().save(INTEGRATION_ID, { secret }, otherScope)
+      }
+
+      await expect(service().getRaw(INTEGRATION_ID, scope)).resolves.toEqual({ secret: 'current' })
+      const version = await service().getRowUpdatedAt(INTEGRATION_ID, scope)
+      expect(version?.getTime()).toBeGreaterThan(obsoleteVersion.getTime())
+      await expect(readCredentialRowLayered(fork(), INTEGRATION_ID, scope, { kms: createTestKms(), validate: validateSecret }))
+        .resolves.toEqual({ kind: 'ok', rowId: currentId, value: { secret: 'current' } })
+      await service().save(INTEGRATION_ID, { secret: 'rotated' }, scope)
+
+      const rows = await readStoredRows(INTEGRATION_ID, scope)
+      expect(rows.find((row) => row.id === obsoleteId)).toEqual({ id: obsoleteId, credentials: {}, deleted_at: expect.any(String) })
+      expect(rows.find((row) => row.id === currentId)).toEqual({ id: currentId, credentials: { secret: 'rotated' }, deleted_at: null })
+      await expect(service().getRaw(INTEGRATION_ID, scope)).resolves.toEqual({ secret: 'rotated' })
+      await expect(service().getRaw(INTEGRATION_ID, { ...scope, userId: randomUUID() })).resolves.toEqual({ secret: 'rotated' })
+      await expect(service().getRaw(INTEGRATION_ID, userScope)).resolves.toEqual({ secret: 'user' })
+      await expect(service().getRaw(INTEGRATION_ID, otherOrg)).resolves.toEqual({ secret: 'org' })
+      await expect(service().getRaw(INTEGRATION_ID, otherTenant)).resolves.toEqual({ secret: 'tenant' })
+    }, CASE_TIMEOUT_MS)
+  })
+
   describe('eraseIntegrationCredentials', () => {
+    it('blanks every live legacy duplicate so an erased secret cannot become eligible again', async () => {
+      process.env.TENANT_DATA_ENCRYPTION = 'no'
+      const scope = createScope()
+      await writeRawCredentials(scope, { secret: 'obsolete' })
+      await writeRawCredentials(scope, { secret: 'current' })
+
+      await expect(eraseIntegrationCredentials(fork(), INTEGRATION_ID, scope)).resolves.toBe(true)
+
+      const rows = await readStoredRows(INTEGRATION_ID, scope)
+      expect(rows).toHaveLength(2)
+      expect(rows.every((row) => row.deleted_at !== null)).toBe(true)
+      expect(rows.map((row) => row.credentials)).toEqual([{}, {}])
+      await expect(createCredentialsService(fork()).getRaw(INTEGRATION_ID, scope)).resolves.toBeNull()
+    }, CASE_TIMEOUT_MS)
+
     it('blanks and soft-deletes the strict row with encryption enabled, sealing {} at the field level', async () => {
       const kms = createTestKms()
       setKms(kms)

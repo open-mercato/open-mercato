@@ -1,7 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { decryptWithAesGcm, encryptWithAesGcm, isEncryptedPayloadShape } from '@open-mercato/shared/lib/encryption/aes'
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createKmsService, resolveEncryptionMode, type KmsService } from '@open-mercato/shared/lib/encryption/kms'
 import {
   parseDecryptedFieldValue,
@@ -20,6 +20,12 @@ import { OAUTH_GRANT_ROW_SUFFIX } from './oauth/grant-blob'
 const ENCRYPTED_CREDENTIALS_BLOB_KEY = '__om_encrypted_credentials_blob_v1'
 const CREDENTIALS_ENCRYPTION_ENTITY_ID = 'integrations:integration_credentials'
 const CREDENTIALS_ENCRYPTION_FIELDS = [{ field: 'credentials' }]
+const CREDENTIAL_ROW_ORDER = { updatedAt: 'desc', id: 'asc' } as const
+const CREDENTIAL_LOCK_SQL = `
+  select pg_advisory_xact_lock(hashtextextended(
+    'integrations:credentials:' || jsonb_build_array(?::uuid, ?::uuid, ?::text, ?::uuid)::text, 0
+  ))
+`
 
 /**
  * Raised when integration credentials cannot be encrypted or decrypted because
@@ -199,34 +205,50 @@ async function resolveTenantDekKey(kms: KmsService, tenantId: string): Promise<s
   return created?.key ?? null
 }
 
-async function findCredentialRowIdOnly(
+async function withCredentialWriteLock<T>(
   em: EntityManager,
   integrationId: string,
   scope: IntegrationScope,
-): Promise<IntegrationCredentials | null> {
-  const located = await em.findOne(IntegrationCredentials, buildCredentialsFilter(integrationId, scope), {
-    fields: ['id', 'tenantId', 'organizationId'],
-  })
-  return located ? em.getReference(IntegrationCredentials, located.id) : null
+  write: (tx: EntityManager) => Promise<T>,
+): Promise<T> {
+  const lockedWrite = async (tx: EntityManager) => {
+    await tx.execute(CREDENTIAL_LOCK_SQL, [scope.tenantId, scope.organizationId, integrationId, scope.userId || null])
+    return write(tx)
+  }
+  return em.isInTransaction() ? lockedWrite(em) : em.transactional(lockedWrite)
+}
+
+function retireCredentialRows(rows: IntegrationCredentials[]): void {
+  const deletedAt = new Date()
+  for (const row of rows) {
+    row.credentials = {}
+    row.deletedAt = deletedAt
+  }
 }
 
 /**
- * @internal Erases the strict live row (no bundle or user→tenant fallthrough): sets
- * `credentials = {}` and `deletedAt = now` and flushes on `em`. The row is located by an id-only
- * lookup that loads `id`, `tenantId` and `organizationId`, never `credentials`, so erasure needs
- * no DEK. Returns `false` when no live row exists.
+ * @internal Blanks and soft-deletes every live row in the strict scope. The lookup loads only
+ * `id`, `tenantId` and `organizationId`, so erasure needs no credential DEK.
+ * Returns `false` when no live row exists.
  */
 export async function eraseIntegrationCredentials(
   em: EntityManager,
   integrationId: string,
   scope: IntegrationScope,
 ): Promise<boolean> {
-  const row = await findCredentialRowIdOnly(em, integrationId, scope)
-  if (!row) return false
-  row.credentials = {}
-  row.deletedAt = new Date()
-  await em.flush()
-  return true
+  return withCredentialWriteLock(em, integrationId, scope, async (tx) => {
+    const rows = await findWithDecryption(
+      tx,
+      IntegrationCredentials,
+      buildCredentialsFilter(integrationId, scope),
+      { fields: ['id', 'tenantId', 'organizationId'] },
+      scope,
+    )
+    if (rows.length === 0) return false
+    retireCredentialRows(rows.map((row) => tx.getReference(IntegrationCredentials, row.id)))
+    await tx.flush()
+    return true
+  })
 }
 
 /** @internal Outcome of {@link readCredentialRowLayered}, one per encryption layer that can fail. */
@@ -271,7 +293,7 @@ export async function readCredentialRowLayered<T>(
     em,
     IntegrationCredentials,
     buildCredentialsFilter(integrationId, scope),
-    undefined,
+    { orderBy: CREDENTIAL_ROW_ORDER },
     scope,
   )
   if (!row) return { kind: 'none' }
@@ -378,7 +400,7 @@ export function createCredentialsService(
         em,
         IntegrationCredentials,
         buildCredentialsFilter(integrationId, scope),
-        undefined,
+        { orderBy: CREDENTIAL_ROW_ORDER },
         scope,
       )
       // Spec 2026-05-21 (email-integration-foundation) "Hub credentials store":
@@ -394,7 +416,7 @@ export function createCredentialsService(
           em,
           IntegrationCredentials,
           buildCredentialsFilter(integrationId, { ...scope, userId: null }),
-          undefined,
+          { orderBy: CREDENTIAL_ROW_ORDER },
           scope,
         )
       }
@@ -407,7 +429,7 @@ export function createCredentialsService(
         em,
         IntegrationCredentials,
         buildCredentialsFilter(integrationId, scope),
-        undefined,
+        { orderBy: CREDENTIAL_ROW_ORDER },
         scope,
       )
       if (!row && scope.userId) {
@@ -415,7 +437,7 @@ export function createCredentialsService(
           em,
           IntegrationCredentials,
           buildCredentialsFilter(integrationId, { ...scope, userId: null }),
-          undefined,
+          { orderBy: CREDENTIAL_ROW_ORDER },
           scope,
         )
       }
@@ -460,28 +482,31 @@ export function createCredentialsService(
       const encryptedCredentials = await encryptCredentialsBlob(credentials, scope)
       await ensureCredentialsEncryptionMap(em, scope, encryptionService, options)
 
-      const row = await findOneWithDecryption(
-        em,
-        IntegrationCredentials,
-        buildCredentialsFilter(integrationId, scope),
-        undefined,
-        scope,
-      )
+      await withCredentialWriteLock(em, integrationId, scope, async (tx) => {
+        const [current, ...duplicates] = await findWithDecryption(
+          tx,
+          IntegrationCredentials,
+          buildCredentialsFilter(integrationId, scope),
+          { orderBy: CREDENTIAL_ROW_ORDER, refresh: true },
+          scope,
+        )
 
-      if (row) {
-        row.credentials = encryptedCredentials
-        await em.flush()
-        return
-      }
+        if (current) {
+          current.credentials = encryptedCredentials
+          retireCredentialRows(duplicates)
+          await tx.flush()
+          return
+        }
 
-      const created = em.create(IntegrationCredentials, {
-        integrationId,
-        credentials: encryptedCredentials,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        ...(scope.userId ? { userId: scope.userId } : {}),
+        const created = tx.create(IntegrationCredentials, {
+          integrationId,
+          credentials: encryptedCredentials,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          ...(scope.userId ? { userId: scope.userId } : {}),
+        })
+        await tx.persist(created).flush()
       })
-      await em.persist(created).flush()
     },
 
     async saveField(
