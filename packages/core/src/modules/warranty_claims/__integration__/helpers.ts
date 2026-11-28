@@ -294,8 +294,10 @@ export async function listClaims(
   request: APIRequestContext,
   token: string,
   query = 'pageSize=100',
+  options?: { selectedOrgId?: string },
 ): Promise<ClaimItem[]> {
-  const response = await apiRequest(request, 'GET', `/api/warranty_claims?${query}`, { token })
+  const headers = options?.selectedOrgId ? { Cookie: `om_selected_org=${options.selectedOrgId}` } : undefined
+  const response = await apiRequest(request, 'GET', `/api/warranty_claims?${query}`, { token, headers })
   expect(response.status(), `GET /api/warranty_claims?${query} should return 200`).toBe(200)
   const body = await readRequiredJson<PagedItems<ClaimItem>>(response, 'claims list response should be JSON')
   return Array.isArray(body.items) ? body.items : []
@@ -305,8 +307,9 @@ export async function readClaimMaybe(
   request: APIRequestContext,
   token: string,
   claimId: string,
+  options?: { selectedOrgId?: string },
 ): Promise<ClaimItem | null> {
-  const items = await listClaims(request, token, `ids=${encodeURIComponent(claimId)}&pageSize=10`)
+  const items = await listClaims(request, token, `ids=${encodeURIComponent(claimId)}&pageSize=10`, options)
   return items.find((item) => item.id === claimId) ?? null
 }
 
@@ -314,8 +317,9 @@ export async function readClaim(
   request: APIRequestContext,
   token: string,
   claimId: string,
+  options?: { selectedOrgId?: string },
 ): Promise<ClaimItem> {
-  const item = await readClaimMaybe(request, token, claimId)
+  const item = await readClaimMaybe(request, token, claimId, options)
   expect(item, `claim ${claimId} should be readable`).toBeTruthy()
   return item as ClaimItem
 }
@@ -324,12 +328,19 @@ export async function createClaimFixture(
   request: APIRequestContext,
   token: string,
   data: Record<string, unknown>,
+  options?: { selectedOrgId?: string },
 ): Promise<ClaimItem> {
-  const response = await apiRequest(request, 'POST', '/api/warranty_claims', { token, data })
+  // Create/read/delete scoping resolves an admin's organization from
+  // ctx.selectedOrganizationId (falling back to their own home org) when it
+  // isn't present in `ctx.organizationIds` — pass `om_selected_org` on every
+  // step to place and later find the fixture in an organization other than
+  // the caller's home org.
+  const headers = options?.selectedOrgId ? { Cookie: `om_selected_org=${options.selectedOrgId}` } : undefined
+  const response = await apiRequest(request, 'POST', '/api/warranty_claims', { token, data, headers })
   const body = await readRequiredJson<{ id?: string | null }>(response, 'claim create response should be JSON')
   expect(response.status(), `POST /api/warranty_claims should return 201: ${JSON.stringify(body)}`).toBe(201)
   const claimId = expectId(body.id, 'claim create response should include id')
-  return readClaim(request, token, claimId)
+  return readClaim(request, token, claimId, options)
 }
 
 export async function updateClaim(
@@ -345,21 +356,25 @@ export async function deleteClaimIfExists(
   request: APIRequestContext,
   token: string | null,
   claimId: string | null,
+  options?: { selectedOrgId?: string },
 ): Promise<void> {
   if (!token || !claimId) return
-  await apiRequest(request, 'DELETE', `/api/warranty_claims?id=${encodeURIComponent(claimId)}`, { token }).catch(() => undefined)
+  const headers = options?.selectedOrgId ? { Cookie: `om_selected_org=${options.selectedOrgId}` } : undefined
+  await apiRequest(request, 'DELETE', `/api/warranty_claims?id=${encodeURIComponent(claimId)}`, { token, headers }).catch(() => undefined)
 }
 
 export async function listClaimLines(
   request: APIRequestContext,
   token: string,
   claimId: string,
+  options?: { selectedOrgId?: string },
 ): Promise<ClaimLineItem[]> {
+  const headers = options?.selectedOrgId ? { Cookie: `om_selected_org=${options.selectedOrgId}` } : undefined
   const response = await apiRequest(
     request,
     'GET',
     `/api/warranty_claims/lines?claimId=${encodeURIComponent(claimId)}&pageSize=100`,
-    { token },
+    { token, headers },
   )
   expect(response.status(), 'GET /api/warranty_claims/lines should return 200').toBe(200)
   const body = await readRequiredJson<PagedItems<ClaimLineItem>>(response, 'claim lines response should be JSON')
@@ -400,9 +415,11 @@ export async function deleteClaimLineIfExists(
   request: APIRequestContext,
   token: string | null,
   lineId: string | null,
+  options?: { selectedOrgId?: string },
 ): Promise<void> {
   if (!token || !lineId) return
-  await apiRequest(request, 'DELETE', `/api/warranty_claims/lines?id=${encodeURIComponent(lineId)}`, { token }).catch(() => undefined)
+  const headers = options?.selectedOrgId ? { Cookie: `om_selected_org=${options.selectedOrgId}` } : undefined
+  await apiRequest(request, 'DELETE', `/api/warranty_claims/lines?id=${encodeURIComponent(lineId)}`, { token, headers }).catch(() => undefined)
 }
 
 export async function submitClaim(
@@ -822,17 +839,18 @@ export async function cleanupDraftClaimWithLines(
   request: APIRequestContext,
   token: string | null,
   claimId: string | null,
+  options?: { selectedOrgId?: string },
 ): Promise<void> {
   if (!token || !claimId) return
-  const claim = await readClaimMaybe(request, token, claimId).catch(() => null)
+  const claim = await readClaimMaybe(request, token, claimId, options).catch(() => null)
   if (!claim) return
   if (claim.status === 'draft') {
-    const lines = await listClaimLines(request, token, claimId).catch(() => [])
+    const lines = await listClaimLines(request, token, claimId, options).catch(() => [])
     for (const line of lines) {
-      await deleteClaimLineIfExists(request, token, line.id)
+      await deleteClaimLineIfExists(request, token, line.id, options)
     }
   }
-  await deleteClaimIfExists(request, token, claimId)
+  await deleteClaimIfExists(request, token, claimId, options)
 }
 
 export async function cancelThenDeleteClaimIfPossible(
