@@ -23,20 +23,34 @@ not part of the rule either, but merge automation (`om-merge-buddy`, `om-auto-me
 waits until the agent releases it. A maintainer may merge a PR that still carries it, with
 `--match-head-commit <sha>` so a late push from the agent stops the merge.
 
-**Triage and acceptance.** An external (community) PR is triaged with `om-triage-pr` (category,
-priority, risk and QA lane). A maintainer adds `needs-triage` by hand while an external PR waits
-for a decision — no workflow sets it — and a human with write permission records the decision:
-`accepted` (and remove `needs-triage`), a change request, or a close with a one-line reason.
-Labels or approvals from automation accounts never count as that decision, and an external PR
-needs a human approval. Core-team PRs are accepted by default and skip the acceptance step. The core
-team is the login list in `.github/core-team.json` (compare logins case-insensitively); that file
-is the single source, so scripts and skills read it instead of keeping their own list.
+**Triage and acceptance (review-start gate).** PR review MUST NOT start until two signals hold on
+the PR: (1) current-head triage is done, and (2) for an external PR, a human has accepted it.
+
+1. **Current-head triage (`triaged`).** `om-triage-pr` triages the PR (category, priority, risk, CI
+   scope and QA lane) and applies `triaged` when it writes a complete triage comment ending
+   `CI-Triage-Head: <head sha>`. Every new push (`synchronize`) removes `triaged` automatically via
+   `.github/workflows/pr-triage-labels.yml` until triage runs again. A PR counts as triaged only
+   when it carries `triaged` AND a trusted triage comment's `CI-Triage-Head` equals the current head
+   SHA.
+2. **External acceptance (`needs-triage` → `human-triage-accepted`).** The core team is the login
+   list in `.github/core-team.json` (compare logins case-insensitively); that file is the single
+   source, read from the base branch by workflows, scripts and skills. Any PR author not listed in
+   it is external. `.github/workflows/pr-triage-labels.yml` automatically adds `needs-triage` to
+   every non-draft external PR (excluding same-repo `stabilize/` branches) when it opens, reopens or
+   is marked ready for review, unless it already carries `human-triage-accepted`. A human listed in
+   `.github/core-team.json` (or with write/maintain/admin access) records the decision by adding
+   `human-triage-accepted` (which removes `needs-triage`), requesting changes, or closing with a
+   one-line reason. `human-triage-accepted` replaces the old `accepted` label. Labels or approvals
+   from bots or automation accounts never count as that decision: when a non-core account or bot
+   applies `human-triage-accepted`, the workflow removes it again and comments why. An external PR
+   also still needs a human approval to merge. Core-team PRs are accepted by default and skip the
+   acceptance step.
 
 ## Label groups
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
 - Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
-- Meta labels are additive: `needs-qa`, `needs-human-qa`, `qa-batch-check`, `qa-in-progress`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `ci-monitoring`, `screenshots`.
+- Meta labels are additive: `needs-qa`, `needs-human-qa`, `qa-batch-check`, `qa-in-progress`, `skip-qa`, `qa-approved`, `qa-self-verified`, `needs-triage`, `human-triage-accepted`, `triaged`, `in-progress`, `ci-monitoring`, `screenshots`.
 - Issue labels for QA findings: `bug` + `daily-qa` (a defect found in a batch or a release QA pass) and `qa-blocker` (that defect blocks the batch). `weekly-qa` is kept on old issues only.
 - Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`.
 - Risk labels are mutually exclusive within their group (only one at a time): `risk-low`, `risk-medium`, `risk-high`.

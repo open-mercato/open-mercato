@@ -59,12 +59,24 @@ test('qaBatch matches the batch branch and tag conventions and reuses no reserve
   }
 })
 
-test('prTriage.acceptanceLabel is a valid label that is not a pipeline or QA label', () => {
-  const label = config.prTriage.acceptanceLabel
-  assert.equal(label, 'needs-triage')
-  assert.match(label, labelPattern)
+test('prTriage configures triage and acceptance labels and coreTeamFile without colliding with pipeline or QA labels', () => {
+  const triage = config.prTriage
+  assert.equal(triage.ciScopeFile, '.github/ci-scope.json')
+  assert.equal(triage.areaLabelPrefix, 'ci-area:')
+  assert.equal(triage.acceptanceLabel, 'needs-triage')
+  assert.equal(triage.acceptedLabel, 'human-triage-accepted')
+  assert.equal(triage.triagedLabel, 'triaged')
+  assert.equal(triage.coreTeamFile, '.github/core-team.json')
+  assert.ok(fs.existsSync(new URL(`../../${triage.coreTeamFile}`, import.meta.url)), triage.coreTeamFile)
+
   const forbidden = ['qa-approved', 'qa-failed', 'merge-queue', 'review', 'changes-requested', 'blocked', 'do-not-merge', 'in-progress', 'needs-qa', 'skip-qa']
-  assert.ok(!forbidden.includes(label))
+  const triageLabels = [triage.acceptanceLabel, triage.acceptedLabel, triage.triagedLabel]
+  assert.equal(new Set(triageLabels).size, triageLabels.length)
+  for (const label of triageLabels) {
+    assert.match(label, labelPattern, label)
+    assert.ok(!forbidden.includes(label), label)
+    assert.ok(config.labels.meta.includes(label), `${label} must be listed in labels.meta`)
+  }
 })
 
 test('the core-team list is a non-empty list of unique GitHub logins', () => {
