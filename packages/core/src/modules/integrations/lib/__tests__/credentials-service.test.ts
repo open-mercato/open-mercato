@@ -8,7 +8,7 @@ import {
   type IntegrationScope,
 } from '@open-mercato/shared/modules/integrations/types'
 import { decryptWithAesGcm, encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { IntegrationCredentials } from '../../data/entities'
 import {
@@ -24,6 +24,7 @@ import {
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn().mockResolvedValue([]),
 }))
 
 // `resolveEncryptionMode` stays real: it is the function under test on the disabled/unavailable
@@ -34,6 +35,7 @@ jest.mock('@open-mercato/shared/lib/encryption/kms', () => ({
 }))
 
 const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 const mockCreateKmsService = createKmsService as jest.MockedFunction<typeof createKmsService>
 
 const scope = { organizationId: 'org-1', tenantId: 'tenant-1' }
@@ -57,6 +59,7 @@ function createMockEntityManager() {
     }),
     flush: jest.fn(async () => undefined),
     execute: jest.fn(async () => [{ id: 'map-1', updated_at: new Date() }]),
+    isInTransaction: () => true,
   }
   return { em, persisted }
 }
@@ -120,10 +123,6 @@ describe('integration credentials service encryption', () => {
   it('encrypts credentials only with a DEK resolved from KMS', async () => {
     const dek = generateDek()
     mockKms(dek)
-    mockFindOneWithDecryption.mockImplementation(async (_em, entity) => {
-      if (entity === IntegrationCredentials) return null
-      return null
-    })
     const { em, persisted } = createMockEntityManager()
     const service = createCredentialsService(em as never)
 
@@ -151,7 +150,7 @@ describe('integration credentials service encryption', () => {
       .rejects
       .toBeInstanceOf(CredentialsEncryptionUnavailableError)
 
-    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
     expect(persisted).toEqual([])
     expect(em.flush).not.toHaveBeenCalled()
   })
@@ -512,10 +511,12 @@ describe('eraseIntegrationCredentials', () => {
 
   function createEraseEntityManager(found: { id: string } | null) {
     const managed = { id: found?.id, credentials: { apiKey: 'sk_test_secret' } as Record<string, unknown>, deletedAt: null as Date | null }
+    mockFindWithDecryption.mockResolvedValueOnce(found ? [found] as IntegrationCredentials[] : [])
     const em = {
-      findOne: jest.fn(async () => found),
       getReference: jest.fn(() => managed),
       flush: jest.fn(async () => undefined),
+      execute: jest.fn(),
+      isInTransaction: () => true,
     }
     return { em, managed }
   }
@@ -525,10 +526,12 @@ describe('eraseIntegrationCredentials', () => {
 
     await expect(eraseIntegrationCredentials(em as never, 'gateway_test', scope)).resolves.toBe(true)
 
-    expect(em.findOne).toHaveBeenCalledWith(
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+      em,
       IntegrationCredentials,
       buildCredentialsFilter('gateway_test', scope),
       { fields: ['id', 'tenantId', 'organizationId'] },
+      scope,
     )
     expect(em.getReference).toHaveBeenCalledWith(IntegrationCredentials, 'row-1')
     expect(managed.credentials).toEqual({})
@@ -551,8 +554,13 @@ describe('eraseIntegrationCredentials', () => {
 
     await eraseIntegrationCredentials(em as never, 'gateway_test', userScope)
 
-    expect(em.findOne).toHaveBeenCalledTimes(1)
-    expect((em.findOne.mock.calls[0] as unknown as [unknown, { userId?: unknown }])[1].userId).toBe('user-a')
+    expect(mockFindWithDecryption).toHaveBeenCalledWith(
+      em,
+      IntegrationCredentials,
+      buildCredentialsFilter('gateway_test', userScope),
+      expect.anything(),
+      userScope,
+    )
   })
 })
 
