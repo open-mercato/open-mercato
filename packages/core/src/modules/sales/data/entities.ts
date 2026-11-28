@@ -375,6 +375,9 @@ export class SalesOrder {
   @Property({ name: 'shipping_address_snapshot', type: 'jsonb', nullable: true })
   shippingAddressSnapshot?: Record<string, unknown> | null
 
+  @Property({ name: 'address_custom_values', type: 'jsonb', nullable: true })
+  addressCustomValues?: Record<string, unknown> | string | null
+
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
 
@@ -892,6 +895,9 @@ export class SalesQuote {
 
   @Property({ name: 'shipping_address_snapshot', type: 'jsonb', nullable: true })
   shippingAddressSnapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'address_custom_values', type: 'jsonb', nullable: true })
+  addressCustomValues?: Record<string, unknown> | string | null
 
   @Property({ name: 'currency_code', type: 'text' })
   currencyCode!: string
@@ -1868,6 +1874,9 @@ export class SalesNote {
 @Index({ name: 'sales_document_addresses_order_idx', properties: ['order'] })
 @Index({ name: 'sales_document_addresses_quote_idx', properties: ['quote'] })
 export class SalesDocumentAddress {
+  @Property({ name: 'custom_values', type: 'jsonb', nullable: true })
+  customValues?: Record<string, unknown> | string | null
+
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 

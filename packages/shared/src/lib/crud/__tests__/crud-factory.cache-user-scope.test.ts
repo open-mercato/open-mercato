@@ -86,6 +86,7 @@ jest.mock('@open-mercato/core/modules/entities/lib/helpers', () => ({
 class Todo {}
 
 const querySchema = z.object({
+  id: z.string().optional(),
   page: z.coerce.number().default(1),
   pageSize: z.coerce.number().default(50),
   sortField: z.string().default('id'),
@@ -112,6 +113,7 @@ const scopeIdentityRoute = makeCrudRoute({
   indexer: { entityType: 'example.cache_identity' },
   list: {
     schema: querySchema,
+    disableListCacheForQuery: (query) => Boolean(query.id),
     entityId: 'example.cache_identity',
     fields: ['id', 'title'],
     sortFieldMap: { id: 'id', title: 'title' },
@@ -158,6 +160,21 @@ describe('CRUD Factory — list cache is partitioned per caller identity', () =>
     expect(second.headers.get('x-om-cache')).toBe('hit')
     expect((await second.json()).items[0].id).toBe('todo-of-user-a')
     expect(queryEngine.query).toHaveBeenCalledTimes(1)
+  })
+
+  it('bypasses cache reads and writes for private detail projections without disabling grid caching', async () => {
+    const detailUrl = url + '&id=todo-of-user-a'
+    const first = await scopeIdentityRoute.GET(new Request(detailUrl))
+    const second = await scopeIdentityRoute.GET(new Request(detailUrl))
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
+
+    await scopeIdentityRoute.GET(new Request(url))
+    const gridHit = await scopeIdentityRoute.GET(new Request(url))
+    expect(gridHit.headers.get('x-om-cache')).toBe('hit')
+    expect(cache.set).toHaveBeenCalledTimes(1)
   })
 
   it('does not serve one user\'s cached rows to another user on the identical URL', async () => {

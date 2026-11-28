@@ -24,7 +24,7 @@ const mockQE = {
 const mockRelationAccess = jest.fn()
 
 const registeredTables: Record<string, string> = {
-  StaffTimeEntry: 'staff_time_entries', Attachment: 'attachments',
+  StaffTimeEntry: 'staff_time_entries', Attachment: 'attachments', SalesDocumentAddress: 'sales_document_addresses',
   StaffTimeProject: 'staff_time_projects', StaffTimeTask: 'staff_time_tasks', StaffTimeReport: 'staff_time_reports',
   CatalogProduct: 'catalog_products', CustomerUser: 'customer_users',
   CatalogProductVariant: 'catalog_product_variants',
@@ -94,6 +94,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
     { id: 'staff:staff_time_report', labelField: 'title' },
     { id: 'staff:staff_time_task', labelField: 'title' },
     { id: 'third_party:staff_time_entry', labelField: 'notes' },
+    { id: 'sales:sales_document_address', labelField: 'name' },
     { id: 'customers:customer_entity', labelField: 'title' },
     { id: 'customers:customer_person_profile', labelField: 'displayName' },
     { id: 'catalog:catalog_product', labelField: 'name' },
@@ -132,6 +133,12 @@ describe('GET /api/entities/relations/options', () => {
     const response = await GET(new Request('http://x/api/entities/relations/options?entityId=third_party:staff_time_entry'))
     expect(response.status).toBe(403)
     expect(mockRelationAccess).not.toHaveBeenCalled()
+    expect(mockQE.query).not.toHaveBeenCalled()
+  })
+
+  it('keeps Sales address reads in the owning order or quote endpoint', async () => {
+    const response = await GET(new Request('http://x/api/entities/relations/options?entityId=sales:sales_document_address'))
+    expect(response.status).toBe(403)
     expect(mockQE.query).not.toHaveBeenCalled()
   })
 

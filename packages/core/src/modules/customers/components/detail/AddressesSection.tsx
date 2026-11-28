@@ -3,11 +3,14 @@
 import * as React from 'react'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { AddressesSection as SharedAddressesSection } from '@open-mercato/ui/backend/detail'
 import type { AddressDataAdapter, AddressTypesAdapter, AddressFormatStrategy, SectionAction } from '@open-mercato/ui/backend/detail'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useCustomerAddressCustomFields } from './hooks/useCustomerAddressCustomFields'
 import type { GuardedMutationRunner } from './hooks/useInteractionMutations'
 
 export type AddressesSectionProps = {
@@ -36,18 +39,39 @@ export function AddressesSection({
   const tHook = useT()
   const fallbackTranslator = React.useMemo(() => createTranslatorWithFallback(tHook), [tHook])
   const t = translator ?? fallbackTranslator
+  const scopeVersion = useOrganizationScopeVersion()
+  const customFields = useCustomerAddressCustomFields(t, Boolean(entityId))
+  const { runMutation, retryLastMutation } = useGuardedMutation({
+    contextId: 'customers.address',
+    blockedMessage: t('ui.forms.flash.saveBlocked'),
+  })
   const mutationRunnerRef = React.useRef(runGuardedMutation)
   React.useEffect(() => {
     mutationRunnerRef.current = runGuardedMutation
   }, [runGuardedMutation])
 
-  const runWriteMutation = React.useCallback<GuardedMutationRunner>(
-    (operation, payload) => {
-      const runner = mutationRunnerRef.current
-      return runner ? runner(operation, payload) : operation()
-    },
-    [],
-  )
+  const runWriteMutation = React.useCallback(<Result,>(
+    operation: () => Promise<Result>,
+    metadata: Record<string, unknown>,
+    { customValues, ...payload }: Record<string, unknown> = {},
+    recordId?: string,
+  ) => {
+    const customFieldMetadata = customValues && typeof customValues === 'object'
+      ? { customValueKeys: Object.keys(customValues) }
+      : {}
+    const runner = mutationRunnerRef.current
+    if (runner) {
+      return runner(operation, { ...metadata, ...customFieldMetadata }).catch((error: unknown) => {
+        if (recordId) surfaceRecordConflict(error, t)
+        throw error
+      })
+    }
+    return runMutation({
+      operation,
+      mutationPayload: { ...payload, ...metadata, ...customFieldMetadata },
+      context: { formId: 'customers.address', resourceKind: 'customers.address', recordId, retryLastMutation },
+    })
+  }, [retryLastMutation, runMutation, t])
 
   const dataAdapter = React.useMemo<AddressDataAdapter>(() => ({
     list: async ({ entityId: listEntityId }) => {
@@ -124,6 +148,9 @@ export function AddressesSection({
                 : typeof record.updatedAt === 'string'
                   ? record.updatedAt
                   : null,
+            ...(record.customValues && typeof record.customValues === 'object' && !Array.isArray(record.customValues)
+              ? { customValues: record.customValues as Record<string, unknown> }
+              : {}),
           }
         })
         .filter((value): value is NonNullable<typeof value> => value !== null)
@@ -146,53 +173,48 @@ export function AddressesSection({
           { errorMessage: t('customers.people.detail.addresses.error') },
         ),
         { entityId: targetId, operation: 'createAddress' },
+        input,
       )
       return response.result ?? {}
     },
     update: async ({ id, payload, updatedAt }) => {
       const input = { id, ...payload, country: payload.country ? payload.country.toUpperCase() : undefined }
-      try {
-        await runWriteMutation(
-          () => withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(updatedAt ?? null),
-            () => apiCallOrThrow(
-              '/api/customers/addresses',
-              {
-                method: 'PUT',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify(input),
-              },
-              { errorMessage: t('customers.people.detail.addresses.error') },
-            ),
+      await runWriteMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/addresses',
+            {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(input),
+            },
+            { errorMessage: t('customers.people.detail.addresses.error') },
           ),
-          { addressId: id, operation: 'updateAddress' },
-        )
-      } catch (err) {
-        surfaceRecordConflict(err, t)
-        throw err
-      }
+        ),
+        { addressId: id, operation: 'updateAddress' },
+        input,
+        id,
+      )
     },
     delete: async ({ id, updatedAt }) => {
-      try {
-        await runWriteMutation(
-          () => withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(updatedAt ?? null),
-            () => apiCallOrThrow(
-              '/api/customers/addresses',
-              {
-                method: 'DELETE',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ id }),
-              },
-              { errorMessage: t('customers.people.detail.addresses.error') },
-            ),
+      await runWriteMutation(
+        () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt ?? null),
+          () => apiCallOrThrow(
+            '/api/customers/addresses',
+            {
+              method: 'DELETE',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ id }),
+            },
+            { errorMessage: t('customers.people.detail.addresses.error') },
           ),
-          { addressId: id, operation: 'deleteAddress' },
-        )
-      } catch (err) {
-        surfaceRecordConflict(err, t)
-        throw err
-      }
+        ),
+        { addressId: id, operation: 'deleteAddress' },
+        { id },
+        id,
+      )
     },
   }), [runWriteMutation, t])
 
@@ -259,6 +281,7 @@ export function AddressesSection({
 
   return (
     <SharedAddressesSection
+      key={`${scopeVersion}:${entityId ?? ''}`}
       entityId={entityId}
       emptyLabel={emptyLabel}
       addActionLabel={addActionLabel}
@@ -269,6 +292,7 @@ export function AddressesSection({
       dataAdapter={dataAdapter}
       addressTypesAdapter={addressTypesAdapter}
       loadFormat={loadFormat}
+      customFields={customFields}
       showCoordinateFields
     />
   )

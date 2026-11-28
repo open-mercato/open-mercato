@@ -89,6 +89,7 @@ export async function GET(req: Request) {
   const requirement = resolveEntityAclRequirement(entityId)
   const registeredTable = resolveRegisteredEntityTableName(em, entityId)
 
+  if (registeredTable === 'sales_document_addresses') return forbidden()
   if (requirement?.platformOnly || (classification.kind === 'system' && !requirement && !declared)) return forbidden()
   if (classification.kind === 'unknown' || (classification.kind === 'system' && !registeredTable)) {
     logger.warn('Relation options requested for an unresolvable entity id', { entityId })

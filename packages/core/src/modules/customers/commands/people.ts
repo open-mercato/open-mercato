@@ -1,4 +1,5 @@
 import { redactRestoredNextInteractionName } from '../lib/interactionProjection'
+import { sealCustomerAddressCustomValues } from '../lib/addressCustomValues'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import {
@@ -105,6 +106,7 @@ type PersonAddressSnapshot = {
   latitude: number | null
   longitude: number | null
   isPrimary: boolean
+  addressCustomValues?: CustomerAddress['customValues']
 }
 
 type PersonCommentSnapshot = {
@@ -369,6 +371,7 @@ function serializePersonSnapshot(
       latitude: address.latitude ?? null,
       longitude: address.longitude ?? null,
       isPrimary: address.isPrimary,
+      ...(address.customValues != null ? { addressCustomValues: address.customValues } : {}),
     })),
     comments: comments.map((comment) => ({
       id: comment.id,
@@ -1551,6 +1554,10 @@ const deletePersonCommand: CommandHandler<
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       await redactRestoredNextInteractionName(em, before.entity)
       const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      const addressCustomValues = new Map(await Promise.all(before.addresses.map(async (address) => [
+        address.id,
+        await sealCustomerAddressCustomValues(ctx.container, before.entity, address.addressCustomValues),
+      ] as const)))
 
       const decryptionScope = {
         tenantId: before.entity.tenantId ?? null,
@@ -1800,6 +1807,7 @@ const deletePersonCommand: CommandHandler<
           latitude: address.latitude,
           longitude: address.longitude,
           isPrimary: address.isPrimary,
+          customValues: addressCustomValues.get(address.id) ?? undefined,
         })
         em.persist(restoredAddress)
       }

@@ -4,6 +4,7 @@ import {
   type SearchConfig,
 } from '@open-mercato/shared/lib/search/config'
 import { isIndexDocEnrichedKey } from './doc-enrichers'
+import { isAddressCustomFieldHost, isAddressValuesIndexField } from '@open-mercato/core/modules/entities/lib/addressCustomFieldPolicy'
 
 export type IndexDocumentScope = {
   organizationId?: string | null
@@ -95,6 +96,10 @@ export function attachAggregateSearchField(
   const seen = new Set<string>()
 
   for (const [field, value] of Object.entries(doc)) {
+    if (isAddressValuesIndexField(entityType, field)) {
+      delete doc[field]
+      continue
+    }
     const values = collectAggregateSearchValues(field, value, entityType, config)
     for (const entry of values) {
       const key = entry.toLowerCase()
@@ -154,7 +159,8 @@ export function buildIndexDocument(
   const scopeTenant = normalizeScopeValue(scope.tenantId ?? null)
 
   const grouped = new Map<string, unknown[]>()
-  for (const field of customFieldValues) {
+  const indexableCustomFields = options.entityType && isAddressCustomFieldHost(options.entityType) ? [] : customFieldValues
+  for (const field of indexableCustomFields) {
     const org = normalizeScopeValue(field.organizationId ?? null)
     const tenant = normalizeScopeValue(field.tenantId ?? null)
 

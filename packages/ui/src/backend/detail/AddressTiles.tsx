@@ -10,6 +10,7 @@ import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime
 import { normalizeCoordinateInput, validateCoordinateInput } from '@open-mercato/shared/lib/location/coordinates'
 import { AddressView, type AddressFormatStrategy } from './addressFormat'
 import AddressEditor, { type AddressTypeOption, type AddressTypesAdapter } from './AddressEditor'
+import { AddressCustomFieldEditor, useAddressCustomValueDraft, type AddressTileCustomFields } from './AddressCustomFields'
 import {
   Dialog,
   DialogContent,
@@ -41,6 +42,7 @@ export type AddressInput = {
   latitude?: number | null
   longitude?: number | null
   isPrimary?: boolean
+  customValues?: Record<string, unknown>
 }
 
 export type AddressValue = AddressInput & {
@@ -70,6 +72,7 @@ type AddressTilesProps<C = unknown> = {
   addressTypesContext?: C
   loadFormat?: (context?: C) => Promise<AddressFormatStrategy>
   formatContext?: C
+  customFields?: AddressTileCustomFields
 }
 
 type DraftAddressState = {
@@ -188,6 +191,7 @@ export function AddressTiles<C = unknown>({
   addressTypesContext,
   loadFormat,
   formatContext,
+  customFields,
 }: AddressTilesProps<C>) {
   const scopeVersion = useOrganizationScopeVersion()
   const [isFormOpen, setIsFormOpen] = React.useState(false)
@@ -200,6 +204,8 @@ export function AddressTiles<C = unknown>({
   const [format, setFormat] = React.useState<AddressFormatStrategy>('line_first')
   const [formatLoading, setFormatLoading] = React.useState(false)
   const [addressTypes, setAddressTypes] = React.useState<AddressTypeOption[]>([])
+  const { blocked: customFieldsBlocked, values: customValues, errors: customErrors, reset: resetCustomValues,
+    onChange: changeCustomValue, prepare: prepareCustomValues, showErrors: showCustomErrors } = useAddressCustomValueDraft(customFields)
 
   const label = React.useCallback(
     (suffix: string, fallback?: string, params?: Record<string, string | number>) =>
@@ -258,10 +264,11 @@ export function AddressTiles<C = unknown>({
 
   const resetForm = React.useCallback(() => {
     setDraft(defaultDraft)
+    resetCustomValues()
     setFieldErrors({})
     setGeneralError(null)
     setEditingId(null)
-  }, [])
+  }, [resetCustomValues])
 
   React.useEffect(() => {
     let cancelled = false
@@ -306,6 +313,7 @@ export function AddressTiles<C = unknown>({
   }, [resetForm])
 
   const handleEdit = React.useCallback((value: AddressValue) => {
+    resetCustomValues(value.customValues ?? {})
     setDraft({
       name: value.name ?? '',
       purpose: value.purpose ?? '',
@@ -326,7 +334,7 @@ export function AddressTiles<C = unknown>({
     setIsFormOpen(true)
     setFieldErrors({})
     setGeneralError(null)
-  }, [])
+  }, [resetCustomValues])
 
   const validate = React.useCallback((): boolean => {
     const errors: Partial<Record<DraftFieldKey, string>> = {}
@@ -353,6 +361,8 @@ export function AddressTiles<C = unknown>({
 
   const handleSave = React.useCallback(async () => {
     if (!validate()) return
+    const prepared = prepareCustomValues()
+    if (!prepared.valid) return
     setSaving(true)
     setGeneralError(null)
     try {
@@ -374,6 +384,7 @@ export function AddressTiles<C = unknown>({
         latitude: normalizeCoordinateInput(draft.latitude) ?? (editingId ? null : undefined),
         longitude: normalizeCoordinateInput(draft.longitude) ?? (editingId ? null : undefined),
         isPrimary: draft.isPrimary,
+        ...(prepared.customValues ? { customValues: prepared.customValues } : {}),
       }
       if (editingId && onUpdate) {
         await onUpdate(editingId, payload)
@@ -383,6 +394,10 @@ export function AddressTiles<C = unknown>({
       resetForm()
       setIsFormOpen(false)
     } catch (err) {
+      if (showCustomErrors(err)) {
+        setGeneralError(label('validation.summary', 'Please fix the highlighted fields.'))
+        return
+      }
       const details = extractValidationDetails(err)
       if (details.length) {
         const nextErrors: Partial<Record<DraftFieldKey, string>> = {}
@@ -408,7 +423,7 @@ export function AddressTiles<C = unknown>({
     } finally {
       setSaving(false)
     }
-  }, [draft, editingId, fieldLabels, label, labelPrefix, onCreate, onUpdate, resetForm, t, validate])
+  }, [draft, editingId, fieldLabels, label, labelPrefix, onCreate, onUpdate, prepareCustomValues, resetForm, showCustomErrors, t, validate])
 
   const handleDelete = React.useCallback(
     async (id: string) => {
@@ -468,7 +483,7 @@ export function AddressTiles<C = unknown>({
           if (!(event.metaKey || event.ctrlKey)) return
           if (event.key !== 'Enter') return
           event.preventDefault()
-          if (disableActions) return
+          if (disableActions || customFieldsBlocked) return
           void handleSave()
         }}
       >
@@ -478,7 +493,7 @@ export function AddressTiles<C = unknown>({
               ? label('editTitle', 'Edit address')
               : label('addTitle', 'Add address')}
           </span>
-          <Button type="button" variant="ghost" size="icon" onClick={handleCancel} disabled={disableActions}>
+          <Button type="button" variant="ghost" size="icon" onClick={handleCancel} disabled={disableActions} aria-label={t('ui.dialog.close.ariaLabel', 'Close')}>
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -512,13 +527,25 @@ export function AddressTiles<C = unknown>({
             labelPrefix={labelPrefix}
             addressTypesAdapter={addressTypesAdapter}
             addressTypesContext={addressTypesContext}
-          />
+          >
+            {customFields ? (
+              <AddressCustomFieldEditor
+                structure={customFields.structure}
+                labels={customFields.labels}
+                values={customValues}
+                errors={customErrors}
+                onChange={changeCustomValue}
+                recordId={editingId ?? undefined}
+                disabled={disableActions}
+              />
+            ) : null}
+          </AddressEditor>
           {generalError ? <p className="text-xs text-status-error-text">{generalError}</p> : null}
           <div className="flex flex-wrap justify-end gap-2">
             <Button type="button" variant="outline" onClick={handleCancel} disabled={disableActions}>
               {label('cancel', 'Cancel')}
             </Button>
-            <Button type="button" onClick={handleSave} disabled={disableActions}>
+            <Button type="button" onClick={handleSave} disabled={disableActions || customFieldsBlocked}>
               {saving ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -539,6 +566,11 @@ export function AddressTiles<C = unknown>({
     [
       addressTypesAdapter,
       addressTypesContext,
+      changeCustomValue,
+      customErrors,
+      customFields,
+      customFieldsBlocked,
+      customValues,
       disableActions,
       draft,
       editingId,
@@ -602,6 +634,7 @@ export function AddressTiles<C = unknown>({
                       </p>
                     ) : null}
                     <AddressView address={address} format={format} className="text-sm text-foreground" />
+                    {address.customValues && customFields?.renderValues(address.customValues)}
                   </div>
                   <div className="flex items-center gap-1 opacity-100 md:opacity-0 transition-opacity md:group-hover:opacity-100 focus-within:opacity-100">
                     <Button
@@ -610,6 +643,7 @@ export function AddressTiles<C = unknown>({
                       size="icon"
                       onClick={() => handleEdit(address)}
                       disabled={disableActions}
+                      aria-label={label('editTitle', 'Edit address')}
                     >
                       <Pencil className="h-4 w-4" />
                     </Button>

@@ -14,6 +14,7 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'country' },
       { field: 'building_number' },
       { field: 'flat_number' },
+      { field: 'custom_values' },
     ],
   },
   {

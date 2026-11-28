@@ -9,6 +9,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import AddressTiles, { type AddressInput, type AddressValue } from './AddressTiles'
 import type { AddressTypesAdapter } from './AddressEditor'
 import type { AddressFormatStrategy } from './addressFormat'
+import type { AddressTileCustomFields } from './AddressCustomFields'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
 
@@ -44,6 +45,7 @@ export type AddressSummary = {
   longitude?: number | null
   isPrimary?: boolean
   updatedAt?: string | null
+  customValues?: Record<string, unknown>
 }
 
 export type AddressDataAdapter<C = unknown> = {
@@ -69,6 +71,7 @@ export type AddressesSectionProps<C = unknown> = {
   formatContext?: C
   labelPrefix?: string
   showCoordinateFields?: boolean
+  customFields?: AddressTileCustomFields
 }
 
 function generateTempId() {
@@ -92,6 +95,7 @@ function AddressesSectionImpl<C = unknown>({
   formatContext,
   labelPrefix = 'customers.people.detail.addresses',
   showCoordinateFields = false,
+  customFields,
 }: AddressesSectionProps<C>) {
   const tHook = useT()
   const fallbackTranslator = React.useMemo<Translator>(() => createTranslatorWithFallback(tHook), [tHook])
@@ -183,6 +187,7 @@ function AddressesSectionImpl<C = unknown>({
           latitude: payload.latitude ?? null,
           longitude: payload.longitude ?? null,
           isPrimary: payload.isPrimary ?? false,
+          ...(payload.customValues ? { customValues: payload.customValues } : {}),
         }
         setAddresses((prev) => {
           const existing = payload.isPrimary ? prev.map((addr) => ({ ...addr, isPrimary: false })) : prev
@@ -193,7 +198,7 @@ function AddressesSectionImpl<C = unknown>({
       } catch (err) {
         const message =
           err instanceof Error && err.message ? err.message : label('error', 'Failed to save address.')
-        const error = new Error(message) as Error & { details?: unknown }
+        const error = new Error(message, { cause: err }) as Error & { details?: unknown }
         if (err && typeof err === 'object' && (err as { details?: unknown }).details) {
           error.details = (err as { details?: unknown }).details
         }
@@ -247,7 +252,7 @@ function AddressesSectionImpl<C = unknown>({
         const message = isConflict
           ? t('ui.forms.flash.recordModified')
           : err instanceof Error && err.message ? err.message : label('error', 'Failed to save address.')
-        const error = new Error(message) as Error & { details?: unknown }
+        const error = new Error(message, { cause: err }) as Error & { details?: unknown }
         if (err && typeof err === 'object' && (err as { details?: unknown }).details) {
           error.details = (err as { details?: unknown }).details
         }
@@ -305,6 +310,7 @@ function AddressesSectionImpl<C = unknown>({
       latitude: address.latitude ?? undefined,
       longitude: address.longitude ?? undefined,
       isPrimary: address.isPrimary ?? false,
+      ...(address.customValues ? { customValues: address.customValues } : {}),
     }))
   }, [addresses])
 
@@ -361,6 +367,7 @@ function AddressesSectionImpl<C = unknown>({
           addressTypesContext={addressTypesContext}
           loadFormat={loadFormat}
           formatContext={formatContext}
+          customFields={customFields}
         />
       )}
     </div>

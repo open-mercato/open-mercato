@@ -2,6 +2,7 @@ import type { SearchBuildContext, SearchIndexSource, SearchModuleConfig, SearchR
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { decimalToString, parseDecimal } from '@open-mercato/shared/lib/decimal'
+import { isAddressValuesIndexField } from '@open-mercato/core/modules/entities/lib/addressCustomFieldPolicy'
 
 type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit_memo'
 
@@ -88,13 +89,19 @@ function buildIndexSource(
   ctx: SearchBuildContext,
   presenter: SearchResultPresenter,
   lines: string[],
+  entityId?: string,
 ): SearchIndexSource | null {
   appendCustomFieldLines(lines, ctx.customFields)
   if (!lines.length) return null
   return {
     text: lines,
     presenter,
-    checksumSource: { record: ctx.record, customFields: ctx.customFields },
+    checksumSource: {
+      record: entityId
+        ? Object.fromEntries(Object.entries(ctx.record).filter(([key]) => !isAddressValuesIndexField(entityId, key)))
+        : ctx.record,
+      customFields: ctx.customFields,
+    },
   }
 }
 
@@ -443,7 +450,7 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Payment status', record.payment_status ?? record.paymentStatus)
         appendLine(lines, 'External reference', record.external_reference ?? record.externalReference)
         appendLine(lines, 'Customer reference', record.customer_reference ?? record.customerReference)
-        return buildIndexSource(ctx, buildOrderPresenter(translate, record, ctx.customFields), lines)
+        return buildIndexSource(ctx, buildOrderPresenter(translate, record, ctx.customFields), lines, 'sales:sales_order')
       },
       formatResult: async (ctx) => {
         const { t: translate } = await resolveTranslations()
@@ -466,7 +473,7 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'Valid until', record.valid_until ?? record.validUntil)
         appendLine(lines, 'External reference', record.external_reference ?? record.externalReference)
         appendLine(lines, 'Customer reference', record.customer_reference ?? record.customerReference)
-        return buildIndexSource(ctx, buildQuotePresenter(translate, record, ctx.customFields), lines)
+        return buildIndexSource(ctx, buildQuotePresenter(translate, record, ctx.customFields), lines, 'sales:sales_quote')
       },
       formatResult: async (ctx) => {
         const { t: translate } = await resolveTranslations()
@@ -791,7 +798,7 @@ export const searchConfig: SearchModuleConfig = {
         appendLine(lines, 'City', record.city)
         appendLine(lines, 'Region', record.region)
         appendLine(lines, 'Country', record.country)
-        return buildIndexSource(ctx, buildDocumentAddressPresenter(translate, record), lines)
+        return buildIndexSource({ ...ctx, customFields: {} }, buildDocumentAddressPresenter(translate, record), lines, 'sales:sales_document_address')
       },
       formatResult: async (ctx) => {
         const { t: translate } = await resolveTranslations()

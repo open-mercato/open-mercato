@@ -18,17 +18,24 @@ import {
   createPersonFormSchema,
   type PersonFormValues,
 } from '../../../../components/formConfig'
+import { useCustomerAddressCustomFields } from '../../../../components/detail/hooks/useCustomerAddressCustomFields'
+import { useCustomerAddressDraftSubmission } from '../../../../components/detail/hooks/useCustomerAddressDraftSubmission'
+import { CustomerAddressDraftRecovery } from '../../../../components/CustomerAddressDraftRecovery'
 import { resolveReturnTo } from '../../../../lib/returnTo'
 
 const LIST_HREF = '/backend/customers/people'
 
+const NON_ADDRESS_GROUPS = ['details', 'notes', 'customFields']
+
 export default function CreatePersonPage() {
   const t = useT()
   const searchParams = useSearchParams()
-  const { organizationId } = useOrganizationScopeDetail()
+  const scope = useOrganizationScopeDetail()
+  const customFields = useCustomerAddressCustomFields(t)
+  const { addressDrafts, recovery, confirmAddressOutcome, submit } = useCustomerAddressDraftSubmission(t, customFields, scope)
 
   const formSchema = React.useMemo(() => createPersonFormSchema(), [])
-  const fields = React.useMemo(() => createPersonFormFields(t), [t])
+  const fields = React.useMemo(() => createPersonFormFields(t, { addressDrafts }), [addressDrafts, t])
   const groups = React.useMemo(() => createPersonFormGroups(t), [t])
   const requestedReturnTo = searchParams.get('returnTo')
   const returnTo = requestedReturnTo === null ? null : resolveReturnTo(requestedReturnTo) ?? LIST_HREF
@@ -55,87 +62,40 @@ export default function CreatePersonPage() {
           backHref={returnTo ?? LIST_HREF}
           fields={fields}
           groups={groups}
+          hiddenGroupIds={recovery ? NON_ADDRESS_GROUPS : undefined}
+          readOnly={Boolean(recovery?.unconfirmedAddressId)}
+          contentHeader={recovery ? (
+            <CustomerAddressDraftRecovery
+              kind="people"
+              customerId={recovery.id}
+              unconfirmed={Boolean(recovery.unconfirmedAddressId)}
+              onConfirm={confirmAddressOutcome}
+            />
+          ) : undefined}
           initialValues={initialValues}
           injectionSpotId={extensionPoints.hosts.personForm.spotId}
           legacyInjectionSpotId="crud-form:customers.customer_entity"
           entityId="customers.person"
           resourceKind="customers.person"
           entityIds={[E.customers.customer_entity, E.customers.customer_person_profile]}
-          submitLabel={t('customers.people.form.submit')}
+          submitLabel={t(recovery ? 'customers.people.detail.addresses.retrySave' : 'customers.people.form.submit')}
           cancelHref={returnTo ?? LIST_HREF}
           schema={formSchema}
           onSubmit={async (values) => {
-            const addresses = Array.isArray(values.addresses) ? values.addresses : []
-            let payload: Record<string, unknown>
-            try {
-              payload = buildPersonPayload(values, organizationId)
-            } catch (err) {
-              if (err instanceof Error && err.message === 'DISPLAY_NAME_REQUIRED') {
-                const message = t('customers.people.form.displayName.error')
-                throw createCrudFormError(message, { displayName: message })
-              }
-              throw err
-            }
-
-            const { result: created } = await createCrud<{ id?: string; entityId?: string }>(
-              'customers/people',
-              payload,
-            )
-            const newId =
-              created && typeof created.id === 'string'
-                ? created.id
-                : (typeof created?.entityId === 'string' ? created.entityId : null)
-
-            if (newId && addresses.length) {
-              const normalize = (value?: string | null) => {
-                if (typeof value !== 'string') return undefined
-                const trimmed = value.trim()
-                return trimmed.length ? trimmed : undefined
-              }
-              for (const entry of addresses) {
-                const normalizedLine1 = normalize(entry.addressLine1)
-                if (!normalizedLine1) continue
-                const body: Record<string, unknown> = {
-                  entityId: newId,
-                  ...(organizationId ? { organizationId } : {}),
-                  addressLine1: normalizedLine1,
-                  isPrimary: entry.isPrimary ?? false,
+            const newId = await submit(values.addresses, async (organizationId) => {
+              let payload: Record<string, unknown>
+              try {
+                payload = buildPersonPayload(values, organizationId)
+              } catch (err) {
+                if (err instanceof Error && err.message === 'DISPLAY_NAME_REQUIRED') {
+                  const message = t('customers.people.form.displayName.error')
+                  throw createCrudFormError(message, { displayName: message })
                 }
-                const name = normalize(entry.name)
-                if (name !== undefined) body.name = name
-                const companyName = normalize(entry.companyName)
-                if (companyName !== undefined) body.companyName = companyName
-                const purpose = normalize(entry.purpose)
-                if (purpose !== undefined) body.purpose = purpose
-                const line2 = normalize(entry.addressLine2)
-                if (line2 !== undefined) body.addressLine2 = line2
-                const buildingNumber = normalize(entry.buildingNumber)
-                if (buildingNumber !== undefined) body.buildingNumber = buildingNumber
-                const flatNumber = normalize(entry.flatNumber)
-                if (flatNumber !== undefined) body.flatNumber = flatNumber
-                const city = normalize(entry.city)
-                if (city !== undefined) body.city = city
-                const region = normalize(entry.region)
-                if (region !== undefined) body.region = region
-                const postalCode = normalize(entry.postalCode)
-                if (postalCode !== undefined) body.postalCode = postalCode
-                const country = normalize(entry.country)
-                if (country !== undefined) body.country = country.toUpperCase()
-                if (typeof entry.latitude === 'number') body.latitude = entry.latitude
-                if (typeof entry.longitude === 'number') body.longitude = entry.longitude
-                try {
-                  await createCrud('customers/addresses', body)
-                } catch (addressErr) {
-                  const message =
-                    (addressErr instanceof Error && addressErr.message
-                      ? addressErr.message
-                      : null) ||
-                    t('customers.people.detail.addresses.error')
-                  flash(message, 'error')
-                }
+                throw err
               }
-            }
-
+              const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/people', payload)
+              return result
+            })
             flash(t('customers.people.form.success'), 'success')
             return newId ? { resourceId: newId } : undefined
           }}

@@ -1828,6 +1828,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "custom_values": {
+          "name": "custom_values",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "flat_number": {
           "name": "flat_number",
           "type": "text",
@@ -5232,6 +5249,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "address_custom_values": {
+          "name": "address_custom_values",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
+        },
         "billing_address_snapshot": {
           "name": "billing_address_snapshot",
           "type": "jsonb",
@@ -8444,6 +8478,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "address_custom_values": {
+          "name": "address_custom_values",
+          "type": "jsonb",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "json"
         },
         "billing_address_snapshot": {
           "name": "billing_address_snapshot",

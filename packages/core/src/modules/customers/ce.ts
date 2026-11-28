@@ -1,3 +1,5 @@
+import { E } from '#generated/entities.ids.generated'
+import { cf } from '@open-mercato/shared/modules/dsl'
 import {
   CUSTOMER_ACTIVITY_CUSTOM_FIELDS,
   CUSTOMER_COMPANY_CUSTOM_FIELDS,
@@ -6,6 +8,14 @@ import {
 } from './customFieldDefaults'
 
 export const entities = [
+  {
+    id: E.customers.customer_address,
+    label: 'Customer Address',
+    description: 'Address saved in a person or company address book.',
+    labelField: 'name',
+    showInSidebar: false,
+    fields: [cf.text('delivery_instructions', { label: 'Delivery Instructions', filterable: false, listVisible: false })],
+  },
   {
     id: 'customers:customer_person_profile',
     label: 'Customer Person',

@@ -25,4 +25,12 @@ describe('sales defaultEncryptionMaps', () => {
       { field: 'shipping_address_snapshot' },
     ]))
   })
+
+  it.each([
+    ['sales:sales_order', 'address_custom_values'],
+    ['sales:sales_quote', 'address_custom_values'],
+    ['sales:sales_document_address', 'custom_values'],
+  ])('encrypts the private address values on %s', (entityId, field) => {
+    expect(defaultEncryptionMaps.find((entry) => entry.entityId === entityId)?.fields).toContainEqual({ field })
+  })
 })

@@ -304,6 +304,8 @@ export type ListConfig<TList> = {
   decryptEncryptedFields?: boolean
   /** When true, skip server-side CRUD GET cache for this list (avoids stale empty payloads after mutations). */
   disableListCache?: boolean
+  /** When true for a validated query, serve the response without reading or storing the CRUD cache. */
+  disableListCacheForQuery?: (query: TList, ctx: CrudCtx) => boolean
   /**
    * Per-request list-cache partition for scope that `buildFilters` derives from state the
    * cache key cannot see (memberships, dates, the caller's features). Return a string to add
@@ -1859,6 +1861,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       const singleDetail = !exportRequested && opts.enrichers?.detailRequest?.(validated) === true
       const cacheCandidate =
         isCrudCacheEnabled() && !exportRequested && !singleDetail && !opts.list?.disableListCache
+        && !opts.list?.disableListCacheForQuery?.(validated as TList, ctx)
       const routeCacheScope = cacheCandidate && opts.list.cacheScope
         ? await opts.list.cacheScope(validated as TList, ctx)
         : undefined

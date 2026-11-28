@@ -1,5 +1,7 @@
 {
   "entities.customFields.addFirst": "첫 항목 추가",
+  "entities.customFields.address.invalidValue": "올바른 주소 필드 값을 입력하세요.",
+  "entities.customFields.address.unsupportedDefinition": "주소에는 이 필드 이름이나 유형을 사용할 수 없습니다.",
   "entities.customFields.defaultFieldset": "기본값",
   "entities.customFields.editor.active": "활동적인",
   "entities.customFields.editor.add": "추가하다",

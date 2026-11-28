@@ -36,6 +36,7 @@ describe('module-facts extension host extraction', () => {
         'sales:sales_quote',
         'sales:sales_quote_line',
         'sales:sales_quote_adjustment',
+        'sales:sales_document_address',
         'sales:sales_invoice',
         'sales:sales_invoice_line',
         'sales:sales_payment',

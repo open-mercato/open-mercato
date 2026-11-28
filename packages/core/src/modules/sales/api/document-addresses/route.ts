@@ -4,7 +4,12 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  addressCustomValuesSchema,
+  filterAddressCustomValues,
+  loadAddressCustomFieldDefinitions,
+} from '@open-mercato/core/modules/entities/lib/addressCustomFields'
 import { createSalesCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from '../openapi'
 import { withScopedPayload } from '../utils'
 import { SalesDocumentAddress, SalesOrder, SalesQuote } from '../../data/entities'
@@ -155,12 +160,50 @@ async function ensureDocumentAddressMutationAccess(
   )
 }
 
+async function attachDocumentAddressCustomValues(
+  payload: { items?: Array<Record<string, unknown>> },
+  ctx: CrudCtx & { query: z.infer<typeof listSchema> },
+) {
+  for (const item of payload.items ?? []) {
+    delete item.customValues
+    delete item.custom_values
+  }
+  if (ctx.query.format) return
+  const tenantId = ctx.auth?.tenantId
+  if (!tenantId || !payload.items?.length) return
+  const itemsByOrganization = new Map<string, Map<string, Record<string, unknown>>>()
+  for (const item of payload.items) {
+    if (typeof item.id !== 'string' || typeof item.organization_id !== 'string') continue
+    const group = itemsByOrganization.get(item.organization_id) ?? new Map()
+    group.set(item.id, item)
+    itemsByOrganization.set(item.organization_id, group)
+  }
+  const em = ctx.container.resolve<EntityManager>('em')
+  await Promise.all(Array.from(itemsByOrganization, async ([organizationId, items]) => {
+    const scope = { tenantId, organizationId }
+    const addresses = await findWithDecryption(
+      em, SalesDocumentAddress,
+      { id: { $in: Array.from(items.keys()) }, documentId: ctx.query.documentId, ...scope },
+      { fields: ['id', 'tenantId', 'organizationId', 'customValues'] },
+      scope,
+    )
+    if (!addresses.some((address) => address.customValues != null)) return
+    const definitions = await loadAddressCustomFieldDefinitions(em, { ...scope, entityId: E.sales.sales_document_address })
+    for (const address of addresses) {
+      const values = filterAddressCustomValues(address.customValues, definitions)
+      const item = items.get(address.id)
+      if (item && values) item.customValues = values
+    }
+  }))
+}
+
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   hooks: {
     beforeList: async (query, ctx) => {
       await ensureDocumentAddressReadAccess(query, ctx)
     },
+    afterList: attachDocumentAddressCustomValues,
   },
   orm: {
     entity: SalesDocumentAddress,
@@ -172,6 +215,7 @@ const crud = makeCrudRoute({
   indexer: { entityType: E.sales.sales_document_address },
   list: {
     schema: listSchema,
+    disableListCache: true,
     entityId: E.sales.sales_document_address,
     fields: [
       'id',
@@ -292,6 +336,7 @@ const documentAddressSchema = z.object({
   longitude: z.number().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string(),
+  customValues: addressCustomValuesSchema.optional(),
 })
 
 export const openApi = createSalesCrudOpenApi({

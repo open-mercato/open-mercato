@@ -19,22 +19,29 @@ import {
   createCompanyFormSchema,
   type CompanyFormValues,
 } from '../../../../components/formConfig'
+import { useCustomerAddressCustomFields } from '../../../../components/detail/hooks/useCustomerAddressCustomFields'
+import { useCustomerAddressDraftSubmission } from '../../../../components/detail/hooks/useCustomerAddressDraftSubmission'
+import { CustomerAddressDraftRecovery } from '../../../../components/CustomerAddressDraftRecovery'
 import { resolveReturnTo } from '../../../../lib/returnTo'
 
 const LIST_HREF = '/backend/customers/companies'
 const COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
+const NON_ADDRESS_GROUPS = ['details', 'profile', 'notes', 'customFields']
 
 export default function CreateCompanyPage() {
   const t = useT()
   const locale = useLocale()
   const searchParams = useSearchParams()
-  const { organizationId } = useOrganizationScopeDetail()
+  const scope = useOrganizationScopeDetail()
+  const customFields = useCustomerAddressCustomFields(t)
+  const { addressDrafts, recovery, confirmAddressOutcome, submit } = useCustomerAddressDraftSubmission(t, customFields, scope)
 
   const formSchema = React.useMemo(() => createCompanyFormSchema(), [])
-  const fields = React.useMemo(() => createCompanyFormFields(t), [t])
+  const fields = React.useMemo(() => createCompanyFormFields(t, { addressDrafts }), [addressDrafts, t])
   const groups = React.useMemo(() => createCompanyFormGroups(t), [t])
   const requestedReturnTo = searchParams.get('returnTo')
   const returnTo = requestedReturnTo === null ? null : resolveReturnTo(requestedReturnTo) ?? LIST_HREF
+  const initialValues = React.useMemo<Partial<CompanyFormValues>>(() => ({ addresses: [] }), [])
 
   return (
     <Page>
@@ -45,92 +52,46 @@ export default function CreateCompanyPage() {
           backHref={returnTo ?? LIST_HREF}
           fields={fields}
           groups={groups}
-          initialValues={{ addresses: [] as CompanyFormValues['addresses'] }}
+          hiddenGroupIds={recovery ? NON_ADDRESS_GROUPS : undefined}
+          readOnly={Boolean(recovery?.unconfirmedAddressId)}
+          contentHeader={recovery ? (
+            <CustomerAddressDraftRecovery
+              kind="companies"
+              customerId={recovery.id}
+              unconfirmed={Boolean(recovery.unconfirmedAddressId)}
+              onConfirm={confirmAddressOutcome}
+            />
+          ) : undefined}
+          initialValues={initialValues}
           injectionSpotId={extensionPoints.hosts.companyForm.spotId}
           legacyInjectionSpotId={COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID}
           entityId="customers.company"
           resourceKind="customers.company"
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
-          submitLabel={t('customers.companies.form.submit')}
+          submitLabel={t(recovery ? 'customers.people.detail.addresses.retrySave' : 'customers.companies.form.submit')}
           cancelHref={returnTo ?? LIST_HREF}
           schema={formSchema}
           onSubmit={async (values) => {
-            const addresses = Array.isArray(values.addresses) ? values.addresses : []
-            let payload: Record<string, unknown>
-            try {
-              payload = buildCompanyPayload(values, organizationId, locale)
-            } catch (err) {
-              if (err instanceof Error) {
-                if (err.message === 'DISPLAY_NAME_REQUIRED') {
-                  const message = t('customers.companies.form.displayName.error')
-                  throw createCrudFormError(message, { displayName: message })
+            const newId = await submit(values.addresses, async (organizationId) => {
+              let payload: Record<string, unknown>
+              try {
+                payload = buildCompanyPayload(values, organizationId, locale)
+              } catch (err) {
+                if (err instanceof Error) {
+                  if (err.message === 'DISPLAY_NAME_REQUIRED') {
+                    const message = t('customers.companies.form.displayName.error')
+                    throw createCrudFormError(message, { displayName: message })
+                  }
+                  if (err.message === 'ANNUAL_REVENUE_INVALID') {
+                    const message = t('customers.companies.form.annualRevenue.error')
+                    throw createCrudFormError(message, { annualRevenue: message })
+                  }
                 }
-                if (err.message === 'ANNUAL_REVENUE_INVALID') {
-                  const message = t('customers.companies.form.annualRevenue.error')
-                  throw createCrudFormError(message, { annualRevenue: message })
-                }
+                throw err
               }
-              throw err
-            }
-
-            const { result: created } = await createCrud<{ id?: string; entityId?: string }>(
-              'customers/companies',
-              payload,
-            )
-            const newId =
-              created && typeof created.id === 'string'
-                ? created.id
-                : (typeof created?.entityId === 'string' ? created.entityId : null)
-
-            if (newId && addresses.length) {
-              const normalize = (value?: string | null) => {
-                if (typeof value !== 'string') return undefined
-                const trimmed = value.trim()
-                return trimmed.length ? trimmed : undefined
-              }
-              for (const entry of addresses) {
-                const normalizedLine1 = normalize(entry.addressLine1)
-                if (!normalizedLine1) continue
-                const body: Record<string, unknown> = {
-                  entityId: newId,
-                  ...(organizationId ? { organizationId } : {}),
-                  addressLine1: normalizedLine1,
-                  isPrimary: entry.isPrimary ?? false,
-                }
-                const name = normalize(entry.name)
-                if (name !== undefined) body.name = name
-                const companyName = normalize(entry.companyName)
-                if (companyName !== undefined) body.companyName = companyName
-                const purpose = normalize(entry.purpose)
-                if (purpose !== undefined) body.purpose = purpose
-                const line2 = normalize(entry.addressLine2)
-                if (line2 !== undefined) body.addressLine2 = line2
-                const buildingNumber = normalize(entry.buildingNumber)
-                if (buildingNumber !== undefined) body.buildingNumber = buildingNumber
-                const flatNumber = normalize(entry.flatNumber)
-                if (flatNumber !== undefined) body.flatNumber = flatNumber
-                const city = normalize(entry.city)
-                if (city !== undefined) body.city = city
-                const region = normalize(entry.region)
-                if (region !== undefined) body.region = region
-                const postalCode = normalize(entry.postalCode)
-                if (postalCode !== undefined) body.postalCode = postalCode
-                const country = normalize(entry.country)
-                if (country !== undefined) body.country = country.toUpperCase()
-                if (typeof entry.latitude === 'number') body.latitude = entry.latitude
-                if (typeof entry.longitude === 'number') body.longitude = entry.longitude
-                try {
-                  await createCrud('customers/addresses', body)
-                } catch (addressErr) {
-                  const message =
-                    addressErr instanceof Error && addressErr.message
-                      ? addressErr.message
-                      : t('customers.companies.detail.addresses.error')
-                  flash(message, 'error')
-                }
-              }
-            }
-
+              const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/companies', payload)
+              return result
+            })
             flash(t('customers.companies.form.success'), 'success')
             return newId ? { resourceId: newId } : undefined
           }}

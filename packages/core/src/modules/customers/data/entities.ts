@@ -826,6 +826,9 @@ export class CustomerAddress {
   @Property({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean = false
 
+  @Property({ name: 'custom_values', type: 'json', nullable: true, hidden: true })
+  customValues?: Record<string, unknown> | string | null
+
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 

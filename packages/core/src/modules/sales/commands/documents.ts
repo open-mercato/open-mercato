@@ -90,6 +90,7 @@ import {
   orderLineUpdateSchema,
   orderLineBulkUpsertSchema,
   orderHeaderTotalsSchema,
+  primaryAddressCustomFields,
   orderAdjustmentCreateSchema,
   invoiceCreateSchema,
   invoiceUpdateSchema,
@@ -203,6 +204,13 @@ import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGen
 import { ensureDocumentNumberEditPermission } from "../lib/documentNumberPermissions";
 import type { SalesDocumentNumberKind } from "../lib/documentNumberTokens";
 import { loadSalesSettings } from "./settings";
+import {
+  hasPrimaryAddressCustomEdit,
+  readPrimaryAddressValues,
+  resolvePrimaryAddressValues,
+  sealPrimaryAddressValues,
+} from "../lib/addressCustomValues";
+import { readAddressCustomValues, sealAddressCustomValues } from "@open-mercato/core/modules/entities/lib/addressCustomFields";
 import { notificationTypes } from "../notifications";
 import {
   REFERENCE_UNIT_CODES,
@@ -248,6 +256,7 @@ type DocumentAddressSnapshot = {
   documentId: string;
   documentKind: "order" | "quote";
   customerAddressId: string | null;
+  addressCustomValues?: Record<string, unknown>;
   name: string | null;
   purpose: string | null;
   companyName: string | null;
@@ -301,6 +310,7 @@ type QuoteGraphSnapshot = {
     shippingAddressId: string | null;
     billingAddressSnapshot: Record<string, unknown> | null;
     shippingAddressSnapshot: Record<string, unknown> | null;
+    addressCustomValues?: NonNullable<ReturnType<typeof readPrimaryAddressValues>>;
     currencyCode: string;
     validFrom: string | null;
     validUntil: string | null;
@@ -407,6 +417,7 @@ type OrderGraphSnapshot = {
     shippingAddressId: string | null;
     billingAddressSnapshot: Record<string, unknown> | null;
     shippingAddressSnapshot: Record<string, unknown> | null;
+    addressCustomValues?: NonNullable<ReturnType<typeof readPrimaryAddressValues>>;
     currencyCode: string;
     exchangeRate: string | null;
     taxStrategyKey: string | null;
@@ -694,6 +705,7 @@ const documentUpdateFieldsSchema = z
     billingAddressId: z.string().uuid().nullable().optional(),
     shippingAddressSnapshot: addressSnapshotSchema,
     billingAddressSnapshot: addressSnapshotSchema,
+    ...primaryAddressCustomFields,
     shippingMethodId: z.string().uuid().nullable().optional(),
     shippingMethodCode: z.string().nullable().optional(),
     shippingMethodSnapshot: z
@@ -740,6 +752,7 @@ function carriesDocumentEdit(input: DocumentUpdateFields): boolean {
     input.quoteNumber !== undefined ||
     input.shippingAddressSnapshot !== undefined ||
     input.billingAddressSnapshot !== undefined ||
+    hasPrimaryAddressCustomEdit(input) ||
     input.shippingMethodId !== undefined ||
     input.shippingMethodCode !== undefined ||
     input.shippingMethodSnapshot !== undefined ||
@@ -1167,12 +1180,14 @@ async function applyDocumentUpdate({
   entity,
   input,
   em,
+  ctx,
   ignoreMissingTags,
 }: {
   kind: "order" | "quote";
   entity: SalesOrder | SalesQuote;
   input: DocumentUpdateInput;
   em: EntityManager;
+  ctx: CommandRuntimeContext;
   ignoreMissingTags: boolean;
 }): Promise<void> {
   const organizationId = (entity as any).organizationId as string;
@@ -1190,7 +1205,16 @@ async function applyDocumentUpdate({
     input.shippingAddressId !== undefined ||
     input.billingAddressId !== undefined ||
     input.shippingAddressSnapshot !== undefined ||
-    input.billingAddressSnapshot !== undefined;
+    input.billingAddressSnapshot !== undefined ||
+    hasPrimaryAddressCustomEdit(input);
+  const previousCustomerId = entity.customerEntityId ?? null;
+  const previousAddresses = {
+    billingAddressId: entity.billingAddressId,
+    shippingAddressId: entity.shippingAddressId,
+    billingAddressSnapshot: entity.billingAddressSnapshot,
+    shippingAddressSnapshot: entity.shippingAddressSnapshot,
+    addressCustomValues: entity.addressCustomValues,
+  };
 
   let settings: SalesSettings | null = null;
   if (kind === "order" && (wantsCustomerChange || wantsAddressChange)) {
@@ -1495,6 +1519,23 @@ async function applyDocumentUpdate({
   if (input.billingAddressSnapshot !== undefined) {
     entity.billingAddressSnapshot = input.billingAddressSnapshot ?? null;
   }
+  if (wantsAddressChange || (input.customerEntityId !== undefined && previousAddresses.addressCustomValues != null)) {
+    const addressCustomValues = await resolvePrimaryAddressValues(
+      em.fork({ keepTransactionContext: true }),
+      ctx,
+      {
+        kind,
+        tenantId,
+        organizationId,
+        customerId: entity.customerEntityId,
+        customerChanged: (entity.customerEntityId?.toLowerCase() ?? null) !== (previousCustomerId?.toLowerCase() ?? null),
+        previous: previousAddresses,
+        current: entity,
+        input,
+      },
+    );
+    if (addressCustomValues !== undefined) entity.addressCustomValues = addressCustomValues;
+  }
   if (
     input.shippingMethodId !== undefined ||
     input.shippingMethodSnapshot !== undefined ||
@@ -1687,7 +1728,7 @@ async function loadQuoteSnapshot(
     findWithDecryption(
       em,
       SalesDocumentAddress,
-      { documentId: id, documentKind: "quote" },
+      { documentId: id, documentKind: "quote", ...decryptionScope },
       undefined,
       { tenantId: quote.tenantId, organizationId: quote.organizationId },
     ),
@@ -1747,6 +1788,7 @@ async function loadQuoteSnapshot(
       documentId: entry.documentId,
       documentKind: "quote",
       customerAddressId: entry.customerAddressId ?? null,
+      ...(entry.customValues == null ? {} : { addressCustomValues: readAddressCustomValues(entry.customValues) ?? undefined }),
       name: entry.name ?? null,
       purpose: entry.purpose ?? null,
       companyName: entry.companyName ?? null,
@@ -1822,6 +1864,9 @@ async function loadQuoteSnapshot(
       shippingAddressSnapshot: quote.shippingAddressSnapshot
         ? cloneJson(quote.shippingAddressSnapshot)
         : null,
+      ...(quote.addressCustomValues == null ? {} : {
+        addressCustomValues: readPrimaryAddressValues(quote.addressCustomValues) ?? undefined,
+      }),
       currencyCode: quote.currencyCode,
       validFrom: quote.validFrom ? quote.validFrom.toISOString() : null,
       validUntil: quote.validUntil ? quote.validUntil.toISOString() : null,
@@ -1960,7 +2005,7 @@ async function loadOrderSnapshot(
     findWithDecryption(
       em,
       SalesDocumentAddress,
-      { documentId: id, documentKind: "order" },
+      { documentId: id, documentKind: "order", ...decryptionScope },
       undefined,
       { tenantId: order.tenantId, organizationId: order.organizationId },
     ),
@@ -2032,6 +2077,7 @@ async function loadOrderSnapshot(
       documentId: entry.documentId,
       documentKind: "order",
       customerAddressId: entry.customerAddressId ?? null,
+      ...(entry.customValues == null ? {} : { addressCustomValues: readAddressCustomValues(entry.customValues) ?? undefined }),
       name: entry.name ?? null,
       purpose: entry.purpose ?? null,
       companyName: entry.companyName ?? null,
@@ -2112,6 +2158,9 @@ async function loadOrderSnapshot(
       shippingAddressSnapshot: order.shippingAddressSnapshot
         ? cloneJson(order.shippingAddressSnapshot)
         : null,
+      ...(order.addressCustomValues == null ? {} : {
+        addressCustomValues: readPrimaryAddressValues(order.addressCustomValues) ?? undefined,
+      }),
       currencyCode: order.currencyCode,
       exchangeRate: order.exchangeRate ?? null,
       taxStrategyKey: order.taxStrategyKey ?? null,
@@ -4380,21 +4429,73 @@ function applyOrderSnapshot(
   order.totalsMode = snapshot.totalsMode ?? "computed";
 }
 
+type PrimaryAddressUndoValues = NonNullable<ReturnType<typeof readPrimaryAddressValues>>;
+
+async function resolveAddressBagUndo(
+  kind: "order" | "quote",
+  before: Record<string, unknown> | undefined,
+  expected: Record<string, unknown> | undefined,
+  current: Record<string, unknown> | undefined,
+): Promise<Record<string, unknown> | undefined> {
+  if (isDeepStrictEqual(before, expected)) return current;
+  if (!isDeepStrictEqual(current, expected)) return throwDocumentUndoStale(kind);
+  return before;
+}
+
+async function restorePrimaryAddressBags(
+  kind: "order" | "quote",
+  before?: PrimaryAddressUndoValues,
+  expected?: PrimaryAddressUndoValues,
+  current?: PrimaryAddressUndoValues,
+): Promise<PrimaryAddressUndoValues | undefined> {
+  const [billing, shipping] = await Promise.all([
+    resolveAddressBagUndo(kind, before?.billing, expected?.billing, current?.billing),
+    resolveAddressBagUndo(kind, before?.shipping, expected?.shipping, current?.shipping),
+  ]);
+  if (!billing && !shipping) return undefined;
+  return { ...(billing ? { billing } : {}), ...(shipping ? { shipping } : {}) };
+}
+
+function withoutAddressBags(addresses: DocumentAddressSnapshot[] | null | undefined) {
+  return (addresses ?? []).map(({ addressCustomValues, ...address }) => address);
+}
+
+async function restoreAdditionalAddressBags(
+  kind: "order" | "quote",
+  before: DocumentAddressSnapshot[] | null | undefined,
+  expected: DocumentAddressSnapshot[] | null | undefined,
+  current: DocumentAddressSnapshot[] | null | undefined,
+): Promise<DocumentAddressSnapshot[]> {
+  const expectedById = new Map((expected ?? []).map((address) => [address.id, address]));
+  const currentById = new Map((current ?? []).map((address) => [address.id, address]));
+  return Promise.all((before ?? []).map(async (address) => ({
+    ...address,
+    addressCustomValues: await resolveAddressBagUndo(
+      kind, address.addressCustomValues, expectedById.get(address.id)?.addressCustomValues,
+      currentById.get(address.id)?.addressCustomValues,
+    ),
+  })));
+}
+
 async function assertQuoteGraphUndoCurrent(
   em: EntityManager,
   quoteId: string,
   expected: QuoteGraphSnapshot,
-): Promise<void> {
+  restoring = false,
+): Promise<QuoteGraphSnapshot> {
   const current = await loadQuoteSnapshot(em, quoteId);
   const unchanged =
     !!current &&
     sameIds(current.lines, expected.lines) &&
     sameIds(current.adjustments, expected.adjustments) &&
     sameRecords(current.notes, expected.notes) &&
-    sameRecords(current.addresses, expected.addresses) &&
+    (restoring
+      ? sameRecords(withoutAddressBags(current.addresses), withoutAddressBags(expected.addresses))
+      : sameRecords(current.addresses, expected.addresses) && isDeepStrictEqual(current.quote.addressCustomValues, expected.quote.addressCustomValues)) &&
     (sameRecords(current.tags, expected.tags) ||
       sameRecords(current.tags, await survivingTagAssignments(em, expected.tags, expected.quote)));
   if (!unchanged) return throwDocumentUndoStale("quote");
+  return current;
 }
 
 async function undoQuoteGraph(
@@ -4409,16 +4510,27 @@ async function undoQuoteGraph(
     const quote = await findOneWithDecryption(
       tx,
       SalesQuote,
-      { id: before.quote.id },
+      { id: before.quote.id, tenantId: before.quote.tenantId, organizationId: before.quote.organizationId },
       { lockMode: LockMode.PESSIMISTIC_WRITE },
       { tenantId: before.quote.tenantId, organizationId: before.quote.organizationId },
     );
+    let snapshot = before;
     if (after) {
       if (!quote) return throwDocumentUndoStale("quote");
-      await assertQuoteGraphUndoCurrent(tx, quote.id, after);
+      const current = await assertQuoteGraphUndoCurrent(tx, quote.id, after, true);
+      snapshot = {
+        ...before,
+        quote: {
+          ...before.quote,
+          addressCustomValues: await restorePrimaryAddressBags(
+            "quote", before.quote.addressCustomValues, after.quote.addressCustomValues, current.quote.addressCustomValues,
+          ),
+        },
+        addresses: await restoreAdditionalAddressBags("quote", before.addresses, after.addresses, current.addresses),
+      };
       tx.clear();
     }
-    restored = await restoreQuoteGraph(tx, before, quote && after ? after : null);
+    restored = await restoreQuoteGraph(tx, snapshot, ctx, quote && after ? after : null);
     await tx.flush();
   });
   if (!restored) return;
@@ -4439,6 +4551,7 @@ async function undoQuoteGraph(
 async function restoreQuoteGraph(
   em: EntityManager,
   snapshot: QuoteGraphSnapshot,
+  ctx: CommandRuntimeContext,
   verified: QuoteGraphSnapshot | null = null,
 ): Promise<SalesQuote> {
   let quote = await findOneWithDecryption(
@@ -4519,6 +4632,9 @@ async function restoreQuoteGraph(
     em.persist(quote);
   }
   applyQuoteSnapshot(quote, snapshot.quote);
+  quote.addressCustomValues = await sealPrimaryAddressValues(
+    em, ctx, "quote", snapshot.quote, snapshot.quote.addressCustomValues ?? null,
+  );
   await em.flush();
   const existingLines = await em.find(
     SalesQuoteLine,
@@ -4645,8 +4761,17 @@ async function restoreQuoteGraph(
     em.persist(adjustmentEntity);
   });
 
-  addressSnapshots.forEach((entry) => {
+  for (const entry of addressSnapshots) {
+    const customValues = await sealAddressCustomValues(ctx.container, {
+      tenantId: entry.tenantId,
+      organizationId: entry.organizationId,
+      entityId: E.sales.sales_document_address,
+      column: "customValues",
+      values: entry.addressCustomValues ?? null,
+      em,
+    });
     const entity = em.create(SalesDocumentAddress, {
+      customValues,
       id: entry.id,
       organizationId: entry.organizationId,
       tenantId: entry.tenantId,
@@ -4671,7 +4796,7 @@ async function restoreQuoteGraph(
       updatedAt: new Date(),
     });
     em.persist(entity);
-  });
+  }
 
   noteSnapshots.forEach((entry) => {
     const entity = em.create(SalesNote, {
@@ -4842,7 +4967,8 @@ async function assertOrderGraphUndoCurrent(
   em: EntityManager,
   orderId: string,
   expected: OrderGraphSnapshot,
-): Promise<void> {
+  restoring = false,
+): Promise<OrderGraphSnapshot> {
   const current = await loadOrderSnapshot(em, orderId);
   if (!current) return throwDocumentUndoStale("order");
   const lineIds = current.lines.map((line) => line.id);
@@ -4864,10 +4990,13 @@ async function assertOrderGraphUndoCurrent(
     sameRecords(current.shipments, expected.shipments) &&
     sameRecords(withoutAllocationIds(current.payments), withoutAllocationIds(expected.payments)) &&
     sameRecords(current.notes, expected.notes) &&
-    sameRecords(current.addresses, expected.addresses) &&
+    (restoring
+      ? sameRecords(withoutAddressBags(current.addresses), withoutAddressBags(expected.addresses))
+      : sameRecords(current.addresses, expected.addresses) && isDeepStrictEqual(current.order.addressCustomValues, expected.order.addressCustomValues)) &&
     (sameRecords(current.tags, expected.tags) ||
       sameRecords(current.tags, await survivingTagAssignments(em, expected.tags, expected.order)));
   if (!unchanged) return throwDocumentUndoStale("order");
+  return current;
 }
 
 async function lockOrderForUndo(
@@ -4878,7 +5007,7 @@ async function lockOrderForUndo(
   const order = await findOneWithDecryption(
     em,
     SalesOrder,
-    { id: orderId },
+    { id: orderId, ...scope },
     { lockMode: LockMode.PESSIMISTIC_WRITE },
     scope,
   );
@@ -4895,7 +5024,8 @@ async function withVerifiedOrderGraph(
   ctx: CommandRuntimeContext,
   expected: OrderGraphSnapshot | null | undefined,
   scope: { orderId: string; tenantId: string; organizationId: string },
-  work: (tx: EntityManager, exists: boolean) => Promise<void>,
+  work: (tx: EntityManager, exists: boolean, current?: OrderGraphSnapshot) => Promise<void>,
+  restoring = false,
 ): Promise<void> {
   const em = (ctx.container.resolve("em") as EntityManager).fork();
   await em.transactional(async (tx) => {
@@ -4903,11 +5033,12 @@ async function withVerifiedOrderGraph(
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
     });
+    let current: OrderGraphSnapshot | undefined;
     if (exists && expected) {
-      await assertOrderGraphUndoCurrent(tx, scope.orderId, expected);
+      current = await assertOrderGraphUndoCurrent(tx, scope.orderId, expected, restoring);
       tx.clear();
     }
-    await work(tx, exists);
+    await work(tx, exists, current);
   });
 }
 
@@ -4926,11 +5057,22 @@ async function undoOrderGraph(
       tenantId: before.order.tenantId,
       organizationId: before.order.organizationId,
     },
-    async (tx, exists) => {
+    async (tx, exists, current) => {
       if (!exists && after) await throwDocumentUndoStale("order");
-      restored = await restoreOrderGraph(tx, before, exists ? after : null);
+      const snapshot = after && current ? {
+        ...before,
+        order: {
+          ...before.order,
+          addressCustomValues: await restorePrimaryAddressBags(
+            "order", before.order.addressCustomValues, after.order.addressCustomValues, current.order.addressCustomValues,
+          ),
+        },
+        addresses: await restoreAdditionalAddressBags("order", before.addresses, after.addresses, current.addresses),
+      } : before;
+      restored = await restoreOrderGraph(tx, snapshot, ctx, exists ? after : null);
       await tx.flush();
     },
+    true,
   );
   if (!restored) return;
   const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
@@ -4950,6 +5092,7 @@ async function undoOrderGraph(
 async function restoreOrderGraph(
   em: EntityManager,
   snapshot: OrderGraphSnapshot,
+  ctx: CommandRuntimeContext,
   verified: OrderGraphSnapshot | null = null,
 ): Promise<SalesOrder> {
   let order = await findOneWithDecryption(
@@ -5060,6 +5203,9 @@ async function restoreOrderGraph(
     em.persist(order);
   }
   applyOrderSnapshot(order, snapshot.order);
+  order.addressCustomValues = await sealPrimaryAddressValues(
+    em, ctx, "order", snapshot.order, snapshot.order.addressCustomValues ?? null,
+  );
   await em.flush();
   const existingAdjustments = await em.find(
     SalesOrderAdjustment,
@@ -5208,8 +5354,17 @@ async function restoreOrderGraph(
     em.persist(adjustmentEntity);
   });
 
-  addressSnapshots.forEach((entry) => {
+  for (const entry of addressSnapshots) {
+    const customValues = await sealAddressCustomValues(ctx.container, {
+      tenantId: entry.tenantId,
+      organizationId: entry.organizationId,
+      entityId: E.sales.sales_document_address,
+      column: "customValues",
+      values: entry.addressCustomValues ?? null,
+      em,
+    });
     const entity = em.create(SalesDocumentAddress, {
+      customValues,
       id: entry.id,
       organizationId: entry.organizationId,
       tenantId: entry.tenantId,
@@ -5234,7 +5389,7 @@ async function restoreOrderGraph(
       updatedAt: new Date(),
     });
     em.persist(entity);
-  });
+  }
 
   noteSnapshots.forEach((entry) => {
     const entity = em.create(SalesNote, {
@@ -5341,7 +5496,21 @@ const createQuoteCommand = {
       { tenantId: parsed.tenantId },
     );
     const quoteId = randomUUID();
+    const addressCustomValues = hasPrimaryAddressCustomEdit(parsed) ? await resolvePrimaryAddressValues(em, ctx, {
+      kind: "quote",
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      customerId: parsed.customerEntityId,
+      current: {
+        billingAddressId: parsed.billingAddressId,
+        shippingAddressId: parsed.shippingAddressId,
+        billingAddressSnapshot: resolvedBillingSnapshot,
+        shippingAddressSnapshot: resolvedShippingSnapshot,
+      },
+      input: parsed,
+    }) : undefined;
     const quote = em.create(SalesQuote, {
+      ...(addressCustomValues !== undefined ? { addressCustomValues } : {}),
       id: quoteId,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -6099,9 +6268,10 @@ async function captureLockedQuoteGraphAfter(
 
 const updateQuoteCommand = {
   id: "sales.quotes.update",
+  prepareSnapshotInsideTransaction: true,
   async prepare(input, ctx) {
     const parsed = documentUpdateSchema.parse(input ?? {});
-    const em = ctx.container.resolve("em") as EntityManager;
+    const em = ctx.transactionalEm ?? (ctx.container.resolve("em") as EntityManager);
     const snapshot = await loadQuoteSnapshot(em, parsed.id);
     if (snapshot) {
       ensureQuoteScope(
@@ -6125,6 +6295,7 @@ const updateQuoteCommand = {
     documentEditSchema.parse(rawInput ?? {});
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let quote!: SalesQuote;
+    let after: QuoteGraphSnapshot | undefined;
     let totalsEvent: TotalsCalculatedPayload | null = null;
     const shouldRecalculateTotals =
       parsed.shippingMethodId !== undefined ||
@@ -6146,12 +6317,14 @@ const updateQuoteCommand = {
           if (parsed.quoteNumber !== undefined && parsed.quoteNumber !== quote.quoteNumber) {
             await ensureDocumentNumberEditPermission(ctx, quote);
           }
+          await ctx.beforeTransactionalWrite?.(em, rawInput);
           const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
           await applyDocumentUpdate({
             kind: "quote",
             entity: quote,
             input: parsed,
             em,
+            ctx,
             ignoreMissingTags,
           });
           // After applyDocumentUpdate, not before it: the reset must not happen
@@ -6254,6 +6427,9 @@ const updateQuoteCommand = {
           }
           quote.updatedAt = new Date();
         },
+        ...(ctx.beforeTransactionalWrite ? [async () => {
+          after = await loadQuoteSnapshot(em.fork({ keepTransactionContext: true }), quote.id) ?? undefined;
+        }] : []),
       ],
       { transaction: true },
     );
@@ -6286,12 +6462,11 @@ const updateQuoteCommand = {
       ctx.auth?.tenantId ?? null,
       "updated",
     );
-    return { quote };
+    const result = { quote };
+    if (after) lockedQuoteGraphSnapshots.set(result, { before: null, after });
+    return result;
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadQuoteSnapshot(em, result.quote.id);
-  },
+  captureAfter: async (_input, result, ctx) => captureLockedQuoteGraphAfter(ctx, result, result.quote.id),
   buildLog: async ({ input, snapshots, result }) => {
     const parsed = documentUpdateSchema.parse(input ?? {});
     const before = snapshots.before as QuoteGraphSnapshot | undefined;
@@ -6386,9 +6561,10 @@ const orderIdOutputSchema = z.object({ orderId: z.string().uuid() });
 const updateOrderCommand = {
   id: "sales.orders.update",
   outputSchema: orderUpdateOutputSchema,
+  prepareSnapshotInsideTransaction: true,
   async prepare(input, ctx) {
     const parsed = documentUpdateSchema.parse(input ?? {});
-    const em = ctx.container.resolve("em") as EntityManager;
+    const em = ctx.transactionalEm ?? (ctx.container.resolve("em") as EntityManager);
     const snapshot = await loadOrderSnapshot(em, parsed.id);
     if (snapshot) {
       ensureOrderScope(
@@ -6411,6 +6587,7 @@ const updateOrderCommand = {
     );
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     let order!: SalesOrder;
+    let after: OrderGraphSnapshot | undefined;
     let previousStatus: string | null = null;
     let nextTotalsMode: SalesAmountsMode = "computed";
     let totalsModeChanged = false;
@@ -6438,6 +6615,7 @@ const updateOrderCommand = {
           if (parsed.orderNumber !== undefined && parsed.orderNumber !== order.orderNumber) {
             await ensureDocumentNumberEditPermission(ctx, order);
           }
+          await ctx.beforeTransactionalWrite?.(em, rawInput);
           const currentTotalsMode: SalesAmountsMode = order.totalsMode ?? "computed";
           nextTotalsMode = parsed.totalsMode ?? currentTotalsMode;
           totalsModeChanged = nextTotalsMode !== currentTotalsMode;
@@ -6470,6 +6648,7 @@ const updateOrderCommand = {
             entity: order,
             input: parsed,
             em,
+            ctx,
             ignoreMissingTags,
           });
         },
@@ -6587,6 +6766,9 @@ const updateOrderCommand = {
           });
           order.updatedAt = new Date();
         },
+        ...(ctx.beforeTransactionalWrite ? [async () => {
+          after = await loadOrderSnapshot(em.fork({ keepTransactionContext: true }), order.id) ?? undefined;
+        }] : []),
       ],
       { transaction: true },
     );
@@ -6635,12 +6817,11 @@ const updateOrderCommand = {
       ctx.auth?.tenantId ?? null,
       "updated",
     );
-    return { order };
+    const result = { order };
+    if (after) lockedOrderGraphSnapshots.set(result, { before: null, after });
+    return result;
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve("em") as EntityManager).fork();
-    return loadOrderSnapshot(em, result.order.id);
-  },
+  captureAfter: async (_input, result, ctx) => captureLockedOrderGraphAfter(ctx, result, result.order.id),
   buildLog: async ({ input, snapshots, result }) => {
     const parsed = documentUpdateSchema.parse(input ?? {});
     const before = snapshots.before as OrderGraphSnapshot | undefined;
@@ -6739,7 +6920,21 @@ const createOrderCommand = {
     } = await resolveDocumentReferences(em, parsed);
 
     const orderId = randomUUID()
+    const addressCustomValues = hasPrimaryAddressCustomEdit(parsed) ? await resolvePrimaryAddressValues(em, ctx, {
+      kind: "order",
+      tenantId: parsed.tenantId,
+      organizationId: parsed.organizationId,
+      customerId: parsed.customerEntityId,
+      current: {
+        billingAddressId: parsed.billingAddressId,
+        shippingAddressId: parsed.shippingAddressId,
+        billingAddressSnapshot: resolvedBillingSnapshot,
+        shippingAddressSnapshot: resolvedShippingSnapshot,
+      },
+      input: parsed,
+    }) : undefined;
     const order = em.create(SalesOrder, {
+      ...(addressCustomValues !== undefined ? { addressCustomValues } : {}),
       id: orderId,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
@@ -7479,7 +7674,11 @@ const convertQuoteToOrderCommand: CommandHandler<
           : Promise.resolve({}),
       ]);
 
+      const addressCustomValues = snapshot.quote.addressCustomValues
+        ? await sealPrimaryAddressValues(em, ctx, "order", snapshot.quote, cloneJson(snapshot.quote.addressCustomValues))
+        : undefined;
       const order = em.create(SalesOrder, {
+        ...(addressCustomValues === undefined ? {} : { addressCustomValues }),
         id: orderId,
         organizationId: snapshot.quote.organizationId,
         tenantId: snapshot.quote.tenantId,
@@ -7651,6 +7850,8 @@ const convertQuoteToOrderCommand: CommandHandler<
           {
             documentId: snapshot.quote.id,
             documentKind: "quote",
+            tenantId: snapshot.quote.tenantId,
+            organizationId: snapshot.quote.organizationId,
           },
           {},
           {
@@ -7829,7 +8030,7 @@ const convertQuoteToOrderCommand: CommandHandler<
       if (noteIds.length) {
         await em.nativeDelete(SalesNote, { id: { $in: noteIds } });
       }
-      await restoreQuoteGraph(em, quoteSnapshot);
+      await restoreQuoteGraph(em, quoteSnapshot, ctx);
       await em.flush();
     };
     if (orderSnapshot) {

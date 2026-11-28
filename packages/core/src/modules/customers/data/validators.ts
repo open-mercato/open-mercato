@@ -3,6 +3,7 @@ import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
 import { withDecimalCaps } from '@open-mercato/shared/lib/decimal'
 import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import { addressCustomValuesSchema } from '@open-mercato/core/modules/entities/lib/addressCustomValuesSchema'
 import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
 import { calendarDayStartInstant, calendarWallTimeToInstant, isCalendarTimezone } from '../lib/calendar/timezone'
 
@@ -297,6 +298,7 @@ export const addressCreateSchema = scopedSchema.extend({
     .nullable()
     .optional(),
   isPrimary: z.boolean().optional(),
+  customValues: addressCustomValuesSchema.optional(),
 })
 
 export const addressUpdateSchema = z

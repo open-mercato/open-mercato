@@ -21,6 +21,7 @@ jest.mock('@open-mercato/shared/lib/db/recordScope', () => ({
 import '@open-mercato/core/modules/customers/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { CustomFieldDef } from '@open-mercato/core/modules/entities/data/entities'
 import { CustomerAddress, CustomerEntity } from '../../data/entities'
 
 const ORG_ID = '11111111-1111-4111-8111-111111111111'
@@ -41,6 +42,7 @@ type AddressRow = {
   organizationId: string
   addressLine1: string
   isPrimary: boolean
+  customValues?: Record<string, unknown> | null
 }
 
 type ManagedAddress = Record<string, unknown> & { id: string; isPrimary: boolean; entity: CustomerEntity }
@@ -95,7 +97,7 @@ function makeStore(
   }
 
   const managed = new Map<string, ManagedAddress>()
-  const baselines = new Map<string, { isPrimary: boolean; entityId: string }>()
+  const baselines = new Map<string, Pick<AddressRow, 'isPrimary' | 'entityId' | 'customValues'>>()
   const pendingInserts = new Set<ManagedAddress>()
   const pendingRemovals = new Set<ManagedAddress>()
   const nextIds = [...createdIds]
@@ -110,10 +112,11 @@ function makeStore(
       tenantId: row.tenantId,
       addressLine1: row.addressLine1,
       isPrimary: row.isPrimary,
+      customValues: row.customValues,
       entity: customers.get(row.entityId)!,
     }
     managed.set(row.id, entity)
-    baselines.set(row.id, { isPrimary: row.isPrimary, entityId: row.entityId })
+    baselines.set(row.id, { isPrimary: row.isPrimary, entityId: row.entityId, customValues: row.customValues })
     return entity
   }
 
@@ -159,6 +162,7 @@ function makeStore(
       return null
     }),
     find: jest.fn(async (ctor: unknown, where: Record<string, unknown>) => {
+      if (ctor === CustomFieldDef) return [{ key: 'instructions', kind: 'text', isActive: true, deletedAt: null }]
       if (ctor !== CustomerAddress) return []
       return [...rows.values()].filter((row) => rowMatches(row, where)).map((row) => ({ id: row.id }))
     }),
@@ -178,6 +182,7 @@ function makeStore(
     }),
     flush: jest.fn(async () => {
       for (const entity of pendingInserts) {
+        const customValues = entity.customValues as AddressRow['customValues']
         rows.set(entity.id, {
           id: entity.id,
           entityId: entity.entity.id,
@@ -185,9 +190,10 @@ function makeStore(
           organizationId: String(entity.organizationId),
           addressLine1: String(entity.addressLine1),
           isPrimary: Boolean(entity.isPrimary),
+          customValues,
         })
         managed.set(entity.id, entity)
-        baselines.set(entity.id, { isPrimary: Boolean(entity.isPrimary), entityId: entity.entity.id })
+        baselines.set(entity.id, { isPrimary: Boolean(entity.isPrimary), entityId: entity.entity.id, customValues })
       }
       pendingInserts.clear()
       for (const entity of pendingRemovals) {
@@ -202,7 +208,9 @@ function makeStore(
         if (!row || !baseline) continue
         if (Boolean(entity.isPrimary) !== baseline.isPrimary) row.isPrimary = Boolean(entity.isPrimary)
         if (entity.entity.id !== baseline.entityId) row.entityId = entity.entity.id
-        baselines.set(id, { isPrimary: Boolean(entity.isPrimary), entityId: entity.entity.id })
+        const customValues = entity.customValues as AddressRow['customValues']
+        if (customValues !== baseline.customValues) row.customValues = customValues
+        baselines.set(id, { isPrimary: Boolean(entity.isPrimary), entityId: entity.entity.id, customValues })
       }
     }),
   }
@@ -291,6 +299,56 @@ const createInput = (overrides: Record<string, unknown> = {}) => ({
   addressLine1: 'Line B',
   isPrimary: true,
   ...overrides,
+})
+
+describe('customers.addresses update undo and custom values', () => {
+  beforeEach(() => {
+    jest.replaceProperty(process, 'env', { ...process.env, TENANT_DATA_ENCRYPTION: 'no' })
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+    jest.clearAllMocks()
+  })
+
+  it('captures the bag seen inside the update transaction and restores it on undo', async () => {
+    const store = makeStore([{ id: ADDRESS_A_ID, isPrimary: false }])
+    store.em.begin.mockImplementationOnce(async () => {
+      store.rows.get(ADDRESS_A_ID)!.customValues = { instructions: 'Written before this transaction' }
+    })
+
+    const log = await run('customers.addresses.update', { id: ADDRESS_A_ID, customValues: { instructions: 'Our update' } }, store)
+    expect(log.commandPayload.undo).toMatchObject({
+      before: { addressCustomValues: { instructions: 'Written before this transaction' } },
+      after: { addressCustomValues: { instructions: 'Our update' } },
+    })
+
+    await undo('customers.addresses.update', log, store)
+    expect(store.rows.get(ADDRESS_A_ID)?.customValues).toEqual({ instructions: 'Written before this transaction' })
+  })
+
+  it('preserves newer custom values when undoing a postal-only or unchanged custom update', async () => {
+    const store = makeStore([{ id: ADDRESS_A_ID, isPrimary: false, customValues: { instructions: 'Initial' } }])
+    const log = await run('customers.addresses.update', {
+      id: ADDRESS_A_ID, addressLine1: 'New street', customValues: { instructions: 'Initial' },
+    }, store)
+    expect(log.commandPayload.undo).not.toHaveProperty('before.addressCustomValues')
+    expect(log.commandPayload.undo).not.toHaveProperty('after.addressCustomValues')
+    store.rows.get(ADDRESS_A_ID)!.customValues = { instructions: 'Written afterwards' }
+
+    await undo('customers.addresses.update', log, store)
+    expect(store.rows.get(ADDRESS_A_ID)?.customValues).toEqual({ instructions: 'Written afterwards' })
+  })
+
+  it('refuses undo after another writer changes a bag captured by the update', async () => {
+    const store = makeStore([{ id: ADDRESS_A_ID, isPrimary: false, customValues: { instructions: 'Initial' } }])
+    const log = await run('customers.addresses.update', { id: ADDRESS_A_ID, customValues: { instructions: null } }, store)
+    expect(log.commandPayload.undo).toHaveProperty('after.addressCustomValues', null)
+    store.rows.get(ADDRESS_A_ID)!.customValues = { instructions: 'Written afterwards' }
+
+    await expect(undo('customers.addresses.update', log, store)).rejects.toMatchObject({ status: 409 })
+    expect(store.rows.get(ADDRESS_A_ID)?.customValues).toEqual({ instructions: 'Written afterwards' })
+  })
 })
 
 describe('customers.addresses undo restores the primary address the operation demoted', () => {

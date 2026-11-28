@@ -86,6 +86,7 @@ type AddressEditorProps<C = unknown> = {
   showCoordinateFields?: boolean
   addressTypesAdapter?: AddressTypesAdapter<C>
   addressTypesContext?: C
+  children?: React.ReactNode
 }
 
 export function AddressEditor<C = unknown>({
@@ -101,6 +102,7 @@ export function AddressEditor<C = unknown>({
   showCoordinateFields = false,
   addressTypesAdapter,
   addressTypesContext,
+  children,
 }: AddressEditorProps<C>) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -533,6 +535,7 @@ export function AddressEditor<C = unknown>({
           {label('fields.primary', 'Primary address')}
         </label>
       ) : null}
+      {children}
     </div>
   )
 }

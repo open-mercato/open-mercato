@@ -75,6 +75,22 @@ describe('canReadEntityMetadata', () => {
     })).toBe(false)
   })
 
+  test.each(['sales.orders.view', 'sales.quotes.view', 'sales.*'])('allows %s to read Sales address definitions', (feature) => {
+    expect(canReadEntityMetadata({
+      entityId: 'sales:sales_document_address',
+      isCustomEntity: false,
+      acl: { features: [feature] },
+    })).toBe(true)
+  })
+
+  test('requires a Sales view grant or Data Designer access for Sales address definitions', () => {
+    expect(canReadEntityMetadata({
+      entityId: 'sales:sales_document_address',
+      isCustomEntity: false,
+      acl: { features: ['customers.activities.view'] },
+    })).toBe(false)
+  })
+
   test('requires records view for custom entity metadata', () => {
     expect(canReadEntityMetadata({
       entityId: 'custom:thing',

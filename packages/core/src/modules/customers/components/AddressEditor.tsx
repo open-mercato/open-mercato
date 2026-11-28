@@ -104,6 +104,7 @@ type AddressEditorProps = {
    * it carries a value and takes the same `disabled` as every neighbour.
    */
   showTaxIdField?: boolean
+  children?: React.ReactNode
 }
 
 /**
@@ -128,6 +129,7 @@ export function AddressEditor({
   showCoordinateFields = false,
   showPhoneField = false,
   showTaxIdField = false,
+  children,
 }: AddressEditorProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -601,6 +603,7 @@ export function AddressEditor({
         </label>
       ) : null}
       {errors.isPrimary ? <p className="text-xs text-destructive">{errors.isPrimary}</p> : null}
+      {children}
     </div>
   )
 }

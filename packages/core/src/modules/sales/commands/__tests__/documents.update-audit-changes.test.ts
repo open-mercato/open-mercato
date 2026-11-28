@@ -11,6 +11,7 @@
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import { createContainer, asValue, InjectionMode } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import '../documents'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
@@ -105,7 +106,10 @@ describe.each(['sales.orders.update', 'sales.quotes.update'] as const)('%s audit
     }
     const result = { [key]: after[key] }
     jest.spyOn(handler, 'prepare').mockResolvedValue(withBefore ? { before } : {})
-    const execute = jest.spyOn(handler, 'execute').mockResolvedValue(result)
+    const execute = jest.spyOn(handler, 'execute').mockImplementation(async (input, ctx) => {
+      await ctx.beforeTransactionalWrite?.({} as EntityManager, input)
+      return result
+    })
     jest.spyOn(handler, 'captureAfter').mockResolvedValue(after)
     const log = jest.fn(async (payload: Record<string, unknown>) => payload)
     const flushOrmEntityChanges = jest.fn()

@@ -41,6 +41,10 @@ jest.mock('@open-mercato/ui/backend/conflicts', () => ({
   surfaceRecordConflict: (...args: unknown[]) => surfaceRecordConflictMock(...(args as [])),
 }))
 
+jest.mock('../hooks/useCustomerAddressCustomFields', () => ({
+  useCustomerAddressCustomFields: () => ({ structure: { status: 'ready', definitions: [], fields: [] } }),
+}))
+
 // Capture the data adapter the customers section hands to the shared section.
 let capturedAdapter: AddressDataAdapter | null = null
 let capturedTypesAdapter: AddressTypesAdapter | null = null
@@ -128,6 +132,29 @@ describe('customers AddressesSection adapter — optimistic-lock header', () => 
 
     expect(withScopedApiRequestHeadersMock).not.toHaveBeenCalled()
     expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+  })
+
+  test('the detail mutation guard receives custom field keys without their values', async () => {
+    const events: Record<string, unknown>[] = []
+    render(sectionElement(async (operation, event) => {
+      if (event) events.push(event)
+      return operation()
+    }))
+    if (!capturedAdapter) throw new Error('[internal] data adapter not captured')
+
+    const customValues = { delivery_instructions: 'Private address details' }
+    await capturedAdapter.update({ id: 'addr-1', payload: { ...payload, customValues }, updatedAt: UPDATED_AT })
+
+    expect(events).toEqual([{
+      addressId: 'addr-1',
+      operation: 'updateAddress',
+      customValueKeys: ['delivery_instructions'],
+    }])
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+      '/api/customers/addresses',
+      expect.objectContaining({ body: expect.stringContaining(JSON.stringify(customValues)) }),
+      expect.any(Object),
+    )
   })
 
   test('adapters keep their identity and use the latest mutation guard', async () => {

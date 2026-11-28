@@ -75,6 +75,29 @@ const REDACTION_PROVIDER_DI_KEY = 'actionLogRedactionProvider'
  */
 const PROTECTED_RESOURCE_KIND_PREFIXES: readonly string[] = ['customers.']
 
+const ADDRESS_VALUE_RESOURCE_KINDS = new Set([
+  'customers.address', 'customers.person', 'customers.company',
+  'sales.document_address', 'sales.order', 'sales.quote',
+])
+
+function omitAddressValueBags(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(omitAddressValueBags)
+  if (value == null || typeof value !== 'object' || value instanceof Date) return value
+  return Object.fromEntries(Object.entries(value)
+    .filter(([path]) => !path.split('.').some((segment) => segment === 'addressCustomValues'))
+    .map(([key, child]) => [key, omitAddressValueBags(child)]))
+}
+
+function omitAddressValues(entry: ActionLog): ActionLog {
+  if (!entry.resourceKind || !ADDRESS_VALUE_RESOURCE_KINDS.has(entry.resourceKind)) return entry
+  return {
+    ...entry,
+    snapshotBefore: omitAddressValueBags(entry.snapshotBefore) as ActionLog['snapshotBefore'],
+    snapshotAfter: omitAddressValueBags(entry.snapshotAfter) as ActionLog['snapshotAfter'],
+    changesJson: omitAddressValueBags(entry.changesJson) as ActionLog['changesJson'],
+  }
+}
+
 function isProtectedResourceKind(resourceKind: string | null | undefined): boolean {
   if (!resourceKind) return false
   return PROTECTED_RESOURCE_KIND_PREFIXES.some((prefix) => resourceKind.startsWith(prefix))
@@ -108,10 +131,11 @@ export async function redactActionLogEntries(
   viewerUserId: string | null,
   entries: ActionLog[],
 ): Promise<ActionLog[]> {
+  const safeEntries = entries.map(omitAddressValues)
   const provider = tryResolve<ActionLogRedactionProvider>(container, REDACTION_PROVIDER_DI_KEY)
   if (!provider) {
-    return entries.map((entry) => (isProtectedResourceKind(entry.resourceKind) ? suppressProtectedEntry(entry) : entry))
+    return safeEntries.map((entry) => (isProtectedResourceKind(entry.resourceKind) ? suppressProtectedEntry(entry) : entry))
   }
-  const ctx = await provider.loadContext(em, scope, viewerUserId, entries)
-  return entries.map((entry) => (isProtectedResourceKind(entry.resourceKind) ? provider.redactEntry(entry, ctx) : entry))
+  const ctx = await provider.loadContext(em, scope, viewerUserId, safeEntries)
+  return safeEntries.map((entry) => (isProtectedResourceKind(entry.resourceKind) ? provider.redactEntry(entry, ctx) : entry))
 }
