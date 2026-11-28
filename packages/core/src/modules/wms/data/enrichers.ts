@@ -6,7 +6,7 @@ import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { E } from '#generated/entities.ids.generated'
 import { InventoryBalance, InventoryReservation, ProductInventoryProfile, SalesOrderWarehouseAssignment, Warehouse } from './entities'
 import { formatCatalogVariantLabel } from '../lib/inventoryDisplayUi'
-import { isBalanceLocationReservable } from '../lib/inventoryPolicy'
+import { isBalanceLocationReservable, isLotEligible } from '../lib/inventoryPolicy'
 import { resolvePrimaryWarehouseId } from '../lib/primaryWarehousePolicy'
 import {
   WMS_ENRICHER_CACHE_TTL_MS,
@@ -277,6 +277,12 @@ function resolveReorderStatus(
   }
 }
 
+// Unpopulated lot FKs (string id only) stay eligible, like unpopulated locations.
+function isBalanceLotEligible(balance: InventoryBalance): boolean {
+  const lot = balance.lot
+  return !lot || typeof lot === 'string' || isLotEligible(lot)
+}
+
 function buildBalanceSummaryByVariant(
   balances: InventoryBalance[],
 ): Map<string, BalanceAggregate> {
@@ -297,8 +303,11 @@ function buildBalanceSummaryByVariant(
     current.onHand += Number(balance.quantityOnHand)
     current.reserved += Number(balance.quantityReserved)
     current.allocated += Number(balance.quantityAllocated)
-    current.available +=
-      Number(balance.quantityOnHand) - Number(balance.quantityReserved) - Number(balance.quantityAllocated)
+    // Quarantined, held and expired lots are still on hand but cannot be reserved.
+    if (isBalanceLotEligible(balance)) {
+      current.available +=
+        Number(balance.quantityOnHand) - Number(balance.quantityReserved) - Number(balance.quantityAllocated)
+    }
 
     byVariant.set(balance.catalogVariantId, current)
   }
@@ -460,8 +469,8 @@ async function loadBalances(
       tenantId: scope.tenantId,
       deletedAt: null,
     },
-    // Populate location so isBalanceLocationReservable can exclude staging/dock.
-    { populate: ['location'] },
+    // Populate location and lot so Available can exclude staging/dock and ineligible lots.
+    { populate: ['location', 'lot'] },
     scope,
   )
 }
@@ -647,8 +656,8 @@ const salesOrderInventoryEnricher: ResponseEnricher<SalesOrderRecord, SalesOrder
     const variantAvailability = new Map<string, number>()
     const variantReserved = new Map<string, number>()
     for (const balance of balances) {
-      // Staging/dock must not count toward Available (same rule as reserve path).
-      if (isBalanceLocationReservable(balance)) {
+      // Staging/dock and ineligible lots must not count toward Available (same rules as reserve path).
+      if (isBalanceLocationReservable(balance) && isBalanceLotEligible(balance)) {
         addToMap(
           variantAvailability,
           balance.catalogVariantId,
