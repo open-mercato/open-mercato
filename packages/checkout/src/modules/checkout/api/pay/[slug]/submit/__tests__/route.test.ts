@@ -648,10 +648,7 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
       expect(mockCommandExecute).not.toHaveBeenCalled()
     })
 
-    // A rate limiter that is not registered at all is a configuration error, not a
-    // transient outage: the request is served (as it was before rate limiting was made
-    // fail-closed) instead of being rejected as "temporarily unavailable" indefinitely.
-    it('serves the request when no rate limiter is registered', async () => {
+    it('rejects with 503 when no rate limiter is registered', async () => {
       ;(findOneWithDecryption as jest.Mock)
         .mockResolvedValueOnce(createLink())
         .mockResolvedValueOnce(createTransaction())
@@ -683,9 +680,9 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
         { params: { slug: 'donate' } },
       )
 
-      expect(response.status).toBe(201)
+      expect(response.status).toBe(503)
       expect(checkRateLimit).not.toHaveBeenCalled()
-      expect(mockCommandExecute).toHaveBeenCalled()
+      expect(mockCommandExecute).not.toHaveBeenCalled()
     })
   })
 })

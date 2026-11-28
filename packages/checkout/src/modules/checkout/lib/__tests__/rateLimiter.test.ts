@@ -1,3 +1,4 @@
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RateLimitResult } from '@open-mercato/shared/lib/ratelimit/types'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import {
@@ -5,6 +6,19 @@ import {
   checkoutSubmitRateLimitConfig,
   enforceCheckoutRateLimit,
 } from '../rateLimiter'
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(),
+}))
+
+const POLISH_UNAVAILABLE = 'Usługa jest chwilowo niedostępna. Spróbuj ponownie później.'
+
+function mockPolishTranslations() {
+  jest.mocked(resolveTranslations).mockResolvedValue({
+    translate: (key: string, fallback?: string) =>
+      key === 'api.errors.rateLimitUnavailable' ? POLISH_UNAVAILABLE : (fallback ?? key),
+  } as unknown as Awaited<ReturnType<typeof resolveTranslations>>)
+}
 
 function makeRateLimiter(trustProxyDepth: number): RateLimiterService {
   return { trustProxyDepth } as RateLimiterService
@@ -66,6 +80,10 @@ describe('enforceCheckoutRateLimit', () => {
     consumedPoints: 11,
   }
 
+  beforeEach(() => {
+    jest.mocked(resolveTranslations).mockRejectedValue(new Error('outside a request scope'))
+  })
+
   function makeContainer(consume: jest.Mock | null) {
     return {
       hasRegistration: (name: string) => name !== 'rateLimiterService' || consume !== null,
@@ -125,22 +143,63 @@ describe('enforceCheckoutRateLimit', () => {
     expect(await enforce(makeContainer(consume), 'fail-open')).toBeNull()
   })
 
-  // A missing DI registration means the rate-limit configuration is invalid, which lasts
-  // until an operator fixes it. Reporting that as "temporarily unavailable" would take
-  // checkout down indefinitely, so the check is skipped for both postures instead.
-  it('skips the check for both postures when no limiter is registered', async () => {
-    expect(await enforce(makeContainer(null), 'fail-closed')).toBeNull()
+  it('rejects with 503 when no limiter is registered and the endpoint fails closed', async () => {
+    const response = await enforce(makeContainer(null), 'fail-closed')
+
+    expect(response?.status).toBe(503)
+  })
+
+  it('stays fail-open when no limiter is registered but rate limiting is disabled on purpose', async () => {
+    const previous = process.env.RATE_LIMIT_ENABLED
+    process.env.RATE_LIMIT_ENABLED = 'false'
+    try {
+      expect(await enforce(makeContainer(null), 'fail-closed')).toBeNull()
+    } finally {
+      if (previous === undefined) delete process.env.RATE_LIMIT_ENABLED
+      else process.env.RATE_LIMIT_ENABLED = previous
+    }
+  })
+
+  it('localizes the 503 for the request locale when no limiter is registered', async () => {
+    mockPolishTranslations()
+
+    const response = await enforce(makeContainer(null), 'fail-closed')
+
+    expect(response?.status).toBe(503)
+    expect(await response?.json()).toEqual({ error: POLISH_UNAVAILABLE })
+  })
+
+  it('localizes the 503 when the limiter is degraded or throws', async () => {
+    mockPolishTranslations()
+
+    const degraded = await enforce(makeContainer(jest.fn().mockResolvedValue(degradedResult)), 'fail-closed')
+    const thrown = await enforce(makeContainer(jest.fn().mockRejectedValue(new Error('down'))), 'fail-closed')
+
+    expect(await degraded?.json()).toEqual({ error: POLISH_UNAVAILABLE })
+    expect(await thrown?.json()).toEqual({ error: POLISH_UNAVAILABLE })
+  })
+
+  it('falls back to the English 503 message when the translation lookup fails', async () => {
+    const response = await enforce(makeContainer(null), 'fail-closed')
+
+    expect(await response?.json()).toEqual({
+      error: 'Service temporarily unavailable. Please try again later.',
+    })
+  })
+
+  it('skips the check when no limiter is registered and the endpoint fails open', async () => {
     expect(await enforce(makeContainer(null), 'fail-open')).toBeNull()
   })
 
-  it('skips the check when resolving the limiter throws', async () => {
+  it('rejects with 503 when resolving the limiter throws and the endpoint fails closed', async () => {
     const container = {
       resolve: () => {
         throw new Error('AwilixResolutionError: could not resolve rateLimiterService')
       },
     }
 
-    expect(await enforce(container, 'fail-closed')).toBeNull()
+    expect((await enforce(container, 'fail-closed'))?.status).toBe(503)
+    expect(await enforce(container, 'fail-open')).toBeNull()
   })
 
   it('returns the limiter 429 when the quota is exhausted', async () => {

@@ -1,12 +1,14 @@
 import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readEndpointRateLimitConfig, readRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
 import {
   checkRateLimit,
   getClientIp,
   RATE_LIMIT_FALLBACK_KEY,
   RATE_LIMIT_UNAVAILABLE_FALLBACK,
+  RATE_LIMIT_UNAVAILABLE_KEY,
 } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import type { RateLimitConfig } from '@open-mercato/shared/lib/ratelimit/types'
@@ -52,6 +54,33 @@ function resolveOptionalRateLimiter(container: RateLimiterContainer): RateLimite
   }
 }
 
+async function resolveUnavailableMessage(): Promise<string> {
+  const translations = await resolveTranslations().catch(() => null)
+  return translations?.translate(RATE_LIMIT_UNAVAILABLE_KEY, RATE_LIMIT_UNAVAILABLE_FALLBACK) ?? RATE_LIMIT_UNAVAILABLE_FALLBACK
+}
+
+async function localizeUnavailable(response: NextResponse | null): Promise<NextResponse | null> {
+  if (response?.status !== 503) return response
+  return NextResponse.json({ error: await resolveUnavailableMessage() }, { status: 503 })
+}
+
+/**
+ * Run the checkout rate-limit guard for one request and return the response that should be
+ * sent instead of handling it, or null to continue.
+ *
+ * Three outcomes are deliberately distinguished:
+ * - the limiter is not configured at all → logged as a configuration error; a `fail-closed`
+ *   route rejects with 503 (an unenforced limit on a resource-creating or payment route is
+ *   worse than a rejected request), a `fail-open` read skips the check. Rate limiting disabled
+ *   on purpose (`RATE_LIMIT_ENABLED=false`) is not treated as a misconfiguration and always
+ *   skips the check, whatever the posture.
+ * - the limiter is configured but could not decide (degraded, or the check threw) → 503 under
+ *   `fail-closed`, a logged warning under `fail-open`
+ * - the limiter decided the quota is exhausted → the 429 from `checkRateLimit`
+ *
+ * Every 503 carries `RATE_LIMIT_UNAVAILABLE_KEY` resolved for the request locale, falling back
+ * to the English message when the translation lookup fails.
+ */
 export async function enforceCheckoutRateLimit(options: {
   req: Request
   container: RateLimiterContainer
@@ -65,10 +94,17 @@ export async function enforceCheckoutRateLimit(options: {
   try {
     const rateLimiter = resolveOptionalRateLimiter(container)
     if (!rateLimiter) {
-      if (checkoutSlug !== undefined && readRateLimitConfig().enabled) {
-        throw new Error('[internal] Checkout password rate limiter is not registered')
+      if (posture === 'fail-closed' && readRateLimitConfig().enabled) {
+        logger.error('Rate limiter service is not registered — check RATE_LIMIT_* configuration; rejecting fail-closed checkout request', {
+          namespace,
+          posture,
+        })
+        return NextResponse.json({ error: await resolveUnavailableMessage() }, { status: 503 })
       }
-      logger.error('Checkout rate limiter is not registered', { namespace, posture })
+      logger.error('Rate limiter service is not registered — check RATE_LIMIT_* configuration; serving fail-open checkout request without rate limiting', {
+        namespace,
+        posture,
+      })
       return null
     }
     const checkOptions = { failClosed: posture === 'fail-closed' }
@@ -76,18 +112,18 @@ export async function enforceCheckoutRateLimit(options: {
       const clientIp = getClientIp(req, rateLimiter.trustProxyDepth)
       if (clientIp) {
         const ipLimit = await checkRateLimit(rateLimiter, config, `${namespace}:ip:${clientIp}`, errorMessage, checkOptions)
-        if (ipLimit) return ipLimit
+        if (ipLimit) return localizeUnavailable(ipLimit)
       }
       const slugHash = createHash('sha256').update(checkoutSlug).digest('hex')
-      return await checkRateLimit(rateLimiter, config, `${namespace}:link:${slugHash}`, errorMessage, checkOptions)
+      return localizeUnavailable(await checkRateLimit(rateLimiter, config, `${namespace}:link:${slugHash}`, errorMessage, checkOptions))
     }
     const key = buildCheckoutRateLimitKey(req, rateLimiter, namespace)
-    return await checkRateLimit(rateLimiter, config, key, errorMessage, checkOptions)
+    return localizeUnavailable(await checkRateLimit(rateLimiter, config, key, errorMessage, checkOptions))
   } catch (error) {
     getTelemetryRuntime()?.reportError(error, { module: 'checkout', code: 'checkout.rate_limit_failed' })
     if (posture === 'fail-closed') {
       logger.error('Checkout rate limit check failed, rejecting request', { err: error, namespace })
-      return NextResponse.json({ error: RATE_LIMIT_UNAVAILABLE_FALLBACK }, { status: 503 })
+      return NextResponse.json({ error: await resolveUnavailableMessage() }, { status: 503 })
     }
     logger.warn('Checkout rate limit check failed, allowing request', { err: error, namespace })
     return null
