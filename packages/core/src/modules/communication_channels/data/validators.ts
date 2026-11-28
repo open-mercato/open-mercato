@@ -1,5 +1,17 @@
 import { z } from 'zod'
 
+export const channelFolderCursorKeySchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid().nullable(),
+  channelId: z.string().uuid(),
+  folderId: z.string().min(1).max(512).refine((value) => !value.includes('\0')),
+})
+
+export const channelFolderCursorAdvanceSchema = z.object({
+  expectedVersion: z.string().uuid().nullable(),
+  cursor: z.string().max(16384).refine((value) => !value.includes('\0')),
+})
+
 /**
  * Zod schemas for adapter inputs and API request/response bodies.
  *
