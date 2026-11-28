@@ -450,6 +450,8 @@ Adapters get this for free and should not create their own batch span; any spans
 
 Credentials are stored by integration id. If the integration belongs to a bundle and per-integration credentials are empty, the system resolves bundle credentials as fallback. This allows one credential form to drive multiple bundle integrations.
 
+Password resets and invitations for superadmins use the instance's outbound email provider and its deployment credentials. Configure the selected provider's deployment credentials and an instance sender address such as `EMAIL_FROM`. `SYSTEM_EMAIL_PROVIDER` selects the provider and defaults to `resend`. Instance delivery also applies when `SYSTEM_EMAIL_CHANNEL_ID` is set. If the instance provider cannot deliver, the application records the delivery failure. Staff emails for other recipients continue to use the existing scoped delivery rules.
+
 ## Progress behavior (current state)
 
 - Sync runs are linked to progress jobs and visible in the progress top bar.

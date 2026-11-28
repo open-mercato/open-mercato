@@ -17,7 +17,7 @@ Maintainer feedback on PR #2448 requested this to be modeled as external integra
 - Keep `sendEmail(options)` as the compatibility entrypoint.
 - Make `@open-mercato/shared/lib/email` provider-neutral: sender fallback, disabled delivery, transport registration, and no provider SDK dependencies.
 - Register a `communication_channels` system email transport from core DI.
-- Resolve system email delivery through:
+- Resolve tenant-scoped system email delivery through:
   - `SYSTEM_EMAIL_CHANNEL_ID` when set,
   - otherwise `SYSTEM_EMAIL_PROVIDER`,
   - otherwise default provider `resend`.
@@ -27,6 +27,7 @@ Maintainer feedback on PR #2448 requested this to be modeled as external integra
   - `@open-mercato/channel-smtp` with provider key `smtp`, for any SMTP relay (Mailgun, Postmark, SendGrid, Brevo, Office 365, self-hosted Postfix).
 - Provider packages own adapter registration, system-email env credential resolution, and env preconfiguration.
 - Pre-tenant system email, such as self-service onboarding verification, uses the same hub adapter registry with env credentials when no tenant channel exists yet.
+- Staff password resets and invitations for effectively privileged superadmins use the same instance transport path. Auth checks the recipient's effective grants before dispatch and omits the tenant and organization from the delivery options for those recipients. Reset links retain the recipient's tenant hint.
 
 ## Architecture
 
@@ -78,7 +79,7 @@ Environment variables:
 | Variable | Purpose |
 | --- | --- |
 | `SYSTEM_EMAIL_PROVIDER` | Optional default system email provider. Defaults to `resend`; supports registered provider keys such as `resend` and `ses`. |
-| `SYSTEM_EMAIL_CHANNEL_ID` | Optional explicit tenant-wide communication channel id. Resolved within the organization boundary: the pinned row must belong to the sending organization or carry `organization_id IS NULL`, and a pin never falls back to env credentials. |
+| `SYSTEM_EMAIL_CHANNEL_ID` | Optional explicit channel ID for tenant-scoped system email. The pinned row must belong to the sending organization or carry `organization_id IS NULL`. A failed pin on this path fails delivery. Instance delivery uses the deployment provider and credentials directly. |
 | `RESEND_API_KEY` | Resend API key used by `channel_resend` env preconfiguration and pre-tenant fallback. |
 | `AWS_SES_REGION` | SES region used by `channel_ses`; falls back to `AWS_REGION`. |
 | `AWS_REGION` | AWS SDK region fallback. |
@@ -98,6 +99,7 @@ Environment variables:
 
 - Existing `sendEmail()` imports continue to work.
 - Existing Resend deployments continue to work when `RESEND_API_KEY` and a sender address are set, because `SYSTEM_EMAIL_PROVIDER` defaults to `resend`.
+- Deployments that previously relied on a tenant channel for superadmin resets or invitations must configure the instance provider and sender. If that provider is unavailable, delivery fails without falling back to tenant credentials. A compatibility fallback would keep privileged credential email inside the tenant-managed delivery boundary, so this path requires the Emergency Security Exception and named maintainer acceptance. Other recipients retain the existing routing rules. API clients continue using the existing reset and invite requests, and previously issued links retain their original expiry.
 - `shared` no longer contains provider delivery code or provider dependencies.
 - SES is additive through `@open-mercato/channel-ses`; generic SMTP is additive through `@open-mercato/channel-smtp`.
 - `@open-mercato/channel-imap`'s `isInternalHost` and `resolveSafeHostAddress` keep their existing import paths and behaviour; both now delegate to `@open-mercato/shared/lib/host-pinning`.
@@ -114,6 +116,7 @@ Environment variables:
 - SMTP integration coverage (`TC-CHANNEL-SMTP-001`) drives the real connect routes: the per-user route refuses the tenant-scoped provider with 403 `provider_is_tenant_scoped`, and the tenant route returns 422 field errors for empty credentials, a loopback relay host and cleartext transport. Every case fails validation, so the spec creates no channel and needs no teardown.
 - Shared host-pinning tests cover the SSRF classifier (including obfuscated IPv4 encodings) and connect-time pinning against DNS rebinding.
 - Communication hub tests cover system email dispatch through the adapter registry and pre-tenant env fallback.
+- Auth reset tests cover the reset handler through the Communications Hub with an in-memory adapter, including instance credentials for superadmins, scoped credentials for other users, and the generic response when the grant check fails.
 - Browser integration coverage visits `/start` at desktop and mobile widths and verifies the onboarding CTA, disabled superadmin control, connected database state, responsive layout, and absence of browser errors.
 - Run focused package tests/typechecks, `yarn check:dep-versions`, generated registry refresh, and the full contrib gate before moving the draft PR toward review.
 
@@ -137,6 +140,7 @@ Environment variables:
 
 ## Changelog
 
+- 2026-11-27: Route superadmin password-reset and invitation emails through the instance provider.
 - 2026-06-03: Updated spec to use Communications Hub system email transport with Resend default and SES as an external provider package.
 - 2026-09-17: Added `@open-mercato/channel-smtp` (provider key `smtp`) as a third outbound provider for generic SMTP relays, and hoisted the host:port SSRF guard into `@open-mercato/shared/lib/host-pinning` so it is shared with `@open-mercato/channel-imap` rather than duplicated.
 - 2026-09-22: Review follow-up on the SMTP provider. The adapter now normalizes the recipient at the send boundary, so the hub test-send route's raw string and the comma-separated system-email form both reach the relay; a partial recipient rejection is reported as `failed` carrying the message id and the accepted/rejected split instead of an unqualified `sent`; and the provider gained `validateCredentials`, so the loopback-host and cleartext refusals surface as connect-form field errors at save time rather than only at send time — matching `@open-mercato/channel-imap`, the sibling with the same operator-supplied-host surface. Added `TC-CHANNEL-SMTP-001` integration coverage and the new workspace manifest to every Dockerfile install stage.
