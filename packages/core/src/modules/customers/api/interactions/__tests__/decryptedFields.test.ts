@@ -1,4 +1,20 @@
-import { applyDecryptedFields } from '../decryptedFields'
+import { fieldNameCandidates } from '@open-mercato/shared/lib/query/encrypted-sort'
+import { createDecryptedFieldsOverlay } from '../decryptedFields'
+
+jest.mock('@open-mercato/shared/lib/query/encrypted-sort', () => {
+  const actual = jest.requireActual<typeof import('@open-mercato/shared/lib/query/encrypted-sort')>(
+    '@open-mercato/shared/lib/query/encrypted-sort',
+  )
+  return { ...actual, fieldNameCandidates: jest.fn(actual.fieldNameCandidates) }
+})
+
+function applyDecryptedFields<T extends Record<string, unknown>>(
+  item: T,
+  record: object | undefined,
+  fields: readonly string[],
+): T {
+  return createDecryptedFieldsOverlay(new Map([['parent', fields]]))(item, record, 'parent')
+}
 
 describe('applyDecryptedFields (#5945)', () => {
   test('overrides every response key the encryption map declares, not just title/body', () => {
@@ -53,5 +69,20 @@ describe('applyDecryptedFields (#5945)', () => {
     const patched = applyDecryptedFields(item, { id: 'a', title: 'Kickoff', location: 'Room 4' }, ['title', 'location'])
 
     expect(Object.keys(patched).sort()).toEqual(['id', 'title'])
+  })
+
+  test('resolves each map field once across the page and keeps each organization’s field set', () => {
+    jest.mocked(fieldNameCandidates).mockClear()
+    const applyOverlay = createDecryptedFieldsOverlay(new Map([
+      ['parent', ['recurrence_rule']],
+      ['child', ['recurrence_rule', 'location']],
+    ]))
+    const item = { recurrenceRule: 'raw-rule', location: 'raw-location' }
+    const record = { recurrenceRule: 'FREQ=WEEKLY', location: 'Room 4' }
+
+    expect(applyOverlay(item, { location: 'Room 4' }, 'parent')).toBe(item)
+    expect(applyOverlay(item, record, 'parent')).toEqual({ ...item, recurrenceRule: 'FREQ=WEEKLY' })
+    expect(applyOverlay(item, record, 'child')).toEqual(record)
+    expect(jest.mocked(fieldNameCandidates).mock.calls).toEqual([['recurrence_rule'], ['location']])
   })
 })

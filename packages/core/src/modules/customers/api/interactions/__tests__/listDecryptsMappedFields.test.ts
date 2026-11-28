@@ -65,9 +65,10 @@ jest.mock('@open-mercato/shared/lib/crud/custom-fields', () => ({
 }))
 
 const mockGetEncryptedFieldNames = jest.fn<Promise<string[]>, unknown[]>(async () => ['title', 'body'])
+const mockIsEnabled = jest.fn(() => true)
 jest.mock('@open-mercato/shared/lib/encryption/customFieldValues', () => ({
   resolveTenantEncryptionService: () => ({
-    isEnabled: () => true,
+    isEnabled: () => mockIsEnabled(),
     getEncryptedFieldNames: (...args: unknown[]) => mockGetEncryptedFieldNames(...args),
     decryptEntityPayload: async (_entityId: string, payload: Record<string, unknown>) => payload,
   }),
@@ -146,6 +147,7 @@ beforeEach(() => {
   scope = { filterIds: [orgId], selectedId: orgId }
   listRows = [ciphertextRow()]
   decryptedInteractions = [decryptedInteraction()]
+  mockIsEnabled.mockReturnValue(true)
   mockGetEncryptedFieldNames.mockReset()
   mockGetEncryptedFieldNames.mockImplementation(async () => ['title', 'body'])
 })
@@ -178,14 +180,17 @@ describe('interactions list — decrypts every encryption-map field (#5945)', ()
   })
 
   test('with encryption disabled the response keeps the raw column values', async () => {
-    mockGetEncryptedFieldNames.mockImplementation(async () => [])
-    listRows = [ciphertextRow({ title: 'Plain title', body: 'Plain body', location: 'Room 4' })]
+    mockIsEnabled.mockReturnValue(false)
+    listRows = [ciphertextRow({ title: 'Plain title', body: 'Plain body', location: 'Room 4', duration_minutes: 30 })]
 
     const [item] = await listItems()
 
     expect(item.title).toBe('Plain title')
     expect(item.body).toBe('Plain body')
     expect(item.location).toBe('Room 4')
+    expect(item.duration).toBe(30)
+    expect(item.durationMinutes).toBe(30)
+    expect(mockGetEncryptedFieldNames).not.toHaveBeenCalled()
   })
 
   test('a row with no decrypted record falls back to its raw column values', async () => {
