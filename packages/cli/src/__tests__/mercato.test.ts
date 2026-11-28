@@ -1411,6 +1411,32 @@ describe('init command failure output', () => {
     }
   })
 
+  it.each(['true', '1', 'false'])('protects managed bootstrap output with OM_INTEGRATION_TEST=%s', async (integrationMode) => {
+    const previousEnv = { ...process.env }
+    jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const authSetup = jest.fn().mockResolvedValue(undefined)
+    mockInitDependencies({ authSetup })
+    process.env.NODE_ENV = 'production'
+    process.env.OM_INIT_SUPERADMIN_PASSWORD = 'Ephemeral-Owner-937!'
+    process.env.OM_INTEGRATION_TEST = integrationMode
+    process.env.OM_INIT_SUMMARY_COLUMNS = '120'
+    try {
+      const mercato = await import('../mercato')
+      expect(await mercato.run(['node', 'mercato', 'init', '--no-demo-users'])).toBe(0)
+      expect(authSetup).toHaveBeenCalledWith(expect.arrayContaining(['--password', 'Ephemeral-Owner-937!']))
+      const output = consoleLogSpy.mock.calls.map((args) => args.join(' ')).join('\n')
+      if (integrationMode === 'false') {
+        expect(output).toContain('Ephemeral-Owner-937!')
+      } else {
+        expect(output).not.toContain('Ephemeral-Owner-937!')
+        expect(output).toContain('[redacted]')
+      }
+    } finally {
+      process.env = previousEnv
+    }
+  })
+
   it('passes --include-demo-users to auth setup by default', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()

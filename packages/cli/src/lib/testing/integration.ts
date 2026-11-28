@@ -2,7 +2,7 @@ import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import { createHash, randomBytes } from 'node:crypto'
 import path from 'node:path'
@@ -188,6 +188,7 @@ type EphemeralEnvironmentState = {
   source: string
   captureScreenshots: boolean
   startedAt: string
+  superadminPassword?: string
 }
 
 type PlaywrightRunOptions = Pick<InteractiveIntegrationOptions, 'verbose' | 'captureScreenshots' | 'workers' | 'retries'> & {
@@ -240,7 +241,7 @@ export function resolveEphemeralJwtSecret(env: NodeJS.ProcessEnv = process.env):
   }
   return DEFAULT_EPHEMERAL_JWT_SECRET
 }
-const DEFAULT_EPHEMERAL_SUPERADMIN_PASSWORD = 'Om-Ephemeral-Superadmin-2026!'
+const DEFAULT_EPHEMERAL_SUPERADMIN_PASSWORD = `${randomBytes(32).toString('hex')}Aa1!`
 
 export function resolveEphemeralSuperadminPassword(env: NodeJS.ProcessEnv = process.env): string {
   const inherited = env.OM_INIT_SUPERADMIN_PASSWORD
@@ -250,7 +251,7 @@ export function resolveEphemeralSuperadminPassword(env: NodeJS.ProcessEnv = proc
       return inherited
     } catch {
       console.warn(
-        '[integration] Ignoring the inherited OM_INIT_SUPERADMIN_PASSWORD: it is a placeholder or fails the password policy and the ephemeral app initializes with NODE_ENV=production. Using the ephemeral default instead.',
+        '[integration] Ignoring the inherited OM_INIT_SUPERADMIN_PASSWORD: it is a placeholder or fails the password policy and the ephemeral app initializes with NODE_ENV=production. Using a generated ephemeral credential instead.',
       )
     }
   }
@@ -1379,6 +1380,7 @@ export async function writeEphemeralEnvironmentState(input: {
   queueBaseDir: string
   logPrefix: string
   captureScreenshots: boolean
+  superadminPassword?: string
 }): Promise<void> {
   const content: EphemeralEnvironmentState = {
     status: 'running',
@@ -1389,8 +1391,19 @@ export async function writeEphemeralEnvironmentState(input: {
     source: input.logPrefix,
     captureScreenshots: input.captureScreenshots,
     startedAt: new Date().toISOString(),
+    superadminPassword: input.superadminPassword ?? resolveEphemeralSuperadminPassword(),
   }
-  await writeFile(EPHEMERAL_ENV_FILE_PATH, `${JSON.stringify(content, null, 2)}\n`, 'utf8')
+  const temporaryStatePath = `${EPHEMERAL_ENV_FILE_PATH}.${randomBytes(16).toString('hex')}.tmp`
+  try {
+    await writeFile(temporaryStatePath, `${JSON.stringify(content, null, 2)}\n`, {
+      encoding: 'utf8',
+      mode: 0o600,
+      flag: 'wx',
+    })
+    await rename(temporaryStatePath, EPHEMERAL_ENV_FILE_PATH)
+  } finally {
+    await rm(temporaryStatePath, { force: true })
+  }
 }
 
 export async function clearEphemeralEnvironmentState(): Promise<void> {
@@ -1455,6 +1468,7 @@ export async function readEphemeralEnvironmentState(): Promise<EphemeralEnvironm
     source: record.source,
     captureScreenshots: record.captureScreenshots,
     startedAt: record.startedAt,
+    superadminPassword: typeof record.superadminPassword === 'string' ? record.superadminPassword : undefined,
   }
 }
 
@@ -2222,6 +2236,7 @@ function buildReusableEnvironment(
   databaseUrl: string,
   queueBaseDir: string,
   captureScreenshots: boolean,
+  superadminPassword: string,
 ): NodeJS.ProcessEnv {
   const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
   const privateAttachmentsRoot = resolvePrivateAttachmentsRootForQueueBaseDir(queueBaseDir)
@@ -2259,7 +2274,7 @@ function buildReusableEnvironment(
     // OM_INIT_*_PASSWORD to fix the seeded credential.
     OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
     OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
-    OM_INIT_SUPERADMIN_PASSWORD: resolveEphemeralSuperadminPassword(),
+    OM_INIT_SUPERADMIN_PASSWORD: superadminPassword,
     OM_INTEGRATION_TEST: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
@@ -2342,7 +2357,7 @@ function resolvePrivateAttachmentsRootForQueueBaseDir(queueBaseDir: string): str
 
 export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle | null> {
   const state = await readEphemeralEnvironmentState()
-  if (!state) {
+  if (!state || !state.superadminPassword) {
     return null
   }
 
@@ -2397,6 +2412,7 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
       state.databaseUrl,
       state.queueBaseDir,
       state.captureScreenshots,
+      state.superadminPassword,
     ),
     ownedByCurrentProcess: false,
     stop: async () => {},
@@ -4133,6 +4149,7 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
         queueBaseDir: EPHEMERAL_QUEUE_BASE_DIR,
         logPrefix: options.logPrefix,
         captureScreenshots: options.captureScreenshots,
+        superadminPassword: commandEnvironment.OM_INIT_SUPERADMIN_PASSWORD,
       })
       return {
         baseUrl: applicationBaseUrl,
