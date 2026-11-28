@@ -68,7 +68,7 @@ test.describe('TC-CRM-EMAIL-007: No-channel UX on the Person Emails tab', () => 
 
         // -- Setup: create a user in that role ----------------------------------
         const userEmail = `qa-crm-email-007-${stamp}@acme.com`;
-        const userPassword = 'Valid1!Pass';
+        const userPassword = 'QaValid1!Pass';
         userId = await createUserFixture(request, adminToken, {
           email: userEmail,
           password: userPassword,

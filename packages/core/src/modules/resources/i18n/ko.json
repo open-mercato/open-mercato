@@ -446,6 +446,7 @@
   "resources.resources.detail.untitled": "이름 없는 리소스",
   "resources.resources.errors.resourceTypeDeleted": "이 작업은 리소스를 삭제된 리소스 유형에 연결합니다. 먼저 리소스 유형을 복원하세요.",
   "resources.resources.errors.resourceTypeUnavailable": "선택한 리소스 유형을 더 이상 사용할 수 없습니다.",
+  "resources.resources.flash.created": "리소스가 생성되었습니다.",
   "resources.resources.flash.createdAvailability": "저장되었습니다. 이제 가용성을 설정할 수 있습니다.",
   "resources.resources.form.actions.create": "생성",
   "resources.resources.form.appearance.colorClear": "색상 지우기",

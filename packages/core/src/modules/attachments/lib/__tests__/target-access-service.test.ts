@@ -51,9 +51,10 @@ describe('AttachmentTargetAccessService', () => {
       code: 'private',
       $or: [
         { tenantId: null, organizationId: null },
+        { tenantId, organizationId: null },
         { tenantId, organizationId },
       ],
-    })
+    }, expect.anything())
 
     const assigned = makeService({
       tenantId,

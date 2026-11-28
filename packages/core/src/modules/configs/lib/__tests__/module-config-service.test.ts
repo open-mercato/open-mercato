@@ -16,6 +16,9 @@ type Row = {
 function matches(row: Row, where: Record<string, unknown>): boolean {
   return Object.entries(where).every(([key, value]) => {
     const current = (row as Record<string, unknown>)[key]
+    if (value && typeof value === 'object' && '$in' in (value as Record<string, unknown>)) {
+      return (value as { $in: unknown[] }).$in.includes(current)
+    }
     return value === null ? current === null || current === undefined : current === value
   })
 }
@@ -23,9 +26,16 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
 function createFakeEm() {
   const rows: Row[] = []
   let seq = 0
+  const findCalls: Array<Record<string, unknown>> = []
+  const findOneCalls: Array<Record<string, unknown>> = []
   const repo = {
     async findOne(where: Record<string, unknown>): Promise<Row | null> {
+      findOneCalls.push(where)
       return rows.find((row) => matches(row, where)) ?? null
+    },
+    async find(where: Record<string, unknown>): Promise<Row[]> {
+      findCalls.push(where)
+      return rows.filter((row) => matches(row, where))
     },
     create(data: Partial<Row>): Row {
       const now = new Date()
@@ -43,6 +53,8 @@ function createFakeEm() {
   }
   return {
     rows,
+    findCalls,
+    findOneCalls,
     em: {
       getRepository: () => repo,
       persist: (entity: Row) => {
@@ -73,7 +85,7 @@ function createFakeCache() {
 }
 
 function createContainer(cacheOverride?: unknown) {
-  const { em, rows } = createFakeEm()
+  const { em, rows, findCalls, findOneCalls } = createFakeEm()
   const { cache: fakeCache, keys } = createFakeCache()
   const cache = cacheOverride ?? fakeCache
   const container = {
@@ -83,7 +95,7 @@ function createContainer(cacheOverride?: unknown) {
       throw new Error(`unknown token ${token}`)
     },
   } as unknown as AppContainer
-  return { container, rows, cacheKeys: keys }
+  return { container, rows, cacheKeys: keys, findCalls, findOneCalls }
 }
 
 const TENANT_A = '11111111-1111-1111-1111-111111111111'
@@ -243,5 +255,61 @@ describe('ModuleConfigService cache scope', () => {
     expect(await runWithCacheTenant(null, () => cache.keys())).toEqual(
       expect.arrayContaining(['module-config:v3:agent_orchestrator:trace_policy:global']),
     )
+  })
+})
+
+describe('ModuleConfigService.getRecords', () => {
+  const NAMES = ['rounding.unitMinutes', 'rounding.direction', 'targets.dailyHours', 'warnings.overlap', 'warnings.runningTimer']
+
+  it('issues at most two SELECTs for a cold-cache batch read, instead of one per name', async () => {
+    const { container, findCalls, findOneCalls } = createContainer()
+    const service = createModuleConfigService(container)
+    await service.setValue('staff.time_tracking', 'targets.dailyHours', 6, { tenantId: TENANT_A })
+
+    const records = await service.getRecords!('staff.time_tracking', NAMES, { tenantId: TENANT_A })
+
+    expect(records['targets.dailyHours']?.value).toBe(6)
+    expect(records['rounding.unitMinutes']).toBeNull()
+    // One batched `find` for the tenant scope and one for the instance fallback,
+    // not one `getRecord`-equivalent round trip (up to two SELECTs each) per name.
+    expect(findCalls).toHaveLength(2)
+    expect(findOneCalls).toHaveLength(1) // the setValue seed above, not the read
+  })
+
+  it('reads the same records as one getRecord call per name', async () => {
+    const { container } = createContainer()
+    const service = createModuleConfigService(container)
+    await service.setValue('staff.time_tracking', 'targets.dailyHours', 6, { tenantId: TENANT_A })
+    await service.setValue('staff.time_tracking', 'rounding.unitMinutes', 15)
+
+    const batched = await service.getRecords!('staff.time_tracking', NAMES, { tenantId: TENANT_A })
+    const sequential: Record<string, unknown> = {}
+    for (const name of NAMES) sequential[name] = await service.getRecord('staff.time_tracking', name, { tenantId: TENANT_A })
+
+    for (const name of NAMES) {
+      expect(batched[name]?.value ?? null).toEqual((sequential[name] as { value?: unknown } | null)?.value ?? null)
+    }
+  })
+
+  it('isolates a batch read between tenants and the global row', async () => {
+    const { container } = createContainer()
+    const service = createModuleConfigService(container)
+    await service.setValue('staff.time_tracking', 'targets.dailyHours', 6, { tenantId: TENANT_A })
+    await service.setValue('staff.time_tracking', 'targets.dailyHours', 9, { tenantId: TENANT_B })
+
+    const tenantA = await service.getRecords!('staff.time_tracking', ['targets.dailyHours'], { tenantId: TENANT_A })
+    const tenantB = await service.getRecords!('staff.time_tracking', ['targets.dailyHours'], { tenantId: TENANT_B })
+
+    expect(tenantA['targets.dailyHours']?.value).toBe(6)
+    expect(tenantB['targets.dailyHours']?.value).toBe(9)
+  })
+
+  it('returns an empty record for an empty name list without touching the database', async () => {
+    const { container, findCalls, findOneCalls } = createContainer()
+    const service = createModuleConfigService(container)
+
+    expect(await service.getRecords!('staff.time_tracking', [])).toEqual({})
+    expect(findCalls).toHaveLength(0)
+    expect(findOneCalls).toHaveLength(0)
   })
 })

@@ -182,6 +182,79 @@ describe('EventBus.dispatchQueued', () => {
     expect(resolved).toBe('bus:em')
   })
 
+  test('prefers the caller-supplied container over the bus creation one', async () => {
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    const busContainer = { resolve: ((name: string) => `bus:${name}`) as never, register: jest.fn() }
+    const jobContainer = { resolve: ((name: string) => `job:${name}`) as never, register: jest.fn() }
+    let seen: unknown = null
+    const bus = createEventBus({ resolve: busContainer.resolve, container: busContainer })
+    bus.on('user.created', (_payload, ctx) => { seen = ctx.container }, { persistent: true })
+
+    await bus.dispatchQueued('user.created', {}, undefined, jobContainer.resolve, jobContainer)
+
+    expect(seen).toBe(jobContainer)
+  })
+
+  test('falls back to the bus container when the caller supplies none', async () => {
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    const busContainer = { resolve: ((name: string) => `bus:${name}`) as never, register: jest.fn() }
+    let seen: unknown = null
+    const bus = createEventBus({ resolve: busContainer.resolve, container: busContainer })
+    bus.on('user.created', (_payload, ctx) => { seen = ctx.container }, { persistent: true })
+
+    await bus.dispatchQueued('user.created', {})
+
+    expect(seen).toBe(busContainer)
+  })
+
+  test('a caller resolver without a container never pairs with the bus container', async () => {
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    const busContainer = { resolve: ((name: string) => `bus:${name}`) as never, register: jest.fn() }
+    const jobResolve = ((name: string) => `job:${name}`) as never
+    let seenContainer: unknown = 'unset'
+    let resolved: unknown = null
+    const bus = createEventBus({ resolve: busContainer.resolve, container: busContainer })
+    bus.on('user.created', (_payload, ctx) => {
+      seenContainer = ctx.container
+      resolved = ctx.resolve('em')
+    }, { persistent: true })
+
+    await bus.dispatchQueued('user.created', {}, undefined, jobResolve)
+
+    expect(resolved).toBe('job:em')
+    expect(seenContainer).toBeUndefined()
+  })
+
+  test('a caller container without a resolver resolves through that container', async () => {
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    const busContainer = { resolve: ((name: string) => `bus:${name}`) as never, register: jest.fn() }
+    const jobContainer = { resolve: ((name: string) => `job:${name}`) as never, register: jest.fn() }
+    let seenContainer: unknown = null
+    let resolved: unknown = null
+    const bus = createEventBus({ resolve: busContainer.resolve, container: busContainer })
+    bus.on('user.created', (_payload, ctx) => {
+      seenContainer = ctx.container
+      resolved = ctx.resolve('em')
+    }, { persistent: true })
+
+    await bus.dispatchQueued('user.created', {}, undefined, undefined, jobContainer)
+
+    expect(seenContainer).toBe(jobContainer)
+    expect(resolved).toBe('job:em')
+  })
+
+  test('the bus resolver passed explicitly keeps the bus container', async () => {
+    process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
+    const busContainer = { resolve: ((name: string) => `bus:${name}`) as never, register: jest.fn() }
+    let seenContainer: unknown = null
+    const bus = createEventBus({ resolve: busContainer.resolve, container: busContainer })
+    bus.on('user.created', (_payload, ctx) => { seenContainer = ctx.container }, { persistent: true })
+
+    await bus.dispatchQueued('user.created', {}, undefined, busContainer.resolve)
+
+    expect(seenContainer).toBe(busContainer)
+  })
+
   test('returns an empty result set when nothing matches', async () => {
     process.env.OM_EVENTS_SINGLE_DELIVERY = 'true'
     const bus = makeBus([makeSub('other', 'user.deleted', true, [])])

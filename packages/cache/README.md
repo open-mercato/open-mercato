@@ -137,6 +137,36 @@ The glob-matching happens on logical keys, so you can keep friendly names for tr
 
 ---
 
+## Pluggable cache providers
+
+The built-in strategies ship with this package as independent npm providers for memory, SQLite, Redis and JSON files. Existing `CACHE_STRATEGY` settings and the memory default apply. A deployment can also select an installed npm **cache provider**. The app registers it explicitly in `src/providers/cache.ts`:
+
+```ts
+import { defineCacheProviderRegistration } from '@open-mercato/cache/provider'
+
+export const cacheProviders = [
+  defineCacheProviderRegistration({
+    id: 'acme/example',
+    load: () => import('@acme/cache-provider-example').then((module) => module.provider),
+    settings: () => ({ endpoints: [process.env.ACME_CACHE_ENDPOINT ?? ''] }),
+  }),
+]
+```
+
+```bash
+yarn generate
+CACHE_PROVIDER=acme/example
+CACHE_PROVIDER_NAMESPACE=shop-prod
+#CACHE_PROVIDER_CONNECT_TIMEOUT_MS=10000
+```
+
+- `CACHE_PROVIDER` wins over `CACHE_STRATEGY`. An explicit programmatic `strategy` still wins over it. A selected provider never falls back to memory: failures surface as a sanitized `CacheProviderError` with a stable `code`.
+- Provider authors build packages with `defineCacheProvider` from `@open-mercato/cache/provider` and verify them with `defineCacheProviderConformance` from `@open-mercato/cache/testing`. The reference implementation is `fixtures/cache-provider-fixture`.
+
+Full operator and author guide: [Pluggable cache providers](https://docs.openmercato.com/architecture/cache-providers).
+
+---
+
 ## Building & publishing
 
 This package lives inside the monorepo but publishes independently. The emitted JS and declaration files live in `dist/` (ignored by git).

@@ -59,7 +59,7 @@ test.describe('TC-ATTACH-XSS-002: Cross-tenant access to private attachment via 
       // Create a user in T2 — their JWT will carry T2's tenantId.
       t2UserId = await createUserFixture(request, superadminToken, {
         email: t2UserEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: t2OrgId,
         roles: [],
       })
@@ -76,7 +76,7 @@ test.describe('TC-ATTACH-XSS-002: Cross-tenant access to private attachment via 
 
       // T2 user's JWT carries T2's tenantId. The file route adds
       // tenantId = T2 to em.findOne, so the T1 attachment row is never returned → 404.
-      const t2UserToken = await getAuthToken(request, t2UserEmail, 'Valid1!Pass')
+      const t2UserToken = await getAuthToken(request, t2UserEmail, 'QaValid1!Pass')
       const response = await request.fetch(
         `${BASE_URL}/api/attachments/file/${encodeURIComponent(attachmentId)}`,
         {

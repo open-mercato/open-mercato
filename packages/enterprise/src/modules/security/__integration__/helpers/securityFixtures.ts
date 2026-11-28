@@ -73,7 +73,7 @@ export async function createUserFixture(
 ): Promise<UserFixture> {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
   const email = input.email ?? `qa-sec-${stamp}@acme.com`
-  const password = input.password ?? 'Valid1!Pass'
+  const password = input.password ?? 'QaValid1!Pass'
   const { organizationId } = getTokenContext(adminToken)
   const response = await apiRequest(request, 'POST', '/api/auth/users', {
     token: adminToken,

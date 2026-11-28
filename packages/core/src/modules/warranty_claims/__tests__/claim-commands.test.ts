@@ -283,6 +283,8 @@ function persistEntity(entity: unknown): void {
   }
 }
 
+let mockSalesOrderCustomerId = CUSTOMER_ID
+let mockSalesOrdersMissing = false
 let mockSalesTablesAbsent = false
 let mockSoldQuantity: string | null = null
 
@@ -306,8 +308,11 @@ function makeUsersKysely() {
           return customerWhere && customerWhere[2] === CUSTOMER_ID ? [{ id: PORTAL_USER_ID }] : []
         }
         if (table === 'sales_orders') {
-          return idWhere && (idWhere[2] === ORDER_ID || idWhere[2] === OTHER_ORDER_ID)
-            ? [{ id: idWhere[2], order_number: 'SO-1042', customer_entity_id: CUSTOMER_ID }]
+          if (mockSalesOrdersMissing) return []
+          const requestedIds = idWhere?.[1] === 'in' ? idWhere[2] : [idWhere?.[2]]
+          return Array.isArray(requestedIds)
+            ? requestedIds.filter((id) => id === ORDER_ID || id === OTHER_ORDER_ID)
+              .map((id) => ({ id, order_number: 'SO-1042', customer_entity_id: mockSalesOrderCustomerId }))
             : []
         }
         if (table === 'sales_order_lines') {
@@ -503,6 +508,8 @@ async function executeAndCaptureUndo<Input, Result>(
 }
 
 beforeEach(() => {
+  mockSalesOrderCustomerId = CUSTOMER_ID
+  mockSalesOrdersMissing = false
   mockSalesTablesAbsent = false
   mockSoldQuantity = null
   mockClaims = []
@@ -522,6 +529,64 @@ beforeEach(() => {
 })
 
 describe('warranty claim commands', () => {
+  test('retains historical line editability when its unchanged parent order is missing', async () => {
+    mockSalesOrdersMissing = true
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+    const line = makeLine(claim, { orderLineId: ORDER_LINE_ID })
+    mockLines.push(line)
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, faultDescription: 'Updated historical fault' }, ctx))
+      .resolves.toHaveProperty('lineId', LINE_ID)
+    expect(line.faultDescription).toBe('Updated historical fault')
+  })
+  test.each(['create', 'update'] as const)('rejects cross-customer imported references on line %s without a header order', async (operation) => {
+    mockSalesOrderCustomerId = PREVIOUS_CUSTOMER_ID
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+    if (operation === 'update') mockLines.push(makeLine(claim, { orderLineId: ORDER_LINE_ID }))
+    const mutation = operation === 'create'
+      ? createClaimLineCommand.execute({ tenantId: TENANT_ID, organizationId: ORG_ID, claimId: CLAIM_ID, orderLineId: ORDER_LINE_ID, qtyClaimed: 1 }, ctx)
+      : updateClaimLineCommand.execute({ id: LINE_ID, faultDescription: 'Must not persist' }, ctx)
+    await expect(mutation).rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.customerOrderMismatch' } })
+    expect(emitWarrantyClaimsEventMock).not.toHaveBeenCalled()
+  })
+
+  test('rejects another customer order line even when the create header has no order', async () => {
+    mockSalesOrderCustomerId = PREVIOUS_CUSTOMER_ID
+    const { ctx } = makeContext()
+    await expect(createClaimCommand.execute({
+      tenantId: TENANT_ID, organizationId: ORG_ID, claimType: 'warranty', customerId: CUSTOMER_ID,
+      lines: [{ orderLineId: ORDER_LINE_ID, productName: 'Private previous customer item', qtyClaimed: 1 }],
+    }, ctx)).rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.customerOrderMismatch' } })
+    expect(mockClaims).toHaveLength(0)
+    expect(mockLines).toHaveLength(0)
+    expect(emitWarrantyClaimsEventMock).not.toHaveBeenCalled()
+  })
+
+  test('preserves same-customer order line intake without a header order', async () => {
+    const { ctx } = makeContext()
+    await expect(createClaimCommand.execute({
+      tenantId: TENANT_ID, organizationId: ORG_ID, claimType: 'warranty', customerId: CUSTOMER_ID,
+      lines: [{ orderLineId: ORDER_LINE_ID, productName: 'Customer item', qtyClaimed: 1 }],
+    }, ctx)).resolves.toHaveProperty('claimId')
+    expect(mockLines[0].orderLineId).toBe(ORDER_LINE_ID)
+  })
+
+  test('rejects moving a headerless claim with retained imported lines to another customer', async () => {
+    mockSalesOrderCustomerId = PREVIOUS_CUSTOMER_ID
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft', { customerId: PREVIOUS_CUSTOMER_ID, customerName: 'Previous customer' })
+    mockClaims.push(claim)
+    mockLines.push(makeLine(claim, { orderLineId: ORDER_LINE_ID }))
+    const beforeClaim = { ...claim }
+    await expect(updateClaimCommand.execute({ id: CLAIM_ID, customerId: CUSTOMER_ID }, ctx))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.customerOrderMismatch' } })
+    expect(claim).toEqual(beforeClaim)
+    expect(emitWarrantyClaimsEventMock).not.toHaveBeenCalled()
+  })
+
   test('create generates a number, snapshots customer name, and creates initial lines', async () => {
     const { ctx, numberGenerator } = makeContext()
 

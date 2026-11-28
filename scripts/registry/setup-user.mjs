@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Create a user for publishing to the local Verdaccio registry
+// Sign in to an operator-provisioned Verdaccio publisher account
 // (cross-platform port of the former setup-user.sh; the .sh file remains as a
 // thin wrapper).
 
@@ -28,7 +28,7 @@ export async function setupRegistryUser({ env = process.env } = {}) {
     console.error('registry:setup-user: could not resolve the npm CLI next to the Node executable.')
     return 1
   }
-  return runCli(npm, ['adduser', '--registry', registryUrl]) ? 0 : 1
+  return runCli(npm, ['login', '--auth-type=legacy', '--registry', registryUrl]) ? 0 : 1
 }
 
 const isEntryPoint = process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))

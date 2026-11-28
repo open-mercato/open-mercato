@@ -56,7 +56,7 @@ test.describe('TC-ATTACH-XSS-005: Cross-tenant access to private attachment via 
 
       t2UserId = await createUserFixture(request, superadminToken, {
         email: t2UserEmail,
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId: t2OrgId,
         roles: [],
       })
@@ -74,7 +74,7 @@ test.describe('TC-ATTACH-XSS-005: Cross-tenant access to private attachment via 
       attachmentId = uploaded.id
 
       // T2 user's JWT carries T2's tenantId → em.findOne({ id, tenantId: T2 }) → null → 404.
-      const t2UserToken = await getAuthToken(request, t2UserEmail, 'Valid1!Pass')
+      const t2UserToken = await getAuthToken(request, t2UserEmail, 'QaValid1!Pass')
       const response = await request.fetch(
         `${BASE_URL}/api/attachments/image/${encodeURIComponent(attachmentId)}`,
         {

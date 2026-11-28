@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createDistributionFixture,
   createInvitationsFixture,
@@ -9,6 +11,25 @@ import {
   deleteFormIfExists,
   listInvitations,
 } from '@open-mercato/core/helpers/integration/formsFixtures'
+
+async function capturedInvitationMessages(recipient: string) {
+  const path = process.env.OM_TEST_EMAIL_CAPTURE_PATH?.trim() || join(process.cwd(), '.ai', 'qa', 'email-capture.jsonl')
+  let contents: string
+  try {
+    contents = await readFile(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
+    throw error
+  }
+  return contents.split('\n').filter(Boolean)
+    .map((line) => JSON.parse(line) as { to: string; links: string[]; text: string })
+    .filter((entry) => entry.to === recipient)
+    .map((entry) => ({
+      personalLinks: entry.links.filter((link) => new URL(link).pathname.startsWith('/i/')).length,
+      hasName: entry.text.includes('Recipient A'),
+      hasPlaceholder: entry.text.includes('{name}'),
+    }))
+}
 
 /**
  * TC-FORMS-INV-010: bulk invitation creation returns each raw token exactly once.
@@ -52,6 +73,12 @@ test.describe('TC-FORMS-INV-010: bulk invitation creation', () => {
 
       const created = await createInvitationsFixture(request, adminToken, distributionId, recipients)
       expect(created.length, 'one invitation per recipient').toBe(3)
+
+      const firstRecipient = recipients[0]
+      const personalMessage = { personalLinks: 1, hasName: true, hasPlaceholder: false }
+      const reminder = { personalLinks: 0, hasName: true, hasPlaceholder: false }
+      const readMessages = () => capturedInvitationMessages(firstRecipient.email)
+      await expect.poll(readMessages, { timeout: 30_000 }).toEqual([personalMessage])
 
       const rawTokens = created.map((invitation) => invitation.rawToken)
       for (const [index, invitation] of created.entries()) {
@@ -120,6 +147,14 @@ test.describe('TC-FORMS-INV-010: bulk invitation creation', () => {
       expect(names, 'the list decrypts and returns the recipient names').toEqual(
         recipients.map((recipient) => recipient.name).sort(),
       )
+
+      const firstInvitation = items.find((item) => item.recipientEmail === firstRecipient.email)
+      expect(firstInvitation?.id).toEqual(expect.any(String))
+      const resend = await apiRequest(request, 'POST', `/api/forms/distributions/${distributionId}/invitations/${firstInvitation!.id}/send`, {
+        token: adminToken, data: {},
+      })
+      expect(resend.status()).toBe(200)
+      await expect.poll(readMessages, { timeout: 30_000 }).toEqual([personalMessage, reminder])
     } finally {
       await deleteDistributionIfExists(request, adminToken, distributionId)
       await deleteFormIfExists(request, adminToken, formId)

@@ -118,7 +118,7 @@ describe('ResetWithTokenPage (staff password reset)', () => {
 
   it('blocks submission and surfaces a mismatch error when passwords do not match', async () => {
     const { getByLabelText, getByRole, findByText } = await renderReadyForm()
-    fillForm(getByLabelText, 'Password1!', 'Password2!')
+    fillForm(getByLabelText, 'TestPassword1!', 'TestPassword2!')
 
     await act(async () => {
       fireEvent.click(getByRole('button', { name: /update password/i }))
@@ -130,7 +130,7 @@ describe('ResetWithTokenPage (staff password reset)', () => {
 
   it('submits token + policy-compliant password to /api/auth/reset/confirm and redirects on success', async () => {
     const { getByLabelText, getByRole } = await renderReadyForm()
-    fillForm(getByLabelText, 'Password1!', 'Password1!')
+    fillForm(getByLabelText, 'TestPassword1!', 'TestPassword1!')
 
     await act(async () => {
       fireEvent.click(getByRole('button', { name: /update password/i }))
@@ -139,7 +139,7 @@ describe('ResetWithTokenPage (staff password reset)', () => {
     await waitFor(() => expect(confirmCalls()).toHaveLength(1))
     const [, options] = confirmCalls()[0]
     expect(options.method).toBe('POST')
-    expect(readFormData(options.body)).toMatchObject({ token: TOKEN, password: 'Password1!' })
+    expect(readFormData(options.body)).toMatchObject({ token: TOKEN, password: 'TestPassword1!' })
     await waitFor(() => expect(routerReplaceMock).toHaveBeenCalledWith('/login'))
   })
 })

@@ -87,6 +87,11 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/cache-provider-jsonfile/package.json ./packages/cache-provider-jsonfile/
+COPY packages/cache-provider-kit/package.json ./packages/cache-provider-kit/
+COPY packages/cache-provider-memory/package.json ./packages/cache-provider-memory/
+COPY packages/cache-provider-redis-legacy/package.json ./packages/cache-provider-redis-legacy/
+COPY packages/cache-provider-sqlite/package.json ./packages/cache-provider-sqlite/
 COPY packages/carrier-inpost/package.json ./packages/carrier-inpost/
 COPY packages/channel-apns/package.json ./packages/channel-apns/
 COPY packages/channel-discord/package.json ./packages/channel-discord/
@@ -212,6 +217,11 @@ COPY apps/docs/package.json ./apps/docs/
 COPY apps/mercato/package.json ./apps/mercato/
 COPY packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY packages/cache/package.json ./packages/cache/
+COPY packages/cache-provider-jsonfile/package.json ./packages/cache-provider-jsonfile/
+COPY packages/cache-provider-kit/package.json ./packages/cache-provider-kit/
+COPY packages/cache-provider-memory/package.json ./packages/cache-provider-memory/
+COPY packages/cache-provider-redis-legacy/package.json ./packages/cache-provider-redis-legacy/
+COPY packages/cache-provider-sqlite/package.json ./packages/cache-provider-sqlite/
 COPY packages/carrier-inpost/package.json ./packages/carrier-inpost/
 COPY packages/channel-apns/package.json ./packages/channel-apns/
 COPY packages/channel-discord/package.json ./packages/channel-discord/
@@ -316,6 +326,11 @@ COPY --from=dev-build /app/packages/shared/dist /opt/prebuilt/dist/shared
 COPY --from=dev-build /app/packages/ui/dist /opt/prebuilt/dist/ui
 COPY --from=dev-build /app/packages/cli/dist /opt/prebuilt/dist/cli
 COPY --from=dev-build /app/packages/cache/dist /opt/prebuilt/dist/cache
+COPY --from=dev-build /app/packages/cache-provider-jsonfile/dist /opt/prebuilt/dist/cache-provider-jsonfile
+COPY --from=dev-build /app/packages/cache-provider-kit/dist /opt/prebuilt/dist/cache-provider-kit
+COPY --from=dev-build /app/packages/cache-provider-memory/dist /opt/prebuilt/dist/cache-provider-memory
+COPY --from=dev-build /app/packages/cache-provider-redis-legacy/dist /opt/prebuilt/dist/cache-provider-redis-legacy
+COPY --from=dev-build /app/packages/cache-provider-sqlite/dist /opt/prebuilt/dist/cache-provider-sqlite
 COPY --from=dev-build /app/packages/content/dist /opt/prebuilt/dist/content
 COPY --from=dev-build /app/packages/checkout/dist /opt/prebuilt/dist/checkout
 COPY --from=dev-build /app/packages/events/dist /opt/prebuilt/dist/events
@@ -378,6 +393,11 @@ COPY --from=builder /app/.yarn ./.yarn
 COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
 COPY --from=builder /app/packages/ai-assistant/package.json ./packages/ai-assistant/
 COPY --from=builder /app/packages/cache/package.json ./packages/cache/
+COPY --from=builder /app/packages/cache-provider-jsonfile/package.json ./packages/cache-provider-jsonfile/
+COPY --from=builder /app/packages/cache-provider-kit/package.json ./packages/cache-provider-kit/
+COPY --from=builder /app/packages/cache-provider-memory/package.json ./packages/cache-provider-memory/
+COPY --from=builder /app/packages/cache-provider-redis-legacy/package.json ./packages/cache-provider-redis-legacy/
+COPY --from=builder /app/packages/cache-provider-sqlite/package.json ./packages/cache-provider-sqlite/
 COPY --from=builder /app/packages/carrier-inpost/package.json ./packages/carrier-inpost/
 COPY --from=builder /app/packages/channel-apns/package.json ./packages/channel-apns/
 COPY --from=builder /app/packages/channel-discord/package.json ./packages/channel-discord/

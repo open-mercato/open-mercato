@@ -73,11 +73,11 @@ export async function PATCH(request: Request, context: RouteParams) {
     const container = await createRequestContainer()
     const token = readCartToken(request)
 
-    const limited = await enforceCartRateLimit(container, request, 'mutate', token)
-    if (limited) return limited
-
     const resolved = await resolveRouteContextOrError(request, container)
     if (!resolved.ok) return resolved.response
+
+    const limited = await enforceCartRateLimit(container, request, 'mutate', token, resolved.routeContext.storeId)
+    if (limited) return limited
     if (!token) return notFoundCartResponse()
 
     const commandBus = container.resolve('commandBus') as CommandBus
@@ -176,11 +176,11 @@ export async function DELETE(request: Request, context: RouteParams) {
     const container = await createRequestContainer()
     const token = readCartToken(request)
 
-    const limited = await enforceCartRateLimit(container, request, 'mutate', token)
-    if (limited) return limited
-
     const resolved = await resolveRouteContextOrError(request, container)
     if (!resolved.ok) return resolved.response
+
+    const limited = await enforceCartRateLimit(container, request, 'mutate', token, resolved.routeContext.storeId)
+    if (limited) return limited
     if (!token) return notFoundCartResponse()
 
     const commandBus = container.resolve('commandBus') as CommandBus
