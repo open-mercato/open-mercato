@@ -5,9 +5,9 @@ on:
     types: [labeled, unlabeled]
 
 # Takes `merge-queue` off a pull request as soon as it carries a blocking label
-# (`qa-failed`, `changes-requested`, `blocked`, `do-not-merge`, or
-# `needs-human-qa` without `qa-approved`) and explains why in a one-line
-# comment. When anyone else removes `merge-queue` (a person or a skill), the run
+# (`qa-failed`, `changes-requested`, `blocked`, `do-not-merge`) and explains
+# why in a one-line comment. A missing `qa-approved` never blocks: QA runs on
+# the batch after merge. When anyone else removes `merge-queue` (a person or a skill), the run
 # only records who and when in its job summary and log; it never re-adds the
 # label and never comments. The rule lives in scripts/ci/merge-queue-guard.mts and is unit-tested
 # in scripts/__tests__/merge-queue-guard.test.ts, which also pins the safety
@@ -33,7 +33,7 @@ jobs:
   guard:
     if: >-
       ${{ !github.event.repository.fork &&
-      contains(fromJSON('["merge-queue","qa-failed","changes-requested","blocked","do-not-merge","needs-human-qa","qa-approved"]'), github.event.label.name) }}
+      contains(fromJSON('["merge-queue","qa-failed","changes-requested","blocked","do-not-merge"]'), github.event.label.name) }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
 

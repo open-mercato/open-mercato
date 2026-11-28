@@ -17,24 +17,22 @@ If this overview and policy differ, follow the policy and update the overview.
    publish the result. Follow `BACKWARD_COMPATIBILITY.md` for public surfaces.
 4. Complete applicable QA. The implementing run promotes its draft when complete;
    a ready PR is a request for review, not permission to merge.
-5. Merge only after current-head review, QA and CI gates pass. Release and
+5. Merge when the ready-to-merge rule holds on the current head (CI, approval, no
+   changes requested, no conflicts, Enterprise guard); QA follows on the batch. Release and
    deployment follow `CONTRIBUTING.md`; they are separate maintainer actions.
 
 ## Labels and ownership
 
 Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`,
-`qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. `merge-queue` means every
-gate holds on the current head; review approval routes there only then. A
-`needs-human-qa` PR without a current-head `qa-approved` keeps `review`, and
-`merge-queue-guard.yml` removes `merge-queue` from it. Only a QA reviewer
+`qa-failed`, `merge-queue`, `blocked`, `do-not-merge`. Review approval routes to
+`merge-queue`, which is optional routing and does not satisfy CI. Only a QA reviewer
 sets `qa` to indicate manual testing is underway.
 
 Every ready PR needs a category, one priority and one risk label, using the
 configuration's taxonomy. Priority measures urgency; risk measures blast radius.
-A `needs-human-qa` PR cannot merge without `qa-approved`; `needs-qa` asks for
-automatic QA and `qa-batch-check` for a check in the next daily batch, and neither
-blocks the merge. Never combine `skip-qa` with `needs-qa`, `needs-human-qa` or
-`qa-approved`. QA sign-off describes evidence and the tested head;
+`needs-qa` and `needs-human-qa` route a PR to QA on the next on-demand batch; they do not
+hold the merge, and a missing `qa-approved` never blocks it. Never combine `skip-qa` with
+`needs-qa`, `needs-human-qa` or `qa-approved`. QA sign-off describes evidence and the tested head;
 changed scope needs fresh verification. Self-QA follows the exception and evidence
 requirements in the PR workflow, including both approval and self-verification labels.
 
@@ -67,8 +65,7 @@ on an issue, the fixer copies the label to the implementation PR. The buddy owns
 every automated merge. `automerge-force` grants nothing alone: only together
 with `automerge-now` does it select the automation-only approval policy, and
 the buddy then posts a PR notice that human QA and the protected-area check were
-skipped. That pair never overrides this repository's QA-approval gate: a
-`needs-human-qa` PR still needs `qa-approved`. Removing either label restores the
+skipped. QA for every merged PR still happens on the batch. Removing either label restores the
 ordinary rules; `automerge-prepare` limits the buddy to preparation.
 
 `automerge-signal-3-passes-local-ci-checks` is the alternative CI signal: every
@@ -84,14 +81,16 @@ GitHub's branch rules enforced. Neither a replacement PR nor a fresh commit
 attests to a contributor's CLA: the CLA service must evaluate the new head.
 
 The configuration records the collection's default triage eligibility and QA
-gate keys explicitly. `qaGateLabel` is `needs-human-qa`; `qaReadyLabel` is unset.
-`humanQaPolicy` holds the triage rules and `qaBatch` the daily batch QA settings
-([PR workflow](.ai/docs/pr-workflow.md#daily-batch-qa)); `qaBatch.testers` lists
+gate keys explicitly. `qaGate` is `false` (QA runs on the batch, not before merge);
+`qaGateLabel` is `needs-human-qa`, the human-tester lane triage sets (it gates nothing while
+`qaGate` is `false`); `qaReadyLabel` is unset.
+`humanQaPolicy` holds the triage rules and `qaBatch` the batch QA settings
+([PR workflow](.ai/docs/pr-workflow.md#batch-qa)); `qaBatch.testers` lists
 the tester logins trusted to give a batch verdict or `--retest`.
 The `claim-reset`, `automerge-signal-*` and `automerge-blocked` labels are additive
 audit and queue markers. `claim-reset` is human-owned; automation only reads its
 audit history. A local-CI signal does not waive this repository's required host
-checks, independent review, QA gate or branch rules.
+checks, independent review or branch rules.
 
 Inspect workflow runs as well as individual checks. Pending workflows can exist
 before jobs appear; partial check lists cannot establish success. Report completed
