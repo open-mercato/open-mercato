@@ -1,3 +1,6 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { assertActorCanModifySuperAdminUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
@@ -49,6 +52,15 @@ export async function POST(req: Request, routeContext: { params: Promise<{ id: s
 
   try {
     await assertActorCanAccessSecurityUserTarget(context, parsedParams.data.id)
+    await assertActorCanModifySuperAdminUserTarget({
+      em: context.container.resolve<EntityManager>('em'),
+      rbacService: context.container.resolve<RbacService>('rbacService'),
+      requireBoundRbac: true,
+      actorUserId: context.auth.sub,
+      tenantId: context.auth.tenantId ?? null,
+      organizationId: context.auth.orgId ?? null,
+      targetUserId: parsedParams.data.id,
+    })
     await requireSudo(req, 'security.admin.mfa.reset')
     const commandBus = context.container.resolve<CommandBus>('commandBus')
     const { result } = await commandBus.execute('security.admin.mfa.reset', {

@@ -1,3 +1,7 @@
+jest.mock('@open-mercato/core/modules/auth/lib/grantChecks', () => ({
+  assertActorCanModifySuperAdminUserTarget: jest.fn().mockResolvedValue(undefined),
+}))
+
 import { NextResponse } from 'next/server'
 import { CrudHttpError, forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { GET } from '../[id]/mfa/status/route'
