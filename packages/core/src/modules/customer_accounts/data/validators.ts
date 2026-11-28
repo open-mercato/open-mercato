@@ -7,7 +7,7 @@ const displayNameField = z.string().min(1).max(255)
 
 export const signupSchema = z.object({
   email: emailField,
-  password: passwordField,
+  password: passwordField.optional(),
   displayName: displayNameField,
   tenantId: z.string().uuid().optional(),
   organizationId: z.string().uuid().optional(),
@@ -22,6 +22,7 @@ export const loginSchema = z.object({
 
 export const emailVerifySchema = z.object({
   token: z.string().min(1).max(512),
+  password: passwordField.optional(),
 })
 
 export const passwordResetRequestSchema = z.object({

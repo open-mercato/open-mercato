@@ -588,3 +588,7 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 ## MCP HTTP session token, no fallback (2026-11-14, #5173)
 
 STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
+## Portal signup credentials (2026-11-26, #10753)
+
+STABLE: verification replaces unverified signup credentials; retaining them preserves pre-registration takeover. Named v0.9 emergency-waiver acceptance is pending. [Client/operator migration](UPGRADE_NOTES.md#portal-signup-credentials-are-chosen-at-verification-9107-v09-backport-10753).
