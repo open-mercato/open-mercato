@@ -764,3 +764,7 @@ STABLE superadmin reset and invite email uses the instance provider. Tenant fall
 ## 2026-11-27 — Staff and organization boundaries (#10503, #10543)
 
 STABLE APIs §7 require organization grants and return `403` for explicitly empty scope. Grant scope and handle `403`. `PUT /api/auth/profile` requires current-password proof for email changes. Send proof and reauthenticate. ADDITIVE-ONLY schema §8 uses owner-unique partition codes. Rehome incompatible references. Bridging prior behavior retains unscoped access or unverified changes. [Migration and specs](UPGRADE_NOTES.md). Named waiver pending.
+
+## #10788 (2026-11-26)
+
+STABLE audit scope. Bridge leaks. Waived by @kmrosiek. [Guide](UPGRADE_NOTES.md#audit-log-scope-10788).

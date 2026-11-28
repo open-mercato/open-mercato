@@ -6,7 +6,7 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AccessLogService } from '@open-mercato/core/modules/audit_logs/services/accessLogService'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { loadAuditLogDisplayMaps } from '../display'
-import { requireResolvedTenantScope } from '../readScope'
+import { canViewTenantAuditLogs, requireResolvedTenantScope } from '../readScope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -17,10 +17,10 @@ export const metadata = {
 
 const auditAccessQuerySchema = z.object({
   organizationId: z.string().uuid().describe('Limit results to a specific organization').optional(),
-  actorUserId: z.string().uuid().describe('Filter by actor user id (tenant administrators only)').optional(),
+  actorUserId: z.string().uuid().describe('Filter by actor user id. Honored only for callers holding `audit_logs.view_tenant` for the organization being read.').optional(),
   actorScope: z
     .enum(['self', 'all'])
-    .describe('`self` (default) lists only the caller\'s own entries. `all` lists entries of every actor and is honored only for callers holding `audit_logs.view_tenant`; others silently keep `self`. Ignored when `actorUserId` is set.')
+    .describe('`self` (default) lists only the caller\'s own entries. `all` lists entries of every actor and is honored only for callers holding `audit_logs.view_tenant` for the organization being read (without `organizationId`: a grant not limited to particular organizations); others silently keep `self`. Ignored when `actorUserId` is set.')
     .optional(),
   resourceKind: z.string().describe('Restrict to a resource kind such as `order` or `product`').optional(),
   accessType: z.string().describe('Access type filter, e.g. `read` or `export`').optional(),
@@ -49,7 +49,7 @@ const auditAccessItemSchema = z.object({
 
 const auditAccessResponseSchema = z.object({
   items: z.array(auditAccessItemSchema),
-  canViewTenant: z.boolean(),
+  canViewTenant: z.boolean().describe('Whether the caller holds `audit_logs.view_tenant` for the organization this request read'),
   page: z.number().int(),
   pageSize: z.number().int(),
   total: z.number().int(),
@@ -108,11 +108,7 @@ export async function GET(req: Request) {
     }
   }
 
-  const canViewTenant = await rbac.userHasAllFeatures(
-    auth.sub,
-    ['audit_logs.view_tenant'],
-    { tenantId: auth.tenantId ?? null, organizationId: organizationId ?? null },
-  )
+  const canViewTenant = await canViewTenantAuditLogs({ rbac, auth, organizationId, requestedOrganizationId: queryOrgId })
 
   let actorUserId: string | undefined = auth.sub
   if (canViewTenant && actorQuery) {

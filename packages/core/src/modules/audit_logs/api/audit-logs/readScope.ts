@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
+import { z } from 'zod'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
 type ResolvedAuth = NonNullable<AuthContext>
 
@@ -25,4 +27,41 @@ function isSuperAdmin(auth: ResolvedAuth): boolean {
 export function requireResolvedTenantScope(auth: ResolvedAuth): NextResponse | null {
   if (auth.tenantId || isSuperAdmin(auth)) return null
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+}
+
+const VIEW_TENANT_FEATURES = ['audit_logs.view_tenant'] as const
+const organizationIdSchema = z.string().uuid()
+
+/**
+ * Decide whether the caller may read other actors' audit-log rows.
+ *
+ * `audit_logs.view_tenant` must hold for the organization the query actually reads, so the
+ * check runs against the organization left after `?organizationId=` narrowing, not the
+ * caller's default one. A read with no organization predicate covers every organization of
+ * the tenant, and a feature check without an organization is satisfied by a grant that is
+ * limited to some organizations. Such a read therefore widens actor visibility only for a
+ * grant that is not organization-restricted; otherwise the caller keeps its own rows.
+ *
+ * The `isSuperAdmin` flag on the auth context is not consulted: it is also set for a
+ * super-admin role that is limited to some organizations. A principal without a tenant has
+ * no organization grant to compare against and keeps the plain feature result.
+ *
+ * A request-supplied organization id that is not a UUID never reaches RBAC; the list schema
+ * rejects it.
+ */
+export async function canViewTenantAuditLogs(input: {
+  rbac: Pick<RbacService, 'userHasAllFeatures' | 'resolveFeatureOrganizationAccess'>
+  auth: ResolvedAuth
+  organizationId: string | null | undefined
+  requestedOrganizationId?: string | null
+}): Promise<boolean> {
+  const { rbac, auth } = input
+  const organizationId = input.organizationId ?? null
+  const tenantId = auth.tenantId ?? null
+  const fromRequest = organizationId !== null && organizationId === input.requestedOrganizationId
+  if (fromRequest && !organizationIdSchema.safeParse(organizationId).success) return false
+  const granted = await rbac.userHasAllFeatures(auth.sub, [...VIEW_TENANT_FEATURES], { tenantId, organizationId })
+  if (!granted || organizationId || !tenantId) return granted
+  const access = await rbac.resolveFeatureOrganizationAccess(auth.sub, VIEW_TENANT_FEATURES, { tenantId })
+  return access.unrestricted
 }

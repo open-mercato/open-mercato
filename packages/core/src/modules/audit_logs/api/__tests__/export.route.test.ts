@@ -6,7 +6,7 @@ import {
   redactCustomerAuditEntry,
 } from '@open-mercato/core/modules/customers/lib/auditRedaction'
 
-const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockRbac = { userHasAllFeatures: jest.fn(), resolveFeatureOrganizationAccess: jest.fn() }
 const mockActionLogs = { list: jest.fn() }
 const mockEm = {}
 // Mirrors the real DI registration in `customers/di.ts` against the generic
@@ -56,6 +56,7 @@ function makeRequest(url: string) {
 describe('GET /api/audit_logs/audit-logs/actions/export', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
+    mockRbac.resolveFeatureOrganizationAccess.mockResolvedValue({ unrestricted: true, filterOrganizationIds: () => [] })
     customersModuleEnabled = true
     const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({

@@ -9,7 +9,7 @@ import {
 import { registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
 import type { ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
 
-const mockRbac = { userHasAllFeatures: jest.fn(), getGrantedFeatures: jest.fn() }
+const mockRbac = { userHasAllFeatures: jest.fn(), getGrantedFeatures: jest.fn(), resolveFeatureOrganizationAccess: jest.fn() }
 const mockActionLogs = { list: jest.fn() }
 const mockEm = {}
 // Mirrors the real DI registration in `customers/di.ts` against the generic
@@ -85,6 +85,7 @@ function makeActionLogEntry(overrides: Record<string, unknown> = {}) {
 describe('GET /api/audit_logs/audit-logs/actions', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
+    mockRbac.resolveFeatureOrganizationAccess.mockResolvedValue({ unrestricted: true, filterOrganizationIds: () => [] })
     customersModuleEnabled = true
     delete (mockEm as Record<string, unknown>).find
     const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')

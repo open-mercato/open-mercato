@@ -18,6 +18,18 @@ When the model's answer does not match an object-mode agent's `output` schema, o
 
 Clients that treated this 500 as a server fault can retry on `structured_output_invalid`. The request contract and response fields are unchanged. No database migration or configuration change is required.
 
+## Audit-log scope (#10788)
+
+`GET /api/audit_logs/audit-logs/actions`, `/actions/export` and `/access` show rows of other actors only when the caller holds `audit_logs.view_tenant` for the organization the request reads. `actions` and `actions/export` used to check the caller's default organization and then read the one named in `?organizationId=`. A read without an organization covers the whole tenant, so it now needs a `view_tenant` grant that is not limited to particular organizations.
+
+A caller without that grant still gets `200` with its own rows, and `canViewTenant` is `false` in the list response. Status codes and response fields are unchanged, except that `access` now answers `400` instead of `500` for an `organizationId` that is not a UUID.
+
+Role grants cover an organization and its descendants. A user-level ACL or an organization-bound API key covers only the organizations it lists, so a parent organization's grant no longer shows other actors' rows of a child organization.
+
+Action for operators and integrators: a user or API key whose `view_tenant` role is limited to some organizations must name one of them in `?organizationId=` to list or export other actors' rows. To read every organization in one request, grant `audit_logs.view_tenant` through a role without an organization restriction. No database migration or configuration change is required.
+
+[Compatibility spec](.ai/specs/2026-07-28-audit-log-read-tenant-scope-fail-closed.md).
+
 ## An empty organization scope is stopped at the feature guard (#10503)
 
 A non-super-admin principal whose organization scope resolves to **no organization** is now denied

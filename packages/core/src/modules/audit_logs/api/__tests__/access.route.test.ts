@@ -2,7 +2,7 @@
 import { GET } from '@open-mercato/core/modules/audit_logs/api/audit-logs/access/route'
 import { accessLogListSchema } from '@open-mercato/core/modules/audit_logs/data/validators'
 
-const mockRbac = { userHasAllFeatures: jest.fn() }
+const mockRbac = { userHasAllFeatures: jest.fn(), resolveFeatureOrganizationAccess: jest.fn() }
 const mockAccess = { list: jest.fn() }
 const mockEm = {}
 
@@ -36,6 +36,7 @@ function makeRequest(url: string) {
 describe('GET /api/audit_logs/audit-logs/access', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
+    mockRbac.resolveFeatureOrganizationAccess.mockResolvedValue({ unrestricted: true, filterOrganizationIds: () => [] })
     const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
     ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
       organizationId: 'org-1',
