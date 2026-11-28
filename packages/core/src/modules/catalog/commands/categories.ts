@@ -95,9 +95,14 @@ const CATEGORY_CHANGE_KEYS = [
   'isActive',
 ] as const satisfies readonly string[]
 
+const lockedUpdateSnapshots = new WeakMap<{ categoryId: string }, CategorySnapshot>()
+
 async function loadCategorySnapshot(em: EntityManager, id: string): Promise<CategorySnapshot | null> {
   const record = await em.findOne(CatalogProductCategory, { id })
-  if (!record) return null
+  return record ? snapshotCategory(em, record) : null
+}
+
+async function snapshotCategory(em: EntityManager, record: CatalogProductCategory): Promise<CategorySnapshot> {
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product_category,
     recordId: record.id,
@@ -385,6 +390,8 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
     ensureTenantScope(ctx, tenantId)
     ensureOrganizationScope(ctx, organizationId)
 
+    const dataEngine = ctx.container.resolve<DataEngine>('dataEngine')
+    const result = { categoryId: parsed.id }
     let record!: CatalogProductCategory
     let previousParentId: string | null = null
     let previousDescendantIds: string[] = []
@@ -439,21 +446,27 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
           }
           await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
         },
+        async () => {
+          await setCustomFieldsIfAny({
+            dataEngine,
+            entityId: E.catalog.catalog_product_category,
+            recordId: record.id,
+            organizationId: record.organizationId,
+            tenantId: record.tenantId,
+            values: custom,
+            transactionalEm: em,
+          })
+        },
+        async () => {
+          result.categoryId = record.id
+          lockedUpdateSnapshots.set(result, await snapshotCategory(em, record))
+        },
       ],
       { transaction: true }
     )
-    await setCustomFieldsIfAny({
-      dataEngine: ctx.container.resolve('dataEngine'),
-      entityId: E.catalog.catalog_product_category,
-      recordId: record.id,
-      organizationId: record.organizationId,
-      tenantId: record.tenantId,
-      values: custom,
-    })
-    const de = ctx.container.resolve('dataEngine') as DataEngine
     const hierarchyChanged = (record.parentId ?? null) !== previousParentId
     await emitCrudSideEffects({
-      dataEngine: de,
+      dataEngine,
       action: 'updated',
       entity: record,
       identifiers: {
@@ -463,12 +476,9 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
       },
       events: hierarchyChanged ? categoryHierarchyChangeEvents(previousDescendantIds) : categoryCrudEvents,
     })
-    return { categoryId: record.id }
+    return result
   },
-  captureAfter: async (_input, result, ctx) => {
-    const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return loadCategorySnapshot(em, result.categoryId)
-  },
+  captureAfter: (_input, result) => lockedUpdateSnapshots.get(result),
   buildLog: async ({ snapshots }) => {
     const before = snapshots.before as CategorySnapshot | undefined
     const after = snapshots.after as CategorySnapshot | undefined
@@ -495,6 +505,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     ensureTenantScope(ctx, before.tenantId)
     ensureOrganizationScope(ctx, before.organizationId)
+    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
     let restoredRecord!: CatalogProductCategory
     let parentRestored = false
     await withAtomicFlush(
@@ -547,20 +558,21 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
           if (parentRestored) await assertCategoryParentKeepsTreeAcyclic(em, restoredRecord, REPLAY_CYCLE_ERROR)
           await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
         },
+        async () => {
+          if (!Object.keys(resetValues).length) return
+          await setCustomFieldsIfAny({
+            dataEngine: ctx.container.resolve('dataEngine'),
+            entityId: E.catalog.catalog_product_category,
+            recordId: before.id,
+            organizationId: before.organizationId,
+            tenantId: before.tenantId,
+            values: resetValues,
+            transactionalEm: em,
+          })
+        },
       ],
       { transaction: true }
     )
-    const resetValues = buildCustomFieldResetMap(before.custom ?? undefined, payload?.after?.custom ?? undefined)
-    if (Object.keys(resetValues).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
-        entityId: E.catalog.catalog_product_category,
-        recordId: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        values: resetValues,
-      })
-    }
     if ((before.parentId ?? null) !== (payload?.after?.parentId ?? null)) {
       await emitCrudUndoSideEffects({
         dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
@@ -622,23 +634,22 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
         async () => {
           await rebuildCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
         },
+        async () => {
+          const { snapshot } = deletion
+          if (!snapshot?.custom) return
+          await setCustomFieldsIfAny({
+            dataEngine: ctx.container.resolve('dataEngine'),
+            entityId: E.catalog.catalog_product_category,
+            recordId: snapshot.id,
+            organizationId: snapshot.organizationId,
+            tenantId: snapshot.tenantId,
+            values: buildCustomFieldResetMap(snapshot.custom, undefined),
+            transactionalEm: em,
+          })
+        },
       ],
       { transaction: true }
     )
-    const { snapshot } = deletion
-    if (snapshot?.custom && Object.keys(snapshot.custom).length) {
-      const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
-      if (Object.keys(resetValues).length) {
-        await setCustomFieldsIfAny({
-          dataEngine: ctx.container.resolve('dataEngine'),
-          entityId: E.catalog.catalog_product_category,
-          recordId: snapshot.id,
-          organizationId: snapshot.organizationId,
-          tenantId: snapshot.tenantId,
-          values: resetValues,
-        })
-      }
-    }
     const de = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
       dataEngine: de,
@@ -724,19 +735,21 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
         async () => {
           await rebuildCategoryHierarchyForOrganization(em, before.organizationId, before.tenantId)
         },
+        async () => {
+          if (!before.custom || !Object.keys(before.custom).length) return
+          await setCustomFieldsIfAny({
+            dataEngine: ctx.container.resolve('dataEngine'),
+            entityId: E.catalog.catalog_product_category,
+            recordId: before.id,
+            organizationId: before.organizationId,
+            tenantId: before.tenantId,
+            values: before.custom,
+            transactionalEm: em,
+          })
+        },
       ],
       { transaction: true }
     )
-    if (before.custom && Object.keys(before.custom).length) {
-      await setCustomFieldsIfAny({
-        dataEngine: ctx.container.resolve('dataEngine'),
-        entityId: E.catalog.catalog_product_category,
-        recordId: before.id,
-        organizationId: before.organizationId,
-        tenantId: before.tenantId,
-        values: before.custom,
-      })
-    }
     await emitCrudUndoSideEffects({
       dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
       action: 'updated',

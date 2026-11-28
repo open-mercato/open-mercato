@@ -117,7 +117,7 @@ describe('catalog.categories.update undo custom fields', () => {
 
   it('writes the pre-update custom field values back', async () => {
     const undo = loadUpdateUndo()
-    const { ctx, record, dataEngine } = buildCtx()
+    const { ctx, record, dataEngine, em } = buildCtx()
 
     await undo({
       logEntry: buildLogEntry(
@@ -136,6 +136,7 @@ describe('catalog.categories.update undo custom fields', () => {
       organizationId: ORG,
       tenantId: TENANT,
       values: { season: 'winter', channels: ['web', 'store'] },
+      transactionalEm: em,
     })
   })
 
@@ -184,7 +185,7 @@ describe('catalog.categories.update undo custom fields', () => {
 
   it('propagates a failed custom field write to the caller', async () => {
     const undo = loadUpdateUndo()
-    const { ctx } = buildCtx()
+    const { ctx, em } = buildCtx()
     setCustomFieldsIfAny.mockRejectedValueOnce(new Error('custom field validation failed'))
 
     await expect(
@@ -194,6 +195,8 @@ describe('catalog.categories.update undo custom fields', () => {
       }),
     ).rejects.toThrow('custom field validation failed')
     expect(setCustomFieldsIfAny).toHaveBeenCalledTimes(1)
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(em.commit).not.toHaveBeenCalled()
   })
 
   it('skips the custom field write when neither snapshot carries custom values', async () => {

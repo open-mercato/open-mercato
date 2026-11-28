@@ -6,6 +6,11 @@ import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { StartedTestContainer } from 'testcontainers'
 import { CommandBus, commandRegistry } from '@open-mercato/shared/lib/commands'
+import { loadCustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { CustomFieldDef, CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
+import { setRecordCustomFields } from '@open-mercato/core/modules/entities/lib/helpers'
+import { E } from '#generated/entities.ids.generated'
 import { CatalogProductCategory } from '../../data/entities'
 import { lockCategoryHierarchyForOrganization, rebuildCategoryHierarchyForOrganization } from '../../lib/categoryHierarchy'
 import '../categories'
@@ -14,11 +19,6 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn().mockResolvedValue({
     translate: (key: string, fallback?: string) => fallback ?? key,
   }),
-}))
-
-jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
-  ...jest.requireActual('@open-mercato/shared/lib/commands/customFieldSnapshots'),
-  loadCustomFieldSnapshot: jest.fn().mockResolvedValue({}),
 }))
 
 async function waitForLockWaiters(em: EntityManager, expected: number): Promise<number> {
@@ -56,7 +56,7 @@ describeWithPostgres('catalog category hierarchy serialization', () => {
       dbName: 'category_lock_test',
       user: 'postgres',
       password,
-      entities: [CatalogProductCategory],
+      entities: [CatalogProductCategory, CustomFieldDef, CustomFieldValue],
       pool: { min: 0, max: 6 },
     })
     await orm.schema.create()
@@ -184,4 +184,78 @@ describeWithPostgres('catalog category hierarchy serialization', () => {
     expect(restored).toMatchObject({ name: 'Category', parentId: parent.id, deletedAt: null })
   }, 30_000)
 
+  it.each(['update', 'delete'] as const)('undo of a waiting %s keeps the preceding custom-field edit', async (operation) => {
+    const scope = { tenantId: randomUUID(), organizationId: randomUUID() }
+    const em = orm.em.fork()
+    const category = em.create(CatalogProductCategory, { ...scope, name: 'Category' })
+    const entityId = E.catalog.catalog_product_category
+    em.create(CustomFieldDef, { ...scope, entityId, key: 'marker', kind: 'text', isActive: true })
+    await em.flush()
+    const fieldScope = { ...scope, entityId, recordId: category.id }
+    await setRecordCustomFields(em, { ...fieldScope, values: { marker: 'initial' } })
+
+    const reachedFieldWrite = Promise.withResolvers<void>()
+    const allowFieldWrite = Promise.withResolvers<void>()
+    const actionLogService = {
+      log: jest.fn(async (entry: Record<string, unknown>) => ({ ...entry, id: randomUUID() })),
+    }
+    const firstActionLogService = {
+      log: jest.fn(async (entry: Record<string, unknown>) => ({ ...entry, id: randomUUID() })),
+    }
+    const dataEngine = {
+      markOrmEntityChange: jest.fn(),
+      setCustomFields: async ({ transactionalEm, ...opts }: Parameters<DataEngine['setCustomFields']>[0]) => {
+        if (opts.values.marker === 'first edit') {
+          reachedFieldWrite.resolve()
+          await allowFieldWrite.promise
+        }
+        await setRecordCustomFields(transactionalEm ?? em, opts)
+      },
+    }
+    const dependencies: Record<string, unknown> = { em, actionLogService, dataEngine }
+    const ctx = {
+      container: { resolve: (token: string) => dependencies[token] } as unknown as AwilixContainer,
+      auth: { sub: randomUUID(), tenantId: scope.tenantId, orgId: scope.organizationId },
+      organizationScope: null,
+      selectedOrganizationId: scope.organizationId,
+      organizationIds: [scope.organizationId],
+    }
+    const bus = new CommandBus()
+    const firstInput = { id: category.id, cf_marker: 'first edit' }
+    const firstCtx = {
+      ...ctx,
+      container: {
+        resolve: (token: string) => token === 'actionLogService' ? firstActionLogService : dependencies[token],
+      } as unknown as AwilixContainer,
+    }
+    const firstWrite = Promise.allSettled([bus.execute('catalog.categories.update', {
+      input: firstInput, ctx: firstCtx, skipCacheInvalidation: true,
+    })])
+    const input = operation === 'update' ? { id: category.id, name: 'Renamed' } : { id: category.id }
+    let waiters = 0
+    let secondWrite: Promise<PromiseSettledResult<unknown>[]> | undefined
+    try {
+      const reached = await Promise.race([reachedFieldWrite.promise.then(() => true), firstWrite.then(() => false)])
+      expect(reached).toBe(true)
+      secondWrite = Promise.allSettled([bus.execute(`catalog.categories.${operation}`, {
+        input, ctx, skipCacheInvalidation: true,
+      })])
+      waiters = await waitForLockWaiters(em, 1)
+    } finally {
+      allowFieldWrite.resolve()
+    }
+    expect(await firstWrite).toEqual([expect.objectContaining({ status: 'fulfilled' })])
+    expect(await secondWrite).toEqual([expect.objectContaining({ status: 'fulfilled' })])
+
+    const firstLog = await firstActionLogService.log.mock.results[0]?.value
+    const secondLog = await actionLogService.log.mock.results[0]?.value
+    const handler = commandRegistry.get(`catalog.categories.${operation}`)
+    if (!handler?.undo || !secondLog) throw new Error('[internal] Category undo or log is missing')
+    await handler.undo({ input, ctx, logEntry: secondLog })
+
+    expect(await loadCustomFieldSnapshot(orm.em.fork(), fieldScope)).toEqual({ marker: 'first edit' })
+    expect(secondLog.snapshotBefore).toMatchObject({ custom: { marker: 'first edit' } })
+    expect(firstLog?.snapshotAfter).toMatchObject({ custom: { marker: 'first edit' } })
+    expect(waiters).toBe(1)
+  }, 30_000)
 })

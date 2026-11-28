@@ -3,6 +3,11 @@
 export {}
 
 const registerCommand = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/commands/customFieldSnapshots', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/commands/customFieldSnapshots'),
+  loadCustomFieldSnapshot: jest.fn().mockResolvedValue({}),
+}))
 const rebuildCategoryHierarchyForOrganization = jest.fn(async () => undefined)
 
 jest.mock('@open-mercato/shared/lib/commands', () => ({
@@ -56,6 +61,8 @@ type CategoryRow = {
   description: string | null
   parentId: string | null
   isActive: boolean
+  createdAt: Date
+  updatedAt: Date
   deletedAt: Date | null
 }
 
@@ -84,6 +91,8 @@ function row(id: string, parentId: string | null): CategoryRow {
     description: null,
     parentId,
     isActive: true,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
     deletedAt: null,
   }
 }

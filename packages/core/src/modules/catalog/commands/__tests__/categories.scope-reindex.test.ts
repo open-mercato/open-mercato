@@ -65,6 +65,8 @@ function buildRecord(overrides: Record<string, unknown> = {}) {
     childIds: [CHILD],
     descendantIds: [CHILD],
     isActive: true,
+    createdAt: new Date('2026-01-01T00:00:00Z'),
+    updatedAt: new Date('2026-01-01T00:00:00Z'),
     deletedAt: null,
     ...overrides,
   }
