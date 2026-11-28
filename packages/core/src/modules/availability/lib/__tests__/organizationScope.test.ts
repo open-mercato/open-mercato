@@ -117,6 +117,21 @@ describe('scopeAvailabilityPolicyWriteInput', () => {
     ).resolves.toMatchObject({ organizationId: SELECTED_ORG, tenantId: TENANT_ID, productId: 'p' })
   })
 
+  it('keeps an explicit organization when the resolved scope authorizes it', async () => {
+    const ctx: ScopedContext = {
+      ...ctxFor(SELECTED_ORG, SELECTED_ORG),
+      organizationScope: {
+        tenantId: TENANT_ID,
+        selectedId: SELECTED_ORG,
+        filterIds: [SELECTED_ORG],
+        allowedIds: [SELECTED_ORG, OTHER_ORG],
+      },
+    }
+    await expect(
+      scopeAvailabilityPolicyWriteInput({ organizationId: OTHER_ORG, tenantId: TENANT_ID }, ctx),
+    ).resolves.toMatchObject({ organizationId: OTHER_ORG })
+  })
+
   it('rejects an explicit organization outside the actor scope', async () => {
     await expect(
       scopeAvailabilityPolicyWriteInput({ organizationId: OTHER_ORG, tenantId: TENANT_ID }, ctxFor(SELECTED_ORG, SELECTED_ORG)),

@@ -1,5 +1,7 @@
 /** @jest-environment node */
 
+import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+
 const mockFindWithDecryption = jest.fn()
 let capturedCrudOptions: Record<string, any> | null = null
 
@@ -19,13 +21,39 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn((...args: unknown[]) => mockFindWithDecryption(...args)),
 }))
 
-describe('customers people route afterList hook', () => {
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (key: string, fallback?: string) => fallback ?? key }),
+}))
+
+describe('customers people route', () => {
   beforeAll(async () => {
     await import('../route')
   })
 
   beforeEach(() => {
     mockFindWithDecryption.mockReset()
+  })
+
+  it('keeps the record-not-found response for a denied update scope', async () => {
+    const tenantId = '11111111-1111-4111-8111-111111111111'
+    const organizationId = '22222222-2222-4222-8222-222222222222'
+    const ctx: CrudCtx = {
+      container: {} as CrudCtx['container'],
+      auth: { sub: 'actor-1', tenantId, orgId: organizationId },
+      selectedOrganizationId: organizationId,
+      organizationScope: { tenantId, selectedId: organizationId, allowedIds: [organizationId], filterIds: [organizationId] },
+      organizationIds: [organizationId],
+    }
+    const raw = {
+      id: '33333333-3333-4333-8333-333333333333',
+      organizationId: '44444444-4444-4444-8444-444444444444',
+    }
+
+    await expect(capturedCrudOptions?.actions.update.mapInput({ raw, ctx })).rejects.toMatchObject({
+      status: 404,
+      body: { error: 'Person not found' },
+    })
+    expect(mockFindWithDecryption).not.toHaveBeenCalled()
   })
 
   it('overlays decrypted customer entity fields onto raw list rows', async () => {

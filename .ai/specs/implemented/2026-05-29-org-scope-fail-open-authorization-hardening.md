@@ -190,6 +190,12 @@ None. (Q3-a: no feature flag; ship fail-closed.)
 - The follow-up empty-scope propagation keeps every public signature and response shape intact: `null`/`undefined` remains unrestricted, a genuinely absent resolved scope retains the home-organization fallback, and an explicit `[]` now consistently means deny-all.
 - The cross-request organization-scope cache namespace changes from `org-scope:` to `org-scope:v2:` (including user and tenant tags). Existing positive-TTL entries may remain in the cache backend until normal expiry, but the application no longer reads them; no operator cache flush or data migration is required.
 
+### Migration & Backward Compatibility
+
+The scoped payload helpers now authorize explicit organization targets (#10338). Sales numbering also validates the tenant and evaluates both permissions in the target scope. The emergency security exception is proposed for this STABLE behavior because a bridge would retain the unauthorized operation. Named human maintainer acknowledgement remains pending.
+
+Clients should omit the override for the current organization or supply an authorized target. Custom routes should supply trusted request scope and retain their downstream command guards. Record updates with a masked not-found contract can supply `organizationForbiddenError` to preserve that response. Operators should review organization and sales numbering grants used by integrations. See [client and operator migration instructions](../../../UPGRADE_NOTES.md#scoped-api-organization-authorization-10338).
+
 ### Follow-up issues (out of scope for this change)
 1. **Pattern C user-route scope population** — migrate `customers/api/people/[id]/companies[/[linkId]]/route.ts` and `sales/api/quotes/accept/route.ts` (and any other user-facing Pattern C command routes) to populate a real `organizationScope` from `resolveOrganizationScopeForRequest`, so they too benefit from the `allowedIds` check rather than relying solely on `selectedOrganizationId`.
 2. **Defense-in-depth WHERE-clause scoping (Q2-b, deferred)** — scope single-record command/detail loads (`em.findOne({ id })`, `findOneWithDecryption`) by `tenantId` (and ideally the allowed-org set) in the SQL `WHERE` so cross-org rows are never selected/decrypted before the guard runs.
@@ -442,6 +448,7 @@ Built reusable fixture infrastructure:
 
 ## Changelog
 ### 2026-11-25
+- Applied organization authorization to explicit scoped API payload targets. Sales document numbering verifies tenant membership and checks permissions in the target organization before allocation (#10338). The dispatcher integration in `TC-SALES-7877` now covers disallowed organizations, target-specific Sales grants, cross-tenant denial even for an unrestricted actor, and the persisted sequence before and after each request.
 - Closed the `record_locks` indirect-fallback follow-up (#10448): the shared record-lock API context helper denies an explicitly empty organization scope with `403`, with unit and integration coverage.
 
 ### 2026-11-23

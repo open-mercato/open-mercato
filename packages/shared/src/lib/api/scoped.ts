@@ -1,5 +1,5 @@
 import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
@@ -28,6 +28,7 @@ export type ScopedPayloadOptions = {
   requireOrganization?: boolean
   maskOrganizationDenial?: boolean
   messages?: ScopedPayloadMessages
+  organizationForbiddenError?: () => CrudHttpError
 }
 
 const DEFAULT_MESSAGES: Required<ScopedPayloadMessages> = {
@@ -67,32 +68,33 @@ export function withScopedPayload<T extends Record<string, unknown>>(
   // converges on, so the check holds regardless of body size or dispatcher-level route flags.
   enforceActorTenant(tenantId, ctx, translate, options)
 
-  const requestedOrg = (source as { organizationId?: string })?.organizationId
-  if (typeof requestedOrg === 'string' && requestedOrg && ctx.auth) {
-    try {
-      if (!authIsSuperAdmin(ctx.auth)
-        && !ctx.organizationScope
-        && !(ctx.selectedOrganizationId ?? ctx.auth.orgId)) {
-        throw new CrudHttpError(403, { error: translate('api.errors.forbidden', 'Forbidden') })
-      }
-      ensureOrganizationScope(ctx, requestedOrg)
-    } catch (error) {
-      if (options.maskOrganizationDenial && error instanceof CrudHttpError && error.status === 403) {
-        throw new CrudHttpError(404, { error: translate('api.errors.notFound', 'Not found') })
-      }
-      throw error
-    }
+  const requestedOrg = (source as { organizationId?: unknown }).organizationId
+  if (requestedOrg != null && typeof requestedOrg !== 'string') {
+    throw new CrudHttpError(400, { error: translate('errors.invalid_input', 'Invalid input') })
   }
-
-  const resolvedOrg =
-    requestedOrg ??
-    ctx.selectedOrganizationId ??
-    ctx.auth?.orgId ??
-    null
+  const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  const resolvedOrg = requestedOrg ?? currentOrg
 
   if (requireOrganization && !resolvedOrg) {
     const msg = resolveMessage(options.messages, 'organizationRequired')
     throw new CrudHttpError(400, { error: translate(msg.key, msg.fallback) })
+  }
+
+  if (requestedOrg) {
+    try {
+      if ((ctx.auth || ctx.request) && !ctx.organizationScope && !currentOrg && !authIsSuperAdmin(ctx.auth)) {
+        throw new CrudHttpError(403, { error: translate('api.errors.forbidden', 'Forbidden') })
+      }
+      ensureOrganizationScope(ctx, requestedOrg)
+    } catch (error) {
+      if (isCrudHttpError(error) && error.status === 403) {
+        if (options.organizationForbiddenError) throw options.organizationForbiddenError()
+        if (options.maskOrganizationDenial) {
+          throw new CrudHttpError(404, { error: translate('api.errors.notFound', 'Not found') })
+        }
+      }
+      throw error
+    }
   }
 
   const scoped = {

@@ -16,7 +16,7 @@ import {
   type PipelineDeleteInput,
 } from '../../data/validators'
 import { withScopedPayload } from '../utils'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import {
@@ -174,7 +174,9 @@ export async function PUT(req: Request) {
       return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
     const body = await req.json().catch(() => ({}))
-    const scoped = withScopedPayload(body, ctx, translate)
+    const scoped = withScopedPayload(body, ctx, translate, {
+      organizationForbiddenError: () => notFound('Pipeline not found'),
+    })
     const input = pipelineUpdateSchema.parse(scoped)
 
     const guardResult = await validateCrudMutationGuard(ctx.container, {
@@ -246,7 +248,9 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
     const body = await req.json().catch(() => ({}))
-    const scoped = withScopedPayload(body, ctx, translate)
+    const scoped = withScopedPayload(body, ctx, translate, {
+      organizationForbiddenError: () => notFound('Pipeline not found'),
+    })
     const input = pipelineDeleteSchema.parse(scoped)
 
     const guardResult = await validateCrudMutationGuard(ctx.container, {

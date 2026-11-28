@@ -81,13 +81,15 @@ describe.each(routes)('$name create route scope', ({ commandId, fields, schema }
   it.each([
     { tenantId },
     { organizationId: explicitOrganizationId },
-  ])('preserves explicit IDs within the actor scope: %j', async (explicitScope) => {
-    const ctx = createContext()
-    ctx.organizationScope = {
-      tenantId,
-      selectedId: selectedOrganizationId,
-      filterIds: [selectedOrganizationId],
-      allowedIds: [selectedOrganizationId, explicitOrganizationId],
+  ])('preserves authorized explicit scope IDs: %j', async (explicitScope) => {
+    const ctx: CrudCtx = {
+      ...createContext(),
+      organizationScope: {
+        tenantId,
+        selectedId: selectedOrganizationId,
+        allowedIds: [selectedOrganizationId, explicitOrganizationId],
+        filterIds: [selectedOrganizationId],
+      },
     }
     const input = await mapCreateInput({ ...fields, ...explicitScope }, ctx)
     expect(input).toEqual({ ...fields, tenantId, organizationId: selectedOrganizationId, ...explicitScope })

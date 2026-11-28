@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerAddress } from '../../data/entities'
 import { addressCreateSchema, addressUpdateSchema } from '../../data/validators'
 import { E } from '#generated/entities.ids.generated'
@@ -98,7 +98,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return addressUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        return addressUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate, {
+          organizationForbiddenError: () => notFound('Address not found'),
+        }))
       },
       response: () => ({ ok: true }),
     },
