@@ -59,6 +59,10 @@ export type CustomerTodoRow = {
   todoDueAt?: string | null
   todoTimezone?: string | null
   todoCustomValues?: Record<string, unknown> | null
+  /** Auth user id of the team member the task is assigned to (`ownerUserId`). */
+  todoOwnerUserId?: string | null
+  /** Display label for that assignee: the user's name, else their e-mail. */
+  todoOwnerName?: string | null
   todoOrganizationId: string | null
   todoUpdatedAt?: string | null
   organizationId: string
@@ -673,6 +677,10 @@ export function mapInteractionRecordToTodoRow(
     todoDueAt: interaction.scheduledAt ?? null,
     todoTimezone: interaction.timezone ?? null,
     todoCustomValues: Object.keys(customValues).length > 0 ? customValues : null,
+    todoOwnerUserId: interaction.ownerUserId ?? null,
+    todoOwnerName: interaction.ownerUserId
+      ? interaction.ownerName ?? interaction.ownerEmail ?? null
+      : null,
     todoOrganizationId: interaction.organizationId ?? null,
     todoUpdatedAt: interaction.updatedAt ?? null,
     organizationId: interaction.organizationId ?? '',

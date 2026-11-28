@@ -49,20 +49,28 @@ export async function requireInteractionUsersInScope(
   }
 }
 
+/**
+ * Loads the profiles of the users an interaction points at: its author and, when set,
+ * its owner (the task assignee). Keyed by `interactionUserKey`.
+ */
 export async function loadInteractionAuthors(
   em: EntityManager,
-  references: Array<InteractionUserScope & { authorUserId?: string | null }>,
+  references: Array<InteractionUserScope & InteractionUserReferences>,
 ): Promise<Map<string, AuthorProfile>> {
   const groups = new Map<string, { tenantId: string; organizationId: string; userIds: Set<string> }>()
   for (const reference of references) {
-    if (!reference.tenantId || !reference.organizationId || !reference.authorUserId) continue
+    if (!reference.tenantId || !reference.organizationId) continue
+    const userIds = [reference.authorUserId, reference.ownerUserId].filter(
+      (value): value is string => typeof value === 'string' && value.length > 0,
+    )
+    if (userIds.length === 0) continue
     const key = interactionUserKey(reference, '')
     let group = groups.get(key)
     if (!group) {
       group = { tenantId: reference.tenantId, organizationId: reference.organizationId, userIds: new Set() }
       groups.set(key, group)
     }
-    group.userIds.add(reference.authorUserId)
+    for (const userId of userIds) group.userIds.add(userId)
   }
   const profiles = new Map<string, AuthorProfile>()
   await Promise.all(Array.from(groups.values(), async ({ tenantId, organizationId, userIds }) => {

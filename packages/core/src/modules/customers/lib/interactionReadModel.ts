@@ -188,6 +188,8 @@ export async function hydrateCanonicalInteractions({
       updatedAt: interaction.updatedAt.toISOString(),
       authorName: interaction.authorUserId ? userMap.get(interactionUserKey(interaction, interaction.authorUserId))?.name ?? null : null,
       authorEmail: interaction.authorUserId ? userMap.get(interactionUserKey(interaction, interaction.authorUserId))?.email ?? null : null,
+      ownerName: interaction.ownerUserId ? userMap.get(interactionUserKey(interaction, interaction.ownerUserId))?.name ?? null : null,
+      ownerEmail: interaction.ownerUserId ? userMap.get(interactionUserKey(interaction, interaction.ownerUserId))?.email ?? null : null,
       dealTitle: interaction.dealId ? dealMap.get(interaction.dealId) ?? null : null,
       customValues: normalizeInteractionCustomValues(customFieldValues[interaction.id]),
     }

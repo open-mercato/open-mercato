@@ -10,6 +10,8 @@ export const EXAMPLE_TODO_SOURCE = 'example:todo'
 export type InteractionRecord = InteractionSummary & {
   authorName?: string | null
   authorEmail?: string | null
+  ownerName?: string | null
+  ownerEmail?: string | null
   dealTitle?: string | null
   customValues?: Record<string, unknown> | null
   _integrations?: Record<string, unknown>
