@@ -98,7 +98,7 @@ describe('Akeneo first import sequence', () => {
   it.each([
     { name: 'before the worker starts', enabledChecks: [false], expectedRuns: 0 },
     { name: 'between steps', enabledChecks: [true, false], expectedRuns: 1 },
-  ])('fails the queued sequence when disabled $name', async ({ enabledChecks, expectedRuns }) => {
+  ])('stops the queued sequence without a retry when disabled $name', async ({ enabledChecks, expectedRuns }) => {
     const { container, progressService, syncRunService, integrationStateService } = buildHarness()
     for (const enabled of enabledChecks) {
       integrationStateService.isEnabled.mockResolvedValueOnce(enabled)
@@ -111,7 +111,7 @@ describe('Akeneo first import sequence', () => {
     await expect(handleFirstImport(
       { id: 'queue-job-1', createdAt: new Date(0).toISOString(), payload: { progressJobId, scope } },
       { jobId: 'queue-job-1', attemptNumber: 1, queueName: AKENEO_FIRST_IMPORT_QUEUE, resolve: container.resolve },
-    )).rejects.toThrow(disabledMessage)
+    )).resolves.toBeUndefined()
 
     expect(integrationStateService.isEnabled).toHaveBeenLastCalledWith('sync_akeneo', scope)
     expect(syncRunService.findRunningOverlap).toHaveBeenCalledTimes(expectedRuns)

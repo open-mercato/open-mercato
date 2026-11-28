@@ -162,7 +162,12 @@ export async function runAkeneoFirstImportSequence(params: {
   for (const [stepIndex, entityType] of FIRST_IMPORT_STEPS.entries()) {
     if (!(await integrationStateService.isEnabled('sync_akeneo', scope))) {
       const { t } = await resolveTranslations()
-      throw new Error(t('sync_akeneo.firstImport.integrationDisabled'))
+      await progressService.failJob(
+        progressJobId,
+        { errorMessage: t('sync_akeneo.firstImport.integrationDisabled') },
+        progressContext,
+      )
+      return
     }
 
     const overlap = await syncRunService.findRunningOverlap('sync_akeneo', entityType, 'import', scope)
