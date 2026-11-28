@@ -32,6 +32,10 @@ Head f7b8cc176b passed hosted run 46089946143, including all 15 integration shar
 
 Continuation validation passed all eight configured commands in order: package build, generation, package rebuild, translation sync, translation usage, typecheck, full tests (51/51 Turbo tasks; create-app 1,316 passing tests and four existing skips), and production app build. Runner: local. The test command took 861 seconds and the app build took 260 seconds. No implementation changes were needed after f7b8cc176b; final-head hosted CI remains a publication gate after the remaining tracking updates.
 
+Final independent review task 06b7a9b5-9e9a-4673-ad88-06adfed36a10 approved f7b8cc176b and reviewed the continuation's documentation-only delta through e99f4e2509, with no actionable findings. Its own full ordered gate passed (tests 51/51 tasks, 750 seconds; app build 201 seconds). Temporary mutation controls proved the repaired lock test rejects two owners and the harness regression rejects the old undersized cap. The parent verified the report and logs and reran forms tests in Pacific/Auckland (6/6) and the backup-lock suite (5/5). The reviewer made no tracked changes, so there was no child diff to merge.
+
+The independent verdict is published on PR #10995. GitHub refused a formal author-App self-approval; no host review or merge requirement is waived. With all workflows on f7b8cc176b successful, the guarded automerge label was applied. The final tracking-only commit must also finish the full hosted suite before the continuation reports completion and releases its claim. This final publication check does not change the reviewed implementation.
+
 ## Risks
 The current main integration run is unfinished, so additional failures may emerge. Full CI may take over an hour. Draft PRs cannot run CI in this repository; initial draft will be marked ready to validate. Initial local unit gate failed because Turbo strict mode stripped TMPDIR=/tmp, exposing tsx Unix socket path length limits in the cockpit temporary directory. Retry uses TURBO_ENV_MODE=loose with TMPDIR=/tmp. Record any further environmental blockers; retain full hosted CI as a requirement.
 
@@ -49,4 +53,4 @@ PR: #10995
 ### Phase 2: Validation and handoff
 
 - [x] 2.1 Run configured local validation and full PR CI; fix failures until green. — f7b8cc176b; hosted run 46089946143 and fresh local gate on continuation f28cd74420
-- [ ] 2.2 Obtain one final independent review, resolve findings, and label the green PR automerge.
+- [x] 2.2 Obtain one final independent review, resolve findings, and label the green PR automerge. — f7b8cc176b; independent review 06b7a9b5-9e9a-4673-ad88-06adfed36a10, no findings; guarded label applied after exact-head CI succeeded
