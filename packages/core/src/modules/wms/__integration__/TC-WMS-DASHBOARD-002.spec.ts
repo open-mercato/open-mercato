@@ -174,7 +174,7 @@ test.describe('TC-WMS-DASHBOARD-002 expiring-soon KPI counts past the lot fetch 
             referenceId: randomUUID(),
             performedBy: scope.userId,
           },
-        })
+        }).catch(() => undefined)
       }
       await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/lots', stockedLotId)
       for (let start = 0; start < stocklessLotIds.length; start += CREATE_BATCH_SIZE) {

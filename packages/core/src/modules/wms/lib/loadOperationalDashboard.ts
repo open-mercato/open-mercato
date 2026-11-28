@@ -617,6 +617,8 @@ async function loadExpiringSoonLotCount(
     from wms_inventory_lots l
     join wms_inventory_balances b
       on b.lot_id = l.id
+     and b.organization_id = l.organization_id
+     and b.tenant_id = l.tenant_id
      and b.deleted_at is null
      and (
        coalesce(b.quantity_on_hand, 0)

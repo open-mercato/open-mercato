@@ -565,6 +565,8 @@ describe('loadOperationalDashboard helpers', () => {
     )
     const countCall = execute.mock.calls.find((call) => isExpiringSoonCountSql(String(call[0])))
     expect(String(countCall?.[0])).toContain('quantity_allocated')
+    expect(String(countCall?.[0])).toContain('b.organization_id = l.organization_id')
+    expect(String(countCall?.[0])).toContain('b.tenant_id = l.tenant_id')
     expect(countCall?.[1]).toEqual([
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
