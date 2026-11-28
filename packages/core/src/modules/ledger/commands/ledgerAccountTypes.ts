@@ -7,14 +7,18 @@ import { emitCrudSideEffects, parseWithCustomFields } from '@open-mercato/shared
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
-import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
-import { E } from '#generated/entities.ids.generated'
 import { JournalEntryLine, LedgerAccount, LedgerAccountGroup, LedgerAccountType } from '../data/entities'
 import { accountNumberFitsType, checkTypeNumber, isPolishGroup, planAccountRenumber } from '../lib/accountNumbering'
-import { ledgerAccountCrudEvents, ledgerAccountCrudIndexer } from '../lib/ledgerAccountCrud'
+import {
+  LEDGER_ACCOUNT_TYPE_ENTITY_ID,
+  ledgerAccountCrudEvents,
+  ledgerAccountCrudIndexer,
+  ledgerAccountTypeCrudEvents,
+  ledgerAccountTypeCrudIndexer,
+} from '../lib/ledgerAccountCrud'
 import {
   ledgerAccountTypeCreateSchema,
   ledgerAccountTypeUpdateSchema,
@@ -24,24 +28,7 @@ import {
   type LedgerAccountTypeDeleteInput,
 } from '../data/validators'
 
-const LEDGER_ACCOUNT_TYPE_ENTITY_ID = 'ledger:ledger_account_type'
-
 type Scope = { organizationId: string; tenantId: string }
-
-const ledgerAccountTypeCrudEvents: CrudEventsConfig<LedgerAccountType> = {
-  module: 'ledger',
-  entity: 'ledger_account_type',
-  persistent: true,
-  buildPayload: (ctx) => ({
-    id: ctx.identifiers.id,
-    organizationId: ctx.identifiers.organizationId,
-    tenantId: ctx.identifiers.tenantId,
-  }),
-}
-
-const ledgerAccountTypeCrudIndexer: CrudIndexerConfig<LedgerAccountType> = {
-  entityType: E.ledger.ledger_account_type,
-}
 
 /**
  * Whether any `LedgerAccount` of `accountTypeId` has a posted

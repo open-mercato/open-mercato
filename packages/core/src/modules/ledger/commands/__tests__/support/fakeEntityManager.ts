@@ -11,6 +11,8 @@
 // their own single command file's narrower surface.
 export {}
 
+import { randomUUID } from 'crypto'
+
 type FakeRecord = Record<string, unknown>
 type WhereCondition = Record<string, unknown>
 
@@ -27,6 +29,7 @@ function matchesWhere(record: FakeRecord, where: WhereCondition): boolean {
     if (typeof condition === 'object') {
       const c = condition as Record<string, unknown>
       if ('$in' in c) return (c.$in as unknown[]).includes(value)
+      if ('$nin' in c) return !(c.$nin as unknown[]).includes(value)
       if ('$ne' in c) return value !== c.$ne
       let ok = true
       if ('$lte' in c) ok = ok && toTime(value) <= toTime(c.$lte)
@@ -116,7 +119,9 @@ export function buildFakeEm(opts: { throwOnNextFlush?: unknown } = {}): FakeEm {
       return tableFor(entityClass).filter((record) => matchesWhere(record, where)).length
     }),
     create: jest.fn((entityClass: { name: string }, payload: FakeRecord) => {
-      const record = { ...payload }
+      // Ledger ids default to `gen_random_uuid()` in the database when the
+      // caller omits them (`seedPolishAccountGroups` does); mirror that here.
+      const record = payload.id === undefined ? { id: randomUUID(), ...payload } : { ...payload }
       tableFor(entityClass).push(record)
       return record
     }),
