@@ -5,6 +5,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getOverrides } from '../../lib/queries'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import {
   runCrudMutationGuardAfterSuccess,
@@ -78,7 +79,7 @@ export async function PUT(req: Request) {
   try {
     const { ctx } = await buildContext(req)
 
-    const parsed = changeOverrideStateBaseSchema.safeParse(await req.json())
+    const parsed = changeOverrideStateBaseSchema.safeParse(await readJsonSafe(req))
     if (!parsed.success) {
       return NextResponse.json({ error: 'Invalid payload', details: parsed.error.flatten() }, { status: 400 })
     }
