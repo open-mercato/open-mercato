@@ -133,6 +133,19 @@ describe('fetchAssignableStaffMembersPage', () => {
     expect(requestedUrl).not.toContain('scopeToActiveOrganization')
   })
 
+  it.each([403, 404, 500])('keeps an enabled staff lookup in place and surfaces HTTP %i', async (status) => {
+    readApiResultOrThrowMock.mockRejectedValueOnce(httpError(status))
+    const signal = new AbortController().signal
+
+    await expect(fetchAssignableStaffMembers('Ada', { staffOnly: true, signal })).rejects.toMatchObject({ status })
+
+    expect(readApiResultOrThrowMock).toHaveBeenCalledWith(
+      '/api/staff/team-members/assignable?page=1&pageSize=24&search=Ada',
+      { signal, headers: { 'x-om-forbidden-redirect': '0' } },
+    )
+    expect(apiCallMock).not.toHaveBeenCalled()
+  })
+
   it('returns an empty page when staff is missing and auth users returns 403', async () => {
     readApiResultOrThrowMock.mockRejectedValueOnce(httpError(404))
     apiCallMock.mockResolvedValueOnce({

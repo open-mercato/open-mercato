@@ -1,5 +1,6 @@
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
-import { fetchAssignableStaffMembers } from '../../detail/assignableStaff'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { fetchAssignableStaffMembers } from '../../../lib/assignableStaff'
 
 export type RelatedEntityKind = 'person' | 'company'
 
@@ -48,13 +49,14 @@ export async function searchRelatedEntities(
   kind: RelatedEntityKind,
   query: string,
   signal: AbortSignal,
+  headers?: HeadersInit,
 ): Promise<RelatedEntityOption[]> {
   const params = new URLSearchParams({ page: '1', pageSize: '20', sortField: 'name', sortDir: 'asc' })
   if (query.length) params.set('search', query)
   const endpoint = kind === 'person'
     ? `/api/customers/people?${params.toString()}`
     : `/api/customers/companies?${params.toString()}`
-  const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(endpoint, { signal })
+  const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(endpoint, headers ? { signal, headers } : { signal })
   const items = Array.isArray(data?.items) ? data.items : []
   return items
     .map((item) => (item && typeof item === 'object' ? extractRelatedEntityOption(item, kind) : null))
@@ -127,35 +129,44 @@ export async function fetchDealById(dealId: string, signal: AbortSignal): Promis
 export async function searchPeopleOptions(
   query: string,
   options: { includeCustomers: boolean; includeStaff?: boolean; signal: AbortSignal; activeOrgId?: string | null },
-): Promise<PersonOption[]> {
-  // Staff lookup is optional twice over: skipped when the staff module is not
-  // loaded (includeStaff === false) and non-fatal when the endpoint errors, so
-  // the people picker always degrades to customer-only options (#3552).
-  const [staff, customers] = await Promise.all([
+): Promise<{ options: PersonOption[]; staffLoadFailed: boolean; customerLoadFailed: boolean }> {
+  const [staff, customers] = await Promise.allSettled([
     options.includeStaff === false
-      ? Promise.resolve<Awaited<ReturnType<typeof fetchAssignableStaffMembers>>>([])
+      ? []
       : fetchAssignableStaffMembers(query, {
           pageSize: 10,
           activeOrgId: options.activeOrgId,
           signal: options.signal,
-        }).catch(() => []),
+          staffOnly: true,
+        }),
     options.includeCustomers
-      ? searchRelatedEntities('person', query, options.signal)
-      : Promise.resolve<RelatedEntityOption[]>([]),
+      ? searchRelatedEntities('person', query, options.signal, { 'x-om-forbidden-redirect': '0' })
+      : [],
   ])
-  const staffOptions: PersonOption[] = staff.map((member) => ({
+  options.signal.throwIfAborted()
+  if (staff.status === 'rejected') {
+    getTelemetryRuntime()?.reportError(staff.reason, { module: 'customers', code: 'customers.calendar_staff_lookup_failed' })
+  }
+  if (customers.status === 'rejected') {
+    getTelemetryRuntime()?.reportError(customers.reason, { module: 'customers', code: 'customers.calendar_people_lookup_failed' })
+  }
+  const staffOptions: PersonOption[] = (staff.status === 'fulfilled' ? staff.value : []).map((member) => ({
     userId: member.userId,
     name: member.displayName,
     email: member.email,
     isCustomer: false,
   }))
-  const customerOptions: PersonOption[] = customers.map((person) => ({
+  const customerOptions: PersonOption[] = (customers.status === 'fulfilled' ? customers.value : []).map((person) => ({
     userId: person.id,
     name: person.label,
     email: person.subtitle,
     isCustomer: true,
   }))
-  return [...staffOptions, ...customerOptions]
+  return {
+    options: [...staffOptions, ...customerOptions],
+    staffLoadFailed: staff.status === 'rejected',
+    customerLoadFailed: customers.status === 'rejected',
+  }
 }
 
 export type ResourceOption = {
