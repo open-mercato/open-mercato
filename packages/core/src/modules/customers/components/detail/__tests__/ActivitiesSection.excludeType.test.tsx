@@ -6,7 +6,7 @@
  * overrides it and `null` disables the exclusion entirely.
  */
 import * as React from 'react'
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ActivitiesSection } from '../ActivitiesSection'
 
 let mockCanDeleteActivity = true
@@ -65,9 +65,27 @@ describe('ActivitiesSection excludeInteractionType', () => {
     expect(params.get('excludeInteractionType')).toBe('note')
   })
 
-  it('hides nothing when the prop is null', async () => {
-    renderSection(null)
+  it.each([null, ''])('disables exclusion when the prop is %p', async (excludeInteractionType) => {
+    renderSection(excludeInteractionType)
     const params = await interactionsRequest()
-    expect(params.get('excludeInteractionType')).toBeNull()
+    expect(params.has('excludeInteractionType')).toBe(false)
+  })
+
+  it('lifts the exclusion while the configured type filter is active', async () => {
+    renderSection('note')
+    expect((await interactionsRequest()).get('excludeInteractionType')).toBe('note')
+    const chip = screen.getByRole('button', { name: /^note$/i })
+
+    requestedUrls.length = 0
+    fireEvent.click(chip)
+    const filteredParams = await interactionsRequest()
+    expect(filteredParams.get('type')).toBe('note')
+    expect(filteredParams.has('excludeInteractionType')).toBe(false)
+
+    requestedUrls.length = 0
+    fireEvent.click(chip)
+    const resetParams = await interactionsRequest()
+    expect(resetParams.has('type')).toBe(false)
+    expect(resetParams.get('excludeInteractionType')).toBe('note')
   })
 })

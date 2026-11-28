@@ -52,7 +52,7 @@ export type ActivitiesSectionProps = {
   onEditActivity?: (activity: InteractionSummary) => void
   /** Hides the row write actions for a user who cannot manage interactions. */
   readOnly?: boolean
-  /** Interaction type hidden from the timeline by default ('task' unless overridden); pass null to show every type. */
+  /** Interaction type hidden from the timeline by default ('task'). Pass null or an empty string to disable the exclusion. */
   excludeInteractionType?: string | null
   /** Sends the search term and a sort choice to the interactions API, shows the sort control and surfaces failed interaction loads as an error with retry. Callers that omit it keep the local filter over loaded rows. */
   serverHistoryControls?: boolean
@@ -247,7 +247,6 @@ export function ActivitiesSection({
     setLoading(true)
     try {
       // Always fetch canonical interactions (new activities are always created here)
-      const excludedFilterActive = excludeInteractionType ? filterTypes.includes(excludeInteractionType) : true
       const canonicalParams = new URLSearchParams({
         entityId,
         limit: '50',
@@ -258,7 +257,9 @@ export function ActivitiesSection({
       // from the activity timeline, but lift the exclusion when the user
       // explicitly toggled that type's chip on (mirrors
       // `ActivityHistorySection.tsx` after the #1805 fix).
-      if (excludeInteractionType && !excludedFilterActive) canonicalParams.set('excludeInteractionType', excludeInteractionType)
+      if (excludeInteractionType && !filterTypes.includes(excludeInteractionType)) {
+        canonicalParams.set('excludeInteractionType', excludeInteractionType)
+      }
       if (dealId) canonicalParams.set('dealId', dealId)
       if (filterTypes.length > 0) canonicalParams.set('type', filterTypes.join(','))
       if (filterDateFrom) canonicalParams.set('from', filterDateFrom)
