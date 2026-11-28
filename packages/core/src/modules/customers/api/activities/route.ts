@@ -23,6 +23,7 @@ import { createCustomersCrudOpenApi, createPagedListResponseSchema, defaultOkRes
 import {
   mapInteractionRecordToActivitySummary,
   CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+  LEGACY_ACTIVITY_WRITE,
 } from '../../lib/interactionCompatibility'
 import { withOperationMetadata } from '../../lib/operationMetadata'
 import { resolveCustomerInteractionFeatureFlags } from '../../lib/interactionFeatureFlags'
@@ -586,6 +587,7 @@ export async function POST(request: Request): Promise<Response> {
       return withAdapterHeaders(NextResponse.json(guardResult.body, { status: guardResult.status }))
     }
     const commandBus = container.resolve('commandBus') as CommandBus
+    const adapterContext = { ...commandContext, [LEGACY_ACTIVITY_WRITE]: true }
     const { result, logEntry } = await commandBus.execute('customers.interactions.create', {
       input: {
         tenantId: auth.tenantId,
@@ -604,7 +606,7 @@ export async function POST(request: Request): Promise<Response> {
         customFields: (parsed as Record<string, unknown>).customFields,
         customValues: (parsed as Record<string, unknown>).customValues,
       },
-      ctx: commandContext,
+      ctx: adapterContext,
     })
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
@@ -683,6 +685,7 @@ export async function PUT(request: Request): Promise<Response> {
       ? parsed.id
       : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
 
+    const adapterContext = { ...commandContext, [LEGACY_ACTIVITY_WRITE]: true }
     const { logEntry } = await commandBus.execute('customers.interactions.update', {
       input: {
         id: interactionId,
@@ -698,7 +701,7 @@ export async function PUT(request: Request): Promise<Response> {
         customFields: (parsed as Record<string, unknown>).customFields,
         customValues: (parsed as Record<string, unknown>).customValues,
       },
-      ctx: commandContext,
+      ctx: adapterContext,
     })
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {
@@ -769,9 +772,10 @@ export async function DELETE(request: Request): Promise<Response> {
     const interactionId = flags.unified
       ? parsed.id
       : await resolveCanonicalActivityTargetId(em, commandBus, commandContext, parsed.id, auth.tenantId)
+    const adapterContext = { ...commandContext, [LEGACY_ACTIVITY_WRITE]: true }
     const { logEntry } = await commandBus.execute('customers.interactions.delete', {
       input: { id: interactionId },
-      ctx: commandContext,
+      ctx: adapterContext,
     })
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(container, {

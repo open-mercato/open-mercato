@@ -43,13 +43,20 @@ jest.mock('../../lib/conversationShares', () => ({
   listSharedChannelIds: jest.fn(async () => []),
 }))
 
-import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+jest.mock('../../lib/interactionRequestContext', () => ({
+  resolveCustomersRequestContext: jest.fn(),
+}))
+
+import { CommandBus, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { CustomerEntity, CustomerInteraction } from '../../data/entities'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { listGrantsForViewerOnPerson, listSharedChannelIds } from '../../lib/conversationShares'
+import { CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE, LEGACY_ACTIVITY_WRITE } from '../../lib/interactionCompatibility'
+import { resolveCustomersRequestContext } from '../../lib/interactionRequestContext'
+import { DELETE, PUT } from '../../api/activities/route'
 import '../interactions'
 import '../activities'
 
@@ -61,6 +68,7 @@ const AUTHOR_ID = '55555555-5555-4555-8555-555555555555'
 const VIEWER_ID = '66666666-6666-4666-8666-666666666666'
 const OTHER_PERSON_ID = '77777777-7777-4777-8777-777777777777'
 const CHANNEL_ID = '88888888-8888-4888-8888-888888888888'
+const OTHER_ORGANIZATION_ID = '99999999-9999-4999-8999-999999999999'
 
 type TestEntityManager = {
   findOne: (entity: unknown, filters: Record<string, unknown>) => Promise<unknown>
@@ -129,6 +137,8 @@ function createHarness(interaction = createInteraction(), authOverrides: Record<
     fork: (): TestEntityManager => em,
   }
   const emitEvent = jest.fn(async () => undefined)
+  const userHasAllFeatures = jest.fn(async () => false)
+  const commandBus = new CommandBus()
   const dataEngine = { setCustomFields: jest.fn(async () => undefined) }
   const ctx = {
     auth: authOverrides === null ? null : {
@@ -146,11 +156,14 @@ function createHarness(interaction = createInteraction(), authOverrides: Record<
         if (token === 'dataEngine') return dataEngine
         if (token === 'eventBus') return { emitEvent }
         if (token === 'organizationHierarchyService') return { resolveAncestorIds: async () => [] }
+        if (token === 'rbacService') return { userHasAllFeatures }
+        if (token === 'commandBus') return commandBus
+        if (token === 'crudMutationGuardService' || token === 'featureTogglesService') return null
         throw new Error(`[internal] Unexpected dependency: ${token}`)
       },
     },
   } as unknown as CommandRuntimeContext
-  return { interaction, em, ctx, emitEvent }
+  return { interaction, em, ctx, emitEvent, userHasAllFeatures }
 }
 
 function handler(operation: string): CommandHandler {
@@ -161,6 +174,25 @@ function handler(operation: string): CommandHandler {
 
 function updateInput(changes: Record<string, unknown>): Record<string, unknown> {
   return { id: INTERACTION_ID, ...changes }
+}
+
+function writeLegacyActivity(method: 'PUT' | 'DELETE', ctx: CommandRuntimeContext): Promise<Response> {
+  const auth = ctx.auth
+  if (!auth?.tenantId) throw new Error('[internal] Legacy activity test requires an authenticated tenant')
+  const request = new Request('http://localhost/api/customers/activities', {
+    method,
+    body: JSON.stringify({ id: INTERACTION_ID }),
+  })
+  jest.mocked(resolveCustomersRequestContext).mockResolvedValueOnce({
+    container: ctx.container,
+    auth: { ...auth, tenantId: auth.tenantId },
+    em: ctx.container.resolve('em'),
+    scope: ctx.organizationScope,
+    selectedOrganizationId: ctx.selectedOrganizationId,
+    organizationIds: ctx.organizationIds,
+    commandContext: { ...ctx, request },
+  })
+  return (method === 'PUT' ? PUT : DELETE)(request)
 }
 
 function historicalSnapshot(interaction: CustomerInteraction, overrides: Record<string, unknown> = {}) {
@@ -179,6 +211,75 @@ beforeEach(() => {
   jest.clearAllMocks()
   jest.mocked(listGrantsForViewerOnPerson).mockResolvedValue([])
   jest.mocked(listSharedChannelIds).mockResolvedValue([])
+})
+
+describe('legacy activity command authorization', () => {
+  it.each(['PUT', 'DELETE'] as const)('requires canonical permission for %s on a canonical record', async (method) => {
+    const { ctx, em, userHasAllFeatures } = createHarness(createInteraction({ interactionType: 'note' }))
+
+    const response = await writeLegacyActivity(method, ctx)
+
+    expect(response.status).toBe(403)
+    expect(response.headers.get('Deprecation')).toBe('true')
+    expect(userHasAllFeatures).toHaveBeenCalledWith(VIEWER_ID, ['customers.interactions.manage'], {
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+    })
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it.each(['PUT', 'DELETE'] as const)('allows legacy callers to use %s on a bridged activity', async (method) => {
+    const { ctx, em, userHasAllFeatures } = createHarness(createInteraction({
+      interactionType: 'note',
+      source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+    }))
+
+    expect((await writeLegacyActivity(method, ctx)).status).toBe(200)
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalled()
+  })
+
+  it('keeps a bridged activity in another organization outside the write scope', async () => {
+    const { ctx, em, userHasAllFeatures } = createHarness(createInteraction({
+      interactionType: 'note',
+      organizationId: OTHER_ORGANIZATION_ID,
+      source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+    }))
+
+    expect((await writeLegacyActivity('PUT', ctx)).status).toBe(403)
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('preserves edits to historical tasks created as legacy activities', async () => {
+    const { ctx, userHasAllFeatures } = createHarness(createInteraction({
+      interactionType: 'task',
+      source: CUSTOMER_INTERACTION_ACTIVITY_ADAPTER_SOURCE,
+    }))
+    const adapterContext = { ...ctx, [LEGACY_ACTIVITY_WRITE]: true }
+
+    await expect(handler('interactions.update').execute({ id: INTERACTION_ID, title: 'Updated task' }, adapterContext))
+      .resolves.toEqual({ interactionId: INTERACTION_ID })
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
+  })
+
+  it('honors canonical permission in the stored organization for a visible interaction', async () => {
+    const { ctx, userHasAllFeatures } = createHarness(createInteraction({ interactionType: 'note' }))
+    userHasAllFeatures.mockResolvedValue(true)
+    const adapterContext = { ...ctx, [LEGACY_ACTIVITY_WRITE]: true }
+
+    await expect(handler('interactions.update').execute({ id: INTERACTION_ID }, adapterContext))
+      .resolves.toEqual({ interactionId: INTERACTION_ID })
+  })
+
+  it('keeps a private email hidden from the legacy route', async () => {
+    const { ctx, userHasAllFeatures } = createHarness()
+    const adapterContext = { ...ctx, [LEGACY_ACTIVITY_WRITE]: true }
+
+    await expect(handler('interactions.update').execute({ id: INTERACTION_ID }, adapterContext))
+      .rejects.toMatchObject({ status: 404 })
+    expect(userHasAllFeatures).not.toHaveBeenCalled()
+  })
 })
 
 describe('private email command authorization', () => {

@@ -228,6 +228,8 @@ Legacy tables:
 
 #### `POST/PUT/DELETE /api/customers/activities`
 - Translate payloads to interaction commands.
+- Require `customers.activities.manage` at the route. The stored `adapter:activity` source identifies legacy-compatible activities, including historical backfill and writes from authorized compatibility producers. Updating or deleting any other visible interaction also requires `customers.interactions.manage` in the record's organization.
+- Creates and activity type changes accept the built-in non-task activity types and custom types configured in the record's organization or inherited from its ancestors. Existing bridged activities keep their historical type during ordinary edits. Create tasks or change an interaction's type to task through the task or interaction endpoints.
 - No writes to `customer_activities` table.
 - Response includes deprecation headers (`Deprecation`, `Sunset`) and migration docs link.
 
@@ -602,6 +604,9 @@ Large tenants may face expensive initial recompute. Mitigation: batch recompute 
 - **Fully compliant**: Approved for implementation planning.
 
 ## Changelog
+### 2026-11-21
+- Enforce canonical interaction permissions on compatibility activity writes (#9158). Preserve writes to legacy activities and restrict newly selected activity types to the legacy activity catalog.
+
 ### 2026-10-29
 - Preserve verified historical authors during legacy activity promotion and unchanged update references, with focused command and HTTP regressions. New assignments still require live same-tenant users.
 
