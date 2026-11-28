@@ -365,9 +365,10 @@ const createCategoryCommand: CommandHandler<CategoryCreateInput, { categoryId: s
 
 const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: string }> = {
   id: 'catalog.categories.update',
+  prepareSnapshotInsideTransaction: true,
   async prepare(input, ctx) {
     const id = requireId(input, 'Category id is required')
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadCategorySnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -401,6 +402,7 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
           )
           if (!current) throw new CrudHttpError(404, { error: 'Catalog category not found' })
           record = current
+          await ctx.beforeTransactionalWrite?.(em, input)
           previousParentId = record.parentId ?? null
           previousDescendantIds = readDescendantIds(record.descendantIds)
 
@@ -577,9 +579,10 @@ const updateCategoryCommand: CommandHandler<CategoryUpdateInput, { categoryId: s
 
 const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: string }> = {
   id: 'catalog.categories.delete',
+  prepareSnapshotInsideTransaction: true,
   async prepare(input, ctx) {
     const id = requireId(input, 'Category id is required')
-    const em = ctx.container.resolve('em') as EntityManager
+    const em = ctx.transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
     const snapshot = await loadCategorySnapshot(em, id)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
@@ -590,18 +593,29 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
   async execute(input, ctx) {
     const id = requireId(input, 'Category id is required')
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(CatalogProductCategory, { id, deletedAt: null })
-    if (!record) throw new CrudHttpError(404, { error: 'Catalog category not found' })
-    ensureTenantScope(ctx, record.tenantId)
-    ensureOrganizationScope(ctx, record.organizationId)
-    const baseEm = ctx.container.resolve('em') as EntityManager
-    const snapshot = await loadCategorySnapshot(baseEm, id)
+    const target = await findOneWithDecryption(em, CatalogProductCategory, { id, deletedAt: null })
+    if (!target) throw new CrudHttpError(404, { error: 'Catalog category not found' })
+    const { organizationId, tenantId } = target
+    ensureTenantScope(ctx, tenantId)
+    ensureOrganizationScope(ctx, organizationId)
+    let record!: CatalogProductCategory
+    const deletion = { snapshot: null as CategorySnapshot | null }
 
     await withAtomicFlush(
       em,
       [
         async () => {
-          await lockCategoryHierarchyForOrganization(em, record.organizationId, record.tenantId)
+          await lockCategoryHierarchyForOrganization(em, organizationId, tenantId)
+          const current = await findOneWithDecryption(
+            em,
+            CatalogProductCategory,
+            { id, organizationId, tenantId, deletedAt: null },
+            { refresh: true },
+          )
+          if (!current) throw new CrudHttpError(404, { error: 'Catalog category not found' })
+          record = current
+          await ctx.beforeTransactionalWrite?.(em, input)
+          deletion.snapshot = await loadCategorySnapshot(em, id)
           record.deletedAt = new Date()
           record.isActive = false
         },
@@ -611,6 +625,7 @@ const deleteCategoryCommand: CommandHandler<{ id?: string }, { categoryId: strin
       ],
       { transaction: true }
     )
+    const { snapshot } = deletion
     if (snapshot?.custom && Object.keys(snapshot.custom).length) {
       const resetValues = buildCustomFieldResetMap(snapshot.custom, undefined)
       if (Object.keys(resetValues).length) {

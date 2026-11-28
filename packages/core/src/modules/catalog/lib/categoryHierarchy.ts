@@ -209,7 +209,7 @@ export async function lockCategoryHierarchyForOrganization(
   tenantId: string,
 ): Promise<void> {
   await em.execute('select pg_advisory_xact_lock(hashtextextended(?, 0))', [
-    `catalog:category-hierarchy:${tenantId}:${organizationId}`,
+    `catalog:category-hierarchy:${tenantId.toLowerCase()}:${organizationId.toLowerCase()}`,
   ])
 }
 
