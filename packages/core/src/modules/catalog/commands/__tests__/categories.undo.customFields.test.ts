@@ -70,6 +70,7 @@ function buildCtx(callerOrgId: string = ORG) {
     deletedAt: null,
   }
   const em: Record<string, unknown> = {
+    execute: jest.fn(async () => undefined),
     findOne: jest.fn().mockResolvedValue(record),
     find: jest.fn().mockResolvedValue([]),
     create: jest.fn(),

@@ -1,10 +1,11 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CatalogProductCategory } from '../data/entities'
 import type { CategoryBulkCreateRow } from '../data/validators'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
-import { rebuildCategoryHierarchyForOrganization } from './categoryHierarchy'
+import { lockCategoryHierarchyForOrganization, rebuildCategoryHierarchyForOrganization } from './categoryHierarchy'
 import {
   MAX_CHECKPOINTED_FAILURES,
   buildFirstRowIndexByKey,
@@ -344,6 +345,11 @@ export async function createCatalogCategoriesWithProgress(params: {
     // same `em` the pre-validation queries above already read through, same as every other read
     // in this function — the per-row commands each fork their own, so this one never accumulates
     // their identity-map entries.
-    await rebuildCategoryHierarchyForOrganization(em, scope.organizationId, scope.tenantId)
+    await withAtomicFlush(em, [
+      async () => {
+        await lockCategoryHierarchyForOrganization(em, scope.organizationId, scope.tenantId)
+        await rebuildCategoryHierarchyForOrganization(em, scope.organizationId, scope.tenantId)
+      },
+    ], { transaction: true })
   }
 }

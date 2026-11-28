@@ -98,6 +98,7 @@ function matches(candidate: CategoryRow, filter: Record<string, unknown>): boole
 
 function buildCtx(rows: CategoryRow[]) {
   const em: Record<string, unknown> = {
+    execute: jest.fn(async () => undefined),
     findOne: jest.fn(async (_entity: unknown, filter: Record<string, unknown>) =>
       rows.find((candidate) => matches(candidate, filter)) ?? null,
     ),

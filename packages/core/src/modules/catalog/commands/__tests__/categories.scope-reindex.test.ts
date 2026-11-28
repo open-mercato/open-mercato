@@ -72,6 +72,7 @@ function buildRecord(overrides: Record<string, unknown> = {}) {
 
 function buildEm(record: Record<string, unknown>) {
   const em: Record<string, unknown> = {
+    execute: jest.fn(async () => undefined),
     findOne: jest.fn(async (_entity: unknown, where: { id?: string }) => {
       if (where?.id === CATEGORY_ID) return record
       if (where?.id === NEW_PARENT || where?.id === OLD_PARENT) return { id: where.id }
