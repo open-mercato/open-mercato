@@ -624,14 +624,15 @@ export async function reconcileInventoryForUpdatedOrder(
 
   const commandBus = ctx.resolve<CommandBus>('commandBus')
   const commandCtx = buildCommandContext(ctx, scope)
-  // Trim each over-reserved reservation down to exactly what the order still
-  // needs instead of releasing it in full and re-reserving the remainder:
-  // a full release would drop the still-needed stock for the moment between
-  // the release and the replacement reservation, during which another order
-  // (or a picker allocating this very reservation) could take it. Passing
-  // `rejectIfAllocated` makes the release command recheck allocation state
-  // under the same lock it takes on the reservation row, so a reservation
-  // that gets allocated in that window is left alone rather than released.
+  /**
+   * Trim each over-reserved reservation down to exactly what the order still needs instead
+   * of releasing it in full and re-reserving the remainder: a full release would drop the
+   * still-needed stock for the moment between the release and the replacement reservation,
+   * during which another order (or a picker allocating this very reservation) could take it.
+   * Passing `rejectIfAllocated` makes the release command recheck allocation state under the
+   * same lock it takes on the reservation row, so a reservation that gets allocated in that
+   * window is left alone rather than released.
+   */
   for (const reservation of activeReservations) {
     const excessRemaining = excessByVariant.get(reservation.catalogVariantId) ?? 0
     if (excessRemaining <= 0.000001) continue

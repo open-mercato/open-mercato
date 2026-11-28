@@ -1170,10 +1170,12 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
       }
       const metadata = extractReservationMetadata(reservation)
       const allocationState = metadata.allocationState ?? 'reserved'
-      // Re-reads allocation state from the row this lock just fetched, so a
-      // picker who allocated the reservation after the caller last read its
-      // metadata (and before this lock was taken) is caught here rather than
-      // having their picked stock released out from under them.
+      /**
+       * Re-reads allocation state from the row this lock just fetched, so a picker who
+       * allocated the reservation after the caller last read its metadata (and before this
+       * lock was taken) is caught here rather than having their picked stock released out
+       * from under them.
+       */
       if (input.rejectIfAllocated && allocationState === 'allocated') {
         throw new CrudHttpError(409, { error: 'invalid_reservation_state' })
       }
@@ -1187,9 +1189,10 @@ const releaseInventoryReservationCommand: CommandHandler<InventoryReservationRel
       const touchedBalances: InventoryBalance[] = []
       const remainingBuckets: AllocationBucket[] = []
       let remainingToRelease = releaseQuantity
-      // Trim the most recently added bucket first so the earliest (usually
-      // most preferred) warehouse/lot allocation stays intact when this is a
-      // partial release.
+      /**
+       * Trim the most recently added bucket first so the earliest (usually most preferred)
+       * warehouse/lot allocation stays intact when this is a partial release.
+       */
       for (let index = buckets.length - 1; index >= 0; index -= 1) {
         const bucket = buckets[index]
         const bucketRelease = remainingToRelease > 0 ? Math.min(bucket.quantity, remainingToRelease) : 0
