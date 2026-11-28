@@ -194,7 +194,7 @@ test.describe('TC-WMS-P2-INT-08: ASN receive + putaway UI', () => {
       await selectLocationComboboxOption(
         page,
         putawayDialog,
-        'Select destination bin',
+        'Select destination location',
         binCode,
       )
 

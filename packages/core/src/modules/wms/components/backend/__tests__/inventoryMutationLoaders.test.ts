@@ -8,6 +8,7 @@ import {
   fetchBalanceAvailable,
   fetchBalanceOnHand,
   loadLotOptionsForBalanceLocation,
+  loadPutawayTargetLocationOptions,
 } from '../inventoryMutationLoaders'
 
 const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
@@ -247,5 +248,51 @@ describe('loadLotOptionsForBalanceLocation', () => {
 
     expect(options).toEqual([])
     expect(mockApiCall).not.toHaveBeenCalled()
+  })
+})
+
+describe('loadPutawayTargetLocationOptions', () => {
+  beforeEach(() => {
+    mockApiCall.mockReset()
+  })
+
+  it('suggests every location type the server accepts as a putaway target, not just bins', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      result: {
+        items: [
+          { id: 'loc-bin', code: 'B1', type: 'bin' },
+          { id: 'loc-rack', code: 'R2', type: 'rack' },
+          { id: 'loc-aisle', code: 'A1', type: 'aisle' },
+          { id: 'loc-staging', code: 'STAGING-1', type: 'staging' },
+          { id: 'loc-dock', code: 'DOCK-01', type: 'dock' },
+        ],
+      },
+    } as any)
+
+    const options = await loadPutawayTargetLocationOptions('wh-1', 'R2')
+
+    expect(options).toEqual([
+      { value: 'loc-bin', label: 'B1' },
+      { value: 'loc-rack', label: 'R2' },
+      { value: 'loc-aisle', label: 'A1' },
+    ])
+    const [url] = mockApiCall.mock.calls[0]
+    expect(String(url)).not.toContain('type=')
+  })
+
+  it('returns no options when the warehouse id is missing', async () => {
+    const options = await loadPutawayTargetLocationOptions('', 'R2')
+
+    expect(options).toEqual([])
+    expect(mockApiCall).not.toHaveBeenCalled()
+  })
+
+  it('returns no options when the API call fails', async () => {
+    mockApiCall.mockResolvedValue({ ok: false } as any)
+
+    const options = await loadPutawayTargetLocationOptions('wh-1', 'R2')
+
+    expect(options).toEqual([])
   })
 })

@@ -405,6 +405,26 @@ export async function loadBinLocationOptions(
   }
 }
 
+// Mirrors FORBIDDEN_PUTAWAY_TARGET_TYPES in ../../lib/putaway.ts (server-only module, not importable
+// from this client-side loader) — keep both in sync if the server rule changes.
+const PUTAWAY_FORBIDDEN_TARGET_LOCATION_TYPES = new Set(['staging', 'dock'])
+
+export async function loadPutawayTargetLocationOptions(
+  warehouseId: string,
+  query?: string,
+): Promise<CrudFieldOption[]> {
+  if (!warehouseId) return []
+  try {
+    const page = await loadLocationPage(warehouseId, { search: query })
+    const items = (page.items ?? []).filter(
+      (item) => !PUTAWAY_FORBIDDEN_TARGET_LOCATION_TYPES.has((item.type ?? '').trim()),
+    )
+    return mapLocationOptions(items)
+  } catch {
+    return []
+  }
+}
+
 export async function loadStagingLocationOptions(
   warehouseId: string,
   query?: string,
