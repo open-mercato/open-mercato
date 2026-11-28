@@ -6,6 +6,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { llmProviderRegistry } from '../../../lib/llm-registry'
 import { loadAgentRegistry } from '../../../lib/agent-registry'
@@ -19,7 +20,7 @@ import { AgentPolicyError } from '../../../lib/agent-tools'
 import type { AiAgentRunChannel } from '../../../lib/agent-call-contract'
 import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
 import { AiModerationBlockedError, AiModerationUnavailableError } from '../../../lib/moderation'
-import { readBaseurlAllowlist, isBaseurlAllowlisted } from '../../../lib/baseurl-allowlist'
+import { readBaseurlAllowlist, isBaseurlAllowlisted, StoredAiBaseUrlNotAllowlistedError } from '../../../lib/baseurl-allowlist'
 import {
   canonicalProviderId,
   hasAllowlistSnapshotRestrictions,
@@ -169,7 +170,7 @@ export const openApi: OpenApiRouteDoc = {
             'Typed codes: `runtime_override_disabled` (agent has allowRuntimeOverride:false), ' +
             '`provider_unknown` (provider id not registered), ' +
             '`provider_not_configured` (provider registered but no API key in env), ' +
-            '`baseurl_not_allowlisted` (baseUrl not in AI_RUNTIME_BASEURL_ALLOWLIST).',
+            '`baseurl_not_allowlisted` (the requested or selected saved base URL is outside the allowlist).',
         },
         { status: 401, description: 'Unauthenticated caller.' },
         { status: 403, description: 'Caller lacks agent-level or tool-level required features.' },
@@ -717,6 +718,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch (error) {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
+    }
+    if (error instanceof StoredAiBaseUrlNotAllowlistedError) {
+      const { t } = await resolveTranslations()
+      return jsonError(400, t('ai_assistant.errors.savedBaseUrlNotAllowed'), error.code)
     }
     // Input pre-moderation outcomes (spec 2026-06-04). The blocked categories
     // are NEVER sent to the client — only the typed code, which the chat UI

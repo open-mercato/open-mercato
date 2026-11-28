@@ -83,7 +83,7 @@ jest.mock(
 import { z } from 'zod'
 import { resetAgentRegistryForTests, seedAgentRegistryForTests } from '../agent-registry'
 import { toolRegistry } from '../tool-registry'
-import { runAiAgentText, runAiAgentObject } from '../agent-runtime'
+import { runAiAgentText, runAiAgentObject, type RunAiAgentTextInput } from '../agent-runtime'
 
 jest.mock('@open-mercato/shared/lib/logger', () => {
   const mocked = {
@@ -149,6 +149,7 @@ function makeContainer(em: ReturnType<typeof makeFakeEm>) {
 }
 
 describe('Phase 4a — runtime model override hydration in agent-runtime', () => {
+  const originalBaseUrlAllowlist = process.env.AI_RUNTIME_BASEURL_ALLOWLIST
   let warnSpy: jest.Mock
 
   beforeEach(() => {
@@ -163,6 +164,8 @@ describe('Phase 4a — runtime model override hydration in agent-runtime', () =>
 
   afterEach(() => {
     warnSpy.mockRestore()
+    if (originalBaseUrlAllowlist === undefined) delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+    else process.env.AI_RUNTIME_BASEURL_ALLOWLIST = originalBaseUrlAllowlist
   })
 
   afterAll(() => {
@@ -335,61 +338,115 @@ describe('Phase 4a — runtime model override hydration in agent-runtime', () =>
       )
     })
 
-    describe('stored tenant baseURL is re-checked against the current allowlist (issue #7228)', () => {
-      const originalAllowlist = process.env.AI_RUNTIME_BASEURL_ALLOWLIST
-
-      afterEach(() => {
-        if (originalAllowlist === undefined) delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
-        else process.env.AI_RUNTIME_BASEURL_ALLOWLIST = originalAllowlist
-      })
-
-      async function runWithStoredBaseUrl(baseUrl: string) {
+    describe('stored base URL selection', () => {
+      function runWithStoredBaseUrl(
+        baseUrl: string | null,
+        overrides: Pick<RunAiAgentTextInput, 'baseUrlOverride' | 'requestOverride'> = {},
+        agentOverrides: Pick<AiAgentDefinition, 'allowRuntimeOverride' | 'defaultBaseUrl'> = {},
+      ) {
         getDefaultMock.mockResolvedValue({ providerId: null, modelId: null, baseUrl })
-        seedAgentRegistryForTests([makeAgent({ id: 'customers.assistant', moduleId: 'customers' })])
-        await runAiAgentText({
+        seedAgentRegistryForTests([
+          makeAgent({ id: 'customers.assistant', moduleId: 'customers', ...agentOverrides }),
+        ])
+        return runAiAgentText({
           agentId: 'customers.assistant',
           messages: baseMessages as never,
           authContext: baseAuth,
           container: makeContainer(makeFakeEm()) as never,
+          ...overrides,
         })
-        const options = createModelMock.mock.calls.at(-1)?.[0] as { baseURL?: string } | undefined
-        return options?.baseURL
       }
 
-      it('drops a stored http:// baseURL whose host is allowlisted host-only', async () => {
-        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com'
+      it.each([
+        ['a disallowed origin', 'approved.example.invalid', 'http://approved.example.invalid/v1'],
+        ['an empty allowlist', '', 'https://approved.example.invalid/v1'],
+      ])('refuses the selected saved URL with %s before calling a provider', async (_label, allowlist, baseUrl) => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = allowlist
 
-        expect(await runWithStoredBaseUrl('http://api.openai.com/v1')).toBeUndefined()
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('Stored AI runtime baseURL is not allowed'),
-          { agentId: 'customers.assistant', tenantId: 'tenant-1', organizationId: 'org-1' },
-        )
+        await expect(runWithStoredBaseUrl(baseUrl, {
+          requestOverride: { modelId: 'requested-model', baseURL: '   ' },
+        }, {
+          defaultBaseUrl: 'https://fallback.example.invalid/v1',
+        })).rejects.toMatchObject({ code: 'baseurl_not_allowlisted' })
+        expect(createModelMock).not.toHaveBeenCalled()
+        expect(streamTextMock).not.toHaveBeenCalled()
       })
 
-      it('drops a stored baseURL once the operator empties the allowlist', async () => {
-        delete process.env.AI_RUNTIME_BASEURL_ALLOWLIST
+      it('uses an allowed saved URL', async () => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'approved.example.invalid'
 
-        expect(await runWithStoredBaseUrl('https://api.openai.com/v1')).toBeUndefined()
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('Stored AI runtime baseURL is not allowed'),
-          expect.objectContaining({ agentId: 'customers.assistant' }),
-        )
+        await runWithStoredBaseUrl('  https://approved.example.invalid/v1  ')
+        expect(createModelMock).toHaveBeenCalledWith(expect.objectContaining({
+          baseURL: 'https://approved.example.invalid/v1',
+        }))
       })
 
-      it('keeps a stored https baseURL that still matches', async () => {
-        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'api.openai.com'
+      it.each([null, '   '])('uses normal defaults for an unset saved URL (%s)', async (baseUrl) => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = ''
 
-        expect(await runWithStoredBaseUrl('https://api.openai.com/v1')).toBe('https://api.openai.com/v1')
-        expect(warnSpy).not.toHaveBeenCalledWith(
-          expect.stringContaining('Stored AI runtime baseURL is not allowed'),
-          expect.anything(),
-        )
+        await runWithStoredBaseUrl(baseUrl)
+        expect(createModelMock).toHaveBeenCalledWith(expect.objectContaining({ baseURL: undefined }))
+      })
+
+      it('prefers the explicit request URL over the caller and saved URLs', async () => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'approved.example.invalid'
+
+        await runWithStoredBaseUrl('https://retired.example.invalid/v1', {
+          requestOverride: { baseURL: ' https://approved.example.invalid/v1 ' },
+          baseUrlOverride: 'https://caller.example.invalid/v1',
+        })
+        expect(createModelMock).toHaveBeenCalledWith(expect.objectContaining({
+          baseURL: 'https://approved.example.invalid/v1',
+        }))
+      })
+
+      it('keeps a programmatic caller URL independent of the saved URL allowlist', async () => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = ''
+
+        await runWithStoredBaseUrl('https://retired.example.invalid/v1', {
+          baseUrlOverride: ' https://caller.example.invalid/v1 ',
+        })
+        expect(createModelMock).toHaveBeenCalledWith(expect.objectContaining({
+          baseURL: 'https://caller.example.invalid/v1',
+        }))
+      })
+
+      it('keeps runtime-disabled agents on their pinned URL', async () => {
+        process.env.AI_RUNTIME_BASEURL_ALLOWLIST = 'approved.example.invalid'
+
+        await runWithStoredBaseUrl('https://retired.example.invalid/v1', {
+          requestOverride: { baseURL: 'https://approved.example.invalid/v1' },
+        }, {
+          allowRuntimeOverride: false,
+          defaultBaseUrl: 'https://pinned.example.invalid/v1',
+        })
+        expect(createModelMock).toHaveBeenCalledWith(expect.objectContaining({
+          baseURL: 'https://pinned.example.invalid/v1',
+        }))
       })
     })
   })
 
   describe('runAiAgentObject', () => {
     const objectSchema = z.object({ result: z.string() })
+
+    it('refuses a disallowed saved URL before generating structured output', async () => {
+      process.env.AI_RUNTIME_BASEURL_ALLOWLIST = ''
+      getDefaultMock.mockResolvedValue({ baseUrl: 'https://retired.example.invalid/v1' })
+      seedAgentRegistryForTests([
+        makeAgent({ id: 'catalog.extractor', moduleId: 'catalog', executionMode: 'object' }),
+      ])
+
+      await expect(runAiAgentObject({
+        agentId: 'catalog.extractor',
+        input: 'extract data',
+        authContext: baseAuth,
+        container: makeContainer(makeFakeEm()) as never,
+        output: { schemaName: 'ExtractionResult', schema: objectSchema },
+      })).rejects.toMatchObject({ code: 'baseurl_not_allowlisted' })
+      expect(createModelMock).not.toHaveBeenCalled()
+      expect(generateObjectMock).not.toHaveBeenCalled()
+    })
 
     it('calls getDefault exactly once per turn', async () => {
       getDefaultMock.mockResolvedValue(null)

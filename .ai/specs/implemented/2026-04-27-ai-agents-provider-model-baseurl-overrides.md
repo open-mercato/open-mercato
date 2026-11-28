@@ -685,6 +685,10 @@ No deprecation protocol is required because nothing is removed or
 narrowed. Phase 3 retires duplicate code paths but every public function
 keeps its name and input shape.
 
+## Migration & Backward Compatibility
+
+Issue #7616 removes the provider-default retry for a selected saved endpoint that the current allowlist disallows. Retaining a compatibility fallback would send operator-scoped inputs to another destination. Chat and structured-object clients handle HTTP 400 `baseurl_not_allowlisted`. Operators restore, replace, or clear the override per [the upgrade note](../../../UPGRADE_NOTES.md#saved-ai-endpoints-fail-closed-when-no-longer-allowed-7616). Settings adds optional `baseURLBlocked` for affected entries and retains saved values for correction. The deployment and request formats are unchanged. A named maintainer must accept the Emergency Security Exception.
+
 ## Final Compliance Report
 
 - **Spec naming**: file is `2026-04-27-ai-agents-provider-model-baseurl-overrides.md`, in `.ai/specs/` (OSS). Compliant with `.ai/specs/AGENTS.md` rules.
@@ -696,6 +700,8 @@ keeps its name and input shape.
 - **Integration coverage**: Phase 0 + Phase 1 add unit tests in `model-factory.test.ts` and `agent-runtime.test.ts`. Phase 2 adds adapter tests. Phase 4 adds a settings-route response test. No new HTTP routes, so no new Playwright integration tests are required; the existing AI Assistant suite covers the playground UI.
 
 ## Changelog
+
+- 2026-11-27 — #7616: prohibit provider fallback for disallowed saved endpoints and show the blocked state in Settings. Cover tenant and per-agent routing, overrides-disabled agents, and the Settings warning.
 
 - **2026-04-27** — Initial draft. Authored after a survey that found three independent gaps in the new typed-agent framework (no per-agent provider, no `.env`-driven default for the new framework, no consistent baseURL story). Phasing chosen so Phase 0 ships value in <30 lines and the riskier call-site unification is deferred to Phase 3 with mitigations.
 - **2026-04-27** — Phase 4 expanded into 4a (backend persistence + dispatcher API) and 4b (chat picker + editable settings + playground panel + docs) after feedback that runtime override surfaces (chat-UI picker, editable settings UI, API query params) were missing. Added `ai_agent_runtime_overrides` table, `allowRuntimeModelOverride` flag, `AI_RUNTIME_BASEURL_ALLOWLIST` env, and risks R6 (credential exfiltration via `baseUrl`) and R7 (cost burn via flagship model override). Resolution chain extended from 5 to 7 steps.

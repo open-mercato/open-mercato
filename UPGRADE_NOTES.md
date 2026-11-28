@@ -1,5 +1,11 @@
 # Upgrade Notes
 
+## Saved AI endpoints fail closed when no longer allowed (#7616)
+
+Chat and structured-object calls stop with HTTP 400 `baseurl_not_allowlisted` when their selected saved endpoint is no longer allowed. Previously they sent input to the provider default. Clients should handle the typed error and retry only after the configuration is corrected or an explicitly permitted endpoint is selected.
+
+Operators can restore the approved origin to `AI_RUNTIME_BASEURL_ALLOWLIST`, replace the saved endpoint, or clear the override to choose the provider default. The settings response adds optional `baseURLBlocked` alongside a null effective `baseURL` for blocked entries. Stored settings and credentials do not require migration.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.

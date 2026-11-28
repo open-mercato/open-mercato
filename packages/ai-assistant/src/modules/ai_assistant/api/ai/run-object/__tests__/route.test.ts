@@ -6,6 +6,7 @@ import {
   seedAgentRegistryForTests,
 } from '../../../../lib/agent-registry'
 import { toolRegistry, registerMcpTool } from '../../../../lib/tool-registry'
+import { StoredAiBaseUrlNotAllowlistedError } from '../../../../lib/baseurl-allowlist'
 
 const authMock = jest.fn()
 const loadAclMock = jest.fn()
@@ -425,6 +426,29 @@ describe('POST /api/ai_assistant/ai/run-object', () => {
     const json = await response.json()
     expect(json.code).toBe('api_key_missing')
     expect(json.error).not.toContain('OPENAI_API_KEY')
+  })
+
+  it('returns the localized error for a disallowed saved endpoint', async () => {
+    seedAgentRegistryForTests([
+      makeAgent({
+        id: 'catalog.extract',
+        moduleId: 'catalog',
+        executionMode: 'object',
+        output: { schemaName: 'Extract', schema: z.object({ title: z.string() }) },
+      }),
+    ])
+    runAiAgentObjectMock.mockRejectedValueOnce(new StoredAiBaseUrlNotAllowlistedError())
+
+    const response = await POST(buildRequest({
+      agent: 'catalog.extract',
+      messages: [{ role: 'user', content: 'Test message' }],
+    }) as Parameters<typeof POST>[0])
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      code: 'baseurl_not_allowlisted',
+      error: 'The saved AI endpoint is no longer allowed. Contact your administrator to update the AI settings.',
+    })
   })
 
   it('keeps an unclassified runtime failure a 500', async () => {
