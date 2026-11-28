@@ -17,10 +17,8 @@ it('emits a safe filename for a subject type containing filename punctuation', a
     params: { subjectId, subjectType: 'customer:person' },
   })
 
-  const expectedFilename = `forms-export-customer_person-${subjectId}.json`
-
   expect(response.status).toBe(200)
   expect(response.headers.get('content-disposition')).toBe(
-    `attachment; filename="${expectedFilename}"; filename*=UTF-8''${expectedFilename}`,
+    `attachment; filename="forms-export-customer_person-${subjectId}.json"; filename*=UTF-8''forms-export-customer_person-${subjectId}.json`,
   )
 })
