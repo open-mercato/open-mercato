@@ -54,6 +54,11 @@ import {
 
 const logger = createLogger('shared').child({ component: 'commands' })
 
+type RedoReplayClaim = {
+  complete(): Promise<boolean>
+  release(): Promise<boolean>
+}
+
 type CommandActionLogService = {
   findByUndoToken(undoToken: string): Promise<ActionLog | null>
   claimForUndo(id: string, transactionalEm?: EntityManager): Promise<boolean>
@@ -61,6 +66,7 @@ type CommandActionLogService = {
   markUndone(id: string, traceInput?: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null | void>
   claimForRedo(id: string, transactionalEm?: EntityManager): Promise<boolean>
   releaseRedoClaim?(id: string, transactionalEm?: EntityManager): Promise<boolean>
+  beginRedoReplay?(id: string, transactionalEm?: EntityManager): Promise<RedoReplayClaim | null>
   log(input: ActionLogCreateInput, transactionalEm?: EntityManager): Promise<ActionLog | null>
 }
 
@@ -627,14 +633,17 @@ export class CommandBus {
       }], { transaction: true, label: `${commandId}.redo` })
       replaySourceFinalized = !ambientReplay.joinsAmbient
     } else if (replayLogEntry?.id) {
-      const redoClaimRelease = await this.claimRedoSource(effectiveOptions.ctx, commandId, replayLogEntry.id)
+      const redoClaim = await this.claimRedoSource(effectiveOptions.ctx, commandId, replayLogEntry.id)
       try {
         coreResult = await executeCore(effectiveOptions)
       } catch (err) {
-        await redoClaimRelease?.()
+        await redoClaim?.release()
         throw err
       }
-      replaySourceFinalized = redoClaimRelease !== null
+      if (redoClaim && !await redoClaim.complete()) {
+        throw new Error('[internal] Redo source claim could not be finalized')
+      }
+      replaySourceFinalized = redoClaim !== null
     } else {
       coreResult = await executeCore(effectiveOptions)
     }
@@ -1028,36 +1037,48 @@ export class CommandBus {
     ctx: CommandRuntimeContext,
     commandId: string,
     sourceLogId: string,
-  ): Promise<(() => Promise<void>) | null> {
+  ): Promise<RedoReplayClaim | null> {
     let service: CommandActionLogService | null = null
     try {
       service = ctx.container.resolve('actionLogService') as CommandActionLogService
     } catch {
       service = null
     }
-    if (!service || typeof service.claimForRedo !== 'function' || typeof service.releaseRedoClaim !== 'function') {
+    const transactionalEm = ctx.transactionalEm
+    let claim: RedoReplayClaim | null
+    if (typeof service?.beginRedoReplay === 'function') {
+      claim = await service.beginRedoReplay(sourceLogId, transactionalEm)
+    } else if (typeof service?.claimForRedo === 'function' && typeof service.releaseRedoClaim === 'function') {
+      const releaseClaim = service.releaseRedoClaim.bind(service)
+      const claimed = transactionalEm
+        ? await service.claimForRedo(sourceLogId, transactionalEm)
+        : await service.claimForRedo(sourceLogId)
+      claim = claimed ? {
+        complete: async () => true,
+        release: () => transactionalEm ? releaseClaim(sourceLogId, transactionalEm) : releaseClaim(sourceLogId),
+      } : null
+    } else {
       logger.warn('Redo source claim unavailable; replaying without an atomic claim', { commandId, sourceLogId })
       return null
     }
-    const releaseClaim = service.releaseRedoClaim.bind(service)
-    const transactionalEm = ctx.transactionalEm
-    const claimed = transactionalEm
-      ? await service.claimForRedo(sourceLogId, transactionalEm)
-      : await service.claimForRedo(sourceLogId)
-    if (!claimed) throw new Error('[internal] Redo source already consumed')
-    return async () => {
-      try {
-        const released = transactionalEm
-          ? await releaseClaim(sourceLogId, transactionalEm)
-          : await releaseClaim(sourceLogId)
-        if (!released) logger.warn('Redo source claim was not held at release', { commandId, sourceLogId })
-      } catch (releaseErr) {
-        logger.error('Failed to release redo source claim', { commandId, sourceLogId, err: releaseErr })
-        getTelemetryRuntime()?.reportError(releaseErr, {
-          module: 'shared',
-          code: 'shared.redo_claim_release_failed',
-        })
-      }
+    if (!claim) throw new Error('[internal] Redo source already consumed')
+    const activeClaim = claim
+    return {
+      complete: () => activeClaim.complete(),
+      release: async () => {
+        try {
+          const released = await activeClaim.release()
+          if (!released) logger.warn('Redo source claim was not held at release', { commandId, sourceLogId })
+          return released
+        } catch (releaseErr) {
+          logger.error('Failed to release redo source claim', { commandId, sourceLogId, err: releaseErr })
+          getTelemetryRuntime()?.reportError(releaseErr, {
+            module: 'shared',
+            code: 'shared.redo_claim_release_failed',
+          })
+          return false
+        }
+      },
     }
   }
 

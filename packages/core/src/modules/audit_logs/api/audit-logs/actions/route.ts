@@ -301,7 +301,7 @@ export async function GET(req: Request) {
     id: entry.id,
     commandId: entry.commandId,
     actionLabel: entry.actionLabel,
-    executionState: entry.executionState,
+    executionState: entry.executionState === 'redoing' ? 'redone' : entry.executionState,
     actorUserId: entry.actorUserId,
     actorUserName: entry.actorUserId ? displayMaps.users[entry.actorUserId] ?? null : null,
     tenantId: entry.tenantId,

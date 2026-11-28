@@ -946,6 +946,31 @@ describe('ActionLogService API-key replay freshness queries', () => {
     { ...query, encryptionEnabled: true, storage: 'encrypted' },
   ])
 
+  it.each(queryCases)('$name ($storage) keeps an in-flight entry in scoped history until it settles', async ({ encryptionEnabled, executionState, invoke }) => {
+    const inFlightState = executionState === 'done' ? 'undoing' : 'redoing'
+    const settledState = executionState === 'done' ? 'undone' : 'redone'
+    const undoToken = executionState === 'done' ? 'token' : null
+    const inFlight = row('in-flight', {
+      executionState: inFlightState,
+      undoToken,
+      ...(executionState === 'done'
+        ? { createdAt: new Date(baseTime.getTime() + 1_000) }
+        : { updatedAt: new Date(baseTime.getTime() + 1_000) }),
+    })
+    const { service } = buildActionLogQueryHarness([
+      row('eligible', { executionState, undoToken }),
+      inFlight,
+      { ...inFlight, id: 'different-organization', organizationId: 'other-organization' },
+      { ...inFlight, id: 'different-tenant', tenantId: 'other-tenant' },
+      { ...inFlight, id: 'different-actor', actorUserId: 'other-actor' },
+      { ...inFlight, id: 'deleted', deletedAt: baseTime },
+    ], { encryptionEnabled })
+
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'in-flight', executionState: inFlightState })
+    inFlight.executionState = settledState
+    await expect(invoke(service)).resolves.toMatchObject({ id: 'eligible', executionState })
+  })
+
   it.each(queryCases)('$name ($storage) keeps canonical key history ahead of newer same-UUID user and malformed rows', async ({ encryptionEnabled, executionState, invoke }) => {
     const undoToken = executionState === 'done' ? 'token' : null
     const rows = [
@@ -1105,6 +1130,25 @@ describe('ActionLogService.claimForUndo / releaseUndoClaim (TOCTOU guard)', () =
     const [, filter, update] = transactionalUpdate.mock.calls[0]
     expect(filter).toMatchObject({ id: 'log-1', executionState: 'undone', deletedAt: null })
     expect(update).toEqual({ executionState: 'redone', undoToken: null })
+  })
+
+  it.each([
+    ['complete', 'redone'],
+    ['release', 'undone'],
+  ] as const)('can %s an in-flight redo claim', async (settle, executionState) => {
+    const { service, nativeUpdate } = buildServiceWithNativeUpdate(1)
+    const transactionalUpdate = jest.fn(async () => 1)
+    const transactionalEm = { nativeUpdate: transactionalUpdate } as never
+
+    const claim = await service.beginRedoReplay('log-1', transactionalEm)
+    expect(transactionalUpdate).toHaveBeenNthCalledWith(1, ActionLog,
+      { id: 'log-1', executionState: 'undone', deletedAt: null },
+      { executionState: 'redoing', undoToken: null })
+    await expect(claim?.[settle]()).resolves.toBe(true)
+    expect(transactionalUpdate).toHaveBeenNthCalledWith(2, ActionLog,
+      { id: 'log-1', executionState: 'redoing', deletedAt: null },
+      { executionState })
+    expect(nativeUpdate).not.toHaveBeenCalled()
   })
 
   it('releaseRedoClaim reverts only a redone source back to undone on a forked EntityManager', async () => {

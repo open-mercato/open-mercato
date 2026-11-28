@@ -42,6 +42,33 @@ describe('CommandBus.execute redo source claim (non-atomic replay)', () => {
     commandRegistry.clear()
   })
 
+  it.each(['success', 'failure'] as const)('settles the in-flight claim after the command reports %s', async (outcome) => {
+    const claim = { complete: jest.fn(async () => true), release: jest.fn(async () => true) }
+    const service = {
+      log: jest.fn(async () => ({ id: 'new-log' })),
+      beginRedoReplay: jest.fn(async () => claim),
+    }
+    const execute = jest.fn(async () => {
+      expect(service.beginRedoReplay).toHaveBeenCalledTimes(1)
+      expect(claim.complete).not.toHaveBeenCalled()
+      expect(claim.release).not.toHaveBeenCalled()
+      if (outcome === 'failure') throw new Error('handler boom')
+      return { ok: true }
+    })
+    registerCommand({ id: COMMAND_ID, execute, undo: jest.fn(async () => undefined) })
+    const replay = new CommandBus().execute(COMMAND_ID, { input: {}, ctx: buildCtx(service), redoLogEntry: sourceLog })
+
+    if (outcome === 'success') {
+      await expect(replay).resolves.toMatchObject({ replaySourceFinalized: true })
+      expect(claim.complete).toHaveBeenCalledTimes(1)
+      expect(claim.release).not.toHaveBeenCalled()
+    } else {
+      await expect(replay).rejects.toThrow('handler boom')
+      expect(claim.complete).not.toHaveBeenCalled()
+      expect(claim.release).toHaveBeenCalledTimes(1)
+    }
+  })
+
   it('lets only one of two concurrent redos of the same source log run the command', async () => {
     const execute = jest.fn(async () => {
       await new Promise((resolve) => setTimeout(resolve, 5))

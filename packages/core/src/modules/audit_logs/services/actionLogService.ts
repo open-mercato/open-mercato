@@ -803,7 +803,7 @@ export class ActionLogService {
   async latestUndoableForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
     const where: Record<string, unknown> = {
       undoToken: { $ne: null },
-      executionState: 'done',
+      executionState: { $in: ['done', 'undoing'] },
       deletedAt: null,
     }
     if (scope.tenantId) where.tenantId = scope.tenantId
@@ -955,7 +955,7 @@ export class ActionLogService {
   }) {
     const where: Record<string, unknown> = {
       undoToken: { $ne: null },
-      executionState: 'done',
+      executionState: { $in: ['done', 'undoing'] },
       deletedAt: null,
     }
     if (params.tenantId) where.tenantId = params.tenantId
@@ -968,7 +968,7 @@ export class ActionLogService {
 
   async latestUndoneForActor(actorUserId: string, scope: { tenantId?: string | null; organizationId?: string | null }) {
     const where: Record<string, unknown> = {
-      executionState: 'undone',
+      executionState: { $in: ['undone', 'redoing'] },
       deletedAt: null,
     }
     if (scope.tenantId) where.tenantId = scope.tenantId
@@ -1002,6 +1002,30 @@ export class ActionLogService {
       { executionState: 'redone', undoToken: null },
     )
     return affected === 1
+  }
+
+  async beginRedoReplay(id: string, transactionalEm?: EntityManager) {
+    const operationEm = transactionalEm ?? this.em
+    const affected = await operationEm.nativeUpdate(
+      ActionLog,
+      { id, executionState: 'undone', deletedAt: null },
+      { executionState: 'redoing', undoToken: null },
+    )
+    if (affected !== 1) return null
+
+    const settle = async (executionState: 'redone' | 'undone') => {
+      const settlementEm = transactionalEm ?? (this.em.isInTransaction() ? this.em : this.em.fork())
+      const updated = await settlementEm.nativeUpdate(
+        ActionLog,
+        { id, executionState: 'redoing', deletedAt: null },
+        { executionState },
+      )
+      return updated === 1
+    }
+    return {
+      complete: () => settle('redone'),
+      release: () => settle('undone'),
+    }
   }
 
   /**
