@@ -130,6 +130,12 @@ jobs:
       skip_integration: ${{ steps.integration-scope.outputs.skip }}
       affected_modules: ${{ steps.integration-scope.outputs.modules }}
       shard_matrix: ${{ steps.integration-scope.outputs.shard_matrix }}
+      # Package-scoped jobs (.github/ci-scope.json `packageScopedJobs`). Anything other than
+      # 'false' (push events, a base resolver that predates job scoping) runs the job in full.
+      run_core_timezone: ${{ steps.job-scope.outputs.run_core_timezone }}
+      core_timezone_reason: ${{ steps.job-scope.outputs.core_timezone_reason }}
+      run_documents_multi_instance: ${{ steps.job-scope.outputs.run_documents_multi_instance }}
+      documents_multi_instance_reason: ${{ steps.job-scope.outputs.documents_multi_instance_reason }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -177,6 +183,7 @@ jobs:
           export SINGLE_SHARD='["none"]'
 
           if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "level=full" >> "$GITHUB_OUTPUT"
             echo "skip=false" >> "$GITHUB_OUTPUT"
             echo "modules=" >> "$GITHUB_OUTPUT"
             echo "shard_matrix=${FULL_SHARDS}" >> "$GITHUB_OUTPUT"
@@ -232,6 +239,7 @@ jobs:
             }, config)
             const full = !result.skipIntegration && result.modules.length === 0
             fs.appendFileSync(env.GITHUB_OUTPUT, [
+              `level=${result.level}`,
               `skip=${result.skipIntegration}`,
               `modules=${result.modules.join(',')}`,
               `shard_matrix=${full ? env.FULL_SHARDS : env.SINGLE_SHARD}`,
@@ -281,6 +289,89 @@ jobs:
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
         run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
+
+      - name: Compute package-scoped job scope
+        # Decides whether core-timezone and documents-multi-instance do real work. Same affected
+        # logic as the turbo-scoped Test step in `test`: `turbo ls --filter='[HEAD^1]...'` lists
+        # the changed workspaces plus their dependents, and a job runs when that set contains one
+        # of its packages or a changed path matches one of its paths (ci-scope.json
+        # `packageScopedJobs`). The resolver's full level (push, stabilize/*, ci-full, ci.yml or
+        # scope-file edits, shared code) always runs both. Both jobs are required checks, so an
+        # out-of-scope job still runs and finishes green with an "out of scope" summary.
+        # Fails open: a missing HEAD^1, a turbo error or a base resolver without resolveJobScope
+        # runs every job. The resolver and scope file are the base-commit copies the
+        # integration-scope step already fetched into $RUNNER_TEMP/ci-scope.
+        # On a node_modules cache miss, `Install dependencies` has just run PR-controlled code
+        # (lifecycle scripts, the retry wrapper) that could rewrite those copies or the turbo
+        # binary, so nothing here is trusted and every job runs in full. turbo is called by path,
+        # never through `yarn turbo`, which a PR could shadow with a root `turbo` script.
+        id: job-scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SCOPE_LEVEL: ${{ steps.integration-scope.outputs.level }}
+          NM_CACHE_HIT: ${{ steps.nm-cache.outputs.cache-hit }}
+        run: |
+          if [ "$EVENT_NAME" != "pull_request" ]; then
+            echo "Package-scoped jobs: all run · ${EVENT_NAME} event" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$NM_CACHE_HIT" != "true" ]; then
+            echo "Package-scoped jobs: all run · node_modules cache miss (install ran PR code)" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          SCOPE_DIR="${RUNNER_TEMP}/ci-scope"
+          AFFECTED_FILE="$SCOPE_DIR/affected-packages.json"
+          rm -f "$AFFECTED_FILE"
+          if ! git rev-parse --quiet --verify 'HEAD^1^{commit}' >/dev/null; then
+            echo "::warning::PR base commit HEAD^1 is not in the checkout; package-scoped jobs run in full"
+          elif ! ./node_modules/.bin/turbo ls --filter='[HEAD^1]...' --output=json > "$AFFECTED_FILE"; then
+            echo "::warning::turbo ls failed; package-scoped jobs run in full"
+            rm -f "$AFFECTED_FILE"
+          fi
+
+          cat > "$SCOPE_DIR/job-scope.mjs" <<'DRIVER'
+          import fs from 'node:fs'
+          import path from 'node:path'
+
+          const env = process.env
+          const file = (name) => path.join(import.meta.dirname, name)
+          const read = (name) => fs.readFileSync(file(name), 'utf8')
+          const report = (text) => {
+            console.log(text)
+            fs.appendFileSync(env.GITHUB_STEP_SUMMARY, `${text}\n`)
+          }
+          const affectedPackages = () => {
+            if (!fs.existsSync(file('affected-packages.json'))) return null
+            const text = read('affected-packages.json')
+            try {
+              const items = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1))?.packages?.items
+              return Array.isArray(items) && items.every((item) => typeof item?.name === 'string') ? items.map((item) => item.name) : null
+            } catch {
+              return null
+            }
+          }
+
+          const resolver = await import('./resolve-ci-scope.mts')
+          if (typeof resolver.resolveJobScope !== 'function') {
+            report('Package-scoped jobs: all run · the base resolver predates job scoping')
+            process.exit(0)
+          }
+          const config = resolver.parseCiScopeConfig(JSON.parse(read('ci-scope.json')))
+          const decisions = resolver.resolveJobScope({
+            level: env.SCOPE_LEVEL ?? '',
+            changedFiles: read('changed-files.txt').split('\n').filter((line) => line.length > 0),
+            affectedPackages: affectedPackages(),
+          }, config)
+          const outputs = []
+          for (const [jobId, decision] of Object.entries(decisions)) {
+            const key = jobId.replaceAll('-', '_')
+            outputs.push(`run_${key}=${decision.run}`, `${key}_reason=${decision.reason.replace(/\s+/g, ' ')}`)
+            report(`Package-scoped job ${jobId}: ${decision.run ? 'runs' : 'no-op'} · ${decision.reason}`)
+          }
+          fs.appendFileSync(env.GITHUB_OUTPUT, `${outputs.join('\n')}\n`)
+          DRIVER
+          node "$SCOPE_DIR/job-scope.mjs"
 
       - name: Build packages
         # Always builds all packages — no filter. Turbo cache handles the speedup:
@@ -1036,19 +1127,32 @@ jobs:
       needs.audit-scope.result == 'success' &&
       (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
       needs.lint.result == 'success'
+    env:
+      # Scoped by the prepare job-scope step; only an explicit 'false' turns the job into a no-op.
+      IN_SCOPE: ${{ needs.prepare.outputs.run_core_timezone != 'false' }}
+      SCOPE_REASON: ${{ needs.prepare.outputs.core_timezone_reason }}
     steps:
+      - name: Report out of scope
+        if: env.IN_SCOPE != 'true'
+        run: |
+          echo "core-timezone · ${SCOPE_REASON:-out of scope}" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout repository
+        if: env.IN_SCOPE == 'true'
         uses: actions/checkout@v7
 
       - name: Setup Node.js
+        if: env.IN_SCOPE == 'true'
         uses: actions/setup-node@v7
         with:
           node-version: 24.19.0
 
       - name: Enable Corepack
+        if: env.IN_SCOPE == 'true'
         run: corepack enable
 
       - name: Cache Yarn packages
+        if: env.IN_SCOPE == 'true'
         uses: actions/cache@v6
         with:
           path: .yarn/cache
@@ -1056,6 +1160,7 @@ jobs:
           restore-keys: yarn-${{ runner.os }}-
 
       - name: Cache node_modules
+        if: env.IN_SCOPE == 'true'
         id: nm-cache
         uses: actions/cache@v6
         with:
@@ -1066,15 +1171,17 @@ jobs:
           key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
-        if: steps.nm-cache.outputs.cache-hit != 'true'
+        if: env.IN_SCOPE == 'true' && steps.nm-cache.outputs.cache-hit != 'true'
         run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Download build artifacts
+        if: env.IN_SCOPE == 'true'
         uses: actions/download-artifact@v8
         with:
           name: build-artifacts
 
       - name: Run core suite at TZ=Pacific/Auckland
+        if: env.IN_SCOPE == 'true'
         run: yarn workspace @open-mercato/core test:tz
 
   # ── Documents multi-instance durability ────────────────────────────────────
@@ -1090,7 +1197,8 @@ jobs:
     timeout-minutes: 15
     services:
       webhook_postgres:
-        image: postgres:16
+        # An empty image does not start the service: no sidecars when the job is a no-op.
+        image: ${{ needs.prepare.outputs.run_documents_multi_instance != 'false' && 'postgres:16' || '' }}
         env:
           POSTGRES_DB: webhook_durability
           POSTGRES_USER: webhook_durability
@@ -1103,7 +1211,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
       webhook_redis:
-        image: redis:7-alpine
+        image: ${{ needs.prepare.outputs.run_documents_multi_instance != 'false' && 'redis:7-alpine' || '' }}
         ports:
           - 6379/tcp
         options: >-
@@ -1121,6 +1229,11 @@ jobs:
         needs.audit-scope.result == 'success' &&
         (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
         needs.lint.result == 'success'))
+    env:
+      # Scoped by the prepare job-scope step; only an explicit 'false' turns the job into a no-op.
+      # The audit gate below still runs first, so a failed or cancelled audit fails the job either way.
+      IN_SCOPE: ${{ needs.prepare.outputs.run_documents_multi_instance != 'false' }}
+      SCOPE_REASON: ${{ needs.prepare.outputs.documents_multi_instance_reason }}
     steps:
       - name: Fail on failed audit
         id: audit-gate
@@ -1129,18 +1242,27 @@ jobs:
           echo "::error::Audit failed: the dependency audit did not pass, so this required check fails instead of skipping. Fix the audit job first."
           exit 1
 
+      - name: Report out of scope
+        if: env.IN_SCOPE != 'true'
+        run: |
+          echo "documents-multi-instance · ${SCOPE_REASON:-out of scope}" | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Checkout repository
+        if: env.IN_SCOPE == 'true'
         uses: actions/checkout@v7
 
       - name: Setup Node.js
+        if: env.IN_SCOPE == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
 
       - name: Enable Corepack
+        if: env.IN_SCOPE == 'true'
         run: corepack enable
 
       - name: Cache Yarn packages
+        if: env.IN_SCOPE == 'true'
         uses: actions/cache@v6
         with:
           path: .yarn/cache
@@ -1148,6 +1270,7 @@ jobs:
           restore-keys: yarn-${{ runner.os }}-
 
       - name: Cache node_modules
+        if: env.IN_SCOPE == 'true'
         id: nm-cache
         uses: actions/cache@v6
         with:
@@ -1158,43 +1281,45 @@ jobs:
           key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
-        if: steps.nm-cache.outputs.cache-hit != 'true'
+        if: env.IN_SCOPE == 'true' && steps.nm-cache.outputs.cache-hit != 'true'
         run: bash "$GITHUB_WORKSPACE/scripts/ci/yarn-retry-on-install-crash.sh" yarn install --immutable
 
       - name: Download build artifacts
+        if: env.IN_SCOPE == 'true'
         uses: actions/download-artifact@v8
         with:
           name: build-artifacts
 
       - name: Run real two-sidecar durability regression
+        if: env.IN_SCOPE == 'true'
         run: yarn workspace @open-mercato/documents test:multi-instance
 
       - name: Run advisory lock suite against real Postgres
-        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' && env.IN_SCOPE == 'true' }}
         run: yarn workspace @open-mercato/shared test:pg-integration
 
       - name: Run integrations module suites against real Postgres
-        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' && env.IN_SCOPE == 'true' }}
         run: yarn workspace @open-mercato/core test:pg-integration
 
       - name: Run Discord auto-reply repeat-delivery suite against real Postgres
-        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' && env.IN_SCOPE == 'true' }}
         run: yarn workspace @open-mercato/channel-discord test:pg-integration
 
       - name: Run checkout migration suite against real Postgres
-        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' && env.IN_SCOPE == 'true' }}
         run: yarn workspace @open-mercato/checkout test:pg-integration
 
       - name: Run webhook delivery claim suite against real Postgres
-        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' && env.IN_SCOPE == 'true' }}
         run: yarn workspace @open-mercato/webhooks test:pg-integration
 
       - name: Install Redis durability test client
-        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' && env.IN_SCOPE == 'true' }}
         run: sudo apt-get update && sudo apt-get install --no-install-recommends -y redis-tools
 
       - name: Run webhook receipt and queue durability against real services
-        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' && env.IN_SCOPE == 'true' }}
         env:
           OM_WEBHOOKS_TEST_DATABASE_URL: postgresql://webhook_durability:webhook_durability@127.0.0.1:${{ job.services.webhook_postgres.ports[5432] }}/webhook_durability
           OM_QUEUE_TEST_REDIS_URL: redis://127.0.0.1:${{ job.services.webhook_redis.ports[6379] }}
@@ -1206,7 +1331,7 @@ jobs:
           node scripts/ci/check-webhook-durability-results.mjs .ai/qa/test-results/webhook-durability/receipts.json .ai/qa/test-results/webhook-durability/queues.json
 
       - name: Upload webhook durability results
-        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' && env.IN_SCOPE == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: webhook-durability-results
@@ -1215,7 +1340,7 @@ jobs:
           if-no-files-found: error
 
       - name: Check OAuth grant import paths resolve against the built dist
-        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' && env.IN_SCOPE == 'true' }}
         run: node scripts/check-oauth-publish-shape.mjs
 
   # ── Integration tests ───────────────────────────────────────────────────────

@@ -12,10 +12,12 @@ import {
   isScopeLabel,
   parseCiScopeConfig,
   resolveCiScope,
+  resolveJobScope,
   type CiScopeConfig,
   type CiScopeInput,
 } from '../ci/resolve-ci-scope.mts'
-import { REPOSITORY, runCiScopeStep, scopeStep } from './fixtures/ci-scope-step.mjs'
+import { parse as parseYaml } from 'yaml'
+import { REPOSITORY, jobScopeStep, runCiScopeStep, runJobScopeStep, scopeStep, turboLsOutput } from './fixtures/ci-scope-step.mjs'
 
 type RealPr = {
   number: number
@@ -650,4 +652,286 @@ test('extractChangedModules mirrors grep -oP over every path', () => {
     extractChangedModules(['packages/core/src/modules/b/x.ts', 'apps/mercato/src/modules/a/y.ts', 'packages/core/src/lib/z.ts', 'packages/core/src/modules/b/w.ts']),
     ['a', 'b'],
   )
+})
+
+const workflow = parseYaml(fs.readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8')) as {
+  jobs: Record<string, { env?: Record<string, string>; services?: Record<string, { image: string }>; steps: { name: string; id?: string; if?: string; run?: string }[] }>
+} & { jobs: { prepare: { outputs: Record<string, string> } } }
+const packageScopedJobIds = Object.keys(config.packageScopedJobs)
+const WORKSPACE_RUN_PATTERN = /yarn workspace ((?:@[a-z0-9-]+\/)?[a-z0-9][a-z0-9._-]*)/g
+const JEST_CONFIG_PATTERN = /--config ((?:packages|apps)\/[a-z0-9._-]+)\//g
+const SCRIPT_RUN_PATTERN = /(?:^|[\s"'/=])(scripts\/[A-Za-z0-9_./-]+\.(?:mjs|mts|cjs|js|ts|sh))\b/g
+const outputKey = (jobId: string) => jobId.replaceAll('-', '_')
+
+function jobScope(overrides: { level?: string; changedFiles?: string[]; affectedPackages?: string[] | null }) {
+  return resolveJobScope({ level: 'scoped', changedFiles: [], affectedPackages: [], ...overrides }, config)
+}
+
+test('packageScopedJobs scopes core-timezone and documents-multi-instance', () => {
+  assert.deepEqual(packageScopedJobIds.sort(), ['core-timezone', 'documents-multi-instance'])
+  assert.deepEqual(config.packageScopedJobs['core-timezone'].packages, ['@open-mercato/core'])
+  assert.ok(config.packageScopedJobs['documents-multi-instance'].packages.includes('@open-mercato/documents'))
+})
+
+test('a docs/config/scripts-only PR (no affected package) makes both jobs no-ops', () => {
+  const decisions = jobScope({ changedFiles: ['README.md', '.ai/agentic.config.json', 'scripts/ci/pr-triage-labels.mts'] })
+  for (const jobId of packageScopedJobIds) {
+    assert.equal(decisions[jobId].run, false, jobId)
+    assert.match(decisions[jobId].reason, /^out of scope · /)
+  }
+})
+
+test('a change affecting @open-mercato/core (directly or through a dependency) runs both jobs', () => {
+  const decisions = jobScope({ affectedPackages: ['@open-mercato/core', '@open-mercato/app'] })
+  assert.deepEqual(decisions['core-timezone'], { run: true, reason: 'affected: @open-mercato/core' })
+  assert.equal(decisions['documents-multi-instance'].run, true)
+})
+
+test('a documents-only change runs documents-multi-instance but not core-timezone', () => {
+  const decisions = jobScope({ affectedPackages: ['@open-mercato/documents'] })
+  assert.equal(decisions['core-timezone'].run, false)
+  assert.deepEqual(decisions['documents-multi-instance'], { run: true, reason: 'affected: @open-mercato/documents' })
+})
+
+test('an unrelated package change keeps both jobs as no-ops', () => {
+  const decisions = jobScope({ affectedPackages: ['@open-mercato/gateway-stripe'] })
+  for (const jobId of packageScopedJobIds) assert.equal(decisions[jobId].run, false, jobId)
+})
+
+test('a non-workspace file a job reads runs that job', () => {
+  const decisions = jobScope({ changedFiles: ['scripts/check-oauth-publish-shape.mjs'] })
+  assert.deepEqual(decisions['documents-multi-instance'], { run: true, reason: 'changed: scripts/check-oauth-publish-shape.mjs' })
+  assert.equal(decisions['core-timezone'].run, false)
+  assert.equal(jobScope({ changedFiles: ['jest.config.base.cjs'] })['core-timezone'].run, true)
+})
+
+test('the full level always runs both jobs, whatever turbo reports', () => {
+  for (const affectedPackages of [[], null]) {
+    const decisions = jobScope({ level: 'full', affectedPackages })
+    for (const jobId of packageScopedJobIds) assert.deepEqual(decisions[jobId], { run: true, reason: 'full suite' }, jobId)
+  }
+})
+
+test('unknown affected packages fail open and run both jobs', () => {
+  const decisions = jobScope({ affectedPackages: null })
+  for (const jobId of packageScopedJobIds) assert.equal(decisions[jobId].run, true, jobId)
+})
+
+test('the targeted level does not bypass package scoping', () => {
+  assert.equal(jobScope({ level: 'targeted', affectedPackages: ['@open-mercato/ui'] })['core-timezone'].run, false)
+})
+
+test('push, stabilize/*, ci-full and ci.yml edits resolve to the full level that runs both jobs', () => {
+  assert.equal(resolve({ event: 'push', changedFiles: [] }).level, 'full')
+  assert.equal(resolve({ changedFiles: ['README.md'], headRef: 'stabilize/qa-2026-11-28' }).level, 'full')
+  assert.equal(resolve({ changedFiles: ['README.md'], labels: ['ci-full'] }).level, 'full')
+  assert.equal(resolve({ changedFiles: ['.github/workflows/ci.yml'] }).level, 'full')
+})
+
+test('every packageScopedJobs package is a workspace and every job is a ci.yml job', () => {
+  const root = new URL('../../', import.meta.url)
+  const workspaces = new Set<string>()
+  for (const base of ['packages', 'apps']) {
+    for (const entry of fs.readdirSync(new URL(`${base}/`, root))) {
+      const manifest = new URL(`${base}/${entry}/package.json`, root)
+      if (fs.existsSync(manifest)) workspaces.add((JSON.parse(fs.readFileSync(manifest, 'utf8')) as { name: string }).name)
+    }
+  }
+  for (const [jobId, job] of Object.entries(config.packageScopedJobs)) {
+    assert.ok(workflow.jobs[jobId], `${jobId} is not a ci.yml job`)
+    for (const name of job.packages) assert.ok(workspaces.has(name), `${jobId}: ${name} is not a workspace package`)
+  }
+})
+
+function workspaceNameAt(directory: string): string {
+  const manifest = new URL(`../../${directory}/package.json`, import.meta.url)
+  assert.ok(fs.existsSync(manifest), `${directory} is not a workspace`)
+  return (JSON.parse(fs.readFileSync(manifest, 'utf8')) as { name: string }).name
+}
+
+test('the drift guard sees unscoped workspaces and every script extension', () => {
+  const sample = 'yarn workspace create-mercato-app test\nnode scripts/a.ts && node scripts/ci/b.js && node scripts/c.cjs\njest --config apps/mercato/jest.config.cjs'
+  assert.deepEqual([...sample.matchAll(WORKSPACE_RUN_PATTERN)].map((match) => match[1]), ['create-mercato-app'])
+  assert.deepEqual([...sample.matchAll(SCRIPT_RUN_PATTERN)].map((match) => match[1]), ['scripts/a.ts', 'scripts/ci/b.js', 'scripts/c.cjs'])
+  assert.deepEqual([...sample.matchAll(JEST_CONFIG_PATTERN)].map((match) => match[1]), ['apps/mercato'])
+})
+
+test('every workspace and repo script a package-scoped job runs is in its scope (no silent drift)', () => {
+  for (const [jobId, job] of Object.entries(config.packageScopedJobs)) {
+    const runs = workflow.jobs[jobId].steps.map((step) => step.run ?? '').join('\n')
+    for (const match of runs.matchAll(WORKSPACE_RUN_PATTERN)) {
+      assert.ok(job.packages.includes(match[1]), `${jobId} runs ${match[1]} but packageScopedJobs does not list it`)
+    }
+    for (const match of runs.matchAll(JEST_CONFIG_PATTERN)) {
+      const name = workspaceNameAt(match[1])
+      assert.ok(job.packages.includes(name), `${jobId} runs ${match[1]} tests (${name}) but packageScopedJobs does not list it`)
+    }
+    const patterns = job.paths.map(globToRegExp)
+    for (const match of runs.matchAll(SCRIPT_RUN_PATTERN)) {
+      assert.ok(patterns.some((pattern) => pattern.test(match[1])), `${jobId} runs ${match[1]} but packageScopedJobs paths do not cover it`)
+    }
+  }
+})
+
+test('prepare exposes run_<job> and <job>_reason for every package-scoped job', () => {
+  const outputs = workflow.jobs.prepare.outputs
+  for (const jobId of packageScopedJobIds) {
+    const key = outputKey(jobId)
+    assert.equal(outputs[`run_${key}`], `\${{ steps.job-scope.outputs.run_${key} }}`)
+    assert.equal(outputs[`${key}_reason`], `\${{ steps.job-scope.outputs.${key}_reason }}`)
+  }
+  const steps = workflow.jobs.prepare.steps
+  const jobScopeIndex = steps.findIndex((step) => step.id === 'job-scope')
+  assert.ok(jobScopeIndex > steps.findIndex((step) => step.name === 'Install dependencies'), 'job-scope needs turbo installed')
+  assert.ok(jobScopeIndex > steps.findIndex((step) => step.id === 'integration-scope'), 'job-scope reads the integration-scope level')
+  assert.deepEqual(jobScopeStep.env, {
+    EVENT_NAME: '${{ github.event_name }}',
+    SCOPE_LEVEL: '${{ steps.integration-scope.outputs.level }}',
+    NM_CACHE_HIT: '${{ steps.nm-cache.outputs.cache-hit }}',
+  })
+  assert.equal(steps.find((step) => step.name === 'Cache node_modules')?.id, 'nm-cache')
+  assert.doesNotMatch(String(jobScopeStep.run), /\$\{\{/)
+  assert.doesNotMatch(String(jobScopeStep.run), /yarn turbo/)
+  assert.match(String(jobScopeStep.run), /\.\/node_modules\/\.bin\/turbo ls --filter='\[HEAD\^1\]\.\.\.' --output=json/)
+  assert.match(String(jobScopeStep.run), /import\('\.\/resolve-ci-scope\.mts'\)/)
+})
+
+for (const jobId of ['core-timezone', 'documents-multi-instance']) {
+  test(`${jobId} still runs when out of scope: only its work steps are gated, and it reports why`, () => {
+    const job = workflow.jobs[jobId]
+    assert.equal(job.env?.IN_SCOPE, `\${{ needs.prepare.outputs.run_${outputKey(jobId)} != 'false' }}`)
+    assert.doesNotMatch(String(job.if), /run_|IN_SCOPE/, `${jobId} must be scheduled whatever the scope, or the required check reads as skipped`)
+    const report = job.steps.find((step) => step.name === 'Report out of scope')
+    assert.ok(report, `${jobId} needs an out-of-scope report step`)
+    assert.equal(report.if, "env.IN_SCOPE != 'true'")
+    assert.match(String(report.run), /GITHUB_STEP_SUMMARY/)
+    for (const step of job.steps) {
+      if (step === report || step.name === 'Fail on failed audit') continue
+      assert.match(String(step.if ?? ''), /env\.IN_SCOPE == 'true'/, `${jobId}: ${step.name} must be gated on IN_SCOPE`)
+    }
+  })
+}
+
+test('documents-multi-instance keeps its audit gate first and ungated by scope', () => {
+  const steps = workflow.jobs['documents-multi-instance'].steps
+  const gateIndex = steps.findIndex((step) => step.name === 'Fail on failed audit')
+  const reportIndex = steps.findIndex((step) => step.name === 'Report out of scope')
+  assert.ok(gateIndex >= 0, 'audit gate missing')
+  assert.ok(gateIndex < reportIndex, 'the audit gate must run before the out-of-scope report')
+  assert.doesNotMatch(String(steps[gateIndex].if), /IN_SCOPE|run_/)
+  assert.equal(steps[gateIndex].id, 'audit-gate')
+})
+
+test('documents-multi-instance starts no sidecars when out of scope', () => {
+  for (const service of Object.values(workflow.jobs['documents-multi-instance'].services ?? {})) {
+    assert.match(service.image, /^\$\{\{ needs\.prepare\.outputs\.run_documents_multi_instance != 'false' && '[^']+' \|\| '' \}\}$/)
+  }
+})
+
+test('the job-scope step turns a docs-only PR into no-op outputs and says so', () => {
+  const step = runJobScopeStep({ changedFiles: ['README.md', 'scripts/ci/pr-triage-labels.mts'], affectedPackages: [] })
+  assert.equal(step.status, 0, step.stderr)
+  assert.equal(step.values.run_core_timezone, 'false')
+  assert.equal(step.values.run_documents_multi_instance, 'false')
+  assert.match(step.values.core_timezone_reason, /^out of scope · /)
+  assert.ok(step.calls.includes('turbo ls --filter=[HEAD^1]... --output=json'), step.calls.join('\n'))
+  assert.ok(!step.calls.some((call) => call.startsWith('yarn')), step.calls.join('\n'))
+  assert.match(step.summary, /Package-scoped job core-timezone: no-op · out of scope/)
+})
+
+test('the job-scope step runs both jobs when turbo reports @open-mercato/core', () => {
+  const step = runJobScopeStep({ changedFiles: ['packages/core/src/modules/sales/a.ts'], affectedPackages: ['@open-mercato/core', '@open-mercato/app'] })
+  assert.equal(step.status, 0, step.stderr)
+  assert.equal(step.values.run_core_timezone, 'true')
+  assert.equal(step.values.run_documents_multi_instance, 'true')
+})
+
+test('the job-scope step tolerates noise around turbo JSON', () => {
+  const step = runJobScopeStep({ turboOutput: `turbo 2.10.12\n${turboLsOutput(['@open-mercato/documents'])}\n` })
+  assert.equal(step.status, 0, step.stderr)
+  assert.equal(step.values.run_core_timezone, 'false')
+  assert.equal(step.values.run_documents_multi_instance, 'true')
+})
+
+for (const [name, options] of [
+  ['turbo fails', { turboFails: true }],
+  ['turbo prints no JSON', { turboOutput: 'not json' }],
+  ['turbo prints JSON without packages.items', { turboOutput: '{"packageManager":"yarn","packages":[]}' }],
+  ['turbo prints items without names', { turboOutput: '{"packages":{"count":1,"items":[{"path":"packages/core"}]}}' }],
+  ['turbo prints a JSON array', { turboOutput: '[]' }],
+  ['HEAD^1 is missing', { baseCommitPresent: false }],
+] as const) {
+  test(`the job-scope step fails open when ${name}`, () => {
+    const step = runJobScopeStep({ changedFiles: ['README.md'], ...options })
+    assert.equal(step.status, 0, step.stderr)
+    assert.equal(step.values.run_core_timezone, 'true')
+    assert.equal(step.values.run_documents_multi_instance, 'true')
+  })
+}
+
+test('the job-scope step runs both jobs at the full level', () => {
+  const step = runJobScopeStep({ level: 'full', changedFiles: ['.github/workflows/ci.yml'], affectedPackages: [] })
+  assert.equal(step.status, 0, step.stderr)
+  assert.equal(step.values.run_core_timezone, 'true')
+  assert.equal(step.values.run_documents_multi_instance, 'true')
+})
+
+test('the job-scope step emits nothing on push, so both jobs run in full', () => {
+  const step = runJobScopeStep({ eventName: 'push' })
+  assert.equal(step.status, 0, step.stderr)
+  assert.deepEqual(step.values, {})
+  assert.deepEqual(step.calls, [])
+  assert.equal(step.summary, 'Package-scoped jobs: all run · push event\n')
+})
+
+test('the job-scope step runs every job when the base resolver predates job scoping', () => {
+  const step = runJobScopeStep({ resolverSource: 'export function parseCiScopeConfig(raw) { return raw }\n' })
+  assert.equal(step.status, 0, step.stderr)
+  assert.deepEqual(step.values, {})
+  assert.equal(step.summary, 'Package-scoped jobs: all run · the base resolver predates job scoping\n')
+})
+
+test('parseCiScopeConfig rejects malformed packageScopedJobs', () => {
+  assert.throws(() => parseCiScopeConfig({ ...rawConfig, packageScopedJobs: { 'core-timezone': { packages: [], paths: [] } } }), /packages must not be empty/)
+  assert.throws(() => parseCiScopeConfig({ ...rawConfig, packageScopedJobs: { 'core-timezone': { packages: ['@open-mercato/core'], paths: [], extra: 1 } } }), /unknown key "extra"/)
+  assert.throws(() => parseCiScopeConfig({ ...rawConfig, packageScopedJobs: { Core_TZ: { packages: ['x'], paths: [] } } }), /kebab-case/)
+})
+
+test('the job-scope step trusts nothing after a node_modules cache miss', () => {
+  for (const nmCacheHit of ['', 'false']) {
+    const step = runJobScopeStep({ changedFiles: ['README.md'], nmCacheHit })
+    assert.equal(step.status, 0, step.stderr)
+    assert.deepEqual(step.values, {}, 'no outputs: both jobs run in full')
+    assert.deepEqual(step.calls, [], 'neither turbo nor the resolver copy may run')
+    assert.equal(step.summary, 'Package-scoped jobs: all run · node_modules cache miss (install ran PR code)\n')
+  }
+})
+
+test('root manifests and jest helpers put both jobs in scope', () => {
+  for (const file of ['package.json', 'turbo.json', '.yarnrc.yml', 'yarn.lock', 'scripts/jest-typescript-resolver.cjs', 'scripts/jest-mikroorm-transformer.cjs']) {
+    const decisions = jobScope({ changedFiles: [file] })
+    for (const jobId of packageScopedJobIds) assert.equal(decisions[jobId].run, true, `${jobId}: ${file}`)
+  }
+  assert.equal(jobScope({ changedFiles: ['packages/gateway-stripe/package.json'] })['core-timezone'].run, false)
+})
+
+for (const [name, input, expectedLevel, expectedRun] of [
+  ['a scoped docs-only PR', { changedFiles: ['README.md'] }, 'scoped', 'false'],
+  ['a ci.yml edit', { changedFiles: ['.github/workflows/ci.yml'] }, 'full', 'true'],
+  ['a ci-full label', { changedFiles: ['README.md'], labels: ['ci-full'] }, 'full', 'true'],
+  ['a targeted area label', { changedFiles: ['README.md'], labels: ['ci-area:portal'] }, 'targeted', 'false'],
+] as const) {
+  test(`integration-scope hands its level to job-scope: ${name}`, () => {
+    const scope = runCiScopeStep({ changedFiles: [...input.changedFiles], labels: [...(('labels' in input) ? input.labels : [])] })
+    assert.equal(scope.status, 0, scope.stderr)
+    assert.equal(scope.values.level, expectedLevel)
+    const step = runJobScopeStep({ level: scope.values.level, changedFiles: [...input.changedFiles], affectedPackages: [] })
+    assert.equal(step.status, 0, step.stderr)
+    assert.equal(step.values.run_core_timezone, expectedRun)
+    assert.equal(step.values.run_documents_multi_instance, expectedRun)
+  })
+}
+
+test('integration-scope reports level=full on push', () => {
+  assert.equal(runCiScopeStep({ eventName: 'push' }).values.level, 'full')
 })
