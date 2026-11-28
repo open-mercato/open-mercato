@@ -30,8 +30,8 @@ const STOCK_FEATURES = [
   'wms.adjust_inventory',
 ]
 
-const HAS_STOCK_MESSAGE = 'This warehouse still holds inventory. Move or adjust its stock to zero before archiving it.'
-const HAS_STOCK_MESSAGE_PL = 'Ten magazyn nadal zawiera zapasy. Przenieś lub skoryguj jego stan do zera przed archiwizacją.'
+const HAS_STOCK_MESSAGE = 'This warehouse still holds inventory. Adjust its stock to zero and release its reservations and allocations before archiving it.'
+const HAS_STOCK_MESSAGE_PL = 'Ten magazyn nadal zawiera zapasy. Skoryguj jego stan do zera i zwolnij rezerwacje oraz alokacje przed archiwizacją.'
 
 type Fixture = {
   token: string
@@ -237,6 +237,7 @@ test.describe('TC-WMS-WAREHOUSE-DELETE-001: a warehouse that still holds stock c
       expect(deleteResponse.status()).toBe(409)
       await expect(page.getByText(HAS_STOCK_MESSAGE)).toBeVisible({ timeout: 10_000 })
       await expect(row).toHaveCount(1)
+      expect(await isWarehouseListed(request, fixture)).toBe(true)
     } finally {
       await cleanupFixture(request, fixture)
     }

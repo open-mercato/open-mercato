@@ -400,6 +400,7 @@ See [2026-06-13-wms-ledger-integrity.md](2026-06-13-wms-ledger-integrity.md) for
 All validators live in `data/validators.ts`:
 
 - `warehouseCreateSchema`: `name` required, `code` required and unique per organization, `isPrimary` optional with at-most-one enforcement per organization in commands (sibling primaries demoted org-wide via `enforcePrimaryWarehouse`; undo restores demoted siblings from `demotedPrimariesBefore`); rejects `isPrimary=true` when `isActive=false`; deactivating a primary warehouse auto-clears `isPrimary`
+- `wms.warehouses.delete` (and the undo of `wms.warehouses.create`): refused with `409 warehouse_has_stock` while any live balance in the warehouse has non-zero on-hand, reserved or allocated quantity
 - `locationCreateSchema`: validate hierarchy (`parent_id` must belong to same warehouse), capacity constraints (`capacity_units` / `capacity_weight` non-negative when provided)
 - `inventoryAdjustSchema`: `reason` required, `delta` must be non-zero
 - `reservationCreateSchema`: `quantity` must be positive, must not exceed `quantity_available` in target buckets

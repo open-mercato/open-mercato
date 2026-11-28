@@ -643,7 +643,7 @@ async function assertWarehouseHasNoStock(em: EntityManager, ctx: CommandRuntimeC
   throw new CrudHttpError(409, {
     error: translate(
       'wms.validation.warehouse.deleteHasStock',
-      'This warehouse still holds inventory. Move or adjust its stock to zero before archiving it.',
+      'This warehouse still holds inventory. Adjust its stock to zero and release its reservations and allocations before archiving it.',
     ),
     code: 'warehouse_has_stock',
   })
