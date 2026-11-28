@@ -549,14 +549,21 @@ async function listBalancesForVariant(
       catalogVariantId,
       deletedAt: null,
     },
-    undefined,
+    { populate: ['lot', 'location'] },
     scope,
   )
+  const now = new Date()
+  const reservable: InventoryBalance[] = []
   for (const balance of balances) {
     ensureTenantScope(ctx, balance.tenantId)
     ensureOrganizationScope(ctx, balance.organizationId)
+    // Mirror the availability sales/reservations rely on — staging/dock
+    // locations and ineligible lots are not counted as available stock.
+    if (!isBalanceLocationReservable(balance)) continue
+    if (!balanceHasEligibleLot(balance, now)) continue
+    reservable.push(balance)
   }
-  return balances
+  return reservable
 }
 
 async function emitLowStockEventIfNeeded(

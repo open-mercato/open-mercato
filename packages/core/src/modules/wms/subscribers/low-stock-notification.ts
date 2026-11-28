@@ -42,6 +42,10 @@ export default async function handle(payload: LowStockPayload, ctx: ResolverCont
       sourceEntityType: 'wms:inventory_balance',
       sourceEntityId: payload.catalogVariantId,
       linkHref: `/backend/wms/sku/${encodeURIComponent(payload.catalogVariantId)}`,
+      // Dedupe repeated low-stock events for the same variant/state: as long as a prior
+      // notification with this groupKey is still active, it gets refreshed in place
+      // instead of piling up a new row per inventory operation.
+      groupKey: `wms.inventory.low_stock:${payload.catalogVariantId}:${payload.state}`,
     })
 
     await notificationService.createForFeature(notificationInput, {

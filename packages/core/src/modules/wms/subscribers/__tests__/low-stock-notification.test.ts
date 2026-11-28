@@ -85,4 +85,25 @@ describe('wms low-stock-notification subscriber', () => {
       }),
     )
   })
+
+  it('groups notifications by variant and state so repeated events refresh in place instead of piling up', async () => {
+    await handle(basePayload, ctx)
+
+    expect(buildFeatureNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        groupKey: 'wms.inventory.low_stock:variant-uuid-1:below_safety_stock',
+      }),
+    )
+
+    buildFeatureNotificationFromTypeMock.mockClear()
+    await handle({ ...basePayload, state: 'below_reorder_point', availableQuantity: 8 }, ctx)
+
+    expect(buildFeatureNotificationFromTypeMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        groupKey: 'wms.inventory.low_stock:variant-uuid-1:below_reorder_point',
+      }),
+    )
+  })
 })
