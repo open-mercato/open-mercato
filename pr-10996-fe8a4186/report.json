@@ -1,0 +1,638 @@
+{
+  "runId": "fe8a4186-c386-43cd-8103-41d146778b31",
+  "mode": "pr",
+  "depth": "complex",
+  "target": {
+    "prNumber": 10996,
+    "title": "fix(core): harden customer group and availability scope (#6812)",
+    "branch": "cez/5a709a12",
+    "headSha": "edd0c61bf84431af8f17a4216edcd0a3b89d99d6"
+  },
+  "testedHeadSha": "edd0c61bf84431af8f17a4216edcd0a3b89d99d6",
+  "verdict": "FAIL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:39135",
+    "role": "admin + own restricted tenant-bound actors",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright",
+    "mode": "production + isolated PostgreSQL",
+    "runner": "local",
+    "status": "stopped"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P0",
+      "channel": "API",
+      "action": "availability list authorized positive control",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 200,
+        "total": 0
+      }
+    },
+    {
+      "step": 2,
+      "priority": "P0",
+      "channel": "API",
+      "action": "GET /api/availability/policies stale organization",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 422,
+        "body": {
+          "error": "Your selected organization is no longer available. Please re-select an organization and try again.",
+          "code": "organization_selection_invalid"
+        },
+        "cookie": "om_selected_org=; Path=/; Max-Age=0; SameSite=Lax"
+      }
+    },
+    {
+      "step": 3,
+      "priority": "P0",
+      "channel": "API",
+      "action": "GET /api/availability/policies/resolve-preview stale organization",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 422,
+        "body": {
+          "error": "Your selected organization is no longer available. Please re-select an organization and try again.",
+          "code": "organization_selection_invalid"
+        },
+        "cookie": "om_selected_org=; Path=/; Max-Age=0; SameSite=Lax"
+      }
+    },
+    {
+      "step": 4,
+      "priority": "P0",
+      "channel": "API",
+      "action": "POST /api/availability/check stale organization",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 422,
+        "body": {
+          "error": "Your selected organization is no longer available. Please re-select an organization and try again.",
+          "code": "organization_selection_invalid"
+        },
+        "cookie": "om_selected_org=; Path=/; Max-Age=0; SameSite=Lax"
+      }
+    },
+    {
+      "step": 5,
+      "priority": "P0",
+      "channel": "API",
+      "action": "finite scope list excludes other organization under all",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 200,
+        "ownIncluded": true,
+        "otherExcluded": true
+      }
+    },
+    {
+      "step": 6,
+      "priority": "P0",
+      "channel": "API",
+      "action": "restricted group delete refuses out-of-scope membership without data loss",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 409,
+        "wholeGroupUnchanged": true,
+        "membershipsUnchanged": true
+      }
+    },
+    {
+      "step": 7,
+      "priority": "P0",
+      "channel": "API",
+      "action": "hard-deleted customer becomes an orphan and no longer blocks group delete",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 200
+      }
+    },
+    {
+      "step": 8,
+      "priority": "P0",
+      "channel": "API",
+      "action": "group cascade retired memberships; repeat delete and assignment refused",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "deleteStatus": 404,
+        "remainingMemberships": 0,
+        "reassignmentStatus": 400
+      }
+    },
+    {
+      "step": 9,
+      "priority": "P0",
+      "channel": "API",
+      "action": "tenant B authorized control",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-tenant-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 200,
+        "body": {
+          "items": [],
+          "total": 0,
+          "page": 1,
+          "pageSize": 50,
+          "totalPages": 0
+        }
+      }
+    },
+    {
+      "step": 10,
+      "priority": "P0",
+      "channel": "API",
+      "action": "tenant B cannot list tenant A group or policy",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-tenant-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "group": {
+          "status": 200,
+          "body": {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "pageSize": 50,
+            "totalPages": 0
+          }
+        },
+        "policy": {
+          "status": 200,
+          "body": {
+            "items": [],
+            "total": 0,
+            "page": 1,
+            "pageSize": 50,
+            "totalPages": 1
+          }
+        }
+      }
+    },
+    {
+      "step": 11,
+      "priority": "P0",
+      "channel": "API",
+      "action": "tenant B PUT tenant A group refused",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-tenant-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 404,
+        "body": {
+          "error": "Not found"
+        }
+      }
+    },
+    {
+      "step": 12,
+      "priority": "P0",
+      "channel": "API",
+      "action": "tenant B DELETE tenant A group refused",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-tenant-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "status": 404,
+        "body": {
+          "error": "Not found"
+        }
+      }
+    },
+    {
+      "step": 13,
+      "priority": "P0",
+      "channel": "API",
+      "action": "no feature actor direct availability read refused after positive control",
+      "expected": "Authorized controls succeed; unauthorized scope reads/writes refused and existing data preserved.",
+      "observed": "Assertions passed; exact HTTP/body and field comparisons in api-tenant-boundaries.json.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "before": 200,
+        "after": {
+          "status": 403,
+          "body": {
+            "error": "Forbidden",
+            "requiredFeatures": [
+              "availability.policies.view"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "step": 14,
+      "priority": "P0",
+      "channel": "API/SQL fixture",
+      "action": "Existing soft-deleted out-of-scope customer still blocks deletion",
+      "expected": "409 without group or membership mutation.",
+      "observed": "409; whole group unchanged and membership still live. Product fixtures, tenant/id-scoped SQL legacy soft-delete in CLI-owned DB only.",
+      "result": "PASS",
+      "screenshot": null,
+      "detail": {
+        "name": "Existing soft-deleted out-of-scope customer still blocks deletion",
+        "result": "PASS",
+        "status": 409,
+        "error": "This group has members in organizations you cannot access, so you cannot delete it.",
+        "wholeGroupUnchanged": true,
+        "membershipStillLive": true,
+        "fixture": "Created through product APIs; soft-deleted legacy state simulated with scoped SQL only against CLI-owned disposable DB."
+      }
+    },
+    {
+      "step": 15,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "Open availability list/check and group list/create.",
+      "expected": "Useful rendered screens and empty states.",
+      "observed": "Four routes returned 200; semantic controls and empty lists rendered. Navigations 1.47–2.28s including 1.2–1.5s deliberate settle; not a server latency benchmark.",
+      "result": "PASS",
+      "screenshot": "availability-policies.png",
+      "detail": null
+    },
+    {
+      "step": 16,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "Create a long-named group by double-clicking Create.",
+      "expected": "One group; fields reload correctly.",
+      "observed": "One 201, one table row. Code/name/description/kind/priority/default/active reloaded.",
+      "result": "PASS",
+      "screenshot": "group-created-long-name.png",
+      "detail": null
+    },
+    {
+      "step": 17,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "A edits name; own user B saves description; A double-clicks stale Save and retries Ctrl+Enter.",
+      "expected": "Conflict; preserve B change and all untouched fields.",
+      "observed": "Conflict bar appeared. API retained B description, baseline name/code/priority/kind/flags/parent/metadata. Refresh loaded B description.",
+      "result": "PASS",
+      "screenshot": "group-second-actor-stale-save.png",
+      "detail": null
+    },
+    {
+      "step": 18,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "Refresh, save fresh values, wait ten seconds.",
+      "expected": "Current list; no stale error; untouched fields preserved.",
+      "observed": "List updated, no residual conflict; API retained B description and untouched fields.",
+      "result": "PASS",
+      "screenshot": "group-mobile-long-name.png",
+      "detail": null
+    },
+    {
+      "step": 19,
+      "priority": "P0",
+      "channel": "UI",
+      "action": "Own actor lacking availability feature opens check page.",
+      "expected": "Access denied; no controls/data.",
+      "observed": "Readable Access Denied screen. Separate API positive-control/revocation returned 200 then 403.",
+      "result": "PASS",
+      "screenshot": "availability-no-permission.png",
+      "detail": null
+    },
+    {
+      "step": 20,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "Availability Check with invalid selected organization, English.",
+      "expected": "Readable selection-unavailable error.",
+      "observed": "Translated error displayed, matching API 422.",
+      "result": "PASS",
+      "screenshot": "availability-stale-selection-en.png",
+      "detail": null
+    },
+    {
+      "step": 21,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "Retry with own real product after cookie expiry; wait ten seconds.",
+      "expected": "Success and no stale error.",
+      "observed": "Not tracked / Can fulfil Yes; own threshold 789 in trace; no stale error.",
+      "result": "PASS",
+      "screenshot": "availability-recovered-check-en.png",
+      "detail": null
+    },
+    {
+      "step": 22,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "Invalid-selection check explicitly Polish, 390x844.",
+      "expected": "Translated error; usable narrow layout.",
+      "observed": "Polish message wrapped in viewport; inputs and action usable. New key exists in en/pl/de/es/ko.",
+      "result": "PASS",
+      "screenshot": "availability-stale-selection-pl-mobile.png",
+      "detail": null
+    },
+    {
+      "step": 23,
+      "priority": "P1",
+      "channel": "UI/API",
+      "action": "Policy create preview: successful then rejected organization, Polish.",
+      "expected": "Show 422 error and unavailable preview, with retry.",
+      "observed": "Control 200 showed threshold 789. Rejection 422 cleared cookie but every value became not-set/module-default with no error. Reproduced twice; expected-message assertion exited 1.",
+      "result": "FAIL",
+      "screenshot": "availability-preview-rejected.png",
+      "detail": null
+    },
+    {
+      "step": 24,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "Open own person; wait over sixty seconds for Groups.",
+      "expected": "Membership UI available to admin.",
+      "observed": "Groups tab absent. Existing registration/person-page spot IDs differ; neither changed by this PR. Assignment used API.",
+      "result": "NOT_EXERCISED",
+      "screenshot": "person-groups-tab-unavailable.png",
+      "detail": null
+    },
+    {
+      "step": 25,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "API creates membership; browser deletes group: Escape, reopen, Ctrl+Enter, ten-second wait.",
+      "expected": "Escape cancels; confirm retires membership and refreshes list.",
+      "observed": "Escape closed dialog without mutation. Ctrl+Enter deleted; list empty after ten seconds; membership API items [] total 0.",
+      "result": "PASS",
+      "screenshot": "group-delete-membership-retired.png",
+      "detail": null
+    },
+    {
+      "step": 26,
+      "priority": "P1",
+      "channel": "UI",
+      "action": "Transient loading and exhaustive mobile row actions.",
+      "expected": "Useful loader; all actions reachable.",
+      "observed": "Stable narrow/desktop states captured; transient loader and horizontal row-action interaction not isolated. Mobile group table needs horizontal scrolling.",
+      "result": "NOT_EXERCISED",
+      "screenshot": "group-mobile-long-name.png",
+      "detail": null
+    },
+    {
+      "step": 27,
+      "priority": "P1",
+      "channel": "runtime/UI",
+      "action": "Persistent events and company-tab consumer.",
+      "expected": "Event delivery and consumer refresh.",
+      "observed": "Database/API cascade verified; persistent worker delivery, company Groups UI and person membership dialog not verified. Person tab absent.",
+      "result": "NOT_EXERCISED",
+      "screenshot": null,
+      "detail": null
+    }
+  ],
+  "hasUiTest": false,
+  "findings": [
+    {
+      "id": "QA-10996-1",
+      "severity": "P1",
+      "title": "Rejected organization preview silently renders default values",
+      "file": "packages/core/src/modules/availability/backend/availability/policies/ResolutionPreviewPanel.tsx",
+      "line": 68,
+      "relatedChangedFile": "packages/core/src/modules/availability/api/policies/resolve-preview/route.ts",
+      "relatedChangedLine": 58,
+      "expected": "Display translated 422, mark preview unavailable and allow retry after reselection.",
+      "observed": "Non-ok ignored; trace stays null and render maps null to module defaults. Control showed 789; rejected selection showed all defaults without error.",
+      "reproductions": 2,
+      "evidence": [
+        "preview-positive.json",
+        "preview-rejection.json",
+        "preview-before.txt",
+        "preview-after.txt",
+        "availability-preview-positive.png",
+        "availability-preview-rejected.png"
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "file": "availability-check.png",
+      "bytes": 71539,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "3625b59faf0f12663c165d1d6093b058c6033a4dc53f263ab1ef40838776e031"
+    },
+    {
+      "file": "availability-no-permission.png",
+      "bytes": 39923,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "b6005f65c20586b6659afe20f39bde182d8735e3db30be0fc2c462d4522f5c7e"
+    },
+    {
+      "file": "availability-policies.png",
+      "bytes": 81041,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "022dc665e89d4fd0b3cde9cbbc3110241017b27f82d6b2fcf1cfb3844eda78ce"
+    },
+    {
+      "file": "availability-preview-positive.png",
+      "bytes": 201394,
+      "width": 1440,
+      "height": 1043,
+      "sha256": "21199c9b180d1f3af7d9ac3061d6c1fddae3a4aaafb1fd9965396625d3f2ac7e"
+    },
+    {
+      "file": "availability-preview-rejected.png",
+      "bytes": 193597,
+      "width": 1440,
+      "height": 1043,
+      "sha256": "3510cf0cce96900a9244d52c1bf556cdb70121a320386bf1dd7422708260f592"
+    },
+    {
+      "file": "availability-recovered-check-en.png",
+      "bytes": 125377,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "5a362f4ca54f1ed7a6f342b8c72fd3b2939e881d3ee32f95f8d04f0933b65ee8"
+    },
+    {
+      "file": "availability-stale-selection-en.png",
+      "bytes": 78823,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "3f6df7c81dfd9c1398366ec56c4848751cb1c1e0d6511ba101fcb77ccb4d6c2b"
+    },
+    {
+      "file": "availability-stale-selection-pl-mobile.png",
+      "bytes": 33737,
+      "width": 390,
+      "height": 844,
+      "sha256": "0eecbd40439c971658a0c10b853c0b41e86e21f0b8f2d10c80e842003fc58a48"
+    },
+    {
+      "file": "customer-groups-create.png",
+      "bytes": 83050,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "20ce9193d8ae323a80ff5be8c24a688ec9135ec13abd616bfa828c0acc4bead8"
+    },
+    {
+      "file": "customer-groups.png",
+      "bytes": 53299,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "8636ceb4cec239106b60758c7f7516246b86dd191972a16ccc4387ecfcdd01b5"
+    },
+    {
+      "file": "group-created-long-name.png",
+      "bytes": 88512,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "753ecb0834f5965046b5486e6d51053a9359983bb772cbb74183f58411835841"
+    },
+    {
+      "file": "group-delete-membership-retired.png",
+      "bytes": 53279,
+      "width": 1440,
+      "height": 1000,
+      "sha256": "8a0a3326dd6791f1237f6c9af01bd457ce7abf2086453c7db2d85f7657c1da0e"
+    },
+    {
+      "file": "group-mobile-long-name.png",
+      "bytes": 27718,
+      "width": 390,
+      "height": 844,
+      "sha256": "10154209c2492428ca6eca84ec08f749385e3b82b5070c311acdd284e9c15d47"
+    },
+    {
+      "file": "group-second-actor-stale-save.png",
+      "bytes": 163100,
+      "width": 1440,
+      "height": 1324,
+      "sha256": "551e7e37046c63611665090dcf9c8f2a514850dd248d09c3fcacfa4551d9f2cf"
+    },
+    {
+      "file": "person-groups-tab-unavailable.png",
+      "bytes": 111130,
+      "width": 1440,
+      "height": 1683,
+      "sha256": "aad5be45842cf4bd0ac8066a5ed31a501090c4c85b7f950a6e27832f88e9604b"
+    }
+  ],
+  "screenshotsCount": 15,
+  "commands": [
+    {
+      "command": "timeout 600 yarn install --immutable",
+      "result": "exit 0; native build warnings"
+    },
+    {
+      "command": "yarn build:packages / yarn generate / yarn build:packages (bounded in entrypoint)",
+      "result": "passed; no retained source diff"
+    },
+    {
+      "command": "bounded sh .ai/scripts/test-env-up.sh",
+      "result": "production ready; init 86s, app build 215s; exact-head forced rebuild"
+    },
+    {
+      "command": "timeout 45 sh .ai/scripts/test-env-up.sh",
+      "result": "exit 0; TEST_ENV_REUSED=1; same env/head"
+    },
+    {
+      "command": "Playwright 1.61.1 Chromium doctor",
+      "result": "PASS"
+    },
+    {
+      "command": "timeout 300 OM_PG_INTEGRATION=1 yarn jest --config packages/core/jest.config.cjs --runInBand --runTestsByPath (six files listed in targeted-jest.log)",
+      "result": "128 tests / 6 suites PASS; 11.161s"
+    },
+    {
+      "command": "9 more bounded membership-scope.integration.test.ts runs",
+      "result": "4 tests PASS each; 10 total attempts including initial"
+    },
+    {
+      "command": "timeout 300 node api-boundaries.cjs",
+      "result": "exit 0; 8 PASS"
+    },
+    {
+      "command": "timeout 240 node api-tenant-boundaries.cjs",
+      "result": "exit 0; 5 PASS"
+    },
+    {
+      "command": "timeout 180 node soft-deleted-boundary.cjs",
+      "result": "exit 0; 1 PASS"
+    },
+    {
+      "command": "Playwright provider open/snapshot/interact/assert/screenshot artifact scripts",
+      "result": "15 real PNGs; observations and limits in scenario"
+    },
+    {
+      "command": "timeout 90 node preview-rejection.cjs",
+      "result": "exit 1: translated error absent after actual 422; positive control 200"
+    },
+    {
+      "command": "om-prepare-test-env --stop via down script; repaired fallback; repeat down",
+      "result": "own app/DB ports closed; container/state/driver PIDs absent"
+    },
+    {
+      "command": "git diff --quiet; git status --porcelain; git switch cez/fe8a4186",
+      "result": "clean; original branch beb07a9e963b705410cd051a065c53feed91244a restored"
+    }
+  ],
+  "cleanup": {
+    "appPortClosed": true,
+    "postgresPortClosed": true,
+    "ownerPidAbsent": true,
+    "containerAbsent": true,
+    "ephemeralStateAbsent": true,
+    "browserDriverPidsAbsent": true,
+    "branch": "cez/fe8a4186",
+    "trackedDiffEmpty": true,
+    "sourceStatusEmpty": true,
+    "foreignRyukLeftUntouched": "Shared pre-existing a8575f2febd8 Ryuk was not stopped."
+  },
+  "notes": [
+    "Evidence-only complex QA; demonstrated UI failure. No QA approval/failure or pipeline labels applied.",
+    "Source read only: no fixes, source commits/pushes or merges. Original branch restored clean. Runtime-generated tracked email capture restored after app stop.",
+    "No reusable genuine screenshots at intake; CI/service badges excluded. review pipeline label satisfied review-first; independent GitHub approval remains open.",
+    "Local runner; generated ignored om-prepare-test-env entrypoint wraps repository test:ephemeral with --no-reuse-env --force-rebuild. Disposable DB only.",
+    "All permission/isolation negatives used fresh tenant-bound users/roles/orgs; seeded accounts were provisioning/positive controls.",
+    "Soft-deleted legacy fixture created through product APIs then one tenant/id-scoped SQL update in own disposable DB; ordinary person delete hard-deletes.",
+    "Harness assumptions corrected: All-organizations token is __all__, new users need policy-compliant passwords, API needs bearer auth. Final API observations pass; initial harness failures are not product defects.",
+    "Install exited 0 with native make-missing warnings; production build/readiness passed. No dependency changes.",
+    "Full CI/typecheck/lint/repository unit gate not rerun; author 450-test claim not wholly re-executed. Six changed test files independently passed.",
+    "Initial policy cleanup under All organizations returned 400; subsequent browser-context delete returned 200, then disposable DB destroyed.",
+    "Teardown first left own DB after CLI process-group termination; ignored down script fallback removed only recorded f97d5da72292 and passed twice. Shared pre-existing Ryuk untouched.",
+    ".uxproof absent. No applicable monetary mutation/decimal amount field or external payment/webhook/scheduler path changed.",
+    "Claim held through evidence publication; exact-SHA release proof recorded separately afterward."
+  ],
+  "labelsChanged": [
+    "in-progress temporary claim; removed on release",
+    "screenshots only after actual evidence publication"
+  ]
+}
