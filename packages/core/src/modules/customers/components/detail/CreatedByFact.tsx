@@ -1,6 +1,8 @@
 "use client"
 
 import * as React from 'react'
+import { getCurrentOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/organizationEvents'
+import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { resolveAuthorUserNames } from './authorUserLookup'
 
@@ -15,6 +17,7 @@ type CreatedByFactProps = {
 
 type LookupState = {
   creatorId: string
+  scopeVersion: number
   pending: boolean
   name: string | null
 }
@@ -31,6 +34,7 @@ export function CreatedByFact({
   variant = 'header',
 }: CreatedByFactProps) {
   const t = useT()
+  const scopeVersion = useOrganizationScopeVersion()
   const creatorId = createdByUserId?.trim() || null
   const reusableOwnerName = creatorId && creatorId === ownerUserId?.trim()
     ? normalizeName(ownerName)
@@ -41,29 +45,26 @@ export function CreatedByFact({
     if (!creatorId || reusableOwnerName) return
 
     const controller = new AbortController()
-    let active = true
-    setLookup({ creatorId, pending: true, name: null })
+    const isCurrentScope = () => !controller.signal.aborted && getCurrentOrganizationScopeVersion() === scopeVersion
+    setLookup({ creatorId, scopeVersion, pending: true, name: null })
     void resolveAuthorUserNames([creatorId], controller.signal)
       .then(({ names }) => {
-        if (!active) return
-        setLookup({ creatorId, pending: false, name: normalizeName(names.get(creatorId)) })
+        if (!isCurrentScope()) return
+        setLookup({ creatorId, scopeVersion, pending: false, name: normalizeName(names.get(creatorId)) })
       })
       .catch(() => {
-        if (!active) return
-        setLookup({ creatorId, pending: false, name: null })
+        if (!isCurrentScope()) return
+        setLookup({ creatorId, scopeVersion, pending: false, name: null })
       })
 
-    return () => {
-      active = false
-      controller.abort()
-    }
-  }, [creatorId, reusableOwnerName])
+    return () => controller.abort()
+  }, [creatorId, reusableOwnerName, scopeVersion])
 
   const value = !creatorId
     ? t('customers.detail.createdBy.unknown')
     : reusableOwnerName
       ? reusableOwnerName
-      : lookup?.creatorId !== creatorId || lookup.pending
+      : lookup?.creatorId !== creatorId || lookup.scopeVersion !== scopeVersion || lookup.pending
         ? '—'
         : lookup.name ?? t('customers.detail.createdBy.unknown')
   const label = t('customers.detail.createdBy.label')

@@ -3,6 +3,7 @@
  */
 import * as React from 'react'
 import { act, render, screen, waitFor } from '@testing-library/react'
+import { emitOrganizationScopeChanged } from '@open-mercato/shared/lib/frontend/organizationEvents'
 import { CreatedByFact } from '../CreatedByFact'
 
 const resolveAuthorUserNamesMock = jest.fn()
@@ -132,6 +133,53 @@ describe('CreatedByFact', () => {
       secondRequest.resolve({ names: new Map([[CREATOR_B, 'Current creator']]), resolvedIds: [CREATOR_B] })
     })
     expect(await screen.findByText('Current creator')).toBeInTheDocument()
+  })
+
+  it('clears a resolved name when the organization changes with the same creator id', async () => {
+    const nextRequest = deferred<LookupResult>()
+    resolveAuthorUserNamesMock
+      .mockResolvedValueOnce({ names: new Map([[CREATOR_A, 'Previous organization creator']]), resolvedIds: [CREATOR_A] })
+      .mockReturnValueOnce(nextRequest.promise)
+    renderFact()
+    expect(await screen.findByText('Previous organization creator')).toBeInTheDocument()
+
+    act(() => {
+      emitOrganizationScopeChanged({ organizationId: 'next-organization', tenantId: 'test-tenant' })
+    })
+
+    expect(screen.queryByText('Previous organization creator')).not.toBeInTheDocument()
+    expect(screen.getByText('—')).toBeInTheDocument()
+    expect(resolveAuthorUserNamesMock).toHaveBeenNthCalledWith(2, [CREATOR_A], expect.any(AbortSignal))
+
+    await act(async () => {
+      nextRequest.resolve({ names: new Map([[CREATOR_A, 'Current organization creator']]), resolvedIds: [CREATOR_A] })
+    })
+    expect(await screen.findByText('Current organization creator')).toBeInTheDocument()
+  })
+
+  it('ignores a late response when the same creator lookup is denied in the new organization', async () => {
+    const previousRequest = deferred<LookupResult>()
+    resolveAuthorUserNamesMock
+      .mockReturnValueOnce(previousRequest.promise)
+      .mockResolvedValueOnce({ names: new Map(), resolvedIds: [] })
+    renderFact()
+    await waitFor(() => expect(resolveAuthorUserNamesMock).toHaveBeenCalledTimes(1))
+    const previousSignal = resolveAuthorUserNamesMock.mock.calls[0]?.[1] as AbortSignal
+
+    act(() => {
+      emitOrganizationScopeChanged({ organizationId: 'denied-organization', tenantId: 'test-tenant' })
+    })
+    expect(await screen.findByText('Unknown creator')).toBeInTheDocument()
+    expect(resolveAuthorUserNamesMock).toHaveBeenNthCalledWith(2, [CREATOR_A], expect.any(AbortSignal))
+    expect(previousSignal.aborted).toBe(true)
+
+    await act(async () => {
+      previousRequest.resolve({ names: new Map([[CREATOR_A, 'Late organization creator']]), resolvedIds: [CREATOR_A] })
+    })
+
+    expect(screen.getByText('Unknown creator')).toBeInTheDocument()
+    expect(screen.queryByText('Late organization creator')).not.toBeInTheDocument()
+    expect(screen.queryByText(CREATOR_A)).not.toBeInTheDocument()
   })
 
   it('reuses a real owner name when the owner and creator ids match', () => {

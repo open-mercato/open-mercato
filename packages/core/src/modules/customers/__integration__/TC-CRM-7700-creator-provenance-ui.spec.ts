@@ -413,4 +413,65 @@ test.describe('TC-CRM-7700: CRM record creation provenance UI', () => {
       await deleteRoleIfExists(request, adminToken, roleId)
     }
   })
+
+  test('shows an unknown creator to an authorized viewer after the creator is deleted', async ({ page, request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const adminScope = getTokenScope(adminToken)
+    const marker = randomUUID()
+    const creatorEmail = `crm-7700-deleted-${marker}@example.test`
+    const creatorPassword = `Qa1!${randomUUID()}`
+    let roleId: string | null = null
+    let creatorId: string | null = null
+    let personId: string | null = null
+
+    try {
+      roleId = await createRoleFixture(request, adminToken, {
+        name: `crm-7700-deleted-${marker}`,
+        tenantId: adminScope.tenantId,
+      })
+      await setRoleAclFeatures(request, adminToken, {
+        roleId,
+        features: ['customers.people.manage'],
+        organizations: [adminScope.organizationId],
+      })
+      const disposableCreatorId = await createUserFixture(request, adminToken, {
+        email: creatorEmail,
+        password: creatorPassword,
+        organizationId: adminScope.organizationId,
+        roles: [roleId],
+        name: `CRM 7700 Deleted Creator ${marker}`,
+      })
+      creatorId = disposableCreatorId
+      const creatorToken = await getAuthToken(request, creatorEmail, creatorPassword)
+      personId = await createPersonFixture(request, creatorToken, {
+        firstName: 'Historical',
+        lastName: marker,
+        displayName: `Historical Creator Person ${marker}`,
+      })
+      const deletion = await apiRequest(request, 'DELETE', `/api/auth/users?id=${encodeURIComponent(disposableCreatorId)}`, {
+        token: adminToken,
+      })
+      expect(deletion.status(), 'Deleting the creator should return 200').toBe(200)
+      creatorId = null
+
+      const detail = await apiRequest(request, 'GET', `/api/customers/people/${personId}`, { token: adminToken })
+      expect(detail.status(), 'The person should remain readable after creator deletion').toBe(200)
+      const detailBody = await readJsonSafe<{ person?: { createdByUserId?: string | null } }>(detail)
+      expect(detailBody?.person?.createdByUserId).toBe(disposableCreatorId)
+
+      await login(page, 'admin')
+      const [lookup] = await Promise.all([
+        page.waitForResponse((response) => (
+          isAuthUsersRequest(response.request())
+          && new URL(response.url()).searchParams.get('ids') === disposableCreatorId
+        )),
+        expectCreatorFact(page, `/backend/customers/people-v2/${personId}`, 'Unknown creator', disposableCreatorId),
+      ])
+      expect(lookup.status(), 'The authorized viewer should be allowed to look up the deleted user').toBe(200)
+    } finally {
+      await deleteEntityIfExists(request, adminToken, '/api/customers/people', personId)
+      await deleteUserIfExists(request, adminToken, creatorId)
+      await deleteRoleIfExists(request, adminToken, roleId)
+    }
+  })
 })
