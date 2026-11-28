@@ -287,6 +287,11 @@ curl -X POST "$BASE_URL/payment_gateways/refund" \
 }
 ```
 
+Capture, refund and cancel return `404` when the transaction is missing, deleted,
+or outside the caller's tenant/organization scope. They use the same localized
+not-found response for missing and foreign records, before invoking the provider.
+A real provider failure remains `502`; do not retry a scoped `404` as a provider outage.
+
 ## Cancel payment — `POST /payment_gateways/cancel`
 
 **Feature:** `payment_gateways.manage`
@@ -307,6 +312,10 @@ curl -X POST "$BASE_URL/payment_gateways/cancel" \
   "status": "cancelled"
 }
 ```
+
+| Status | `code` | Meaning |
+|--------|--------|---------|
+| 409 | `payment_cancel_captured_funds` | Part of the payment is already captured (`partially_captured`) or a capture is holding a reservation. Cancelling would leave the captured amount with no refund path; to return it to the customer, refund it. The uncaptured remainder of a partially captured authorization is not released by this endpoint: it lapses when the provider's authorization expires, or can be voided in the provider's dashboard. |
 
 ## Get transaction status — `GET /payment_gateways/status`
 

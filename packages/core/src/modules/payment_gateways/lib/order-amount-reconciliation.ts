@@ -29,6 +29,8 @@ async function resolveConflictTranslator(): Promise<TranslateWithFallbackFn> {
   }
 }
 
+export { resolvePaymentGatewayTranslator as resolveConflictTranslator }
+
 export function isPaymentOrderTotalResolver(candidate: unknown): candidate is PaymentOrderTotalResolver {
   return !!candidate
     && typeof candidate === 'object'

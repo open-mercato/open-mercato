@@ -92,6 +92,11 @@ export const openApi = {
       tags: [paymentGatewaysTag],
       responses: [
         { status: 200, description: 'Payment captured' },
+<<<<<<< HEAD
+=======
+        { status: 404, description: 'Transaction not found in the current scope' },
+        { status: 400, description: 'Amount has more decimal places than the transaction currency supports' },
+>>>>>>> 8ae8607250 (fix(payment_gateways): refuse to cancel a payment that already has captured funds (#8222) (#9441))
         { status: 409, description: 'Invalid payment status transition, cumulative capture ceiling exceeded, or conflicting capture operation' },
         { status: 422, description: 'Invalid payload' },
         { status: 502, description: 'Gateway provider error' },

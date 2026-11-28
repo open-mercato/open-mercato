@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { isTransactionNotFound } from '../../lib/transaction-not-found'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -134,6 +135,9 @@ export async function POST(req: Request) {
       updatedAt: transaction.updatedAt.toISOString(),
     })
   } catch (err: unknown) {
+    if (isTransactionNotFound(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
     const message = err instanceof Error ? err.message : 'Failed to refresh status'
     return NextResponse.json({ error: message }, { status: 502 })
   }
