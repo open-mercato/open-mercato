@@ -4,7 +4,6 @@ import { asValue } from 'awilix'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandBus, CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
-import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { ensureSameScope } from '@open-mercato/shared/lib/commands/scope'
 import { badRequest, conflict, CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
@@ -60,6 +59,7 @@ import {
 import type { CartVisibilityLineRef, ResolvedAssortmentScope } from '../lib/visibility'
 import { shouldEnforceAssortmentScope } from '../lib/routeContext'
 import { withCartLineMutationLock } from '../lib/lineMutationLock'
+import { assertCartTokenHashUnchanged } from '../lib/token'
 import type { ResolvedCartRouteContext } from '../lib/routeContext'
 import { buildRecomputeCartTotalsPhase } from '../lib/reprice'
 import type { CartPriceChange } from '../lib/reprice'
@@ -568,6 +568,30 @@ async function loadMutableCart(
   return cart
 }
 
+async function assertCartActiveUnderLock(em: EntityManager, cart: Cart, expectedTokenHash: string | undefined): Promise<void> {
+  await em.refresh(cart)
+  assertCartTokenHashUnchanged(cart, expectedTokenHash)
+  assertCartNotLocked(cart)
+  if (cart.status !== 'active') {
+    throw new CrudHttpError(409, { error: '[internal] cart_not_active', code: 'cart_not_active', status: cart.status })
+  }
+}
+
+function buildCartLineMutationGuardPhases(
+  em: EntityManager,
+  cart: Cart,
+  line: CartLine,
+  expectedTokenHash: string | undefined,
+): Array<() => Promise<void>> {
+  return [
+    async () => {
+      await assertCartActiveUnderLock(em, cart, expectedTokenHash)
+      const current = await em.refresh(line)
+      if (!current || line.deletedAt) throw notFound('[internal] cart line not found')
+    },
+  ]
+}
+
 export type CartLineSnapshot = {
   id: string
   cartId: string
@@ -756,7 +780,7 @@ function resolveSnapshotFields(product: CatalogProduct, variant: CatalogProductV
  * through every later phase exactly like `buildPromotionsEffectsPhase`'s own in-place gift
  * line push/splice already depends on.
  */
-function buildCartPromotionsAndTotalsPhases(params: {
+export function buildCartPromotionsAndTotalsPhases(params: {
   em: EntityManager
   container: CommandRuntimeContext['container']
   cart: Cart
@@ -815,7 +839,7 @@ function buildCartPromotionsAndTotalsPhases(params: {
  * possibly have produced. Called AFTER the caller's own `withAtomicFlush` commits, same
  * "side effects only after the DB write lands" rule as every other emission in this file.
  */
-async function emitCartPromotionsAndTotalsSideEffects(
+export async function emitCartPromotionsAndTotalsSideEffects(
   dataEngine: DataEngine,
   cart: Cart,
   outcome: { createdGiftLines: CartLine[]; removedGiftLines: CartLine[]; promotionWarnings: CartPromotionWarning[] },
@@ -887,6 +911,9 @@ async function dispatchCartRepriceForUndo(
 
 export type CartLinesAddInput = CartLineAuthInput & {
   cartId: string
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `cartId` with — re-checked under
+   * the cart lock, so a token rotated in between gets the no-oracle 404 (§8.3). */
+  cartTokenHash?: string
   productId: string
   variantId?: string | null
   quantity: number | string
@@ -966,6 +993,7 @@ const addLineCommand: CommandHandler<CartLinesAddInput, CartLinesAddOutcome> = {
     // `TC-CART-CONC-05` reproduced (a silently lost update, and a raw 500 off
     // `cart_lines_unique_line_key`).
     await withCartLineMutationLock(em, cart.id, [
+      () => assertCartActiveUnderLock(em, cart, input.cartTokenHash),
       async () => {
         const existing = await findExistingCustomerLine(em, scope, cart.id, input.productId, variantId, input.configuration ?? null)
         const pricingContext = buildCartPricingRowFilterContext(cart)
@@ -1177,6 +1205,9 @@ function restoreLineFromSnapshot(line: CartLine, snapshot: CartLineSnapshot): vo
 
 export type CartLinesUpdateInput = CartLineAuthInput & {
   cartId: string
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `cartId` with — re-checked under
+   * the cart lock, so a token rotated in between gets the no-oracle 404 (§8.3). */
+  cartTokenHash?: string
   lineId: string
   quantity: number | string
 }
@@ -1228,76 +1259,93 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
     }
 
     const now = new Date()
-    const restoringVisibility = assortmentScope !== undefined && line.flagState === 'product_unavailable'
-    const sameTier = await isWithinStoredPriceTier(em, scope, line, finalQuantity)
+    // §5.2 trigger 1 + §5.1's `priceChanges` disclosure (Step 5.1): populated when the
+    // tier-crossing re-price below actually moved the unit price, or when a previously
+    // visibility-flagged line is restored and its stored snapshot may be stale (#9496).
+    // `Cart.lastPriceChangeAt` (§5.3: "the cart records last_price_change_at") is set on
+    // `cart` in the same locked transaction as the line's new snapshot. §8.1 (rev 10.1 —
+    // I1): the tier and flag state are judged against the line as read under the cart
+    // lock, so a concurrent update that crossed a tier is never overwritten at the stale
+    // tier's price.
     const priceChanges: CartPriceChange[] = []
-    if (!sameTier || restoringVisibility) {
-      const pricingContext = buildCartPricingRowFilterContext(cart)
-      const variantIds = line.variantId ? [line.variantId] : []
-      const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [line.productId], variantIds), line.variantId ?? null)
-      const resolved = await resolveLinePricing(em, ctx.container, cart, rows, finalQuantity, now, currencyDecimalPlaces)
-      if (!resolved.priceRow) return { status: 'rejected', reason: 'product_not_priceable' }
-      const oldUnitPriceNet = line.unitPriceNet ?? null
-      const oldUnitPriceGross = line.unitPriceGross ?? null
-      applyPriceSnapshot(line, resolved, now)
-      line.lineTotals = await computeLineTotals(ctx.container, cart, {
-        productId: line.productId,
-        variantId: line.variantId ?? null,
-        name: line.name,
-        quantity: finalQuantity,
-        unitPriceNet: resolved.amountNet,
-        unitPriceGross: resolved.amountGross,
-        unitPriceNetExact: resolved.amountNetExact,
-        unitPriceGrossExact: resolved.amountGrossExact,
-        amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
-        taxRate: resolved.taxRatePercent,
-        configuration: line.configuration ?? null,
-      })
-      const newUnitPriceNet = line.unitPriceNet ?? null
-      const newUnitPriceGross = line.unitPriceGross ?? null
-      if (!samePrice(oldUnitPriceNet, newUnitPriceNet) || !samePrice(oldUnitPriceGross, newUnitPriceGross)) {
-        priceChanges.push({
-          lineId: line.id,
+    const notPriceable = new Error('[internal] cart line is not priceable under the cart lock')
+    const repriceLinePhase = async () => {
+      const sameTier = await isWithinStoredPriceTier(em, scope, line, finalQuantity)
+      const restoringVisibility = assortmentScope !== undefined && line.flagState === 'product_unavailable'
+      if (!sameTier || restoringVisibility) {
+        const pricingContext = buildCartPricingRowFilterContext(cart)
+        const variantIds = line.variantId ? [line.variantId] : []
+        const rows = filterRowsForVariant(await fetchPriceRowsBatch(em, scope, pricingContext, [line.productId], variantIds), line.variantId ?? null)
+        const resolved = await resolveLinePricing(em, ctx.container, cart, rows, finalQuantity, now, currencyDecimalPlaces)
+        if (!resolved.priceRow) throw notPriceable
+        const oldUnitPriceNet = line.unitPriceNet ?? null
+        const oldUnitPriceGross = line.unitPriceGross ?? null
+        applyPriceSnapshot(line, resolved, now)
+        line.lineTotals = await computeLineTotals(ctx.container, cart, {
           productId: line.productId,
-          oldUnitPriceNet,
-          newUnitPriceNet,
-          oldUnitPriceGross,
-          newUnitPriceGross,
-          reason: sameTier ? 'stale_snapshot' : 'tier_change',
+          variantId: line.variantId ?? null,
+          name: line.name,
+          quantity: finalQuantity,
+          unitPriceNet: resolved.amountNet,
+          unitPriceGross: resolved.amountGross,
+          unitPriceNetExact: resolved.amountNetExact,
+          unitPriceGrossExact: resolved.amountGrossExact,
+          amountDecimalPlaces: resolveAmountDecimalPlaces(currencyDecimalPlaces),
+          taxRate: resolved.taxRatePercent,
+          configuration: line.configuration ?? null,
         })
-        cart.lastPriceChangeAt = now
+        const newUnitPriceNet = line.unitPriceNet ?? null
+        const newUnitPriceGross = line.unitPriceGross ?? null
+        if (!samePrice(oldUnitPriceNet, newUnitPriceNet) || !samePrice(oldUnitPriceGross, newUnitPriceGross)) {
+          priceChanges.push({
+            lineId: line.id,
+            productId: line.productId,
+            oldUnitPriceNet,
+            newUnitPriceNet,
+            oldUnitPriceGross,
+            newUnitPriceGross,
+            reason: sameTier ? 'stale_snapshot' : 'tier_change',
+          })
+          cart.lastPriceChangeAt = now
+        }
       }
     }
     // Step 8.2 (QA F12) — this command previously closed with a single bare `em.flush()`
     // here. Adding the whole-cart promotions/totals recompute means a QUERY (the fresh
     // full-line fetch `buildCartPromotionsAndTotalsPhases` needs) now runs after this
     // scalar mutation on the SAME `em` — `packages/core/AGENTS.md`'s "Entity Update Safety"
-    // rule requires `withAtomicFlush` for that, so this is no longer a plain flush. Every
-    // validation/rejection check above (quantity rule, visibility, not-priceable) still
-    // runs BEFORE this point and returns directly, matching `cart.lines.add`'s own
-    // validate-first-then-atomic-mutate structure.
+    // rule requires `withAtomicFlush` for that, so this is no longer a plain flush. The
+    // quantity-rule and visibility checks above still return directly; a not-priceable tier
+    // found under the lock rolls the transaction back and returns the same rejection.
     const createdGiftLines: CartLine[] = []
     const removedGiftLines: CartLine[] = []
     const promotionWarnings: CartPromotionWarning[] = []
 
-    await withAtomicFlush(em, [
-      async () => {
-        line.quantity = String(finalQuantity)
-        if (restoringVisibility) line.flagState = null
-      },
-      ...buildCartPromotionsAndTotalsPhases({
-        currencyDecimalPlaces,
-        em,
-        container: ctx.container,
-        cart,
-        scope,
-        assortmentScope,
-        now,
-        createdGiftLines,
-        removedGiftLines,
-        promotionWarnings,
-      }),
-    ], { transaction: true, label: 'cart.lines.update' })
+    try {
+      await withCartLineMutationLock(em, cart.id, [
+        ...buildCartLineMutationGuardPhases(em, cart, line, input.cartTokenHash),
+        repriceLinePhase,
+        async () => {
+          line.quantity = String(finalQuantity)
+          if (assortmentScope !== undefined && line.flagState === 'product_unavailable') line.flagState = null
+        },
+        ...buildCartPromotionsAndTotalsPhases({
+          currencyDecimalPlaces,
+          em,
+          container: ctx.container,
+          cart,
+          scope,
+          assortmentScope,
+          now,
+          createdGiftLines,
+          removedGiftLines,
+          promotionWarnings,
+        }),
+      ], 'cart.lines.update')
+    } catch (err) {
+      if (err === notPriceable) return { status: 'rejected', reason: 'product_not_priceable' }
+      throw err
+    }
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: 'updated', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
@@ -1324,6 +1372,9 @@ const updateLineCommand: CommandHandler<CartLinesUpdateInput, CartLinesUpdateOut
 
 export type CartLinesRemoveInput = CartLineAuthInput & {
   cartId: string
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `cartId` with — re-checked under
+   * the cart lock, so a token rotated in between gets the no-oracle 404 (§8.3). */
+  cartTokenHash?: string
   lineId: string
 }
 
@@ -1364,7 +1415,8 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
     const removedGiftLines: CartLine[] = []
     const promotionWarnings: CartPromotionWarning[] = []
 
-    await withAtomicFlush(em, [
+    await withCartLineMutationLock(em, cart.id, [
+      ...buildCartLineMutationGuardPhases(em, cart, line, input.cartTokenHash),
       async () => {
         line.deletedAt = now
       },
@@ -1380,7 +1432,7 @@ const removeLineCommand: CommandHandler<CartLinesRemoveInput, CartLinesRemoveRes
         removedGiftLines,
         promotionWarnings,
       }),
-    ], { transaction: true, label: 'cart.lines.remove' })
+    ], 'cart.lines.remove')
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({ dataEngine, action: 'deleted', entity: line, identifiers: getCartLineIdentifiers(line), indexer: cartLineCrudIndexer })
@@ -1442,6 +1494,9 @@ export type CartLinesBulkAddEntry = {
 
 export type CartLinesBulkAddInput = CartLineAuthInput & {
   cartId: string
+  /** SHA-256 digest of the `X-Cart-Token` the route resolved `cartId` with — re-checked under
+   * the cart lock, so a token rotated in between gets the no-oracle 404 (§8.3). */
+  cartTokenHash?: string
   lines: CartLinesBulkAddEntry[]
   addedByActorType?: CartLineActorType
   addedByActorId?: string | null
@@ -1676,6 +1731,7 @@ const bulkAddLinesCommand: CommandHandler<CartLinesBulkAddInput, CartLinesBulkAd
     // `bulkAdd`/`add` calls on this cart must serialize, not just this call's own entries
     // against each other.
     await withCartLineMutationLock(em, cart.id, [
+      () => assertCartActiveUnderLock(em, cart, input.cartTokenHash),
       async () => {
         const existingLines = await findWithDecryption(
           em,

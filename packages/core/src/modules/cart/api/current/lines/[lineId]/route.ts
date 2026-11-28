@@ -30,6 +30,7 @@ import { buildCartResponseEnvelope } from '../../../../lib/cartView'
 import type { CartViewWarning } from '../../../../lib/cartView'
 import { resolveCartWarningMessage } from '../../../../lib/warningMessages'
 import { enforceCartRateLimit } from '../../../../lib/rateLimit'
+import { hashCartToken } from '../../../../lib/token'
 
 // Step 4.7 — `PATCH /current/lines/[lineId]` → `cart.lines.update`; `DELETE
 // /current/lines/[lineId]` → `cart.lines.remove`. No idempotency wiring here: the
@@ -120,6 +121,7 @@ export async function PATCH(request: Request, context: RouteParams) {
     const commandInput: CartLinesUpdateInput = {
       routeContext: resolved.routeContext,
       cartId: cart.id,
+      cartTokenHash: hashCartToken(token),
       lineId,
       quantity: body.quantity,
     }
@@ -209,7 +211,12 @@ export async function DELETE(request: Request, context: RouteParams) {
       request,
     })
 
-    const commandInput: CartLinesRemoveInput = { routeContext: resolved.routeContext, cartId: cart.id, lineId }
+    const commandInput: CartLinesRemoveInput = {
+      routeContext: resolved.routeContext,
+      cartId: cart.id,
+      cartTokenHash: hashCartToken(token),
+      lineId,
+    }
     // §10.1 has no slot for a removed line's own snapshot (removing it is exactly what the
     // caller asked for); `result` is discarded in favor of the full post-removal envelope.
     await commandBus.execute<CartLinesRemoveInput, CartLinesRemoveResult>(removeLineCommand.id, {
@@ -253,7 +260,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 409, description: 'Optimistic-lock conflict, or the line is a promotion (gift) line (`promotion_line_immutable`)' },
         { status: 422, description: 'Quantity rule violation, or an unpriceable product' },
         { status: 429, description: 'Rate limited' },
-        { status: 503, description: 'No store context resolvable for this request (§6a.1a)' },
+        { status: 503, description: 'No store context resolvable for this request (§6a.1a), or cart_busy after 15 seconds waiting for the cart lock. The locked line update phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second.' },
       ],
     },
     DELETE: {
@@ -263,7 +270,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 404, description: 'No `X-Cart-Token` header, the token does not resolve a cart, or the line does not exist' },
         { status: 409, description: 'Optimistic-lock conflict, or the line is a promotion (gift) line (`promotion_line_immutable`)' },
         { status: 429, description: 'Rate limited' },
-        { status: 503, description: 'No store context resolvable for this request (§6a.1a)' },
+        { status: 503, description: 'No store context resolvable for this request (§6a.1a), or cart_busy after 15 seconds waiting for the cart lock. The locked line removal phases did not run; earlier activity/context/repricing may have persisted. Retry the same request after Retry-After: 1 second.' },
       ],
     },
   },

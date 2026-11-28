@@ -160,7 +160,19 @@ test.describe('TC-CART-PRICE-01/02: re-price triggers 3 and 4 over real HTTP', (
         priceChanges?: Array<{ reason: string }>;
       };
       expect(body.versionBumpReason).toBe('repricing');
-      expect(body.priceChanges).toEqual([expect.objectContaining({ reason: 'buyer_context_changed' })]);
+      // `buyer_context_changed` only refreshes buyer-identity fields (never `currencyCode`
+      // itself — see the gap below), so the same EUR price row resolves again — but
+      // `setCatalogPriceAmounts` above bumped that very row's own amount, so the re-price
+      // still finds (and discloses) a genuine change, itemized under `buyer_context_changed`.
+      expect(body.priceChanges).toEqual([
+        expect.objectContaining({
+          reason: 'buyer_context_changed',
+          oldUnitPriceNet: '10',
+          newUnitPriceNet: '11',
+          oldUnitPriceGross: '12',
+          newUnitPriceGross: '13.2',
+        }),
+      ]);
       // Genuine gap (this file's header finding, not fixed here): the cart's OWN
       // `currencyCode` is never actually synced to the fresh value once `buyer_context_changed`
       // — not `currency_changed` — wins the precedence race, which a real request always does.
@@ -198,7 +210,19 @@ test.describe('TC-CART-PRICE-01/02: re-price triggers 3 and 4 over real HTTP', (
       priceChanges?: Array<{ reason: string }>;
     };
     expect(body.versionBumpReason).toBe('repricing');
-    expect(body.priceChanges).toEqual([expect.objectContaining({ reason: 'buyer_context_changed' })]);
+    // Same reasoning as TC-CART-PRICE-02a: `buyer_context_changed` never touches
+    // `currencyCode`/pricing-relevant fields here either, but `setCatalogPriceAmounts`
+    // above bumped the resolved EUR row's own amount, so the re-price still discloses
+    // that genuine change, itemized under `buyer_context_changed`.
+    expect(body.priceChanges).toEqual([
+      expect.objectContaining({
+        reason: 'buyer_context_changed',
+        oldUnitPriceNet: '10',
+        newUnitPriceNet: '11',
+        oldUnitPriceGross: '12',
+        newUnitPriceGross: '13.2',
+      }),
+    ]);
     // Genuine gap (this file's header finding, not fixed here): the cart's OWN `locale` is
     // never actually synced to the fresh value once `buyer_context_changed` — not
     // `locale_changed` — wins the precedence race, which a real request always does.

@@ -3,6 +3,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { withCartLineMutationLock } from '../lineMutationLock'
 import { POST as addLine, openApi as addLineOpenApi } from '../../api/current/lines/route'
 import { POST as bulkAddLines, openApi as bulkAddOpenApi } from '../../api/current/lines/bulk/route'
+import { DELETE as removeLine, PATCH as updateLine, openApi as lineOpenApi } from '../../api/current/lines/[lineId]/route'
+import { POST as mergeCarts, openApi as mergeOpenApi } from '../../api/current/merge/route'
+import { POST as undoMerge, openApi as undoMergeOpenApi } from '../../api/current/undo-merge/route'
+import { hashCartToken } from '../token'
 
 const runAfterSuccess = jest.fn(async () => undefined)
 const recordResponse = jest.fn(async (..._args: unknown[]) => undefined)
@@ -28,7 +32,13 @@ jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({ enfo
 jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
   runRouteMutationGuards: async () => ({ ok: true, runAfterSuccess }),
 }))
-jest.mock('../../commands/lines', () => ({ addLineCommand: { id: 'cart.lines.add' }, bulkAddLinesCommand: { id: 'cart.lines.bulkAdd' } }))
+jest.mock('../../commands/lines', () => ({
+  addLineCommand: { id: 'cart.lines.add' },
+  bulkAddLinesCommand: { id: 'cart.lines.bulkAdd' },
+  updateLineCommand: { id: 'cart.lines.update' },
+  removeLineCommand: { id: 'cart.lines.remove' },
+}))
+jest.mock('../../commands/merge', () => ({ mergeCartCommand: { id: 'cart.merge' }, mergeUndoCommand: { id: 'cart.mergeUndo' } }))
 jest.mock('../currentCartRoute', () => ({
   ...jest.requireActual('../currentCartRoute'),
   readCartToken: () => 'cart-token',
@@ -88,4 +98,39 @@ it.each([['add', addLine], ['bulk add', bulkAddLines]] as const)('%s leaves a mu
   expect(manager.rollback).toHaveBeenCalledTimes(1)
   expect(runAfterSuccess).not.toHaveBeenCalled()
   expect(recordResponse).not.toHaveBeenCalled()
+})
+
+const lineParams = { params: { lineId: 'f47ac10b-58cc-4372-a567-0e02b2c3d480' } }
+const contendedRoutes = [
+  ['line update', 'cart.lines.update', 'PATCH', (request: Request) => updateLine(request, lineParams), lineOpenApi, { quantity: '2' }],
+  ['line removal', 'cart.lines.remove', 'DELETE', (request: Request) => removeLine(request, lineParams), lineOpenApi, undefined],
+  ['merge', 'cart.merge', 'POST', mergeCarts, mergeOpenApi, { sourceToken: 'guest-token' }],
+  ['merge undo', 'cart.mergeUndo', 'POST', undoMerge, undoMergeOpenApi, {}],
+] as const
+
+it.each(contendedRoutes)('%s answers the documented 503 cart_busy with Retry-After when the cart lock stays busy', async (_name, commandId, method, handler, openApi, body) => {
+  const request = new Request('https://example.test/api/cart/current', {
+    method,
+    ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
+  })
+  const response = await handler(request)
+  expect(response.status).toBe(503)
+  expect(response.headers.get('Retry-After')).toBe('1')
+  await expect(response.json()).resolves.toEqual({ error: 'Cart is busy. Please try again.', code: 'cart_busy' })
+  expect(executeCommand).toHaveBeenCalledWith(commandId, expect.anything())
+  expect(runAfterSuccess).not.toHaveBeenCalled()
+  expect(openApi.methods[method]?.errors?.find(error => error.status === 503)?.description).toContain('cart_busy')
+})
+
+it.each(contendedRoutes)('%s hands the command the digest of the token it resolved the cart with', async (_name, commandId, method, handler, _openApi, body) => {
+  executeCommand.mockResolvedValue({ result: {} })
+  const request = new Request('https://example.test/api/cart/current', {
+    method,
+    ...(body === undefined ? {} : { body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } }),
+  })
+  await handler(request)
+  const call = executeCommand.mock.calls.find(([id]) => id === commandId) as unknown as [string, { input: Record<string, unknown> }]
+  const input = call[1].input
+  expect(input.cartTokenHash ?? input.targetTokenHash).toBe(hashCartToken('cart-token'))
+  expect(JSON.stringify(input)).not.toContain('"cart-token"')
 })

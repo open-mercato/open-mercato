@@ -31,6 +31,7 @@ import {
   recordIdempotencyResponse,
 } from '../../../lib/idempotency'
 import { enforceCartRateLimit } from '../../../lib/rateLimit'
+import { hashCartToken } from '../../../lib/token'
 
 // Step 4.7 — `POST /current/lines` → `cart.lines.add`.
 export const metadata = {
@@ -134,6 +135,7 @@ export async function POST(request: Request) {
     const commandInput: CartLinesAddInput = {
       routeContext: resolved.routeContext,
       cartId: cart.id,
+      cartTokenHash: hashCartToken(token),
       productId: body.productId,
       variantId: body.variantId ?? null,
       quantity: body.quantity,
