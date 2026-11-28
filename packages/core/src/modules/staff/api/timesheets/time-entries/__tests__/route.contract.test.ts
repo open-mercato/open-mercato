@@ -16,6 +16,7 @@ jest.mock('../../../../lib/time-tracking/access', () => ({
   resolveProjectAccess: jest.fn(),
 }))
 
+import { mergeAdvancedFilters } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import { registerResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-registry'
 import type { EnricherContext, ResponseEnricher } from '@open-mercato/shared/lib/crud/response-enricher'
@@ -235,6 +236,38 @@ describe('buildScopedTimeEntryListFilters — project access', () => {
 // tell the reader the figure was counted from the most recent ones. Asking the
 // question directly makes it exact, and the list form answers a parent and its
 // subtasks in one request instead of one per child.
+describe('buildScopedTimeEntryListFilters — advanced filter', () => {
+  const legacyOrQuery = (): Row => ({
+    'filter[conditions][0][field]': 'notes',
+    'filter[conditions][0][op]': 'contains',
+    'filter[conditions][0][value]': 'audit',
+    'filter[conditions][1][field]': 'notes',
+    'filter[conditions][1][join]': 'or',
+    'filter[conditions][1][op]': 'contains',
+    'filter[conditions][1][value]': 'review',
+  })
+
+  it('is applied once even though the CRUD factory merges the query again', async () => {
+    asManager()
+    const query = legacyOrQuery()
+
+    const filters = await runFilters(query)
+
+    expect(mergeAdvancedFilters(filters, query)).toEqual(filters)
+    expect(JSON.stringify(filters).match(/%audit%/g)).toHaveLength(1)
+  })
+
+  it('is still applied when the filters are rebuilt from the same query for the totals', async () => {
+    asMember([MEMBER_PROJECT_ID])
+    const query = legacyOrQuery()
+
+    const listFilters = await runFilters(query)
+
+    await expect(runFilters(query)).resolves.toEqual(listFilters)
+    expect(JSON.stringify(listFilters)).toContain('%review%')
+  })
+})
+
 describe('buildScopedTimeEntryListFilters — taskId', () => {
   it('narrows to one task', async () => {
     asManager()
