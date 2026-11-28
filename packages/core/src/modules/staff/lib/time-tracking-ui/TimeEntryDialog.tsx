@@ -54,7 +54,7 @@ import { extensionSpotChildId } from '@open-mercato/shared/modules/widgets/exten
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { formatCurrency } from '@open-mercato/ui/utils/format'
 import { hasFeature } from '@open-mercato/shared/security/features'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DurationInput } from './DurationInput'
@@ -68,6 +68,7 @@ import { roundMinutes, DEFAULT_ROUNDING_SETTINGS, type RoundingSettings } from '
 import {
   combineDateAndClock,
   createIntervalState,
+  localizeRateText,
   reduceIntervalState,
   resetIntervalState,
   readRowItems,
@@ -212,12 +213,13 @@ function parseRateText(value: string): string | null {
  * A widget answering `onFieldChange` hands back the float copy of the rate it was
  * given; writing that over the exact digits on screen would truncate the rate.
  */
-function injectedRateText(current: string, value: unknown): string {
+function injectedRateText(current: string, value: unknown, locale: string): string {
   if (typeof value === 'number') {
     const exact = parseRateText(current)
     if (exact !== null && decimalToNumber(exact) === value) return current
+    return Number.isFinite(value) ? localizeRateText(String(value), locale) : ''
   }
-  return typeof value === 'number' || typeof value === 'string' ? String(value) : ''
+  return typeof value === 'string' ? value : ''
 }
 
 /**
@@ -367,6 +369,7 @@ function DefaultTimeEntryDialog({
   mode: modeProp,
 }: TimeEntryDialogProps): React.ReactElement {
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const { payload } = useBackendChrome()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -738,7 +741,7 @@ function DefaultTimeEntryDialog({
       setIsBillable(seed.isBillable)
       const seededRate = seed.rateOverrideText === null ? null : parseRateText(seed.rateOverrideText)
       setRateOverrideEnabled(seed.rateOverrideText !== null)
-      setRateText(seed.rateOverrideText ?? '')
+      setRateText(seed.rateOverrideText === null ? '' : localizeRateText(seed.rateOverrideText, locale))
       setTagIds(seed.tagIds)
       setOverlaps([])
       setFieldIssues(NO_FIELD_ISSUES)
@@ -764,7 +767,7 @@ function DefaultTimeEntryDialog({
         tagIds: seed.tagIds,
       })
     },
-    [],
+    [locale],
   )
 
   React.useEffect(() => {
@@ -1002,7 +1005,7 @@ function DefaultTimeEntryDialog({
         return
       case 'rateOverrideAmount':
         injectedFieldWritesRef.current.add(fieldId)
-        setRateText((current) => injectedRateText(current, value))
+        setRateText((current) => injectedRateText(current, value, locale))
         return
       case 'tagIds':
         if (!Array.isArray(value)) return
@@ -1031,7 +1034,7 @@ function DefaultTimeEntryDialog({
         return
       default:
     }
-  }, [isProjectMode, selectProject])
+  }, [isProjectMode, locale, selectProject])
 
   const previousEntryFormValuesRef = React.useRef<FormValues | null>(null)
 

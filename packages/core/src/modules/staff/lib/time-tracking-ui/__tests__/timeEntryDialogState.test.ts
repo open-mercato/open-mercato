@@ -3,6 +3,7 @@ import {
   combineDateAndClock,
   createIntervalState,
   describeTaskOption,
+  localizeRateText,
   mergeProjectOptions,
   reduceIntervalState,
   resolveTimeEntryDialogMode,
@@ -11,6 +12,7 @@ import {
   toTaskOption,
   toTimeEntryRecord,
 } from '../timeEntryDialogState'
+import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 
 describe('time entry interval state (2-of-3 arithmetic)', () => {
   it('derives the end from a start and a duration and marks it computed', () => {
@@ -255,4 +257,27 @@ describe('mergeProjectOptions', () => {
     expect(merged.get(beta.id)?.name).toBe('Beta')
     expect(merged.size).toBe(2)
   })
+})
+
+describe('localizeRateText', () => {
+  it.each([
+    ['100.5', 'pl', '100,5'],
+    ['100.5', 'en', '100.5'],
+    ['1234567.5', 'de', '1234567,5'],
+    ['12.34567891', 'pl', '12,34567891'],
+    ['100', 'es', '100'],
+    ['100.5', 'fa', '100.5'],
+    ['100.5', 'ar-EG', '100.5'],
+  ])('shows %p for %s as %p', (text, locale, expected) => {
+    expect(localizeRateText(text, locale)).toBe(expected)
+  })
+
+  it.each(['en', 'pl', 'de', 'es', 'ko', 'fa', 'bn', 'ar-EG', 'mr', 'th-TH-u-nu-thai'])(
+    'keeps the exact stored digits under %s',
+    (locale) => {
+      for (const text of ['0', '100.5', '12.34567891', '1234567.5']) {
+        expect(parseLocaleDecimal(localizeRateText(text, locale))).toBe(text)
+      }
+    },
+  )
 })

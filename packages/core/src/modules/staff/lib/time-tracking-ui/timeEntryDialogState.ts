@@ -173,6 +173,16 @@ export function shiftIsoDate(date: string, days: number): string {
   return `${shifted.getUTCFullYear()}-${month}-${day}`
 }
 
+/**
+ * Shows the exact rate digits with a comma when the locale writes decimals that way. Only
+ * a comma is swapped in: grouping and other separators (e.g. Arabic `٫`) would not
+ * round-trip through `parseLocaleDecimal`, and saving the untouched form must keep the rate.
+ */
+export function localizeRateText(text: string, locale: string): string {
+  const decimal = new Intl.NumberFormat(locale).formatToParts(1.5).find((part) => part.type === 'decimal')?.value
+  return decimal === ',' ? text.replace('.', ',') : text
+}
+
 export function todayIsoDate(now: Date = new Date()): string {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')
