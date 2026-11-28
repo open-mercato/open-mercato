@@ -25,6 +25,7 @@ import PortalTaskDetailPage from '../[orgSlug]/portal/tasks/[id]/page'
 import { clearTaskFormRenderers } from '../../lib/task-form-registry'
 
 const mockApiCall = jest.fn()
+const mockTranslations: Record<string, string> = {}
 const portalEventHandlers: Array<{ pattern: string; handler: () => void }> = []
 
 jest.mock('next/link', () => ({
@@ -38,7 +39,7 @@ jest.mock('next/navigation', () => ({
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (key: string, fallback?: string, params?: Record<string, unknown>) => {
-    const template = fallback ?? key
+    const template = mockTranslations[key] ?? fallback ?? key
     if (!params) return template
     return Object.entries(params).reduce(
       (text, [name, value]) => text.replace(`{${name}}`, String(value)),
@@ -71,6 +72,7 @@ function taskRow(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   mockApiCall.mockReset()
+  for (const key of Object.keys(mockTranslations)) delete mockTranslations[key]
   portalEventHandlers.length = 0
   clearTaskFormRenderers()
 })
@@ -240,6 +242,53 @@ describe('the detail page', () => {
       ).toBeTruthy(),
     )
     expect(screen.queryByText('Complete task')).toBeNull()
+  })
+
+  test('a host veto closes the form and renders the host message', async () => {
+    mockTranslations['host.tasks.contractNotSigned'] = 'Sign the contract first.'
+    mockApiCall.mockResolvedValue(
+      detailResponse({
+        canComplete: false,
+        completionGuard: {
+          guardId: 'host.signed-contract',
+          code: 'CONTRACT_NOT_SIGNED',
+          messageKey: 'host.tasks.contractNotSigned',
+        },
+      }),
+    )
+
+    render(<PortalTaskDetailPage params={{ orgSlug: 'acme', id: 'task-1' }} />)
+
+    const notice = await screen.findByTestId('portal-task-completion-guard')
+    expect(notice.textContent).toBe('Sign the contract first.')
+    expect(notice.getAttribute('data-guard-code')).toBe('CONTRACT_NOT_SIGNED')
+    expect(screen.queryByText('Complete task')).toBeNull()
+    expect(screen.queryByText('Street')).toBeNull()
+  })
+
+  test('a guard without a known message key falls back to the generic guard notice', async () => {
+    mockApiCall.mockResolvedValue(
+      detailResponse({
+        canComplete: false,
+        completionGuard: { guardId: 'host.broken', code: 'COMPLETION_GUARD_FAILED', messageKey: null },
+      }),
+    )
+
+    render(<PortalTaskDetailPage params={{ orgSlug: 'acme', id: 'task-1' }} />)
+
+    const notice = await screen.findByTestId('portal-task-completion-guard')
+    expect(notice.textContent).toBe('This task cannot be completed yet because a precondition is not met.')
+    expect(notice.getAttribute('data-guard-code')).toBe('COMPLETION_GUARD_FAILED')
+    expect(screen.queryByText('Complete task')).toBeNull()
+  })
+
+  test('a guard that allows leaves the completion form in place', async () => {
+    mockApiCall.mockResolvedValue(detailResponse({ canComplete: true, completionGuard: null }))
+
+    render(<PortalTaskDetailPage params={{ orgSlug: 'acme', id: 'task-1' }} />)
+
+    await waitFor(() => expect(screen.getByText('Complete task')).toBeTruthy())
+    expect(screen.queryByTestId('portal-task-completion-guard')).toBeNull()
   })
 
   test('a 404 renders the neutral not-available message, never an error dump', async () => {
