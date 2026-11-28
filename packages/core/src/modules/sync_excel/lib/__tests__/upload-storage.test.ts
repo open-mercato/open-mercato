@@ -15,9 +15,14 @@ async function readStreamText(stream: NodeJS.ReadableStream): Promise<string> {
 
 const mockStorePartitionFile = jest.fn()
 const mockBuildAttachmentFileUrl = jest.fn()
+const mockEnsureAttachmentPartitionProtection = jest.fn()
 
 jest.mock('../../../attachments/lib/partitions', () => ({
   ensureDefaultPartitions: jest.fn(),
+}))
+
+jest.mock('../../../attachments/lib/access-protection', () => ({
+  ensureAttachmentPartitionProtection: (...args: unknown[]) => mockEnsureAttachmentPartitionProtection(...args),
 }))
 
 jest.mock('../../../attachments/lib/storage', () => ({
@@ -37,6 +42,7 @@ describe('sync_excel upload storage', () => {
     jest.clearAllMocks()
     mockReadFile.mockReset()
     mockAccess.mockReset()
+    mockEnsureAttachmentPartitionProtection.mockResolvedValue(undefined)
     mockBuildAttachmentFileUrl.mockImplementation((attachmentId: string) => `/api/attachments/file/${attachmentId}`)
     mockStorePartitionFile.mockResolvedValue({
       storagePath: 'org-1/tenant-1/import.csv',
@@ -82,6 +88,7 @@ describe('sync_excel upload storage', () => {
     expect(attachment.storageMetadata).not.toHaveProperty('inlineCsvBase64')
     expect(mockEm.persist).toHaveBeenCalledWith(attachment)
     expect(mockEm.flush).toHaveBeenCalledTimes(1)
+    expect(mockEnsureAttachmentPartitionProtection).toHaveBeenCalledWith(mockEm, { code: 'privateAttachments', storageDriver: 'local' })
   })
 
   it('prefers attachment storage over legacy inline metadata when both are present', async () => {
