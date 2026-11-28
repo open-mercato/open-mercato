@@ -10,7 +10,7 @@ const dictionary = pl as Dictionary
 const dialogEntries = Object.entries(dictionary).filter(([key]) => INVENTORY_DIALOG_KEY_PATTERN.test(key))
 
 function wordsFollowingPlaceholders(value: string): string[] {
-  return Array.from(value.matchAll(/\{\w+\}\s+(\p{L}[\p{L}.]*)/gu), (match) => match[1])
+  return Array.from(value.matchAll(/\{\w+\}(?:\s+szt\.)?\s+(\p{L}[\p{L}.]*)/gu), (match) => match[1])
 }
 
 describe('WMS inventory dialogs Polish copy', () => {
@@ -28,7 +28,7 @@ describe('WMS inventory dialogs Polish copy', () => {
   it('reads correctly for one and for two to four items', () => {
     const render = (key: string, count: number) => dictionary[key].replace(/\{\w+\}/g, String(count))
     expect(render('wms.backend.inventory.cycleCount.steps.counting.subtitleWithPosted', 1)).toBe(
-      'Krok 2 z 3 · zapisane pozycje: 1 — zlicz następne SKU',
+      'Krok 2 z 3 · Zapisane pozycje: 1 — zlicz następne SKU',
     )
     expect(render('wms.backend.inventory.cycleCount.steps.counting.finishWarning', 1)).toBe(
       'Pozycje pozostałe w zakresie: 1 — potwierdź wcześniejsze zakończenie.',
