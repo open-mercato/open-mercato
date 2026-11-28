@@ -112,6 +112,7 @@ function makeEm(world: World): jest.Mocked<EntityManager> {
     persist: jest.fn(() => em),
     flush: jest.fn(async () => undefined),
     nativeUpdate: jest.fn(async () => 1),
+    execute: jest.fn(async () => ({ affectedRows: 1 })),
     transactional: jest.fn(async (callback: (trx: unknown) => Promise<unknown>) => callback(em)),
     fork: jest.fn(() => em),
   })
