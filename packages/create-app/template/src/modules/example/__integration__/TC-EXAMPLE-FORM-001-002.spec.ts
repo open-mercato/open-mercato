@@ -41,6 +41,19 @@ test('TC-EXAMPLE-FORM-002 creates a Todo with the server default hidden title', 
   }
 })
 
+test('shows organization guidance when creating a showcase Todo in All organizations', async ({ page, baseURL }) => {
+  await login(page, 'admin')
+  await page.context().addCookies([{ name: 'om_selected_org', value: '__all__', url: baseURL ?? new URL(page.url()).origin }])
+  await page.goto(`${showcase}/create`)
+  const form = page.locator('form').filter({ has: page.locator('[data-crud-field-id="is_done"]') })
+  await expect(form.locator('[data-crud-field-id="is_done"]')).toBeVisible()
+  await form.locator('button[type="submit"]').first().click()
+
+  await expect(form.getByText('Organization is required to create todos', { exact: true })).toBeVisible()
+  await expect(page).toHaveURL(`${showcase}/create`)
+  await captureShowcase(page, 'create-all-organizations-guidance')
+})
+
 test.describe('TC-EXAMPLE-FORM-001 configured Todo update', () => {
   for (const contender of ['update', 'delete'] as const) {
     test(`preserves the hidden title and serializes a concurrent ${contender}`, async ({ page, request }) => {

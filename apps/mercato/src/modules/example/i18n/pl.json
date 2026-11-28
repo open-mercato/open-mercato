@@ -304,6 +304,7 @@
   "example.todos.form.edit.title": "Edytuj zadanie",
   "example.todos.form.error.load": "Nie udało się wczytać zadania.",
   "example.todos.form.error.notFound": "Nie znaleziono zadania.",
+  "example.todos.form.error.organizationRequired": "Aby utworzyć zadanie, wybierz organizację.",
   "example.todos.form.fields.isDone.label": "Zakończone",
   "example.todos.form.fields.notes.description": "Szyfrowane w bazie: bez sortowania, bez eksportu CSV, wyszukiwalne wyłącznie przez indeks wyszukiwania.",
   "example.todos.form.fields.notes.label": "Notatki",

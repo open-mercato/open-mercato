@@ -304,6 +304,7 @@
   "example.todos.form.edit.title": "To-do bearbeiten",
   "example.todos.form.error.load": "To-do konnte nicht geladen werden.",
   "example.todos.form.error.notFound": "To-do nicht gefunden.",
+  "example.todos.form.error.organizationRequired": "Zum Erstellen von Aufgaben ist eine Organisation erforderlich.",
   "example.todos.form.fields.isDone.label": "Erledigt",
   "example.todos.form.fields.notes.description": "Verschlüsselt gespeichert: nicht sortierbar, kein CSV-Export, auffindbar nur über den Suchindex.",
   "example.todos.form.fields.notes.label": "Notizen",

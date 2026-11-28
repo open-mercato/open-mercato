@@ -304,6 +304,7 @@
   "example.todos.form.edit.title": "Editar tarea",
   "example.todos.form.error.load": "No se pudo cargar la tarea.",
   "example.todos.form.error.notFound": "Tarea no encontrada.",
+  "example.todos.form.error.organizationRequired": "Se requiere una organización para crear tareas.",
   "example.todos.form.fields.isDone.label": "Completada",
   "example.todos.form.fields.notes.description": "Cifradas en reposo: no se pueden ordenar ni exportar a CSV, y solo se encuentran mediante el índice de búsqueda.",
   "example.todos.form.fields.notes.label": "Notas",
