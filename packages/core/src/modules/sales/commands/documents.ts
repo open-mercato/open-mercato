@@ -1181,6 +1181,11 @@ async function applyDocumentUpdate({
     typeof (entity as any).status === "string" ? (entity as any).status : null;
   const { translate } = await resolveTranslations();
 
+  const nextCustomerEntityId = input.customerEntityId ?? null;
+  const customerChanged =
+    input.customerEntityId !== undefined &&
+    (nextCustomerEntityId?.toLowerCase() ?? null) !==
+      (entity.customerEntityId?.toLowerCase() ?? null);
   const wantsCustomerChange =
     input.customerEntityId !== undefined ||
     input.customerContactId !== undefined ||
@@ -1190,7 +1195,12 @@ async function applyDocumentUpdate({
     input.shippingAddressId !== undefined ||
     input.billingAddressId !== undefined ||
     input.shippingAddressSnapshot !== undefined ||
-    input.billingAddressSnapshot !== undefined;
+    input.billingAddressSnapshot !== undefined ||
+    (customerChanged &&
+      (entity.billingAddressId != null ||
+        entity.shippingAddressId != null ||
+        entity.billingAddressSnapshot != null ||
+        entity.shippingAddressSnapshot != null));
 
   let settings: SalesSettings | null = null;
   if (kind === "order" && (wantsCustomerChange || wantsAddressChange)) {
@@ -1234,10 +1244,6 @@ async function applyDocumentUpdate({
   }
 
   if (input.customerEntityId !== undefined) {
-    const nextCustomerEntityId = input.customerEntityId ?? null;
-    const customerChanged =
-      (nextCustomerEntityId?.toLowerCase() ?? null) !==
-      (entity.customerEntityId?.toLowerCase() ?? null);
     const snapshotContactId =
       input.customerContactId !== undefined
         ? input.customerContactId

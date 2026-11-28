@@ -15,7 +15,7 @@ import { createContainer, asValue, InjectionMode } from 'awilix'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands/types'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import { CustomerEntity, CustomerPersonProfile } from '@open-mercato/core/modules/customers/data/entities'
-import { SalesOrder, SalesQuote } from '../../data/entities'
+import { SalesOrder, SalesQuote, SalesSettings } from '../../data/entities'
 import '../documents'
 import type { DocumentUpdateInput } from '../documents'
 import { createSalesDocumentLockKyselyFixture } from './salesDocumentLockFixture'
@@ -61,6 +61,7 @@ const CONTACTS: Record<string, Record<string, unknown>> = {
 }
 
 type DocumentRecord = Record<string, unknown>
+type OrderEditingSettings = Pick<SalesSettings, 'orderCustomerEditableStatuses' | 'orderAddressEditableStatuses'>
 
 type CustomerSnapshotShape = {
   customer?: { id?: string } | null
@@ -112,10 +113,11 @@ function makeDocument(kind: 'order' | 'quote'): DocumentRecord {
   }
 }
 
-function makeEm(document: DocumentRecord, documentClass: unknown): Record<string, unknown> {
+function makeEm(document: DocumentRecord, documentClass: unknown, settings: OrderEditingSettings | null): Record<string, unknown> {
   const em: Record<string, unknown> = {
     findOne: jest.fn(async (requested: unknown, where: LookupWhere) => {
       if (requested === documentClass) return document
+      if (requested === SalesSettings) return settings
       if (requested === CustomerEntity) {
         const customer = lookupById(CUSTOMERS, where)
         return customer ? { primaryPhone: null, personProfile: null, companyProfile: null, ...customer } : null
@@ -157,19 +159,31 @@ function makeCtx(em: unknown): CommandRuntimeContext {
   }
 }
 
+function makeDocumentUpdate(
+  kind: 'order' | 'quote',
+  settings: OrderEditingSettings | null = null,
+) {
+  const document = makeDocument(kind)
+  const em = makeEm(document, kind === 'order' ? SalesOrder : SalesQuote, settings)
+  const handler = commandRegistry.get<DocumentUpdateInput, unknown>(
+    kind === 'order' ? 'sales.orders.update' : 'sales.quotes.update',
+  )
+  expect(handler).toBeTruthy()
+  return {
+    document,
+    em,
+    execute: (input: Record<string, unknown>) => handler!.execute({ id: document.id, ...input } as never, makeCtx(em)),
+  }
+}
+
 async function updateDocument(
   kind: 'order' | 'quote',
   input: Record<string, unknown>,
   prepare: (document: DocumentRecord) => void = () => {},
 ) {
-  const document = makeDocument(kind)
+  const { document, execute } = makeDocumentUpdate(kind)
   prepare(document)
-  const em = makeEm(document, kind === 'order' ? SalesOrder : SalesQuote)
-  const handler = commandRegistry.get<DocumentUpdateInput, unknown>(
-    kind === 'order' ? 'sales.orders.update' : 'sales.quotes.update',
-  )
-  expect(handler).toBeTruthy()
-  await handler!.execute({ id: document.id, ...input } as never, makeCtx(em))
+  await execute(input)
   return document
 }
 
@@ -186,6 +200,86 @@ const CLEARED_ADDRESSES = {
   billingAddressSnapshot: null,
   shippingAddressSnapshot: null,
 }
+
+const RESTRICTED_ORDER_EDITING = {
+  orderCustomerEditableStatuses: ['confirmed'],
+  orderAddressEditableStatuses: ['draft'],
+}
+
+describe('sales order address policy during customer updates', () => {
+  it.each(Object.entries(KEPT_ADDRESSES))('protects a stored %s even when it is the only address value', async (field, value) => {
+    const { document, em, execute } = makeDocumentUpdate('order', RESTRICTED_ORDER_EDITING)
+    Object.assign(document, CLEARED_ADDRESSES, { status: 'confirmed', [field]: value })
+    const before = { ...document }
+
+    await expect(execute({ customerEntityId: OTHER_CUSTOMER_ID, comment: 'Updated' })).rejects.toMatchObject({
+      status: 400,
+      body: { error: 'sales.orders.edit_addresses_blocked' },
+    })
+
+    expect(document).toEqual(before)
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('protects the addresses when detaching the customer and address edits are disabled', async () => {
+    const { document, execute } = makeDocumentUpdate('order', {
+      ...RESTRICTED_ORDER_EDITING,
+      orderAddressEditableStatuses: [],
+    })
+    document.status = 'confirmed'
+
+    await expect(execute({ customerEntityId: null })).rejects.toMatchObject({
+      status: 400,
+      body: { error: 'sales.orders.edit_addresses_blocked' },
+    })
+    expect(document).toMatchObject({ customerEntityId: CUSTOMER_ID, ...KEPT_ADDRESSES })
+  })
+
+  it('allows a same-customer edit under an address restriction', async () => {
+    const { document, execute } = makeDocumentUpdate('order', RESTRICTED_ORDER_EDITING)
+    document.status = 'confirmed'
+
+    await execute({ customerEntityId: mixCase(CUSTOMER_ID), metadata: { customerEmail: 'billing@example.com' } })
+
+    expect(document).toMatchObject({
+      customerEntityId: CUSTOMER_ID,
+      customerContactId: CONTACT_ID,
+      metadata: { customerEmail: 'billing@example.com' },
+      ...KEPT_ADDRESSES,
+    })
+  })
+
+  it('allows a customer change under an address restriction when no addresses are stored', async () => {
+    const { document, execute } = makeDocumentUpdate('order', RESTRICTED_ORDER_EDITING)
+    Object.assign(document, CLEARED_ADDRESSES, { status: 'confirmed' })
+
+    await execute({ customerEntityId: OTHER_CUSTOMER_ID })
+
+    expect(document).toMatchObject({ customerEntityId: OTHER_CUSTOMER_ID, ...CLEARED_ADDRESSES })
+  })
+
+  it('clears addresses when both order editing policies allow the current status', async () => {
+    const { document, execute } = makeDocumentUpdate('order', {
+      ...RESTRICTED_ORDER_EDITING,
+      orderAddressEditableStatuses: ['confirmed'],
+    })
+    document.status = 'confirmed'
+
+    await execute({ customerEntityId: OTHER_CUSTOMER_ID })
+
+    expect(document).toMatchObject({ customerEntityId: OTHER_CUSTOMER_ID, ...CLEARED_ADDRESSES })
+  })
+
+  it('keeps quote customer changes independent of order address settings', async () => {
+    const { document, execute } = makeDocumentUpdate('quote', RESTRICTED_ORDER_EDITING)
+    document.status = 'confirmed'
+
+    await execute({ customerEntityId: OTHER_CUSTOMER_ID })
+
+    expect(document).toMatchObject({ customerEntityId: OTHER_CUSTOMER_ID, ...CLEARED_ADDRESSES })
+  })
+})
 
 describe.each(['order', 'quote'] as const)('sales %s update — customer assignment', (kind) => {
   it('keeps the contact and both addresses when the same customer is resent', async () => {
