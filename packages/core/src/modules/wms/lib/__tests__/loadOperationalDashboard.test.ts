@@ -52,6 +52,14 @@ function makeBalance(overrides: Partial<InventoryBalance> & { warehouseId?: stri
   } as InventoryBalance
 }
 
+function isExpiringSoonCountSql(sql: string): boolean {
+  return (
+    sql.includes('count(distinct l.id)') &&
+    sql.includes('l.expires_at <= ?') &&
+    !sql.includes('generate_series')
+  )
+}
+
 describe('loadOperationalDashboard helpers', () => {
   beforeEach(() => {
     findWithDecryptionMock.mockReset()
@@ -507,6 +515,103 @@ describe('loadOperationalDashboard helpers', () => {
       'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       productId,
     ])
+  })
+
+  it('loadOperationalDashboard counts every expiring-soon lot with available stock beyond the 100-row lot fetch', async () => {
+    const now = new Date('2026-05-28T12:00:00.000Z')
+    jest.useFakeTimers()
+    jest.setSystemTime(now)
+
+    const totalExpiringLots = 150
+    const expiringLots = Array.from({ length: totalExpiringLots }, (_, index) => ({
+      id: `lot-${index}`,
+      lotNumber: `LOT-${index}`,
+      sku: `SKU-${index}`,
+      catalogVariantId: '44444444-4444-4444-8444-444444444444',
+      status: 'available',
+      expiresAt: new Date(now.getTime() + (index + 1) * 60 * 60 * 1000),
+      updatedAt: now,
+    })) as InventoryLot[]
+    const balances = expiringLots.map((lot) =>
+      makeBalance({ quantityOnHand: '5', lot: { id: lot.id } as InventoryLot }),
+    )
+
+    findWithDecryptionMock.mockImplementation(async (_em, entity, where, options) => {
+      if (entity === InventoryBalance) return balances
+      if (entity === InventoryLot) {
+        const expiresAt = (where as { expiresAt?: Record<string, unknown> }).expiresAt
+        if (!expiresAt || !('$gte' in expiresAt)) return []
+        return expiringLots.slice(0, options?.limit ?? expiringLots.length)
+      }
+      return []
+    })
+
+    const execute = jest.fn().mockImplementation(async (sql: string) =>
+      isExpiringSoonCountSql(sql) ? [{ count: totalExpiringLots }] : [],
+    )
+    const em = {
+      getConnection: () => ({ execute }),
+    } as never
+
+    const payload = await loadOperationalDashboard(em, {
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      tenantId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+    })
+
+    expect(payload.kpis).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'expiringSoon', count: totalExpiringLots }),
+      ]),
+    )
+    const countCall = execute.mock.calls.find((call) => isExpiringSoonCountSql(String(call[0])))
+    expect(String(countCall?.[0])).toContain('quantity_allocated')
+    expect(String(countCall?.[0])).toContain('b.organization_id = l.organization_id')
+    expect(String(countCall?.[0])).toContain('b.tenant_id = l.tenant_id')
+    expect(countCall?.[1]).toEqual([
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      new Date('2026-05-28T00:00:00.000Z'),
+      new Date('2026-06-27T00:00:00.000Z'),
+    ])
+
+    jest.useRealTimers()
+  })
+
+  it('loadOperationalDashboard scopes the expiring-soon lot count to the selected warehouse', async () => {
+    const now = new Date('2026-05-28T12:00:00.000Z')
+    jest.useFakeTimers()
+    jest.setSystemTime(now)
+
+    const warehouseId = '11111111-1111-4111-8111-111111111111'
+    findOneWithDecryptionMock.mockResolvedValue({ id: warehouseId } as Warehouse)
+    findWithDecryptionMock.mockResolvedValue([])
+    const execute = jest.fn().mockImplementation(async (sql: string) =>
+      isExpiringSoonCountSql(sql) ? [{ count: 3 }] : [],
+    )
+    const em = {
+      getConnection: () => ({ execute }),
+    } as never
+
+    const payload = await loadOperationalDashboard(em, {
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      tenantId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      warehouseId,
+    })
+
+    expect(payload.kpis).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'expiringSoon', count: 3 })]),
+    )
+    const countCall = execute.mock.calls.find((call) => isExpiringSoonCountSql(String(call[0])))
+    expect(String(countCall?.[0])).toContain('b.warehouse_id = ?')
+    expect(countCall?.[1]).toEqual([
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      new Date('2026-05-28T00:00:00.000Z'),
+      new Date('2026-06-27T00:00:00.000Z'),
+      warehouseId,
+    ])
+
+    jest.useRealTimers()
   })
 
   it('startOfUtcDay normalizes timestamps to UTC midnight', () => {

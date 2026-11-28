@@ -605,6 +605,42 @@ async function loadPastDueLotCount(
   return toOperationalDashboardNumber(rows[0]?.count)
 }
 
+async function loadExpiringSoonLotCount(
+  em: EntityManager,
+  scope: OperationalDashboardScope,
+  todayStart: Date,
+  expiringCutoff: Date,
+): Promise<number> {
+  const params: unknown[] = [scope.organizationId, scope.tenantId, todayStart, expiringCutoff]
+  let sql = `
+    select count(distinct l.id)::int as count
+    from wms_inventory_lots l
+    join wms_inventory_balances b
+      on b.lot_id = l.id
+     and b.organization_id = l.organization_id
+     and b.tenant_id = l.tenant_id
+     and b.deleted_at is null
+     and (
+       coalesce(b.quantity_on_hand, 0)
+       - coalesce(b.quantity_reserved, 0)
+       - coalesce(b.quantity_allocated, 0)
+     ) > 0
+    where l.organization_id = ?
+      and l.tenant_id = ?
+      and l.deleted_at is null
+      and l.status = 'available'
+      and l.expires_at is not null
+      and l.expires_at >= ?
+      and l.expires_at <= ?
+  `
+  if (scope.warehouseId) {
+    sql += ' and b.warehouse_id = ?'
+    params.push(scope.warehouseId)
+  }
+  const rows = await em.getConnection().execute<Array<{ count: string | number }>>(sql, params)
+  return toOperationalDashboardNumber(rows[0]?.count)
+}
+
 async function loadPastDueDailyCounts(
   em: EntityManager,
   scope: OperationalDashboardScope,
@@ -775,16 +811,13 @@ export async function loadOperationalDashboard(
     variantIdsByProduct,
   )
 
-  const expiringSoonCount = expiringSoonLots.filter(
-    (lot) => resolveLotAvailableQuantity(lot.id, balances, scope.warehouseId) > 0,
-  ).length
-
   const agingReservationsCount = reservations.length
 
   const [
     todaysMoveCount,
     yesterdaysMoveCount,
     pastDueCount,
+    expiringSoonCount,
     lowStockSparklineRows,
     reorderCriticalSparklineRows,
     expiringSoonSparklineRows,
@@ -796,6 +829,7 @@ export async function loadOperationalDashboard(
     countMovementsBetween(em, scope, todayStart, tomorrowStart),
     countMovementsBetween(em, scope, yesterdayStart, todayStart),
     loadPastDueLotCount(em, scope, todayStart),
+    loadExpiringSoonLotCount(em, scope, todayStart, expiringCutoff),
     loadMovementDailyCounts(em, scope, trendStart, { types: ['adjust'], quantitySign: 'negative' }),
     loadMovementDailyCounts(em, scope, trendStart, { types: ['adjust'], quantitySign: 'negative' }),
     loadExpiringSoonDailyCounts(em, scope, dayBuckets),
