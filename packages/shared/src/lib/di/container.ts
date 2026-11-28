@@ -255,7 +255,7 @@ function getProcessRootState(): ProcessRootState {
 }
 
 export function isProcessContainerRootEnabled(): boolean {
-  return parseBooleanWithDefault(process.env.OM_PROCESS_CONTAINER_ROOT, false)
+  return parseBooleanWithDefault(process.env.OM_PROCESS_CONTAINER_ROOT ?? process.env.OM_REQUEST_CONTAINER_MEMO, false)
 }
 
 export function invalidateProcessContainer(): void {
@@ -588,7 +588,11 @@ async function disposeFailedContainer(
   throw initializationError
 }
 
-export function createRequestContainer(): Promise<AppContainer> {
+export type CreateRequestContainerOptions = {
+  fresh?: boolean
+}
+
+export function createRequestContainer(_options?: CreateRequestContainerOptions): Promise<AppContainer> {
   return runWithRequestScopeAcquisition(buildRequestContainer)
 }
 

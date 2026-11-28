@@ -391,7 +391,7 @@ function adaptToolToAiSdk(
     }
     try {
       // Create a fresh container per tool call so the EM is never stale.
-      const freshContainer = await createRequestContainer()
+      const freshContainer = await createRequestContainer({ fresh: true })
       const uiPartBuffer = createToolUiPartBuffer()
       const freshContext: McpToolContext = {
         ...handlerContext,

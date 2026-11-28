@@ -1,5 +1,13 @@
 # Upgrade Notes
 
+## Request-container memo flag compatibility (#2977)
+
+`OM_REQUEST_CONTAINER_MEMO=on` now selects the audited process DI root from #8989 when `OM_PROCESS_CONTAINER_ROOT` is unset. An explicitly configured `OM_PROCESS_CONTAINER_ROOT` takes precedence, including `off`. Both options default to off. To use the alias with a copied `.env.example`, remove the explicit `OM_PROCESS_CONTAINER_ROOT=off` entry; otherwise that entry intentionally keeps the optimization disabled.
+
+Registration definitions and audited infrastructure are reused across the process, including HTTP, CLI, workers and server-rendered pages. Every `createRequestContainer()` caller still receives its own EntityManager, query/data engines and command bus; caller-local registrations and units of work are never shared. Unmarked custom registrars, module DI overrides and custom event buses retain the complete legacy builder.
+
+This replaces the unsafe prototype that shared one initialized container per HTTP request. `createRequestContainer({ fresh: true })` remains accepted; every call now provides that isolation without the option. Prefer `OM_PROCESS_CONTAINER_ROOT` for new deployments. No database migration, route, event or DI-key change is required.
+
 ## Overdue staff MFA enrollment denies business API requests (#9152)
 
 When enterprise MFA enforcement requires an interactive staff user to enroll, their business API requests now return HTTP 403. The staff session and its refresh flow remain available. Complete enrollment through the existing security profile flow, then retry the request. Enrollment policies apply to staff accounts with a stored tenant. API keys continue to follow their own issuance, scope, and revocation rules.

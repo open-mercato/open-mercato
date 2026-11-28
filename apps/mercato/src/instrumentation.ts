@@ -47,7 +47,7 @@ export async function register(): Promise<void> {
   if (
     process.env.NEXT_RUNTIME === 'nodejs'
     && process.env.NEXT_PHASE !== 'phase-production-build'
-    && parseBooleanWithDefault(process.env.OM_PROCESS_CONTAINER_ROOT, false)
+    && parseBooleanWithDefault(process.env.OM_PROCESS_CONTAINER_ROOT ?? process.env.OM_REQUEST_CONTAINER_MEMO, false)
   ) {
     const { bootstrap } = await import('./bootstrap-api')
     bootstrap()
