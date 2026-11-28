@@ -37,7 +37,7 @@ test.describe('TC-PERSP-CLEAR-001: clearRoleIds removes role perspectives withou
   test('clears only the listed role and keeps the personal perspective and the other role', async ({ request }) => {
     test.slow();
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
     const tableId = `qa-persp-clear-001-${stamp}`;
     const perspectiveName = `Personal View ${stamp}`;
     const emailA = `qa-persp-clear-001-a-${stamp}@example.com`;

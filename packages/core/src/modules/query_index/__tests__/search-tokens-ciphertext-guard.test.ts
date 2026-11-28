@@ -1,5 +1,7 @@
 import type { Kysely } from 'kysely'
 import { encryptWithAesGcm, generateDek } from '@open-mercato/shared/lib/encryption/aes'
+import { HashicorpVaultKmsService } from '@open-mercato/shared/lib/encryption/kms'
+import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { resolveSearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import {
@@ -7,6 +9,7 @@ import {
   replaceSearchTokensForBatch,
   replaceSearchTokensForRecord,
   resetCiphertextGuardState,
+  resolveCiphertextGuard,
 } from '../lib/search-tokens'
 
 const warn = jest.fn()
@@ -438,5 +441,135 @@ describe('replaceSearchTokensForBatch preserves tokens for ciphertext records', 
     ])
 
     expect(store.rows.map((row) => row.id).sort((a, b) => a - b)).toEqual(before)
+  })
+})
+
+/**
+ * The guard used to ask a KMS of its own that never fetched a key, so its Vault circuit breaker
+ * never tripped: through a real outage it reported `active` and stayed off, while the decrypt that
+ * ran just before had got no DEK and handed the tokenizer ciphertext. The writer then deleted the
+ * record's good tokens to make room for hashes nothing matches. The guard now reads the health of
+ * the encryption service that did the decrypt.
+ */
+describe('the ciphertext guard follows the decrypting service through a Vault outage', () => {
+  const VAULT_ADDR = 'http://vault.test'
+  const VAULT_TOKEN = 'vault-token'
+  const originalFetch = globalThis.fetch
+  let tenantSequence = 0
+
+  beforeEach(() => {
+    process.env.TENANT_DATA_ENCRYPTION = 'yes'
+    process.env.VAULT_ADDR = VAULT_ADDR
+    process.env.VAULT_TOKEN = VAULT_TOKEN
+    delete process.env.TENANT_DATA_ENCRYPTION_KEY
+    delete process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY
+  })
+
+  afterEach(() => {
+    ;(globalThis as { fetch?: typeof fetch }).fetch = originalFetch
+  })
+
+  const vaultResponding = (status: number) => {
+    const fetchMock = jest.fn(async () => ({
+      ok: status < 400,
+      status,
+      json: async () => ({ data: { data: { key: generateDek() } } }),
+    }))
+    ;(globalThis as { fetch?: typeof fetch }).fetch = fetchMock as unknown as typeof fetch
+    return fetchMock
+  }
+
+  // The DEK cache is static on the service, so each probe uses a tenant nothing has cached yet.
+  const probeDek = async (service: TenantDataEncryptionService) => {
+    tenantSequence += 1
+    return service.getDek(`outage-tenant-${tenantSequence}`)
+  }
+
+  const outageService = async () => {
+    const fetchMock = vaultResponding(503)
+    const service = new TenantDataEncryptionService({} as never, {
+      kms: new HashicorpVaultKmsService({ vaultAddr: VAULT_ADDR, vaultToken: VAULT_TOKEN }),
+    })
+    await expect(probeDek(service)).resolves.toBeNull()
+    expect(fetchMock).toHaveBeenCalled()
+    return service
+  }
+
+  it('reproduces the blind spot: the process-level check still reports a DEK as reachable', async () => {
+    await outageService()
+
+    expect(resolveCiphertextGuard(null)).toBe(false)
+  })
+
+  it('turns on once the decrypting service failed to reach Vault', async () => {
+    expect(resolveCiphertextGuard(await outageService())).toBe(true)
+  })
+
+  it('stays off while the decrypting service can reach Vault', async () => {
+    vaultResponding(200)
+    const service = new TenantDataEncryptionService({} as never, {
+      kms: new HashicorpVaultKmsService({ vaultAddr: VAULT_ADDR, vaultToken: VAULT_TOKEN }),
+    })
+    await expect(probeDek(service)).resolves.not.toBeNull()
+
+    expect(resolveCiphertextGuard(service)).toBe(false)
+  })
+
+  it('stays on whenever encryption is switched off, whatever the service', () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+
+    expect(resolveCiphertextGuard({ isEnabled: () => false })).toBe(true)
+  })
+
+  it('preserves a record’s tokens when its reindex could not decrypt it', async () => {
+    const service = await outageService()
+    const store = createStore()
+    store.insertRaw(storedRow('deal-1', 'title', hashOf('renewal')))
+    const preservedIds = store.idsFor('title')
+
+    await replaceSearchTokensForRecord(store.db, {
+      entityType: ENTITY_TYPE,
+      recordId: 'deal-1',
+      ...SCOPE,
+      doc: { title: ciphertext(), status: 'open' },
+      guardCiphertext: resolveCiphertextGuard(service),
+    })
+
+    expect(store.idsFor('title')).toEqual(preservedIds)
+    expect(store.rows.filter((row) => row.field === 'title').map((row) => row.token_hash)).toEqual([hashOf('renewal')])
+    expect(store.rows.some((row) => row.field === 'status')).toBe(true)
+    expect(ciphertextWarnings()).toHaveLength(1)
+  })
+
+  it('preserves a batch record’s tokens when its reindex could not decrypt it', async () => {
+    const service = await outageService()
+    const store = createStore()
+    store.insertRaw(storedRow('deal-1', 'title', hashOf('renewal')))
+    const preservedIds = store.idsFor('title')
+
+    await replaceSearchTokensForBatch(store.db, [
+      {
+        entityType: ENTITY_TYPE,
+        recordId: 'deal-1',
+        ...SCOPE,
+        doc: { title: ciphertext() },
+        guardCiphertext: resolveCiphertextGuard(service),
+      },
+    ])
+
+    expect(store.idsFor('title')).toEqual(preservedIds)
+    expect(store.rows.map((row) => row.token_hash)).toEqual([hashOf('renewal')])
+  })
+
+  it('lets a batch payload switch the guard off where the process-level check would run it', async () => {
+    process.env.TENANT_DATA_ENCRYPTION = 'no'
+    const store = createStore()
+    store.insertRaw(storedRow('deal-1', 'title', hashOf('renewal')))
+
+    await replaceSearchTokensForBatch(store.db, [
+      { entityType: ENTITY_TYPE, recordId: 'deal-1', ...SCOPE, doc: { title: FORGED_ENVELOPE }, guardCiphertext: false },
+    ])
+
+    expect(store.rows.map((row) => row.token_hash)).not.toContain(hashOf('renewal'))
   })
 })

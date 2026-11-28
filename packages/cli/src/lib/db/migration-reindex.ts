@@ -94,7 +94,7 @@ export function formatManualReindexInstructions(entityTypes: readonly string[]):
 }
 
 export type QueryIndexReindexEmitter = {
-  emitEvent: (event: string, payload: Record<string, unknown>, options?: { persistent?: boolean }) => Promise<void>
+  emitEvent: (event: string, payload: Record<string, unknown>, options?: { persistent?: boolean; tenantId?: string | null; allowAllTenants?: boolean }) => Promise<void>
 }
 
 export type QueryIndexReindexContainer = {
@@ -129,7 +129,7 @@ export async function requestQueryIndexReindex(
       await eventBus.emitEvent(
         'query_index.reindex',
         { entityType, allowAllTenants: true, force: false },
-        { persistent: true },
+        { persistent: true, tenantId: null, allowAllTenants: true },
       )
       queued.push(entityType)
     }

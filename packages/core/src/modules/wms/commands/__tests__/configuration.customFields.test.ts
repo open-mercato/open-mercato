@@ -115,7 +115,7 @@ function createCtx(
   dataEngine = createDataEngine(),
 ) {
   return {
-    auth: { tenantId: TENANT, orgId: ORG },
+    auth: { sub: '99999999-9999-4999-8999-999999999999', tenantId: TENANT, orgId: ORG },
     selectedOrganizationId: ORG,
     container: {
       resolve: (name: string) => {
@@ -125,6 +125,7 @@ function createCtx(
         if (name === 'dataEngine') {
           return dataEngine
         }
+        if (name === 'rbacService') return { userHasAllFeatures: async () => true }
         throw new Error(`unexpected resolve: ${name}`)
       },
     },

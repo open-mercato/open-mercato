@@ -43,7 +43,7 @@ test.describe('TC-WC-010: warranty claim stats and risk', () => {
     const { userId: adminUserId } = getTokenScope(adminToken)
     expect(adminUserId, 'admin token should include a user id').toBeTruthy()
     const stamp = uniqueLabel('tc-wc-010')
-    const noFeaturePassword = 'Valid1!Pass'
+    const noFeaturePassword = 'QaValid1!Pass'
     const noFeatureEmail = `${stamp}@test.invalid`
 
     let roleId: string | null = null

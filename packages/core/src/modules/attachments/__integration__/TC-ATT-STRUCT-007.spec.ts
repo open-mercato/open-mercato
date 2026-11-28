@@ -94,7 +94,7 @@ test.describe('TC-ATT-STRUCT-007: document structure panel in the attachment dia
     const { tenantId, organizationId } = getTokenScope(adminToken)
     const stamp = `tc-att-struct-007-${Date.now()}`
     const fileName = `${stamp}.pdf`
-    const password = 'Valid1!Pass'
+    const password = 'QaValid1!Pass'
 
     let partition: StructurePartition | null = null
     let attachmentId: string | null = null

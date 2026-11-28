@@ -804,3 +804,16 @@ export const staffSupportFallbackProjectCreateSchema = z.object({
 export type StaffSupportRoutingRuleCreateInput = z.infer<typeof staffSupportRoutingRuleCreateSchema>
 export type StaffSupportRoutingRuleUpdateInput = z.infer<typeof staffSupportRoutingRuleUpdateSchema>
 export type StaffSupportFallbackProjectCreateInput = z.infer<typeof staffSupportFallbackProjectCreateSchema>
+
+const STAFF_AVAILABILITY_WINDOW_MAX_DAYS = 93
+export const staffAvailabilityWindowsQuerySchema = z.object({
+  userIds: z.string().max(4_096).transform((value) => Array.from(new Set(
+    value.split(',').map((userId) => userId.trim().toLowerCase()),
+  ))).pipe(z.array(z.string().uuid()).min(1).max(100)),
+  from: z.string().datetime({ offset: true }),
+  to: z.string().datetime({ offset: true }),
+  organizationId: z.string().uuid().optional(),
+}).refine(({ from, to }) => {
+  const duration = Date.parse(to) - Date.parse(from)
+  return duration > 0 && duration <= STAFF_AVAILABILITY_WINDOW_MAX_DAYS * 24 * 60 * 60 * 1000
+}, { path: ['to'], message: 'Invalid availability range' })

@@ -26,6 +26,7 @@ type DealLostSummaryDialogProps = {
   lossNotes?: string | null
   stats: DealStatsPayload | null
   onBackToPipeline?: () => void
+  backActionLabel?: string
   onScheduleFollowUp?: () => void
 }
 
@@ -66,6 +67,7 @@ export function DealLostSummaryDialog({
   lossNotes,
   stats,
   onBackToPipeline,
+  backActionLabel,
   onScheduleFollowUp,
 }: DealLostSummaryDialogProps) {
   const t = useT()
@@ -140,7 +142,7 @@ export function DealLostSummaryDialog({
                 className="w-full"
                 onClick={onBackToPipeline ?? onClose}
               >
-                {t('customers.deals.detail.lost.primaryAction', 'Back to pipeline')}
+                {backActionLabel ?? t('customers.deals.detail.lost.primaryAction', 'Back to pipeline')}
               </Button>
               {onScheduleFollowUp ? (
                 <Button type="button" variant="outline" className="w-full" onClick={onScheduleFollowUp}>

@@ -5,9 +5,9 @@ import { User, UserRole, Role, RoleAcl } from '@open-mercato/core/modules/auth/d
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { Tenant } from '@open-mercato/core/modules/directory/data/entities'
 import { ApiKey } from '../data/entities'
-import { createApiKey, createSessionApiKey } from '../services/apiKeyService'
+import { createApiKey, createSessionApiKey, deleteApiKey } from '../services/apiKeyService'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resetSharedApiKeyAuthCacheForTests } from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
+import * as apiKeyAuthCache from '@open-mercato/shared/lib/auth/apiKeyAuthCache'
 import { registerModules } from '@open-mercato/shared/lib/modules/registry'
 
 const mockCreateRequestContainer = jest.fn()
@@ -34,6 +34,8 @@ jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
 }))
 jest.mock('@open-mercato/core/modules/auth/lib/authorizationStateLocks', () => ({
   lockRoleWriterAuthorizationState: async () => undefined,
+  lockAuthorizationApiKeyRows: (manager: FixtureReader, ids: readonly string[]) =>
+    manager.find(ApiKey, { id: { $in: [...ids] } }),
 }))
 
 type Fixture = Record<string, unknown>
@@ -86,10 +88,10 @@ function createFixtureManager(fixtures: Map<unknown, object[]>): FixtureManager 
   return manager
 }
 
-afterEach(() => resetSharedApiKeyAuthCacheForTests())
+afterEach(() => apiKeyAuthCache.resetSharedApiKeyAuthCacheForTests())
 
 it('revokes an issued session credential immediately across independently warmed ACL caches', async () => {
-  resetSharedApiKeyAuthCacheForTests()
+  apiKeyAuthCache.resetSharedApiKeyAuthCacheForTests()
   registerModules([{ id: 'customers' }])
   const tenantId = randomUUID()
   const user = Object.assign(new User(), { id: randomUUID(), tenantId, organizationId: null, deletedAt: null })
@@ -155,4 +157,50 @@ it('revokes an issued session credential immediately across independently warmed
     await expect(worker.rbac.userHasAllFeatures(independentAuth!.sub, ['customers.people.edit'], scope)).resolves.toBe(true)
   }
   expect((await manager.findOne(ApiKey, { id: session.keyId }) as ApiKey).rolesJson).toEqual(issuedRoleIds)
+})
+
+it('revokes a regular API key after deletion across independently warmed authentication caches', async () => {
+  const tenantId = randomUUID()
+  const fixtures = new Map<unknown, object[]>([
+    [Tenant, [Object.assign(new Tenant(), { id: tenantId, isActive: true, deletedAt: null })]],
+  ])
+  const em = createFixtureManager(fixtures) as unknown as EntityManager
+  mockCreateRequestContainer.mockResolvedValue({ resolve: () => em })
+  const { record, secret } = await createApiKey(em, { name: 'revocable credential', tenantId, roles: [] })
+  const deletingWorker = apiKeyAuthCache.createApiKeyAuthCache()
+  const otherWorker = apiKeyAuthCache.createApiKeyAuthCache()
+  const cache = jest.spyOn(apiKeyAuthCache, 'getSharedApiKeyAuthCache')
+  const request = new Request('https://example.test/api/customers/people', {
+    headers: { 'x-api-key': secret },
+  })
+  const invalidateUserCache = jest.fn(async (_principalId: string) => undefined)
+  const rbac = new RbacService(em, createMemoryStrategy())
+  jest.spyOn(rbac, 'invalidateUserCache').mockImplementation(invalidateUserCache)
+
+  try {
+    for (const worker of [deletingWorker, otherWorker]) {
+      cache.mockReturnValue(worker)
+      await expect(getAuthFromRequest(request)).resolves.toMatchObject({ keyId: record.id })
+    }
+
+    cache.mockReturnValue(deletingWorker)
+    const denied = new Error('[internal] Deletion denied')
+    await expect(deleteApiKey(em, record.id, {
+      rbac,
+      authorize: () => { throw denied },
+    })).rejects.toBe(denied)
+    expect(invalidateUserCache).not.toHaveBeenCalled()
+    expect(deletingWorker.get(secret)).toMatchObject({ keyId: record.id })
+    await expect(getAuthFromRequest(request)).resolves.toMatchObject({ keyId: record.id })
+
+    await expect(deleteApiKey(em, record.id, { rbac })).resolves.toBe(true)
+    expect(invalidateUserCache).toHaveBeenCalledWith(`api_key:${record.id}`)
+    expect(deletingWorker.get(secret)).toBeUndefined()
+    expect(otherWorker.get(secret)).toMatchObject({ keyId: record.id })
+
+    cache.mockReturnValue(otherWorker)
+    await expect(getAuthFromRequest(request)).resolves.toBeNull()
+  } finally {
+    cache.mockRestore()
+  }
 })

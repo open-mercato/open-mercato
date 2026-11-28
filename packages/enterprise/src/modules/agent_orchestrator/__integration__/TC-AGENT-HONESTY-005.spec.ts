@@ -52,7 +52,7 @@ test.describe('TC-AGENT-HONESTY-005: overview per-panel honesty', () => {
     expect(organizationId).toBeTruthy()
 
     const email = `qa-tc-honesty-005-${STAMP}@example.com`
-    const password = 'Secret123!'
+    const password = 'QaSecret123!'
     let roleId: string | null = null
     let userId: string | null = null
     let runIds: string[] = []

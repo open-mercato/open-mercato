@@ -1,10 +1,12 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
+  CustomerUser,
   CustomerUserEmailVerification,
   CustomerUserPasswordReset,
   CustomerUserInvitation,
 } from '@open-mercato/core/modules/customer_accounts/data/entities'
+import { pendingSignup, signupExpiryCutoff } from '../lib/pendingSignup'
 
 export const metadata: WorkerMeta = {
   queue: 'customer-accounts-cleanup-tokens',
@@ -19,6 +21,11 @@ type HandlerContext = JobContext & {
 export default async function handle(job: QueuedJob, ctx: HandlerContext): Promise<void> {
   const em = ctx.resolve<EntityManager>('em')
   const now = new Date()
+
+  await em.nativeUpdate(CustomerUser, {
+    ...pendingSignup,
+    createdAt: { $lte: signupExpiryCutoff(now) },
+  }, { deletedAt: now, isActive: false, passwordHash: null, sessionsRevokedAt: now })
 
   // Cleanup expired email verifications
   await em.nativeDelete(CustomerUserEmailVerification, {

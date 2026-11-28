@@ -1,5 +1,7 @@
 # SPEC-072: CRM Detail Pages UX Enhancements
 
+> ⚠️ Superseded by `.ai/specs/2026-11-22-crm-activity-date-time.md` (2026-11-22) — Enhancement 2, inline composer creation fields. Current state: see the new spec.
+
 **Created:** 2026-04-06
 **Module:** `customers`, `sales`
 **Status:** Draft

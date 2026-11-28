@@ -82,9 +82,10 @@ const FALLBACK_STATUS_OPTIONS: Array<{
 type StatusFilterPopoverProps = {
   values: string[]
   onApply: (next: string[]) => void
+  canReadDictionary?: boolean
 }
 
-export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProps): React.ReactElement {
+export function StatusFilterPopover({ values, onApply, canReadDictionary = true }: StatusFilterPopoverProps): React.ReactElement {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
   const { vocabulary, isLoading: vocabularyLoading, isError: vocabularyError } = useDealStatusVocabulary()
@@ -92,6 +93,8 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
   const { data: dictionaryData, isLoading: dictionaryLoading } = useCustomerDictionary(
     'deal-statuses',
     scopeVersion,
+    undefined,
+    canReadDictionary,
   )
   const [open, setOpen] = React.useState(false)
   const normalizedValues = React.useMemo(
@@ -105,7 +108,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
   }, [open, normalizedValues])
 
   const statusOptions = React.useMemo(() => {
-    const entries = dictionaryData?.entries
+    const entries = canReadDictionary ? dictionaryData?.entries : undefined
     if (entries && entries.length > 0) {
       const byCanonical = new Map<string, { value: string; label: string; dotClass: string }>()
       for (const entry of entries) {
@@ -130,7 +133,7 @@ export function StatusFilterPopover({ values, onApply }: StatusFilterPopoverProp
       label: translateWithFallback(t, entry.labelKey, entry.labelFallback),
       dotClass: entry.dotClass,
     }))
-  }, [dictionaryData, t, vocabulary])
+  }, [canReadDictionary, dictionaryData, t, vocabulary])
 
   const labelByValue = React.useMemo(() => {
     const map = new Map<string, string>()

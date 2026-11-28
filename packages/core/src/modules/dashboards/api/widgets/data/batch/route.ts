@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -13,8 +14,8 @@ import {
   WidgetDataScanLimitError,
   WidgetDataEncryptionUnavailableError,
 } from '../../../../services/widgetDataService'
+import { runWidgetDataBeforeInterceptors } from '../../../../lib/widgetDataInterceptors'
 import { runWidgetDataBatch } from '../../../../lib/widgetDataBatch'
-import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/interceptor-runner'
 import type { InterceptorContext } from '@open-mercato/shared/lib/crud/api-interceptor'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -110,45 +111,38 @@ export async function POST(req: Request) {
     resolveOptionalBaseCurrencyResolver(container),
   )
 
-  const rbacService = container.resolve<{
-    userHasAllFeatures: (
-      userId: string,
-      features: string[],
-      scope: { tenantId: string; organizationId?: string | null },
-    ) => Promise<boolean>
-  }>('rbacService')
+  const rbacService = container.resolve<RbacService>('rbacService')
+  const userFeatures = await rbacService.getGrantedFeatures(auth.sub, {
+    tenantId,
+    organizationId: rbacOrganizationId,
+  })
+  const checkFeatures = (features: string[]): Promise<boolean> => {
+    if (!features.length) return Promise.resolve(true)
+    return rbacService.userHasAllFeatures(auth.sub, features, {
+      tenantId,
+      organizationId: rbacOrganizationId,
+    })
+  }
 
-  const headers: Record<string, string> = {}
-  req.headers.forEach((value, key) => { headers[key] = value })
   const interceptorContext: InterceptorContext = {
     em, container, userId: auth.sub, tenantId, organizationId: rbacOrganizationId ?? '',
-    userFeatures: Array.isArray(auth.features) ? auth.features.filter((feature): feature is string => typeof feature === 'string') : [],
+    userFeatures,
     metadata: { authenticatedScope: { auth, organizationScope: scope, selectedOrganizationId: scope.selectedId ?? null, organizationIds } },
   }
 
   try {
     const results = await runWidgetDataBatch(parsed.data.requests as Array<{ id: string; request: WidgetDataRequest }>, {
       getRequiredFeatures: (entityType) => analyticsRegistry.getRequiredFeatures(entityType),
-      checkFeatures: (features) => {
-        if (features.length === 0) return Promise.resolve(true)
-        return rbacService.userHasAllFeatures(auth.sub, features, {
-          tenantId,
-          organizationId: rbacOrganizationId,
-        })
-      },
+      checkFeatures,
       fetchOne: async (request) => {
-        const result = await runApiInterceptorsBefore({
-          routePath: 'dashboards/widgets/data/batch', method: 'POST',
-          request: { method: 'POST', url: req.url, headers, body: request as unknown as Record<string, unknown> },
-          context: interceptorContext,
-        })
-        if (!result.ok) {
-          const message = result.body.error
-          if (typeof message === 'string') throw new WidgetDataValidationError(message)
-          throw new Error('[internal] Widget data interceptor rejected request')
+        const intercepted = await runWidgetDataBeforeInterceptors(req, request, interceptorContext)
+        if (!intercepted.ok) {
+          const message = intercepted.body.error
+          throw new WidgetDataValidationError(typeof message === 'string' ? message : 'Forbidden')
         }
-        return service.fetchWidgetData((result.request.body ?? request) as WidgetDataRequest)
+        return service.fetchWidgetData(intercepted.request)
       },
+
       describeError: (error) =>
         error instanceof WidgetDataValidationError
         || error instanceof WidgetDataScanLimitError

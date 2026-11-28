@@ -23,6 +23,10 @@ const commandSchema = z.object({
 
 registerCommand({
   id: commandId,
+  isUndoable: false,
+  authorizeReplay() {
+    throw new Error('[internal] Sudo configuration commands do not support replay')
+  },
   async prepare(rawInput, ctx) {
     const parsed = commandSchema.safeParse(rawInput)
     if (!parsed.success) {

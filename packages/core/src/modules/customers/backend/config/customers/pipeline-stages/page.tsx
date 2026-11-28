@@ -4,6 +4,8 @@ import * as React from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -24,6 +26,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { AppearanceSelector, type AppearanceSelectorLabels } from '@open-mercato/core/modules/dictionaries/components/AppearanceSelector'
 import { renderDictionaryColor, renderDictionaryIcon, ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { metadata as pipelineMetadata } from '../../../customers/deals/pipeline/page.meta'
 
 type Pipeline = {
   id: string
@@ -64,6 +67,8 @@ function parseStageProbabilityInput(value: string): number | null {
 
 export default function PipelineStagesPage() {
   const t = useT()
+  const { payload } = useBackendChrome()
+  const canViewPipeline = hasAllFeatures(payload?.grantedFeatures, pipelineMetadata.requireFeatures)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const [pipelines, setPipelines] = React.useState<Pipeline[]>([])
@@ -462,12 +467,12 @@ export default function PipelineStagesPage() {
             <h2 className="text-lg font-semibold">
               {t('customers.config.pipelineStages.title', 'Pipeline stages')}
             </h2>
-            <a
+            {canViewPipeline ? <a
               href="/backend/customers/deals/pipeline"
               className="text-sm text-muted-foreground hover:underline"
             >
               {t('customers.config.pipelineStages.viewBoard', 'View pipeline board')} →
-            </a>
+            </a> : null}
           </div>
 
           {loadingPipelines ? (

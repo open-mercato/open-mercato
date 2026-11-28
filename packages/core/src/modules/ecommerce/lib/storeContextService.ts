@@ -32,23 +32,44 @@ export type ResolveStoreContextOptions = ResolveStoreFromRequestOptions & {
 
 export type InvalidateStoreContextOptions = { tenantId?: string | null }
 
+export type FindStoreForOrganizationsOptions = {
+  tenantId: string
+  organizationIds: string[] | null
+  storeId: string
+}
+
+export type StoreOwnership = {
+  id: string
+  tenantId: string
+  organizationId: string
+}
+
 export type StoreContextService = {
   resolve(request: Request, opts?: ResolveStoreContextOptions): Promise<StoreContext>
   resolveBySlug(slug: string, opts?: ResolveStoreContextBySlugOptions): Promise<StoreContext>
   invalidate(storeId: string, opts?: InvalidateStoreContextOptions): Promise<void>
+  /**
+   * Store-by-id read within a tenant and, when `organizationIds` is not `null`, those
+   * organizations. Returns `null` for a deleted, unknown or out-of-scope store. Optional so a
+   * third-party `StoreContextService` stays valid; consumers treat its absence as no store.
+   */
+  findStoreForOrganizations?(opts: FindStoreForOrganizationsOptions): Promise<StoreOwnership | null>
 }
 
 type StoreTenantDatabase = {
-  ecommerce_stores: { id: string; tenant_id: string }
+  ecommerce_stores: { id: string; tenant_id: string; organization_id: string; deleted_at: Date | null }
+}
+
+function resolveEntityManager(container: CacheContainer): EntityManager | null {
+  try {
+    return (container.resolve('em') as EntityManager | null | undefined) ?? null
+  } catch {
+    return null
+  }
 }
 
 async function lookupStoreTenantId(container: CacheContainer, storeId: string): Promise<string | null> {
-  let em: EntityManager | null = null
-  try {
-    em = (container.resolve('em') as EntityManager | null | undefined) ?? null
-  } catch {
-    em = null
-  }
+  const em = resolveEntityManager(container)
   if (!em) return null
   const row = await em
     .getKysely<StoreTenantDatabase>()
@@ -79,6 +100,21 @@ export function createStoreContextService(container: CacheContainer): StoreConte
       await ecommerceResolutionCache(container).deleteByTags(tags)
       const tenantId = opts.tenantId ?? (await lookupStoreTenantId(container, storeId))
       if (tenantId) await buyerContextCache(container, { tenantId, storeId }).deleteByTags(tags)
+    },
+    async findStoreForOrganizations({ tenantId, organizationIds, storeId }) {
+      if (organizationIds && organizationIds.length === 0) return null
+      const em = resolveEntityManager(container)
+      if (!em) return null
+      let query = em
+        .getKysely<StoreTenantDatabase>()
+        .selectFrom('ecommerce_stores')
+        .select(['id', 'tenant_id', 'organization_id'])
+        .where('id', '=', storeId)
+        .where('tenant_id', '=', tenantId)
+        .where('deleted_at', 'is', null)
+      if (organizationIds) query = query.where('organization_id', 'in', organizationIds)
+      const row = await query.executeTakeFirst()
+      return row ? { id: row.id, tenantId: row.tenant_id, organizationId: row.organization_id } : null
     },
   }
 }

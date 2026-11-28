@@ -2,7 +2,9 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { QueryClient } from '@tanstack/react-query'
+import polishTranslations from '../../i18n/pl.json'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { registerTranslatableFields } from '@open-mercato/shared/lib/localization/translatable-fields'
 import { TranslationManager, LocaleManager } from '../TranslationManager'
@@ -123,12 +125,13 @@ describe('TranslationManager guarded mutations (#3316)', () => {
     await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(1))
 
     const runInput = runMutationMock.mock.calls[0][0] as {
-      context: Record<string, unknown>
+      context: { retryLastMutation: () => Promise<boolean> }
       mutationPayload?: Record<string, unknown>
     }
     expect(runInput.context).toMatchObject({ entityType: 'catalog:product', recordId: 'rec-1' })
     // the conflict-resolution retry handle MUST be carried in the injection context
-    expect(runInput.context.retryLastMutation).toBe(retryLastMutationMock)
+    expect(await runInput.context.retryLastMutation()).toBe(true)
+    expect(retryLastMutationMock).toHaveBeenCalledTimes(1)
     expect(runInput.mutationPayload).toEqual({ en: { name: 'Nazwa testowa' } })
 
     // optimistic-lock header is still built + applied on the guarded write
@@ -156,6 +159,104 @@ describe('TranslationManager guarded mutations (#3316)', () => {
       />,
     )
   }
+
+  it('checks the opening scope again immediately before sending a guarded save', async () => {
+    document.cookie = 'om_selected_org=original-organization; path=/'
+    runMutationMock.mockImplementationOnce(async ({ operation }) => {
+      document.cookie = 'om_selected_org=__all__; path=/'
+      return operation()
+    })
+    try {
+      renderEmbeddedProductEditor()
+      const input = await screen.findByRole('textbox')
+      fireEvent.change(input, { target: { value: 'Old-scope draft' } })
+      fireEvent.click(screen.getByTestId('translations-save'))
+
+      await waitFor(() => expect(flashMock).toHaveBeenCalledWith(
+        'The organization selection changed. Close and reopen the translation editor to continue.',
+        'error',
+      ))
+      expect(apiCallMock).not.toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ method: 'PUT' }),
+      )
+      expect(input).toHaveValue('Old-scope draft')
+
+      document.cookie = 'om_selected_org=original-organization; path=/'
+      fireEvent.click(screen.getByTestId('translations-save'))
+      await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Translations saved', 'success'))
+    } finally {
+      document.cookie = 'om_selected_org=; Max-Age=0; path=/'
+    }
+  })
+
+  it.each([
+    ['tenant-only switch', 'om_selected_tenant', '=original-tenant', '=other-tenant'],
+    ['blank organization selection', 'om_selected_org', '=; Max-Age=0', '='],
+  ])('blocks a %s before save preflight and retry', async (_scenario, cookie, initial, changed) => {
+    document.cookie = `${cookie}${initial}; path=/`
+    try {
+      failTranslationSaveWith(400, { error: 'Initial save rejected' })
+      renderEmbeddedProductEditor()
+      const input = await screen.findByRole('textbox')
+      fireEvent.change(input, { target: { value: 'Original draft' } })
+      fireEvent.click(screen.getByTestId('translations-save'))
+      await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Initial save rejected', 'error'))
+      const { context } = runMutationMock.mock.calls[0][0] as {
+        context: { retryLastMutation: () => Promise<boolean> }
+      }
+      runMutationMock.mockClear()
+      flashMock.mockClear()
+
+      document.cookie = `${cookie}${changed}; path=/`
+      expect(await context.retryLastMutation()).toBe(false)
+      expect(retryLastMutationMock).not.toHaveBeenCalled()
+      expect(flashMock).toHaveBeenCalledWith(
+        'The organization selection changed. Close and reopen the translation editor to continue.',
+        'error',
+      )
+      flashMock.mockClear()
+
+      fireEvent.click(screen.getByTestId('translations-save'))
+      await waitFor(() => expect(flashMock).toHaveBeenCalledWith(
+        'The organization selection changed. Close and reopen the translation editor to continue.',
+        'error',
+      ))
+      expect(runMutationMock).not.toHaveBeenCalled()
+    } finally {
+      document.cookie = `${cookie}=; Max-Age=0; path=/`
+    }
+  })
+
+  it('refuses to refill the old translation cache after a tenant-only switch', async () => {
+    document.cookie = 'om_selected_tenant=original-tenant; path=/'
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const translationKey = ['entity-translation', 'catalog:product', 'rec-1']
+    const endpoint = '/api/translations/catalog%3Aproduct/rec-1'
+    const editor = (
+      <TranslationManager mode="embedded" entityType="catalog:product" recordId="rec-1" translatableFields={['name']} />
+    )
+    try {
+      const openEditor = renderWithProviders(editor, { queryClient })
+      expect(await screen.findByRole('textbox')).toBeVisible()
+      apiCallMock.mockClear()
+
+      document.cookie = 'om_selected_tenant=other-tenant; path=/'
+      await act(() => queryClient.refetchQueries({ queryKey: translationKey }))
+      expect(await screen.findByText(
+        'The organization selection changed. Close and reopen the translation editor to continue.',
+      )).toBeVisible()
+      expect(apiCallMock).not.toHaveBeenCalledWith(endpoint)
+
+      openEditor.unmount()
+      renderWithProviders(editor, { queryClient })
+      expect(await screen.findByRole('textbox')).toBeVisible()
+      expect(apiCallMock).toHaveBeenCalledWith(endpoint)
+      expect(queryClient.getQueriesData({ queryKey: translationKey })).toHaveLength(2)
+    } finally {
+      document.cookie = 'om_selected_tenant=; Max-Age=0; path=/'
+    }
+  })
 
   function failTranslationSaveWith(status: number, body: Record<string, unknown>) {
     const defaultImplementation = apiCallMock.getMockImplementation()
@@ -195,6 +296,71 @@ describe('TranslationManager guarded mutations (#3316)', () => {
 
     await waitFor(() => expect(flashMock).toHaveBeenCalledWith('Invalid payload.', 'error'))
   })
+
+  it('serializes same-tick Save clicks and keyboard submission until the saved version reloads', async () => {
+    const original = apiCallMock.getMockImplementation()
+    let releaseWrite: (() => void) | undefined
+    const write = new Promise<void>((resolve) => { releaseWrite = resolve })
+    apiCallMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (init?.method === 'PUT') {
+        await write
+        return { ok: true, result: {} }
+      }
+      return original?.(url, init)
+    })
+    renderEmbeddedProductEditor()
+    fireEvent.change(await screen.findByRole('textbox'), { target: { value: 'Translated name' } })
+    const save = screen.getByTestId('translations-save')
+    act(() => {
+      fireEvent.click(save)
+      fireEvent.click(save)
+      fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    })
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(1))
+    await act(async () => { releaseWrite?.() })
+    await waitFor(() => expect(save).toHaveTextContent('Save translations'))
+    expect(save).toBeDisabled()
+    fireEvent.click(save)
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    expect(runMutationMock).toHaveBeenCalledTimes(1)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Another translation' } })
+    fireEvent.click(save)
+    await waitFor(() => expect(runMutationMock).toHaveBeenCalledTimes(2))
+  })
+
+  it('blocks writes after a failed translation load and recovers through Retry', async () => {
+    const original = apiCallMock.getMockImplementation()
+    let loadFails = true
+    apiCallMock.mockImplementation(async (url: string, init?: { method?: string; body?: string }) => {
+      if (!init?.method && url.startsWith('/api/translations/catalog') && loadFails) {
+        return { ok: false, response: new Response('{}', { status: 503 }) }
+      }
+      return original?.(url, init)
+    })
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    renderWithProviders(<TranslationManager mode="embedded" entityType="catalog:product" recordId="rec-1" translatableFields={['name']} />, { queryClient })
+    expect(await screen.findByText('Failed to load translations')).toBeVisible()
+    expect(screen.getByTestId('translations-save')).toBeDisabled()
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    expect(runMutationMock).not.toHaveBeenCalled()
+    loadFails = false
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(await screen.findByRole('textbox')).toBeVisible()
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Recovered translation' } })
+    await waitFor(() => expect(screen.getByTestId('translations-save')).not.toBeDisabled())
+  })
+
+  it('localizes built-in property captions in Polish without translating stored values', async () => {
+    renderWithProviders(
+      <TranslationManager mode="embedded" entityType="entities:custom_field_def" recordId="field-1" baseValues={{ label: 'Custom caption', description: 'Custom help' }} translatableFields={['label', 'description']} />,
+      { locale: 'pl', dict: polishTranslations },
+    )
+    expect(await screen.findByRole('cell', { name: 'Etykieta', exact: true })).toBeVisible()
+    expect(screen.getByRole('cell', { name: 'Opis', exact: true })).toBeVisible()
+    expect(screen.getByText('Custom caption')).toBeVisible()
+    expect(screen.getByText('Custom help')).toBeVisible()
+  })
+
 })
 
 describe('LocaleManager guarded mutations (#3316)', () => {
