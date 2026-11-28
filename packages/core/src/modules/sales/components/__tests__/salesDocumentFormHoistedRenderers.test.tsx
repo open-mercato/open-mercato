@@ -19,6 +19,10 @@ jest.setTimeout(20000)
 
 const mockApiCall = jest.fn()
 
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  useBackendChrome: () => ({ payload: { grantedFeatures: ['sales.documents.number.edit'] }, isReady: true }),
+}))
+
 // #5126: the sentinel the mocked CrudForm feeds into the `lines` custom field so the
 // duplicate-error regression is observable through the DOM.
 const LINES_FIELD_ERROR = 'LINES_FIELD_ERROR_SENTINEL'
@@ -55,6 +59,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
     return (
       <div>
         <div data-testid="doc-number">
+          <label>{docField?.label}</label>
           {docField ? docField.component({ ...fieldProps, id: 'documentNumber' }) : null}
         </div>
         <div data-testid="billing">
@@ -278,6 +283,7 @@ describe('SalesDocumentForm hoisted renderers — behavior (#3173)', () => {
 
   it('renders the document-number field and auto-requests a number on mount', async () => {
     render(<SalesDocumentForm onCreated={jest.fn()} initialKind="order" />)
+    expect(screen.getByRole('textbox', { name: 'Document number' })).toHaveAttribute('id', 'documentNumber')
 
     await waitFor(() => {
       expect(mockApiCall).toHaveBeenCalledWith(

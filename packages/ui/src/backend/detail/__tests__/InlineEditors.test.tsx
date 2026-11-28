@@ -4,6 +4,7 @@
 
 import * as React from 'react'
 import { act, fireEvent, screen } from '@testing-library/react'
+import { raiseCrudError } from '../../utils/serverErrors'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { InlineTextEditor, resolveSafeInlineUrlHref } from '../InlineEditors'
 
@@ -177,6 +178,21 @@ describe('InlineTextEditor server validation errors are localized (#5925)', () =
 
     expect(screen.getByText(TRANSLATED)).toBeInTheDocument()
     expect(screen.queryByText(EMAIL_INVALID_KEY)).not.toBeInTheDocument()
+  })
+
+  it.each([
+    { code: 'optimistic_lock_conflict', currentUpdatedAt: '2026-11-22T20:00:00Z', expectedUpdatedAt: '2026-11-22T19:00:00Z' },
+    { code: 'record_lock_conflict' },
+  ])('renders the conflict translation for a $code response', async (payload) => {
+    const body = { ...payload, error: 'record_modified' }
+    const response = { status: 409, text: async () => JSON.stringify(body) } as Response
+    const conflict = await raiseCrudError(response).catch((err: unknown) => err)
+    const translation = 'Ten rekord został zmieniony. Odśwież i spróbuj ponownie.'
+    renderEditorRejectingWith(conflict, { 'ui.forms.flash.recordModified': translation })
+    await submit()
+
+    expect(screen.getByText(translation)).toBeInTheDocument()
+    expect(screen.queryByText('record_modified')).not.toBeInTheDocument()
   })
 
   it('leaves an already-localized server message untouched', async () => {

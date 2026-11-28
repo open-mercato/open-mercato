@@ -18,6 +18,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { format } from 'date-fns/format'
 import { LoadingMessage } from './LoadingMessage'
+import { extractOptimisticLockConflict, extractRecordLockConflict } from '../utils/optimisticLock'
 import { mapCrudServerErrorToFormErrors } from '../utils/serverErrors'
 import { MarkdownPreview } from '../markdown'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -32,6 +33,9 @@ function resolveInlineErrorMessage(
   fallbackMessage: string,
   translate: (key: string, fallback: string) => string,
 ): string {
+  if (extractOptimisticLockConflict(err) || extractRecordLockConflict(err)) {
+    return translate('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.')
+  }
   const raw = resolveRawInlineErrorMessage(err, fallbackMessage)
   return translate(raw, raw)
 }

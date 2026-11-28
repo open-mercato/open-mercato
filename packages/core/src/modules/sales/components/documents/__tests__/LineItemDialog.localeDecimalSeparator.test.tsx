@@ -14,7 +14,7 @@
  * revert of the locale-aware parse would stay green.
  */
 import * as React from 'react'
-import { act, render } from '@testing-library/react'
+import { act, fireEvent, render } from '@testing-library/react'
 import type {
   CrudCustomField,
   CrudCustomFieldRenderProps,
@@ -67,7 +67,7 @@ type ChildrenProps = { children?: React.ReactNode }
 
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   Dialog: ({ children }: ChildrenProps) => <div>{children}</div>,
-  DialogContent: ({ children }: ChildrenProps) => <div>{children}</div>,
+  DialogContent: ({ children, onSubmit }: ChildrenProps & React.HTMLAttributes<HTMLDivElement>) => <div onSubmit={onSubmit}>{children}</div>,
   DialogHeader: ({ children }: ChildrenProps) => <div>{children}</div>,
   DialogTitle: ({ children }: ChildrenProps) => <h3>{children}</h3>,
 }))
@@ -242,6 +242,28 @@ describe('LineItemDialog locale decimal separator (issue #5552)', () => {
     mockApiCall.mockImplementation(async () => ({ ok: true, result: { items: [] } }))
     mockCreateCrud.mockResolvedValue({ ok: true })
     mockUpdateCrud.mockResolvedValue({ ok: true })
+  })
+
+  it('contains line form submission inside the dialog', () => {
+    const parentSubmit = jest.fn((event: React.FormEvent) => event.preventDefault())
+    const { container } = render(
+      <div onSubmit={parentSubmit}>
+        <LineItemDialog
+          open
+          kind="order"
+          documentId="order-1"
+          currencyCode="USD"
+          organizationId="org-1"
+          tenantId="tenant-1"
+          onOpenChange={() => {}}
+          onSaved={async () => {}}
+        />
+      </div>,
+    )
+    const form = container.querySelector('form')
+    expect(form).not.toBeNull()
+    fireEvent.submit(form!)
+    expect(parentSubmit).not.toHaveBeenCalled()
   })
 
   it('accepts the separator the same screen uses to display the value', async () => {
