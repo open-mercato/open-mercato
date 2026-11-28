@@ -1120,6 +1120,10 @@ jobs:
         if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/core test:pg-integration
 
+      - name: Run documents module suites against real Postgres
+        if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
+        run: yarn workspace @open-mercato/documents test:pg-integration
+
       - name: Run Discord auto-reply repeat-delivery suite against real Postgres
         if: ${{ !cancelled() && steps.audit-gate.outcome != 'failure' }}
         run: yarn workspace @open-mercato/channel-discord test:pg-integration

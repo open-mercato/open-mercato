@@ -1,4 +1,5 @@
 import type { AwilixContainer } from 'awilix'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../access-runner'
 import { registerAttachmentAccessResolvers } from '../access-registry'
 import type { AttachmentAccessInput, AttachmentAccessResolver } from '../access-types'
@@ -100,6 +101,24 @@ it('uses current server features, freezes snapshots, and isolates each resolver 
   expect(observed.map((input) => input.targets[0].recordId)).toEqual(['document', 'document', 'destination', 'destination'])
   expect(rbac.loadAcl).toHaveBeenCalledTimes(1)
   expect(rbac.getEffectiveFeatures).toHaveBeenCalledTimes(1)
+})
+
+it('supplies the entity manager only for a commit-boundary authorization check', async () => {
+  const observed: AttachmentAccessInput[] = []
+  const entityManager = {} as EntityManager
+  registerAttachmentAccessResolvers([{ moduleId: 'documents', resolvers: [resolver({
+    resolve: async (input) => {
+      observed.push(input)
+      return { ok: true }
+    },
+  })] }])
+
+  expect(await evaluate({ action: 'create', em: entityManager })).toMatchObject({ ok: true })
+  expect(await evaluate({ action: 'create', em: entityManager, commitBoundary: true })).toMatchObject({ ok: true })
+
+  expect(observed[0].em).toBeUndefined()
+  expect(observed[1].em).toBe(entityManager)
+  expect(observed[1].commitBoundary).toBe(true)
 })
 
 it('denies a stale token superadmin when the live subject cannot cross scope', async () => {

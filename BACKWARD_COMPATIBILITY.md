@@ -324,7 +324,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ## Per-User Integration Credentials (2026-05-26)
 
-`.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row. **All changes are additive** and pass the contract-surface checks above:
+`.ai/specs/2026-05-21-email-integration-foundation.md` adds optional per-user scoping to integration credentials so two users on the same tenant can connect their own mailbox (Gmail / IMAP) without sharing one row.
 
 |Surface|Change|Classification|
 |---|---|---|
@@ -338,7 +338,7 @@ Files in `apps/mercato/.mercato/generated/` are produced by the CLI generators. 
 
 ## Spec C — Provider Push Delivery (2026-05-27)
 
-`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery. **All changes are additive** and pass the contract-surface checks above:
+`.ai/specs/implemented/2026-05-27-email-integration-inbound-reliability-and-threading.md` extends the communication-channels module with provider push delivery.
 
 > **Update (2026-06-02):** the Microsoft Graph push surfaces (the two `/webhooks/microsoft/*` routes, the `…-microsoft-delta-sync` / `…-microsoft-renew-subscriptions` queues, and `OM_MICROSOFT_WEBHOOK_BASE_URL` / `OM_PUSH_RENEWAL_MICROSOFT_LEAD_HOURS`) were removed together with the `@open-mercato/channel-microsoft` provider — they never shipped in a release, so the removal is not a breaking change. The rows below reflect the Gmail-only surfaces that remain. The `client_state_encrypted` column — proposed solely for Microsoft Graph's anti-tampering nonce — was dropped from scope together with the provider before this branch's migrations were finalized; it appears in no committed migration or snapshot, so there is no schema change to reconcile.
 
@@ -704,6 +704,10 @@ STABLE CLI: production defaults/policy bypass preserve exposure; steps 1–3 wai
 ## File-agent attachment read authorization (2026-11-10, #9117)
 
 STABLE: nonempty inputs require principal/owner read access; bridges retain disclosure. [Migration/spec](UPGRADE_NOTES.md#file-agent-attachment-inputs-enforce-read-permissions-9117). Steps 1–3 waived by @pkarw on 2026-11-13.
+
+## Attachment uploads (2026-11-07, #8891)
+
+Enforces #6726/#6829 via `create`. [Upgrade](UPGRADE_NOTES.md). Ack pending.
 
 ## 2026-11-07 — Private next-interaction subjects (#8888)
 

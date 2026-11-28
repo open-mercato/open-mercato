@@ -9,6 +9,7 @@
     "collab": "tsx server/documents-collab-server.ts",
     "collab:prod": "node dist/server/documents-collab-server.js",
     "test:multi-instance": "cross-env OM_DOCUMENTS_MULTI_INSTANCE_INTEGRATION=1 jest --config jest.config.cjs --runInBand collabMultiInstance.integration.test.ts",
+    "test:pg-integration": "cross-env OM_PG_INTEGRATION=1 jest --config jest.config.cjs --runInBand 'src/modules/documents/__tests__/attachment(AccessConcurrency|UploadRouteConcurrency)\\.pg\\.test\\.ts$'",
     "watch": "node build.mjs --watch",
     "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
