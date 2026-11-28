@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import { renderHook, waitFor } from '@testing-library/react'
-import { MAX_WINDOW_ITEMS, mergeInteractionPayloads, useCalendarItems } from '../useCalendarItems'
+import { fetchCalendarCandidates, MAX_WINDOW_ITEMS, mergeInteractionPayloads, useCalendarItems } from '../useCalendarItems'
 import type { CalendarInteractionPayload } from '../types'
 
 const apiCallMock = jest.fn()
@@ -22,6 +22,148 @@ function interaction(id: string, scheduledAt: string): CalendarInteractionPayloa
     recurrenceRule: 'FREQ=WEEKLY',
   }
 }
+
+const range = {
+  from: new Date('2026-08-03T00:00:00.000Z'),
+  to: new Date('2026-08-09T23:59:59.999Z'),
+}
+
+function windowInteractions(count: number): CalendarInteractionPayload[] {
+  return Array.from({ length: count }, (_, index) => ({
+    ...interaction(`window-${index}`, '2026-08-03T10:00:00.000Z'),
+    recurrenceRule: null,
+  }))
+}
+
+function mockCalendarPages(
+  windowItems: CalendarInteractionPayload[],
+  recurringItems: CalendarInteractionPayload[] = [],
+) {
+  apiCallMock.mockImplementation(async (url: string) => {
+    if (url === '/api/customers/dictionaries/activity-types') {
+      return { ok: true, status: 200, result: { items: [] } }
+    }
+    const params = new URL(url, 'http://localhost').searchParams
+    const candidates = params.has('recurrenceMasters') ? recurringItems : windowItems
+    const offset = Number(params.get('cursor') ?? 0)
+    const end = offset + Number(params.get('limit'))
+    return {
+      ok: true,
+      status: 200,
+      result: {
+        items: candidates.slice(offset, end),
+        nextCursor: end < candidates.length ? String(end) : undefined,
+      },
+    }
+  })
+}
+
+describe('useCalendarItems window budget', () => {
+  beforeEach(() => {
+    apiCallMock.mockReset()
+  })
+
+  test('stops following cursors at the default limit and reports an incomplete window', async () => {
+    mockCalendarPages(windowInteractions(501))
+
+    const { result } = renderHook(() => useCalendarItems(range))
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.items).toHaveLength(500)
+    expect(result.current.truncated).toBe(true)
+    expect(apiCallMock.mock.calls.some(([url]) => String(url).includes('cursor=500'))).toBe(false)
+  })
+
+  test('reloads with a higher limit and retrieves the next page', async () => {
+    mockCalendarPages(windowInteractions(501))
+
+    const { result, rerender } = renderHook(({ maxItems }) => useCalendarItems(range, { maxItems }), {
+      initialProps: { maxItems: MAX_WINDOW_ITEMS },
+    })
+
+    await waitFor(() => expect(result.current.items).toHaveLength(500))
+    const initialRead = apiCallMock.mock.calls.find(([url]) => String(url).startsWith('/api/customers/interactions?'))
+    const initialSignal: AbortSignal = initialRead?.[1].signal
+
+    rerender({ maxItems: 2000 })
+
+    await waitFor(() => expect(result.current.items).toHaveLength(501))
+    expect(initialSignal.aborted).toBe(true)
+    expect(result.current.truncated).toBe(false)
+    expect(result.current.items.some((item) => item.id === 'window-500')).toBe(true)
+    expect(apiCallMock.mock.calls.some(([url]) => String(url).includes('limit=100&cursor=500'))).toBe(true)
+
+    const requestCount = apiCallMock.mock.calls.length
+    rerender({ maxItems: 2000 })
+    expect(apiCallMock).toHaveBeenCalledTimes(requestCount)
+  })
+
+  test.each([0, -1, 2.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    'uses the default budget for invalid maxItems %s',
+    async (maxItems) => {
+      mockCalendarPages(windowInteractions(501))
+
+      const { result } = renderHook(() => useCalendarItems(range, { maxItems }))
+
+      await waitFor(() => expect(result.current.isLoading).toBe(false))
+      expect(result.current.items).toHaveLength(500)
+      expect(result.current.truncated).toBe(true)
+    },
+  )
+
+  test.each([[2, true], [3, false]])(
+    'reports truncation based on whether the final page fits a budget of %s',
+    async (maxItems, truncated) => {
+      mockCalendarPages(windowInteractions(3))
+
+      const result = await fetchCalendarCandidates(range, undefined, maxItems)
+
+      expect(result.payloads).toHaveLength(maxItems)
+      expect(result.truncated).toBe(truncated)
+    },
+  )
+
+  test('uses the larger budget for recurring masters as well as the regular window', async () => {
+    const recurringItems = Array.from({ length: 501 }, (_, index) =>
+      interaction(`master-${index}`, '2026-07-27T10:00:00.000Z'),
+    )
+    mockCalendarPages([], recurringItems)
+
+    const result = await fetchCalendarCandidates(range, undefined, 2000)
+
+    expect(result.payloads).toEqual(recurringItems)
+    expect(result.truncated).toBe(false)
+  })
+
+  test('stops at a repeated cursor before exhausting the custom budget', async () => {
+    const candidate = interaction('repeated', '2026-08-03T10:00:00.000Z')
+    apiCallMock.mockImplementation(async (url: string) => {
+      const params = new URL(url, 'http://localhost').searchParams
+      const result = params.has('recurrenceMasters')
+        ? { items: [] }
+        : { items: [candidate], nextCursor: 'repeated-cursor' }
+      return { ok: true, status: 200, result }
+    })
+
+    const result = await fetchCalendarCandidates(range, undefined, 10)
+
+    expect(result.payloads).toEqual([candidate])
+    expect(result.truncated).toBe(true)
+    expect(apiCallMock).toHaveBeenCalledTimes(3)
+  })
+
+  test('applies the budget to the combined result after deduplicating', async () => {
+    const regularCopy = interaction('in-window', '2026-08-03T10:00:00.000Z')
+    const duplicate = { ...regularCopy, title: 'Duplicate copy' }
+    const olderMaster = interaction('old-master', '2026-07-27T10:00:00.000Z')
+    mockCalendarPages([regularCopy, ...windowInteractions(1)], [duplicate, olderMaster])
+
+    const result = await fetchCalendarCandidates(range, undefined, 2)
+
+    expect(result.payloads).toEqual([regularCopy, olderMaster])
+    expect(result.truncated).toBe(true)
+  })
+})
 
 describe('useCalendarItems recurring masters (#4735)', () => {
   beforeEach(() => {

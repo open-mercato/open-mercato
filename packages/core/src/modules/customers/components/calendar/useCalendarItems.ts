@@ -5,7 +5,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { expandOccurrences } from '../../lib/calendar/recurrence'
 import { getFetchWindow } from '../../lib/calendar/range'
 import { mapInteractionToCalendarItem } from '../../lib/calendar/mapItem'
-import { fetchCalendarCandidates } from '@open-mercato/core/helpers/calendar/interactionCandidates'
+import { fetchCalendarCandidates, MAX_WINDOW_ITEMS } from '@open-mercato/core/helpers/calendar/interactionCandidates'
 import type { CalendarInteractionPayload, CalendarItem, CalendarRange } from './types'
 
 export {
@@ -22,6 +22,10 @@ type ActivityTypeDictionaryEntry = {
   icon?: unknown
 }
 
+export type UseCalendarItemsOptions = {
+  maxItems?: number
+}
+
 export type UseCalendarItemsResult = {
   items: CalendarItem[]
   isLoading: boolean
@@ -33,7 +37,10 @@ export type UseCalendarItemsResult = {
   refetch: () => void
 }
 
-export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
+export function useCalendarItems(
+  range: CalendarRange,
+  { maxItems = MAX_WINDOW_ITEMS }: UseCalendarItemsOptions = {},
+): UseCalendarItemsResult {
   const [payloads, setPayloads] = React.useState<CalendarInteractionPayload[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -45,6 +52,7 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
 
   const fromTime = range.from.getTime()
   const toTime = range.to.getTime()
+  const itemLimit = Number.isSafeInteger(maxItems) && maxItems > 0 ? maxItems : MAX_WINDOW_ITEMS
 
   React.useEffect(() => {
     const controller = new AbortController()
@@ -89,7 +97,7 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
       setError(null)
       try {
         const fetchWindow = getFetchWindow({ from: new Date(fromTime), to: new Date(toTime) })
-        const result = await fetchCalendarCandidates(fetchWindow, controller.signal)
+        const result = await fetchCalendarCandidates(fetchWindow, controller.signal, itemLimit)
         if (cancelled) return
         setPayloads(result.payloads)
         setTruncated(result.truncated)
@@ -107,7 +115,7 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
       cancelled = true
       controller.abort()
     }
-  }, [fromTime, toTime, reloadToken])
+  }, [fromTime, toTime, itemLimit, reloadToken])
 
   const items = React.useMemo(() => {
     const expansionWindow = getFetchWindow({ from: new Date(fromTime), to: new Date(toTime) })

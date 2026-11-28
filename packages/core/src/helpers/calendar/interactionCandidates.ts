@@ -21,6 +21,7 @@ type ScopedInteractionFilter = {
 type FetchInteractionWindowOptions = {
   recurrenceMasters?: boolean
   scope?: ScopedInteractionFilter
+  maxItems?: number
 }
 
 type CandidatePage = { payloads: CalendarInteractionPayload[]; truncated: boolean }
@@ -30,7 +31,8 @@ export async function fetchInteractionWindow(
   signal?: AbortSignal,
   options: FetchInteractionWindowOptions = {},
 ): Promise<CandidatePage> {
-  const { scope, recurrenceMasters } = options
+  const { scope, recurrenceMasters, maxItems = MAX_WINDOW_ITEMS } = options
+  const itemLimit = scope ? MAX_WINDOW_ITEMS : maxItems
   const collected: CalendarInteractionPayload[] = []
   const cursors = new Set<string>()
   let cursor: string | undefined
@@ -66,18 +68,19 @@ export async function fetchInteractionWindow(
     pageCount += 1
     cursor = typeof call.result?.nextCursor === 'string' ? call.result.nextCursor : undefined
     if (cursor) {
-      if (collected.length >= MAX_WINDOW_ITEMS || cursors.has(cursor) || (scope && pageCount >= MAX_SCOPED_PAGES)) {
-        return { payloads: collected.slice(0, MAX_WINDOW_ITEMS), truncated: true }
+      if (collected.length >= itemLimit || cursors.has(cursor) || (scope && pageCount >= MAX_SCOPED_PAGES)) {
+        return { payloads: collected.slice(0, itemLimit), truncated: true }
       }
       cursors.add(cursor)
     }
   } while (cursor)
-  return { payloads: collected.slice(0, MAX_WINDOW_ITEMS), truncated: collected.length > MAX_WINDOW_ITEMS }
+  return { payloads: collected.slice(0, itemLimit), truncated: collected.length > itemLimit }
 }
 
 export function mergeInteractionPayloads(
   windowPayloads: CalendarInteractionPayload[],
   recurringPayloads: CalendarInteractionPayload[],
+  maxItems = MAX_WINDOW_ITEMS,
 ): CandidatePage {
   const windowById = new Map(windowPayloads.map((payload) => [payload.id, payload]))
   const byId = new Map<string, CalendarInteractionPayload>()
@@ -89,21 +92,23 @@ export function mergeInteractionPayloads(
   }
   const payloads = Array.from(byId.values())
   return {
-    payloads: payloads.slice(0, MAX_WINDOW_ITEMS),
-    truncated: payloads.length > MAX_WINDOW_ITEMS,
+    payloads: payloads.slice(0, maxItems),
+    truncated: payloads.length > maxItems,
   }
 }
 
 export async function fetchCalendarCandidates(
   window: CalendarRange,
   signal?: AbortSignal,
-  scope?: ScopedInteractionFilter,
+  scopeOrMaxItems?: ScopedInteractionFilter | number,
 ): Promise<CandidatePage> {
+  const scope = typeof scopeOrMaxItems === 'number' ? undefined : scopeOrMaxItems
+  const maxItems = typeof scopeOrMaxItems === 'number' ? scopeOrMaxItems : MAX_WINDOW_ITEMS
   const [windowResult, recurringResult] = await Promise.all([
-    fetchInteractionWindow(window, signal, { scope }),
-    fetchInteractionWindow(window, signal, { scope, recurrenceMasters: true }),
+    fetchInteractionWindow(window, signal, { scope, maxItems }),
+    fetchInteractionWindow(window, signal, { scope, maxItems, recurrenceMasters: true }),
   ])
-  const merged = mergeInteractionPayloads(windowResult.payloads, recurringResult.payloads)
+  const merged = mergeInteractionPayloads(windowResult.payloads, recurringResult.payloads, maxItems)
   return {
     payloads: merged.payloads,
     truncated: windowResult.truncated || recurringResult.truncated || merged.truncated,
