@@ -35,6 +35,7 @@ import { InlineActivityComposer } from '../../../../components/detail/InlineActi
 import { PipelineStepper } from '../../../../components/detail/PipelineStepper'
 import { PlannedActivitiesSection } from '../../../../components/detail/PlannedActivitiesSection'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
+import { useCanManageInteractions } from '../../../../components/detail/hooks/useCanManageInteractions'
 import { createCustomerNotesAdapter } from '../../../../components/detail/notesAdapter'
 import type { InteractionSummary } from '../../../../components/detail/types'
 import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '../../../../lib/markdownPreference'
@@ -56,6 +57,7 @@ import { useScheduleDialog } from './hooks/useScheduleDialog'
 
 export default function DealDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id ?? ''
+  const canManageInteractions = useCanManageInteractions()
   const t = useT()
   const { payload } = useBackendChrome()
   const canViewPipeline = hasAllFeatures(payload?.grantedFeatures, pipelineMetadata.requireFeatures)
@@ -499,13 +501,12 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                   </div>
                 </div>
               ) : selectedActivityEntity ? (
-                <InlineActivityComposer
+                canManageInteractions && <InlineActivityComposer
                   entityType={selectedActivityEntity.kind}
                   entityId={selectedActivityEntity.id}
                   dealId={data.deal.id}
                   onActivityCreated={() => { void handleActivityCreated() }}
                   runGuardedMutation={runMutationWithContext}
-                  onScheduleRequested={openSchedule}
                   refreshKey={activityRefreshKey}
                 />
               ) : (
@@ -524,7 +525,7 @@ export default function DealDetailPage({ params }: { params?: { id?: string } })
                 loadFailed={plannedLoadFailed}
                 onRetryLoad={() => { void loadPlannedActivities() }}
                 onComplete={(interactionId) => { void handleMarkDone(interactionId) }}
-                onSchedule={selectedActivityEntity ? openSchedule : undefined}
+                onSchedule={canManageInteractions && selectedActivityEntity ? openSchedule : undefined}
                 onEdit={handleEditActivity}
                 onCancel={(interactionId) => { void handleCancelActivity(interactionId) }}
               />

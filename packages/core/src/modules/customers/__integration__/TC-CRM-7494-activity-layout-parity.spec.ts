@@ -65,7 +65,7 @@ async function deleteInteraction(request: APIRequestContext, token: string | nul
 }
 
 function composerHeading(page: Page) {
-  return page.getByRole('heading', { name: /^Log activity$/ }).first()
+  return page.getByRole('heading', { name: /^Add activity$/ }).first()
 }
 
 function plannedTitle(page: Page) {
@@ -108,9 +108,10 @@ async function expectSharedActivityLayout(page: Page, plannedActivityTitle: stri
 
   await expect(page.getByRole('button', { name: /^Add new$/ })).toHaveCount(0)
   await expect(page.getByRole('button', { name: /^Save activity$/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Date and time', exact: true })).toHaveText('Now')
   await expect(page.getByRole('button', { name: /^Schedule$/ }).first()).toBeVisible()
   await expect(page.getByRole('button', { name: /^Call$/ }).first()).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByPlaceholder(/what happened\?/i)).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Description' })).toBeVisible()
   await expect(page.getByPlaceholder(/^Search/i).first()).toBeVisible()
 }
 
@@ -209,21 +210,22 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
       const loggedText = `QA 7494 inline note ${stamp}`
       const createdPromise = page.waitForResponse((response) =>
         response.url().includes('/api/customers/interactions') && response.request().method() === 'POST')
-      await page.getByPlaceholder(/what happened\?/i).fill(loggedText)
+      await page.getByRole('textbox', { name: 'Description' }).fill(loggedText)
       await page.getByRole('button', { name: /^Save activity$/ }).click()
       const created = await createdPromise
       expect(created.status(), await created.text()).toBe(201)
       const createdBody = await created.json().catch(() => null) as { id?: string } | null
       if (createdBody?.id) interactionIds.push(createdBody.id)
       await expect(page.getByText(loggedText, { exact: true }).first()).toBeVisible({ timeout: 15_000 })
-      await expect(page.getByPlaceholder(/what happened\?/i)).toHaveValue('')
+      await expect(page.getByRole('textbox', { name: 'Description' })).toHaveValue('')
 
       const completedPromise = page.waitForResponse((response) =>
         response.url().includes('/api/customers/interactions/complete') && response.request().method() === 'POST')
       await page.getByRole('button', { name: /^Mark done$/ }).first().click()
       const completed = await completedPromise
       expect(completed.ok(), await completed.text()).toBeTruthy()
-      await expect(plannedTitle(page)).toHaveCount(0, { timeout: 15_000 })
+      await expect(plannedRow(page, plannedTitleText)).toHaveCount(0)
+      await expect(plannedTitle(page)).toBeVisible()
       await expect(page.getByText(plannedTitleText, { exact: true }).first()).toBeVisible()
 
       const stillSamePage = await page.evaluate(() => (window as unknown as { __tc7494?: boolean }).__tc7494 === true)
@@ -251,7 +253,8 @@ test.describe('TC-CRM-7494: shared activity layout on person and company pages',
 
       await expect(composerHeading(page)).toBeVisible({ timeout: 30_000 })
       await expect(historyTitle(page)).toBeVisible({ timeout: 30_000 })
-      await expect(plannedTitle(page)).toHaveCount(0)
+      await expect(plannedTitle(page)).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Schedule', exact: true })).toBeVisible()
       await expect(page.getByText(/No activit/i).first()).toBeVisible()
       await expect(page.getByRole('button', { name: /^Add new$/ })).toHaveCount(0)
 

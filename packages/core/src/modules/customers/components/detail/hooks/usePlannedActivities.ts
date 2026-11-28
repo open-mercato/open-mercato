@@ -19,6 +19,7 @@ export type LoadPlannedActivitiesOptions = {
 
 export type UsePlannedActivitiesOptions = {
   scope: PlannedActivitiesScope
+  includeTasks?: boolean
   runMutationWithContext: GuardedMutationRunner
   logContext: string
   /** Runs after a planned activity was created, completed or cancelled (page counts, header, …). */
@@ -42,12 +43,13 @@ type PlannedActivitiesCacheEntry = {
 
 const plannedActivitiesCache = new Map<string, PlannedActivitiesCacheEntry>()
 
-export function plannedActivitiesUrl(scope: PlannedActivitiesScope): string {
+export function plannedActivitiesUrl(scope: PlannedActivitiesScope, includeTasks = false): string {
   const scopeParam = 'dealId' in scope
     ? `dealId=${encodeURIComponent(scope.dealId)}`
     : `entityId=${encodeURIComponent(scope.entityId)}`
   const excludedStatuses = TERMINAL_INTERACTION_STATUS_LIST.map(encodeURIComponent).join(',')
-  return `/api/customers/interactions?${scopeParam}&excludeStatus=${excludedStatuses}&excludeInteractionType=task&limit=100&sortField=scheduledAt&sortDir=asc`
+  const excludeTasks = includeTasks ? '' : '&excludeInteractionType=task'
+  return `/api/customers/interactions?${scopeParam}&excludeStatus=${excludedStatuses}${excludeTasks}&limit=100&sortField=scheduledAt&sortDir=asc`
 }
 
 function fetchPlannedActivities(url: string, useCache: boolean): Promise<InteractionSummary[]> {
@@ -64,12 +66,13 @@ function fetchPlannedActivities(url: string, useCache: boolean): Promise<Interac
 }
 
 /**
- * Open (non-terminal, non-task) activities of one record plus the shared complete/cancel
- * mutations and the refresh key the history timeline listens to. Deal, person
+ * Open activities of one record plus the shared complete/cancel mutations and
+ * the refresh key the history timeline listens to. Deal, person
  * and company detail pages all drive the same activity layout through it.
  */
 export function usePlannedActivities({
   scope,
+  includeTasks,
   runMutationWithContext,
   logContext,
   onAfterChange,
@@ -79,11 +82,7 @@ export function usePlannedActivities({
   const [activityRefreshKey, setActivityRefreshKey] = React.useState(0)
   const latestLoadRef = React.useRef(0)
   const scopeId = 'dealId' in scope ? scope.dealId : scope.entityId
-  const scopeKind = 'dealId' in scope ? 'dealId' : 'entityId'
-  const url = React.useMemo(
-    () => (scopeId ? plannedActivitiesUrl(scopeKind === 'dealId' ? { dealId: scopeId } : { entityId: scopeId }) : null),
-    [scopeId, scopeKind],
-  )
+  const url = scopeId ? plannedActivitiesUrl(scope, includeTasks) : null
 
   React.useEffect(() => {
     latestLoadRef.current += 1

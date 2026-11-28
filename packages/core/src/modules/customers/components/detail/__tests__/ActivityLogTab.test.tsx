@@ -94,7 +94,6 @@ describe('ActivityLogTab', () => {
       entityType: 'person',
       entityId: 'person-1',
       onActivityCreated,
-      onScheduleRequested,
       runGuardedMutation,
       useCanonicalInteractions: true,
       refreshKey: 3,

@@ -1,6 +1,6 @@
 'use client'
 import * as React from 'react'
-import { Phone, Mail, Users, StickyNote, Clock, AlertCircle, CalendarClock, Check, MoreHorizontal, Plus } from 'lucide-react'
+import { Phone, Mail, Users, StickyNote, ListTodo, Clock, AlertCircle, CalendarClock, Check, MoreHorizontal, Plus } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -15,6 +15,7 @@ const TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   email: Mail,
   meeting: Users,
   note: StickyNote,
+  task: ListTodo,
 }
 
 interface PlannedActivitiesSectionProps {
@@ -94,7 +95,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
     />
   ) : null
 
-  if (activities.length === 0) return loadFailure
+  if (activities.length === 0 && !onSchedule) return loadFailure
 
   const now = new Date()
 
@@ -112,7 +113,7 @@ export function PlannedActivitiesSection({ activities, onComplete, onSchedule, o
       {loadFailure}
       <div className="rounded-lg border bg-card">
         {/* Header */}
-        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
+        <div className={cn('flex flex-wrap items-center gap-2 px-4 py-3', activities.length > 0 && 'border-b')}>
           <div className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
             <CalendarClock className="size-4 text-muted-foreground" />
             {t('customers.timeline.planned.title', 'Planned activities')}
