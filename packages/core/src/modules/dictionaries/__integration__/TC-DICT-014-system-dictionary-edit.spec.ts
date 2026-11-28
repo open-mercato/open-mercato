@@ -31,7 +31,7 @@ test('TC-DICT-014: system dictionary metadata can be edited while its identity s
     await page.goto('/backend/config/dictionaries')
     const row = page.getByRole('listitem').filter({ hasText: key })
     await expect(row).toBeVisible()
-    await row.getByRole('button', { name: '', exact: true }).first().click()
+    await row.getByRole('button', { name: `Edit ${name}`, exact: true }).click()
 
     const dialog = page.getByRole('dialog', { name: 'Edit dictionary' })
     const keyField = dialog.getByPlaceholder('slug_name')

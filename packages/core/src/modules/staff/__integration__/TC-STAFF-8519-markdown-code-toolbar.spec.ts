@@ -26,7 +26,7 @@ for (const width of [1440, 390]) {
 
       await login(page, 'admin')
       await page.goto(`/backend/staff/teams/${teamId}/edit`)
-      const description = page.getByRole('group', { name: 'Description', exact: true })
+      const description = page.locator('[data-crud-field-id="description"]')
       const language = description.getByRole('combobox', { name: 'Language', exact: true })
       const code = description.getByRole('textbox').filter({ hasText: 'const toolbarValue = 42' }).last()
       await expect(language).toBeVisible()

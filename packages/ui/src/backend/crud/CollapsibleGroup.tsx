@@ -53,6 +53,14 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
       </span>
     ) : null
 
+    const titleLabel = (
+      <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
+        <span className="min-w-0 break-words">{title}</span>
+        {errorBadge}
+      </span>
+    )
+
     const dragHandle = showDragHandle ? (
       <span
         className="inline-flex shrink-0 items-center"
@@ -112,19 +120,11 @@ export const CollapsibleGroup = React.forwardRef<CollapsibleGroupHandle, Collaps
               {chevronPosition === 'left' ? (
                 <>
                   {chevronIcon}
-                  <span className="flex min-w-0 items-center gap-2">
-                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
-                    <span className="min-w-0 break-words">{title}</span>
-                    {errorBadge}
-                  </span>
+                  {titleLabel}
                 </>
               ) : (
                 <>
-                  <span className="flex min-w-0 items-center gap-2">
-                    {icon && <span className="relative shrink-0 text-muted-foreground">{icon}{!expanded && errorCount > 0 && <span className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-destructive" />}</span>}
-                    <span className="min-w-0 break-words">{title}</span>
-                    {errorBadge}
-                  </span>
+                  {titleLabel}
                   {chevronIcon}
                 </>
               )}

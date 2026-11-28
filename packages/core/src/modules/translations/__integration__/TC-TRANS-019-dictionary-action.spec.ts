@@ -45,7 +45,7 @@ test('TC-TRANS-019: injected dictionary action saves entry translations', async 
     await page.context().addCookies([{ name: 'locale', value: 'en', url: baseURL! }])
     await page.goto(`/backend/config/dictionaries?dictionaryId=${dictionaryId}`)
     const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: unique, exact: true }) })
-    const translate = row.getByRole('button', { name: 'Translate', exact: true })
+    const translate = row.getByRole('button', { name: `Translate ${entryLabel}`, exact: true })
     const dialog = page.getByRole('dialog', { name: `Translate: ${entryLabel}`, exact: true })
     const translationPath = `/api/translations/dictionaries:dictionary_entry/${entryId}`
     const switcher = page.getByRole('button', { name: /^Organization:/ }).first()

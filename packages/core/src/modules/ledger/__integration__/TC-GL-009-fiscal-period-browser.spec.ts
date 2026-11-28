@@ -10,7 +10,7 @@ test('generates fiscal periods, locks and unlocks them, and surfaces a stale edi
     const main = page.getByRole('main')
     await page.goto('/backend/ledger/fiscal-periods')
     await main.getByRole('link', { name: 'Generate 12 months' }).click()
-    await main.getByRole('button', { name: 'Pick a date' }).click()
+    await main.getByRole('button', { name: /^First month starts on/ }).click()
     const monthLabel = (await page.getByRole('button', { name: /open month and year navigation/ }).innerText()).trim()
     const [month, year] = monthLabel.split(' ')
     const calendar = page.getByRole('grid', { name: monthLabel })

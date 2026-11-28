@@ -12,6 +12,7 @@ import {
 import { useTimeDisplayFormat } from '../../primitives/date-locale'
 
 export type TimePickerProps = {
+  id?: string
   value?: string | null
   onChange: (time: string | null) => void
   placeholder?: string
@@ -48,6 +49,7 @@ function currentHHMM(): string {
  * `showNowButton` / `showClearButton` render as `legacyFooterActions`.
  */
 export function TimePicker({
+  id,
   value,
   onChange,
   placeholder,
@@ -86,6 +88,7 @@ export function TimePicker({
   const triggerButton = (
     <button
       type="button"
+      id={id}
       data-crud-focus-target=""
       disabled={disabled}
       aria-haspopup="dialog"

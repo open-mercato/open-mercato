@@ -40,10 +40,10 @@ test('TC-DICT-MOBILE-001: populated dictionary tables scroll locally at narrow w
 
     for (const width of [390, 768, 1440]) {
       await page.setViewportSize({ width, height: 844 });
-      await page.getByRole('button', { name: emptyName }).click();
+      await page.getByRole('button', { name: new RegExp(`^${emptyName}`) }).click();
       await expect(page.getByRole('cell', { name: 'No entries yet.', exact: true })).toBeVisible();
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-      await page.getByRole('button', { name: populatedName }).click();
+      await page.getByRole('button', { name: new RegExp(`^${populatedName}`) }).click();
       const row = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'appearance', exact: true }) });
       await expect(row).toBeVisible();
       await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);

@@ -31,6 +31,12 @@ type TabsContextValue = {
   variant: TabsVariant
   baseId?: string
   orientation: 'horizontal' | 'vertical'
+  /** Values whose `TabsContent` is currently mounted. A trigger only sets
+   * `aria-controls` for a panel listed here, because the attribute must
+   * reference an element that exists. Optional so a provider built outside
+   * `Tabs` keeps the previous behaviour. */
+  panels?: ReadonlySet<string>
+  registerPanel?: (value: string) => () => void
 }
 
 export const TabsContext = createContext<TabsContextValue | undefined>(undefined)
@@ -88,9 +94,22 @@ export function Tabs({
     [isControlled, onValueChange],
   )
 
+  const [panels, setPanels] = React.useState<ReadonlySet<string>>(() => new Set())
+  const registerPanel = React.useCallback((panelValue: string) => {
+    setPanels((current) => (current.has(panelValue) ? current : new Set(current).add(panelValue)))
+    return () => {
+      setPanels((current) => {
+        if (!current.has(panelValue)) return current
+        const next = new Set(current)
+        next.delete(panelValue)
+        return next
+      })
+    }
+  }, [])
+
   const contextValue = React.useMemo<TabsContextValue>(
-    () => ({ value, onValueChange: handleValueChange, variant, orientation, baseId }),
-    [value, handleValueChange, variant, orientation, baseId],
+    () => ({ value, onValueChange: handleValueChange, variant, orientation, baseId, panels, registerPanel }),
+    [value, handleValueChange, variant, orientation, baseId, panels, registerPanel],
   )
 
   return (
@@ -181,10 +200,11 @@ export function TabsTrigger({
   leading,
   count,
 }: TabsTriggerProps) {
-  const { value: selectedValue, onValueChange, variant, orientation, baseId } = useTabsContext()
+  const { value: selectedValue, onValueChange, variant, orientation, baseId, panels } = useTabsContext()
   const isSelected = selectedValue === value
   const tabId = baseId ? `${baseId}-tab-${encodeURIComponent(value)}` : undefined
   const panelId = baseId ? `${baseId}-panel-${encodeURIComponent(value)}` : undefined
+  const controlledPanelId = isSelected && (!panels || panels.has(value)) ? panelId : undefined
   const tabIndex = isSelected || !selectedValue ? 0 : -1
 
   if (variant === 'card' || variant === 'list') {
@@ -193,7 +213,7 @@ export function TabsTrigger({
       variant="ghost"
       role="tab"
       id={tabId}
-      aria-controls={isSelected ? panelId : undefined}
+      aria-controls={controlledPanelId}
       aria-selected={isSelected}
       tabIndex={tabIndex}
       disabled={disabled}
@@ -216,7 +236,7 @@ export function TabsTrigger({
         role="tab"
         aria-selected={isSelected}
         id={tabId}
-        aria-controls={isSelected ? panelId : undefined}
+        aria-controls={controlledPanelId}
         tabIndex={tabIndex}
         disabled={disabled}
         onClick={() => onValueChange(value)}
@@ -284,7 +304,7 @@ export function TabsTrigger({
       role="tab"
       aria-selected={isSelected}
       id={tabId}
-      aria-controls={isSelected ? panelId : undefined}
+      aria-controls={controlledPanelId}
       tabIndex={tabIndex}
       disabled={disabled}
       onClick={() => onValueChange(value)}
@@ -333,9 +353,15 @@ export type TabsContentProps = {
 }
 
 export function TabsContent({ value, children, className }: TabsContentProps) {
-  const { value: selectedValue, orientation, baseId } = useTabsContext()
+  const { value: selectedValue, orientation, baseId, registerPanel } = useTabsContext()
+  const isSelected = selectedValue === value
 
-  if (selectedValue !== value) {
+  React.useEffect(() => {
+    if (!isSelected || !registerPanel) return
+    return registerPanel(value)
+  }, [isSelected, registerPanel, value])
+
+  if (!isSelected) {
     return null
   }
 

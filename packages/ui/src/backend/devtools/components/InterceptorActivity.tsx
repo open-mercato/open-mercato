@@ -36,7 +36,7 @@ export function InterceptorActivity({ entries }: { entries: InterceptorActivityE
               {entry.statusCode ? ` | ${entry.statusCode}` : ''}
             </div>
             {entry.message && (
-              <div className="mt-px text-overline text-muted-foreground/70">
+              <div className="mt-px text-overline text-muted-foreground">
                 {entry.message}
               </div>
             )}

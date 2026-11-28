@@ -28,7 +28,7 @@ describe('translation action contributions', () => {
     )
 
     expect(mockTranslationManager).not.toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('button', { name: 'Translate' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Translate Preferred customer' }))
 
     expect(screen.getByRole('dialog', { name: 'Translate: Preferred customer' })).toBeVisible()
     expect(screen.getByText('Manage translations for this dictionary entry.')).toBeVisible()
@@ -49,7 +49,7 @@ describe('translation action contributions', () => {
       />,
     )
 
-    const trigger = screen.getByRole('button', { name: 'Translate' })
+    const trigger = screen.getByRole('button', { name: 'Translate Preferred customer' })
     expect(trigger).toBeDisabled()
     fireEvent.click(trigger)
     expect(mockTranslationManager).not.toHaveBeenCalled()
@@ -69,7 +69,7 @@ describe('translation action contributions', () => {
         </>,
       )
 
-      fireEvent.click(screen.getByRole('button', { name: 'Translate', exact: true }))
+      fireEvent.click(screen.getByRole('button', { name: 'Translate Preferred customer', exact: true }))
       expect(screen.getByRole('dialog')).toHaveAccessibleDescription(
         'Select one organization in the organization switcher to translate this dictionary entry.',
       )

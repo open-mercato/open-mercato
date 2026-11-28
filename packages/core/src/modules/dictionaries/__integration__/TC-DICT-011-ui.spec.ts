@@ -171,7 +171,10 @@ test.describe('TC-DICT-011-UI: reserved-key conflict feedback in the browser', (
 
         await page.context().addCookies([{ name: 'locale', value: locale, url: baseURL! }]);
         await page.goto('/backend/config/dictionaries');
-        await expect(page.getByRole('button', { name: dictionaryName })).toBeVisible();
+        // The row-action buttons name their record ("Edit <name>" / "Delete <name>"),
+        // so match the dictionary tile itself rather than any button mentioning it.
+        const dictionaryTile = page.locator('[aria-pressed]').filter({ hasText: dictionaryName });
+        await expect(dictionaryTile).toBeVisible();
 
         // Delete through Settings -> Dictionaries.
         const dictionaryRow = page.locator('li').filter({ hasText: dictionaryName });
@@ -180,7 +183,7 @@ test.describe('TC-DICT-011-UI: reserved-key conflict feedback in the browser', (
         await expect(confirmDialog).toBeVisible();
         await confirmDialog.getByRole('button', { name: text.confirm, exact: true }).click();
         await expect(page.locator('[data-slot="alert"]')).toContainText(text.successDelete);
-        await expect(page.getByRole('button', { name: dictionaryName })).toHaveCount(0);
+        await expect(page.locator('[aria-pressed]').filter({ hasText: dictionaryName })).toHaveCount(0);
 
         const rowAfterDelete = await loadDictionaryRow(dictionaryId);
         expect(rowAfterDelete, 'the deleted dictionary row should still exist').not.toBeNull();
@@ -255,7 +258,7 @@ test.describe('TC-DICT-011-UI: reserved-key conflict feedback in the browser', (
         await expect(flash).not.toContainText(text.duplicateFlash);
 
         // The entry dialog's preview heading is localized too.
-        await page.getByRole('button', { name: retryName }).click();
+        await page.locator('[aria-pressed]').filter({ hasText: retryName }).click();
         await page.getByRole('button', { name: text.addEntry, exact: true }).click();
         const entryDialog = page.getByRole('dialog', { name: text.addEntryTitle });
         await expect(entryDialog).toBeVisible();

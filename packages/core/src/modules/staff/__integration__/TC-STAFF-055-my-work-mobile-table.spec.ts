@@ -8,18 +8,21 @@ test.beforeAll(async () => {
 })
 
 test('TC-STAFF-055: My work fits 390 px while Today’s entries scrolls within its card', async ({ page }) => {
-  const { card, table, tableContainer } = await mountMyWorkBrowserFixture(page, fixture, 390)
+  const { card, table } = await mountMyWorkBrowserFixture(page, fixture, 390)
   await expect(table.getByText('Review implementation', { exact: true })).toBeVisible()
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(390)
 
-  const geometry = await tableContainer.evaluate((element) => ({
+  // An embedded DataTable scrolls horizontally inside its own wrapper, the
+  // table's parent, so that is the element that overflows and scrolls.
+  const tableScroller = table.locator('xpath=..')
+  const geometry = await tableScroller.evaluate((element) => ({
     viewportWidth: element.clientWidth,
     contentWidth: element.scrollWidth,
   }))
   expect(geometry.contentWidth).toBeGreaterThan(geometry.viewportWidth)
-  await tableContainer.scrollIntoViewIfNeeded()
-  await tableContainer.evaluate((element) => { element.scrollLeft = element.scrollWidth })
-  await expect.poll(() => tableContainer.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
+  await tableScroller.scrollIntoViewIfNeeded()
+  await tableScroller.evaluate((element) => { element.scrollLeft = element.scrollWidth })
+  await expect.poll(() => tableScroller.evaluate((element) => element.scrollLeft)).toBeGreaterThan(0)
 
   const edit = table.getByRole('button', { name: 'Edit', exact: true })
   await expect(table.getByRole('columnheader', { name: 'Duration', exact: true })).toBeInViewport()

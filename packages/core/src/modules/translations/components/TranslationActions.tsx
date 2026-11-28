@@ -14,7 +14,7 @@ import { TranslationManager } from './TranslationManager'
 
 export type DictionaryEntryContext = {
   dictionaryId: string
-  entry: { id: string; label: string }
+  entry: { id: string; label: string; value?: string }
 }
 
 export type FieldDefinitionContext = {
@@ -28,6 +28,7 @@ type TranslationActionProps = {
   baseValues: Record<string, string>
   translatableFields: string[]
   label: string
+  ariaLabel?: string
   title: string
   description?: string
   organizationRequiredMessage?: string
@@ -36,7 +37,7 @@ type TranslationActionProps = {
 }
 
 function TranslationAction({
-  label, title, description, organizationRequiredMessage, disabled, ...managerProps
+  label, ariaLabel, title, description, organizationRequiredMessage, disabled, ...managerProps
 }: TranslationActionProps) {
   const [open, setOpen] = React.useState(false)
   const scopeMessage = open && organizationRequiredMessage && readRequestOrganizationScope()?.organizationId === null
@@ -51,7 +52,7 @@ function TranslationAction({
         variant={managerProps.compact ? 'outline' : 'ghost'}
         size={managerProps.compact ? 'sm' : 'lg'}
         onClick={() => setOpen(true)}
-        aria-label={label}
+        aria-label={ariaLabel ?? label}
         title={label}
         disabled={disabled}
       >
@@ -82,6 +83,7 @@ export function DictionaryEntryTranslationAction({ context, disabled }: Injectio
       baseValues={{ label: entry.label }}
       translatableFields={['label']}
       label={t('dictionaries.config.entries.actions.translate', 'Translate')}
+      ariaLabel={t('dictionaries.config.entries.actions.translateEntry', 'Translate {{label}}', { label: entry.label || entry.value || '' })}
       title={t('translations.manager.translateEntry', 'Translate: {{label}}', { label: entry.label })}
       description={t('translations.manager.translateEntryDescription', 'Manage translations for this dictionary entry.')}
       organizationRequiredMessage={t(

@@ -48,7 +48,7 @@ for (const viewport of [{ width: 1280, height: 900 }, { width: 390, height: 844 
       const titleField = dialog.getByRole('textbox', { name: /^Title(?:\s*\*)?$/ })
       await titleField.fill(draftTitle)
 
-      const trigger = dialog.getByRole('group', { name: 'Scheduled for' }).getByRole('button')
+      const trigger = dialog.getByRole('button', { name: 'Scheduled for', exact: true })
       await trigger.click()
       await expect(trigger).toHaveAttribute('aria-expanded', 'true')
       const picker = page.getByRole('dialog').filter({ has: page.getByRole('grid') })

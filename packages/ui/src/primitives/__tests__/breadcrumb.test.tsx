@@ -280,6 +280,22 @@ describe('Breadcrumb primitive', () => {
     expect(node.className).toContain('select-none')
   })
 
+  it('BreadcrumbEllipsis renders a supplied label as text, not as aria-label on a presentational span', () => {
+    const { container } = render(
+      <Breadcrumb>
+        <BreadcrumbList>
+          <BreadcrumbItem>
+            <BreadcrumbEllipsis aria-label="2 hidden levels" />
+          </BreadcrumbItem>
+        </BreadcrumbList>
+      </Breadcrumb>,
+    )
+    const ellipsis = container.querySelector('[data-slot="breadcrumb-ellipsis"]') as HTMLElement
+
+    expect(ellipsis).not.toHaveAttribute('aria-label')
+    expect(ellipsis.querySelector('.sr-only')).toHaveTextContent('2 hidden levels')
+  })
+
   it('BreadcrumbEllipsis renders MoreHorizontal icon and an sr-only label', () => {
     render(
       <Breadcrumb>

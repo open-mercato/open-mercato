@@ -344,8 +344,9 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                   variant="ghost"
                   size="icon"
                   onClick={() => openDialog(entry)}
+                  aria-label={t('dictionaries.config.entries.actions.edit', 'Edit {{label}}', { label: entry.label || entry.value })}
                 >
-                  <Pencil className="h-4 w-4" />
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
                 </Button>
                 <InjectionSpot
                   spotId={extensionPoints.hosts.entryActions.spotId}
@@ -357,8 +358,9 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
                   size="icon"
                   onClick={() => handleDelete(entry)}
                   disabled={isDeleting}
+                  aria-label={t('dictionaries.config.entries.actions.delete', 'Delete {{label}}', { label: entry.label || entry.value })}
                 >
-                  <Trash2 className="h-4 w-4" />
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </>
             )}
