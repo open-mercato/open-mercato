@@ -5,7 +5,7 @@
   "description": "Source of truth for the ci-* labels that steer CI. Read by scripts/ci/resolve-ci-scope.mts. See .ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md (CI labels and the scope file).",
   "type": "object",
   "additionalProperties": false,
-  "required": ["default", "levels", "implies", "areas", "ignoredLabels", "fullSuitePatterns", "docsOnly"],
+  "required": ["default", "levels", "implies", "areas", "ignoredLabels", "fullSuitePatterns", "docsOnly", "packageScopedJobs"],
   "properties": {
     "$schema": { "type": "string" },
     "default": {
@@ -51,6 +51,31 @@
       "description": "Glob allow-list ('**' any depth, '*' within one path segment). When every changed path matches, the PR takes the docs lane. Never add a blanket '**/*.md'.",
       "type": "array",
       "items": { "type": "string", "minLength": 1 }
+    },
+    "packageScopedJobs": {
+      "description": "ci.yml job id to what it tests. On a pull_request below the full level, the job runs only when turbo's affected set ('[HEAD^1]...': changed workspaces plus their dependents) contains one of its packages, or a changed path matches one of its path globs; otherwise it finishes green with an 'out of scope' summary. The full level (push, stabilize/*, ci-full, ci.yml edits, shared code) always runs it.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9-]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["packages", "paths"],
+        "properties": {
+          "packages": {
+            "description": "Workspace package names whose tests or code the job exercises.",
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "paths": {
+            "description": "Globs (same syntax as docsOnly) for non-workspace files the job reads, which turbo never reports as affected.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
     }
   }
 }

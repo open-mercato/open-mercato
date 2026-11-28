@@ -2,9 +2,10 @@
 // Config lives in .github/ci-scope.json (schema next to it). Design and rollout:
 // .ai/specs/2026-11-25-batch-merge-and-green-tag-release-process.md, Phase 2.
 // The ci.yml prepare job loads this file and ci-scope.json from the PR's base commit and runs
-// them from an inline driver; keep the exports it imports (parseCiScopeConfig, resolveCiScope,
-// CiScopeError) stable. scripts/__tests__/resolve-ci-scope.test.ts proves parity with the
-// pre-resolver logic for unlabelled PRs. Run with plain `node` — Node strips the type annotations.
+// them from inline drivers; keep the exports they import (parseCiScopeConfig, resolveCiScope,
+// resolveJobScope, CiScopeError) stable. scripts/__tests__/resolve-ci-scope.test.ts proves parity with the
+// pre-resolver logic for unlabelled PRs. The job-scope step imports resolveJobScope the same way
+// and runs every job when the base copy predates it. Run with plain `node` — Node strips the type annotations.
 
 export const SCOPE_CONTROL_PATHS: readonly string[] = [
   '.github/ci-scope.json',
@@ -25,6 +26,12 @@ export type CiScopeConfig = {
   ignoredLabels: string[]
   fullSuitePatterns: string[]
   docsOnly: string[]
+  packageScopedJobs: Record<string, PackageScopedJob>
+}
+
+export type PackageScopedJob = {
+  packages: string[]
+  paths: string[]
 }
 
 export type CiScopeInput = {
@@ -67,7 +74,7 @@ function stringArray(value: unknown, field: string): string[] {
   return value as string[]
 }
 
-const CONFIG_KEYS = ['default', 'levels', 'implies', 'areas', 'ignoredLabels', 'fullSuitePatterns', 'docsOnly']
+const CONFIG_KEYS = ['default', 'levels', 'implies', 'areas', 'ignoredLabels', 'fullSuitePatterns', 'docsOnly', 'packageScopedJobs']
 
 export function parseCiScopeConfig(raw: unknown): CiScopeConfig {
   if (!isRecord(raw)) throw new CiScopeError('ci-scope.json: expected a JSON object')
@@ -118,8 +125,25 @@ export function parseCiScopeConfig(raw: unknown): CiScopeConfig {
     }
   }
   const docsOnly = stringArray(raw.docsOnly, 'docsOnly')
+  const packageScopedJobs = parsePackageScopedJobs(raw.packageScopedJobs)
 
-  return { default: DEFAULT_LEVEL, levels, implies, areas, ignoredLabels, fullSuitePatterns, docsOnly }
+  return { default: DEFAULT_LEVEL, levels, implies, areas, ignoredLabels, fullSuitePatterns, docsOnly, packageScopedJobs }
+}
+
+function parsePackageScopedJobs(raw: unknown): Record<string, PackageScopedJob> {
+  if (!isRecord(raw)) throw new CiScopeError('ci-scope.json: "packageScopedJobs" must be an object')
+  const jobs: Record<string, PackageScopedJob> = {}
+  for (const [jobId, job] of Object.entries(raw)) {
+    if (!/^[a-z][a-z0-9-]*$/.test(jobId)) throw new CiScopeError(`ci-scope.json: packageScopedJobs key "${jobId}" must be a kebab-case ci.yml job id`)
+    if (!isRecord(job)) throw new CiScopeError(`ci-scope.json: packageScopedJobs.${jobId} must be an object`)
+    for (const key of Object.keys(job)) {
+      if (key !== 'packages' && key !== 'paths') throw new CiScopeError(`ci-scope.json: packageScopedJobs.${jobId} has unknown key "${key}"`)
+    }
+    const packages = stringArray(job.packages, `packageScopedJobs.${jobId}.packages`)
+    if (packages.length === 0) throw new CiScopeError(`ci-scope.json: packageScopedJobs.${jobId}.packages must not be empty`)
+    jobs[jobId] = { packages, paths: stringArray(job.paths, `packageScopedJobs.${jobId}.paths`) }
+  }
+  return jobs
 }
 
 function escapeRegExp(text: string): string {
@@ -267,6 +291,48 @@ export function resolveCiScope(input: CiScopeInput, config: CiScopeConfig): CiSc
     reasons,
     summary: summarize({ level, lane, changedModules, areas, reasons, fullLevel, skipIntegration }),
   }
+}
+
+export type JobScopeInput = {
+  level: string
+  changedFiles: readonly string[]
+  affectedPackages: readonly string[] | null
+}
+
+export type JobScopeDecision = {
+  run: boolean
+  reason: string
+}
+
+function fullLevelName(config: CiScopeConfig): string {
+  return levelName(config.levels[config.levels.length - 1])
+}
+
+export function resolveJobScope(input: JobScopeInput, config: CiScopeConfig): Record<string, JobScopeDecision> {
+  const decisions: Record<string, JobScopeDecision> = {}
+  for (const [jobId, job] of Object.entries(config.packageScopedJobs)) {
+    if (input.level === fullLevelName(config)) {
+      decisions[jobId] = { run: true, reason: `${input.level} suite` }
+      continue
+    }
+    if (input.affectedPackages === null) {
+      decisions[jobId] = { run: true, reason: 'affected packages unknown (turbo did not report them)' }
+      continue
+    }
+    const packages = job.packages.filter((name) => input.affectedPackages?.includes(name))
+    if (packages.length > 0) {
+      decisions[jobId] = { run: true, reason: `affected: ${packages.join(', ')}` }
+      continue
+    }
+    const pathPatterns = job.paths.map(globToRegExp)
+    const paths = input.changedFiles.filter((file) => pathPatterns.some((pattern) => pattern.test(file)))
+    if (paths.length > 0) {
+      decisions[jobId] = { run: true, reason: `changed: ${paths.join(', ')}` }
+      continue
+    }
+    decisions[jobId] = { run: false, reason: `out of scope · none of ${job.packages.join(', ')} is affected` }
+  }
+  return decisions
 }
 
 function summarize({ level, lane, changedModules, areas, reasons, fullLevel, skipIntegration }: {

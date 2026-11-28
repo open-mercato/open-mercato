@@ -62,5 +62,30 @@
     "CONTRIBUTING.md",
     "AGENTS.md",
     "CLAUDE.md"
-  ]
+  ],
+  "packageScopedJobs": {
+    "core-timezone": {
+      "packages": ["@open-mercato/core"],
+      "paths": ["jest.config.base.cjs", "jest.setup.ts", "jest.dom.setup.ts", "scripts/ci/yarn-retry-on-install-crash.sh"]
+    },
+    "documents-multi-instance": {
+      "packages": [
+        "@open-mercato/documents",
+        "@open-mercato/shared",
+        "@open-mercato/core",
+        "@open-mercato/channel-discord",
+        "@open-mercato/checkout",
+        "@open-mercato/webhooks",
+        "@open-mercato/queue"
+      ],
+      "paths": [
+        "jest.config.base.cjs",
+        "jest.setup.ts",
+        "jest.dom.setup.ts",
+        "scripts/check-oauth-publish-shape.mjs",
+        "scripts/ci/check-webhook-durability-results.mjs",
+        "scripts/ci/yarn-retry-on-install-crash.sh"
+      ]
+    }
+  }
 }
