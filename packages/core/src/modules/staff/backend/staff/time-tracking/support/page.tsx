@@ -11,6 +11,7 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useLiveRefetch } from '@open-mercato/ui/backend/injection/useLiveRefetch'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
@@ -194,7 +195,7 @@ export default function SupportTicketsPage() {
     }
   }, [filterValues, page, refreshKey, scopeVersion, search])
 
-  useAppEvent(SUPPORT_ACTIVITY_EVENT, () => refresh(), [refresh])
+  useLiveRefetch(SUPPORT_ACTIVITY_EVENT, refresh)
   useAppEvent(ASSIGNEE_CHANGED_EVENT, () => refresh(), [refresh])
 
   const openTask = React.useCallback(
