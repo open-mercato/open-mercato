@@ -155,14 +155,19 @@ describe('workflows definition customize/reset-to-code/publish trigger cache inv
     expect(mockInvalidateTriggerCache).toHaveBeenCalledWith(TENANT_ID, ORG_ID)
   })
 
-  it('invalidates for the revived row\'s own organization, not the caller\'s', async () => {
+  it('creates an override in the caller organization when a sibling has one', async () => {
     const siblingOrgId = '123e4567-e89b-12d3-a456-426614174003'
-    mockEm.findOne.mockResolvedValue({ ...overrideRecord, organizationId: siblingOrgId })
+    const sibling = { ...overrideRecord, organizationId: siblingOrgId }
+    mockEm.findOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) =>
+      Object.entries(where).every(([key, value]) => Reflect.get(sibling, key) === value) ? sibling : null,
+    )
     const context = { params: Promise.resolve({ id: `code:${WORKFLOW_ID}` }) }
     const res = await customize(request(`code:${WORKFLOW_ID}/customize`) as never, context as never)
 
     expect(res.status).toBe(200)
-    expect(mockInvalidateTriggerCache).toHaveBeenCalledWith(TENANT_ID, siblingOrgId)
+    expect(mockEm.create).toHaveBeenCalled()
+    expect(mockInvalidateTriggerCache).toHaveBeenCalledWith(TENANT_ID, ORG_ID)
+    expect(mockInvalidateTriggerCache).not.toHaveBeenCalledWith(TENANT_ID, siblingOrgId)
   })
 
   it('invalidates the trigger cache when reset-to-code removes the override row', async () => {
