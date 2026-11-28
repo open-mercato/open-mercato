@@ -1,6 +1,6 @@
 # Lessons
 
-This catalog indexes 198 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
+This catalog indexes 199 focused lessons. Route the task first, then read only records whose modules, areas, or topics match the work.
 
 ## How to use this catalog
 
@@ -29,6 +29,8 @@ This catalog indexes 198 focused lessons. Route the task first, then read only r
 - [Replay covers SDK preprocessing and trial state](lessons/replay-covers-sdk-preprocessing-and-trial-state.md) — area:ai-workflow,testing; module:agent_orchestrator,ai_assistant; topic:offline-replay,fixtures,sdk-preprocessing,file-io
 
 - [Request-path work runs per call, not per request](lessons/request-path-work-runs-per-call.md) — area:architecture,module-data; module:shared,core,query_index,customers,auth; topic:performance,dependency-injection,auth-context,service-lifetimes,resource-disposal,request-lifecycle
+
+- [Verify disposable targets after child configuration loading](lessons/verify-disposable-target-after-child-config-loading.md) — area:testing,architecture; module:cli; topic:database-isolation,runtime-startup,environment-forwarding
 
 - [Stabilization CI must not follow label churn](lessons/stabilization-ci-must-not-follow-label-churn.md) — area:ai-workflow,testing; module:platform; topic:ci-scheduling,stabilization,required-checks,regression-testing
 
