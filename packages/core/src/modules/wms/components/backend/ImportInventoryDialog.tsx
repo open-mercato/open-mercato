@@ -168,6 +168,10 @@ function formatImportIssue(
   return t(`wms.backend.inventory.import.validation.${code}`, code)
 }
 
+function isSkippedDuplicate(row: ValidationRow): boolean {
+  return row.status === 'skip' && row.warnings.includes('duplicate_row')
+}
+
 export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInventoryDialogProps) {
   const t = useT()
   const queryClient = useQueryClient()
@@ -381,6 +385,8 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
   const applyRows = React.useMemo(() => {
     return (validation?.rows ?? [])
       .filter((row) => row.resolved && (row.status === 'valid' || row.status === 'warning' || row.status === 'skip'))
+      // Skipped duplicates keep their file quantity with a zero delta, which apply rejects as tampering.
+      .filter((row) => !isSkippedDuplicate(row))
       .map((row) => ({
         rowNumber: row.rowNumber,
         warehouseId: row.resolved!.warehouseId,
@@ -391,6 +397,10 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
         lotId: row.resolved!.lotId,
         serialNumber: row.resolved!.serialNumber,
       }))
+  }, [validation?.rows])
+
+  const skippedDuplicateCount = React.useMemo(() => {
+    return (validation?.rows ?? []).filter(isSkippedDuplicate).length
   }, [validation?.rows])
 
   const overwriteWarningRows = React.useMemo(() => {
@@ -470,7 +480,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
       })
 
       const applied = result?.summary?.applied ?? 0
-      const skipped = result?.summary?.skipped ?? 0
+      const skipped = (result?.summary?.skipped ?? 0) + skippedDuplicateCount
       const failed = result?.summary?.failed ?? 0
       if (failed > 0) {
         flash(
@@ -508,6 +518,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
     mutationContext,
     reconcileMode,
     runMutation,
+    skippedDuplicateCount,
     t,
     validation?.importBatchId,
   ])
