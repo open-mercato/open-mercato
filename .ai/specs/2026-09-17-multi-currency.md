@@ -287,8 +287,8 @@ opposite of the adjusting entry made in the previous period."*
    `NBPProvider` as never fetching (it fetches only Table C, bid/ask
    commercial rates). That gap is now a **confirmed statutory
    non-compliance risk**, not a speculative one — see the Risks entry
-   below, upgraded accordingly, and Implementation Plan Step 0, now
-   resolved.
+   below. The gap is closed on `main`: PR 9411 (merged 2026-11-27) added
+   the `nbp_average` provider (Design decision 9c).
 
 9. **Rate resolution: `currencyId` → code once per run, then a
    deterministic provider-priority pick from `RateResult.rates` — not
@@ -318,127 +318,53 @@ opposite of the adjusting entry made in the previous period."*
       fixed direction and date there is at most one row per `source`; the
       selection key `fx_revaluation` uses is therefore **`source`** (with
       the pair and the date), never `type`.
-   c. **The statutory rate is stored under its own `source`, so `currencies`
-      needs no schema change.** Art. 30 ust. 1 requires the NBP average
-      rate (Table A; Design decision 8). `NBPProvider` does not fetch it
-      (it reads only `tables/c`, bid/ask), and a Table A row cannot share
-      the `NBP` source: an `EUR → PLN` Table A row for a date would
-      violate the unique key against the Table C row already written for
-      that date. Adding `type` to the key would be a schema and contract
-      change in `currencies` — an "Ask First" item under
-      `currencies/AGENTS.md` and `BACKWARD_COMPATIBILITY.md` — and is not
-      proposed. Instead Implementation Plan Step 0 adds a Table A provider
-      with its own `source: 'NBP_A'` (rows `type: null`), and
+   c. **The statutory rate comes from the `nbp_average` provider in
+      `currencies` (PR 9411, merged 2026-11-27).** Art. 30 ust. 1 requires the
+      NBP average rate (Design decision 8), and the Table C `NBPProvider`
+      (bid/ask) does not supply it. `currencies` on `main` now ships
+      `NBPAverageRateProvider` (`services/providers/nbpAverage.ts`; contract
+      in `.ai/specs/2026-08-25-nbp-average-rate-contract.md`):
+      - *Source and rows.* `source = 'nbp_average'` (exported as
+        `NBP_AVERAGE_PROVIDER_SOURCE`), `providerBaseCurrency = 'PLN'`. It
+        reads NBP tables A and B for the requested date and writes one
+        `XXX → PLN` row per currency with `rate = mid`, `type = 'average'` and
+        `externalReference` = the table number (`no`, e.g. `231/A/NBP/2026`).
+        No inverse rows. A currency present in both tables on one date
+        rejects the whole batch.
+      - *Date.* The row date is the table's `effectiveDate` at UTC midnight;
+        an HTTP 404 from a table means "no publication for this date".
+      - *Explicit-only.* The provider is registered with
+        `selectionMode: 'explicit'`. Unfiltered `getRate`/`getRates` calls
+        and default auto-fetch exclude it, so the existing display consumers
+        (customers deals aggregate and summary, which take `rates[0]`) never
+        see its rows.
+      - *Precision.* `mid` is stored as a decimal string in `numeric(18,8)`,
+        as published. A live response on 2026-11-28 (table
+        `231/A/NBP/2026`, `effectiveDate` 2026-11-27) gave `mid` with up to
+        eight decimals (IDR `0.00022282`), and JPY `0.025549` and HUF
+        `0.012087`, which are per one unit, not per 100 as in the printed
+        table.
+
       `fx_revaluation.ratePriority` (an ordered `source` list in
-      `ModuleConfigService`) defaults to `['NBP_A']`. **The module
-      refuses to post — 422 `EXCHANGE_RATE_UNAVAILABLE` naming the source
-      — rather than fall back to Table C or Raiffeisen** when no `NBP_A`
-      row is resolvable for a currency and date; another source enters
-      `ratePriority` only by an explicit tenant decision. Any ambiguity
-      left after priority ordering (two manual entries from
-      differently-named sources, both listed) is rejected — **422
-      `EXCHANGE_RATE_AMBIGUOUS`**. Both bundled providers require PLN on
-      one side of the pair (`providerBaseCurrency = 'PLN'`), so the policy
-      is written for the PLN-base case this spec treats as the working
+      `ModuleConfigService`) defaults to `['nbp_average']`, each entry
+      resolved with `provider: <source>` (Design decision 9g). **The module
+      refuses to post — 422 `EXCHANGE_RATE_UNAVAILABLE` naming the source —
+      rather than fall back to Table C or Raiffeisen** when no `nbp_average`
+      rate is resolvable for a currency and date; another source enters
+      `ratePriority` only by an explicit tenant decision. Any ambiguity left
+      after priority ordering (two manual entries from differently-named
+      sources, both listed) is rejected — **422 `EXCHANGE_RATE_AMBIGUOUS`**.
+      The provider requires PLN on one side of the pair, so the policy is
+      written for the PLN-base case this spec treats as the working
       assumption (Design decision 8).
 
-      **Checked against `currencies` on `main` (2026-10-15; re-checked 2026-10-26 at `fc5f8d04c`).** The Table
-      A provider fits the module as it is; what the code allows and what it
-      does not:
-      - *A public extension point exists.* `RateFetchingService` takes any
-        `RateProvider` (`source`, `providerBaseCurrency`, `fetchRates`,
-        `isAvailable`), and `registerCurrencyRateProvider(provider)`
-        (`services/providers/registry.ts`, used by the `example` module's
-        `di.ts`) adds one from any module, keyed by `source`. The bundled
-        providers are registered in `currencies/di.ts` the same way.
-      - *No schema change.* The `exchange_rates` unique key is
-        `(organization, tenant, from, to, date, source)` and persistence
-        matches rows on the same key, so `NBP_A` rows never collide with
-        `NBP` (Table C) rows. `ExchangeRate.type` is free text.
-      - *No type change either.* Table A rows are stored with
-        `type = null` and recognised by `source = 'NBP_A'`. A `'mid'` value
-        would need a change in `currencies`: `RateProviderResult.type` is
-        `'buy' | 'sell' | null`, and the manual-entry validator
-        (`exchangeRateCreateSchema`) accepts only `buy`, `sell` or `null`.
-        `null` is valid on both paths, so `currencies` is untouched apart
-        from the new provider file and its registration. Rates are not
-        entered by hand: the provider fetches them.
-      - *On-demand fetching needs nothing else.* `ExchangeRateService`
-        with `autoFetch` calls every registered provider for the date, so
-        `NBP_A` is fetched when a valuation asks for it. Scheduled fetching
-        goes through `CurrencyFetchConfig`, whose `providerSchema` is a
-        fixed enum (`NBP`, `Raiffeisen Bank Polska`, `Custom`) with a
-        hard-coded provider list in `CurrencyFetchingConfig.tsx`; making
-        `NBP_A` schedulable there is optional and not needed for this
-        module.
-      - *Fallback caveat.* `findRateWithFallback` steps back a day only when
-        **no** source has a row for that date. If `NBP` rows exist for a day
-        but `NBP_A` rows do not, the lookup does not continue to the
-        previous day for `NBP_A`; the run then ends in 422
-        `EXCHANGE_RATE_UNAVAILABLE` (the intended refusal), and the operator retries once the table is published. **Corrected 2026-10-23:** a retry meets the same stored rows, so the outcome is closed by the source-aware lookup in decision 9g, not by retrying.
-      - *Placement.* The same Table A default rate is needed by AP/AR for
-        booking-day rates (decision of 2026-10-12: resolving the default
-        rate belongs to `currencies`), so the provider is written in
-        `currencies` (`services/providers/nbpTableA.ts`, registered in
-        `di.ts`) as the first commit of the implementation PR, not as a
-        separate PR. If OM Core does not want it there, the same class can
-        be registered from `fx_revaluation`'s `di.ts` through
-        `registerCurrencyRateProvider` without touching `currencies` —
-        a supported mechanism, not a workaround — at the cost of AP/AR
-        not getting Table A from `currencies`.
-
-        **Decided 2026-10-15 (team): the provider lives in `currencies`.**
-        Reasons: (1) AP/AR need the same Table A rate for booking-day
-        defaults, so a provider owned by `fx_revaluation` would make them
-        depend on the valuation module or duplicate it, reversing the
-        one-way dependency direction; (2) the provider registry is a
-        process-wide map, so a provider registered by `fx_revaluation`
-        would change `autoFetch` behaviour for every consumer as a hidden
-        side effect; (3) `currencies` already owns the other rate sources
-        (`NBP`, Raiffeisen). This is presented to OM Core on #6190 as the
-        proposed final design, not as a question.
-
-        **Provider contract (the format being proposed).**
-        - *Class and wiring:* `NBPTableAProvider implements RateProvider` in
-          `currencies/services/providers/nbpTableA.ts`; `name = 'NBP Table A
-          (average rates)'`, `source = 'NBP_A'`, `providerBaseCurrency =
-          'PLN'`; registered in `currencies/di.ts` next to the two bundled
-          providers. `isAvailable()` is `true` (public API), like `NBPProvider`.
-        - *Fetch:* NBP API `exchangerates/tables/a/{date}`. HTTP 404 (weekend,
-          holiday) returns `[]`; other non-2xx responses throw, as in
-          `NBPProvider`. Skips when `PLN` is not among the available
-          currencies.
-        - *Rows written:* one row per currency, **`XXX → PLN` only**, `rate =
-          mid` (PLN for one unit of `XXX`), `source = 'NBP_A'`, `type = null`.
-          No `PLN → XXX` inverse: `ExchangeRateService` looks up the exact
-          pair and Design decision 9b fixes the query direction, so an
-          inverse row would only add a rounding-lossy duplicate.
-        - *Date:* the table's `effectiveDate` as `00:00:00Z` (UTC midnight),
-          the form `ExchangeRateService.normalizeDate` and the manual-entry
-          validator use. ⚠ The existing `NBPProvider` stores Warsaw
-          midnight (`fromZonedTime`), which is not UTC midnight; whether its
-          rows are found by the exact-date lookup is not shown by any test
-          on `main`. The implementation PR proves the `NBP_A` round trip
-          (store, then `getRate`) with a test, and reports the `NBP` result
-          to OM Core without changing `NBPProvider` in that PR.
-        - *Precision:* NBP publishes four decimals; stored in
-          `numeric(18,8)` as given, no recomputation.
-        - *Unit check (Unverified):* that NBP's JSON returns `mid` per one
-          unit for currencies the printed table quotes per 100 (JPY, HUF)
-          has not been checked against a real response here. The provider's
-          contract test must assert it before the provider is relied on.
-        - *Existing consumers (checked on `main`).* The consumers of
-          `ExchangeRateService` outside `currencies` are the customers deals
-          aggregate (`api/deals/aggregate/route.ts`) and the deals summary
-          (`api/deals/summary/route.ts`, via `lib/dealsMetrics.ts`). Both read
-          with `autoFetch: false` and take `rates[0]` for display ("sources
-          are equivalent for display purposes"). `findExactRates` has no
-          ordering, and an `XXX → PLN` pair will now have an `NBP` (Table C
-          bid) row and an `NBP_A` (mid) row, so those display totals may use
-          either; the difference is small and display-only, the same situation
-          Raiffeisen rows already create. The implementation PR notes it in
-          `services/README.md` ("Choosing Between Multiple Providers") and
-          does not change either consumer.
+      **Table B. ⚠ NEEDS HUMAN CONFIRMATION** (working decision, Commerce
+      Weavers, 2026-11-28): an average rate from Table B is treated like one
+      from Table A; for a currency quoted only in Table B (published weekly),
+      the rate is the last Table B publication before the operation day,
+      within `maxDaysBack`. Whether art. 30 UoR covers Table B rates in the
+      same way is **Unverified**: the statutory text has not been checked
+      for this point.
    d. **Empty/error results.** `RateResult.rates.length === 0` after
       the service's own `maxDaysBack`/`autoFetch` fallback, or a
       populated `RateResult.error` from a batched `getRates()` call,
@@ -451,6 +377,10 @@ opposite of the adjusting entry made in the previous period."*
       requested `valuationDate` after fallback) are persisted on
       `FxRevaluationLine` (see Data Model) — a later re-run or audit
       never has to re-guess which of several candidate rows was used.
+      Option (not yet in the Data Model): an `nbp_average` row also carries
+      `externalReference`, the NBP table number, so the line and a
+      document's stored rate can keep it next to the source and date as
+      the publication the rate came from.
 
    f. **Which date, and what `getRate` does (checked 2026-10-23 against
       `services/exchangeRateService.ts`).** `getRate({ date })` tests `date`
@@ -460,27 +390,24 @@ opposite of the adjusting entry made in the previous period."*
       dated the issue day, not the rate of the day before that the booking-day
       rule of 2026-10-12 asks for. Callers pass **`D` = operation date − 1
       day** for a document and **`D` = `valuationDate`** for the period-end
-      valuation, and take the last published `NBP_A` row on or before `D`.
+      valuation, and take the last published `nbp_average` row on or before `D`.
       One rule and one fallback serve both; there is no separate behaviour
       for documents and for valuation. Decided by the team 2026-10-23; not yet
       reviewed by a maintainer.
 
-   g. **Source-aware lookup in `getRate` (⚠ needs OM Core's agreement; goes
-      into the same PR as the Table A provider).** The fallback caveat under
-      9c is wider than "the operator retries": `getRate` fetches from the
-      providers only when **no** row of any source exists for the date, and the
-      scheduled fetch's provider list (`providerSchema`: `NBP`, `Raiffeisen
-      Bank Polska`, `Custom`) does not contain `NBP_A`. On a day when a Table
-      C row is already stored the `NBP_A` row is therefore never fetched, and
-      a retry meets the same stored rows. Fix: `getRate` and `getRates` take
-      an optional `source`. When it is set, stored rows are filtered by that
-      source, a missing row triggers
-      `fetchRatesForDate(date, scope, { providers: [source] })` (the option
-      exists today) and the lookup steps back a day only when that source has
-      no row. Additive; behaviour is unchanged when `source` is omitted.
-      Rejected alternative: each caller (AP, SIGLP, `fx_revaluation`)
-      re-implements the day-by-day lookback. Until OM Core agrees, the 422
-      `EXCHANGE_RATE_UNAVAILABLE` naming the source stays the outcome.
+   g. **Explicit provider selection in `getRate` (PR 9411, merged
+      2026-11-27).** `getRate` and `getRates` take optional `provider` and
+      `rateType`. Every call in this spec passes `provider: 'nbp_average'`
+      and `rateType: 'average'` (or the `ratePriority` entry being tried).
+      With `provider` set, only stored rows of that source count, a missing
+      row triggers a fetch from that provider only, and the lookup steps back
+      a day at a time up to `maxDaysBack` (default 30) when that provider has
+      no row; it never falls back to another source. For `nbp_average` only
+      rows with a non-blank `externalReference` count. This closes the
+      9c-era gap where a stored Table C row stopped the Table A rate from
+      ever being fetched. The 422 `EXCHANGE_RATE_UNAVAILABLE` naming the
+      source remains the outcome when no table is published for that day or
+      any earlier day within `maxDaysBack`.
 
 10. **Validate before any ledger write, serialize per tenant, and keep
     external I/O out of the locked transaction.** An earlier draft
@@ -1104,9 +1031,9 @@ line detail.
   `ExchangeRateService`'s own `maxDaysBack` recursive lookback before
   surfacing `EXCHANGE_RATE_UNAVAILABLE` — this spec does not reimplement
   that fallback.
-- **No `NBP_A` (Table A) row for a currency and date, but a Table C or
+- **No `nbp_average` rate for a currency and date, but a Table C or
   Raiffeisen row exists.** Not used: **422 `EXCHANGE_RATE_UNAVAILABLE`**
-  naming the source (Design decision 9c). The statutory rate class is not traded for availability. With the source-aware lookup (Design decision 9g) the missing `NBP_A` row is first fetched; the 422 remains when the table is not published for that day or any earlier day within `maxDaysBack`.
+  naming the source (Design decision 9c). The statutory rate class is not traded for availability. With explicit provider selection (Design decision 9g) the missing `nbp_average` rate is first fetched; the 422 remains when neither table A nor table B is published for that day or any earlier day within `maxDaysBack`.
 - **Two sources both listed in `ratePriority` return a rate for the same
   pair and date.** Resolved deterministically by the list order (Design
   decision 9c); a genuine tie (two equally-ranked manual entries) is
@@ -1160,25 +1087,17 @@ line detail.
 
 ## Risks & Impact Review
 
-- **UoR Art. 30 is now Confirmed (closed 2026-09-21, Design decision
-  8) — and it confirms a real, previously-speculative gap.** Art. 30
-  ust. 1 names the NBP **average rate** ("średni kurs... przez
-  Narodowy Bank Polski") as the required valuation rate, but
-  `NBPProvider` only fetches NBP's Table C (commercial bid/ask), never
-  Table A (the average rate). This is no longer a "confirm before
-  implementation" open question — it is a **confirmed statutory
-  non-compliance in this design as written**: `fx_revaluation`'s
-  Design decision 9 rate-selection policy would post period-end
-  valuations at the wrong rate class until `currencies` gains a Table A
-  fetcher (out of this document's own module boundary, Design decision
-  1). **Severity: High** — this is a correctness gap in the amounts
-  the module posts, not a cosmetic one, though it is caught before any
-  implementation exists. **Mitigation**: Implementation Plan Step 0 is a concrete, scoped task (add a Table A provider to `currencies` under its own `source: 'NBP_A'`, so the unique key and `currencies`' schema stay as they are — checked against the code on `main`, Design decision 9c; it can also be registered from `fx_revaluation` through the public provider registry if OM Core prefers); `fx_revaluation` refuses to post (422 `EXCHANGE_RATE_UNAVAILABLE`) until a Table A row is resolvable, instead of falling back to Table C, so the gap can delay the module but cannot produce a wrong posting. **Detection**: none
-  needed pre-implementation; once built, a valuation run using Table C
-  instead of Table A would be caught by comparing posted rates against
-  NBP's own published Table A for the same date — a reconciliation
-  check worth adding to Testing Strategy when `currencies`' Table A
-  support is designed.
+- **UoR Art. 30 requires the NBP average rate (Confirmed 2026-09-21,
+  Design decision 8); the provider gap is closed.** `NBPProvider` reads only
+  Table C (bid/ask). PR 9411 (merged 2026-11-27) added the explicit-only
+  `nbp_average` provider for tables A and B (Design decision 9c), and this
+  spec resolves every rate through it (Design decision 9g). **Severity:
+  High** if a Table C rate were ever used. **Mitigation**: `ratePriority`
+  defaults to `['nbp_average']` and the module refuses to post (422
+  `EXCHANGE_RATE_UNAVAILABLE`) rather than fall back to another source, so a
+  missing table can delay a run but cannot produce a posting at the wrong
+  rate class. **Detection**: Testing Strategy case 21, and the stored
+  `valuationRateSource` on every line.
 - **The reversing entry needs an unlocked next period (Design decision 12).**
   A tenant that locks the next fiscal year's periods early, or has not
   generated them, cannot run the valuation (409 `NEXT_PERIOD_UNAVAILABLE`).
@@ -1329,9 +1248,9 @@ and its 2026-10-23 changelog entry).
   yet reviewed by a maintainer). For each account:
   `difference = balanceInAccountCurrency × valuationRate − baseBalance`, where
   both balances are signed with the debit side positive and taken as of
-  `valuationDate`, and `valuationRate` is the NBP Table A average rate for the
+  `valuationDate`, and `valuationRate` is the NBP average rate (`nbp_average`) for the
   account's currency against the base currency, resolved as in Design decision
-  9 (`ratePriority` defaulting to `['NBP_A']`, 9c; date rule 9f). A positive
+  9 (`ratePriority` defaulting to `['nbp_average']`, 9c; date rule 9f). A positive
   difference debits the account and credits the unrealized gain account; a
   negative one credits the account and debits the unrealized loss account. The
   signed formula needs no document-type sign (Design decision 11's factor
@@ -1453,8 +1372,8 @@ maintainer; the column names are a proposal).
   left). R3 gives `0 × rate − baseBalance`, which clears the remainder to the
   unrealized account. Intended by the formula; listed because it is the one
   case where a "currency-free" account produces a line.
-- **No Table A rate for the account's currency** (a currency NBP does not
-  publish in Table A). The run fails with 422 `EXCHANGE_RATE_UNAVAILABLE`, as
+- **No NBP average rate for the account's currency** (a currency NBP
+  publishes in neither table A nor table B). The run fails with 422 `EXCHANGE_RATE_UNAVAILABLE`, as
   for documents (Design decision 9c); art. 30 ust. 3 (rate via a reference
   currency) is not designed here and is **to be verified** against the act
   before it is.
@@ -1613,23 +1532,14 @@ Proposed: `ledger` — `postJournalEntry`, `reverseJournalEntry`,
 and `PaymentBatch.sentOn` (in the payments spec since 2026-10-15, Design decision 18);
 `cash_bank_management` — bank statement lines and matches (#6055);
 `sales_invoices_gl_posting` — the `sales:sales_invoice` reference and the
-receivable-account config (#6046); `currencies` — Table A provider (Step 0,
-not started). Each is to be recorded here with its PR and commit when
+receivable-account config (#6046); `currencies` — the `nbp_average`
+provider (PR 9411, merged 2026-11-27). Each is to be recorded here with its PR and commit when
 implementation starts. This PR's base branch is to be aligned with the
 sibling spec PRs.
 
-0. **Add NBP Table A (average-rate) support to `currencies` before the
-   commands/UI steps below — resolved 2026-09-21, Design decision 8.**
-   Art. 30 ust. 1 requires the NBP average rate specifically, and
-   `NBPProvider` fetches only Table C. This step is a provider of its own
-   (`source: 'NBP_A'`, rows `type: null`; Design decision 9c) added to
-   `currencies` (`services/providers/nbpTableA.ts`, registered in `di.ts`;
-   no change to `RateProviderResult` or the validators) as the first
-   commit of the implementation PR — no separate PR, no change to the
-   `exchange_rates` unique key. The fallback, if OM Core objects, is to
-   register the same provider from `fx_revaluation` via
-   `registerCurrencyRateProvider`. `fx_revaluation.ratePriority` then defaults
-   to `['NBP_A']`.
+0. *(Removed 2026-11-28.)* The NBP average-rate provider this step planned
+   shipped in `currencies` with PR 9411 (`nbp_average`, Design decision 9c);
+   there is nothing to build here.
 1. Patch `accounts-payable.md`, the `SalesInvoice`-owning spec,
    `accounts-payable-payments.md` and `cash-bank-management.md` as listed
    in Patches to sibling specs: the field additions (Design decision 3),
@@ -1684,9 +1594,6 @@ sibling spec PRs.
 | `packages/core/src/modules/fx_revaluation/backend/` | New — Ledger → Period-End page (preview, run, history) |
 | `packages/core/src/modules/fx_revaluation/i18n/` | New — locale keys (Internationalization section) |
 | `packages/core/src/modules/fx_revaluation/**/__tests__/` | New — the Testing Strategy matrix |
-| `packages/core/src/modules/currencies/services/providers/nbpTableA.ts` | New (Implementation Plan Step 0) — Table A provider, `source: 'NBP_A'`, `type = null`; lives in `currencies`, not in this module (Design decision 9c) |
-| `packages/core/src/modules/currencies/di.ts` | Patch (Step 0) — register the Table A provider next to `NBPProvider` and `RaiffeisenPolandProvider` |
-| `packages/core/src/modules/currencies/services/README.md` | Patch (Step 0) — document `NBP_A` (source, `type = null`, fetched by `autoFetch` with the other providers) |
 | `.ai/specs/2026-09-06-accounts-payable.md` | Patch — `VendorInvoice.exchangeRate`, `backfill` command/route, immutability guard (done 2026-10-15) |
 | `.ai/specs/2026-09-06-accounts-payable-payments.md` | Patch — read contract incl. `PaymentBatch.sentOn` (done 2026-10-15) |
 | sales-invoice-GL-posting spec | Patch — `SalesInvoice.currencyId`/`exchangeRate`, `backfill` command/route, post-posting immutability guard (Design decision 15) (done 2026-10-15: the spec lists what `sales` must do; the code belongs to `sales`) |
@@ -1772,7 +1679,7 @@ base / EUR foreign currency):
 | 18 | `FiscalPeriod` locked | `409 FISCAL_PERIOD_LOCKED` |
 | 19 | Preview (`GET /runs/preview`) then a change to a document's open amount before posting | Posting reflects the *new* state; UI must re-preview, not reuse the stale one |
 | 20 | No unlocked `FiscalPeriod` covers the day after the period's end | `409 NEXT_PERIOD_UNAVAILABLE`; nothing written |
-| 21 | Only a Table C (`NBP`) or Raiffeisen row exists for the date | `422 EXCHANGE_RATE_UNAVAILABLE` naming `NBP_A`; no fallback |
+| 21 | Only a Table C (`NBP`) or Raiffeisen row exists for the date | `422 EXCHANGE_RATE_UNAVAILABLE` naming `nbp_average`; no fallback |
 | 22 | Failure after the supersede step (e.g. the second posting rejected) | Whole transaction rolled back: the earlier run is still `POSTED`, no new entry exists |
 | 23 | Second `POST /runs` for a tenant with a `POSTED` run for a different period | The earlier period's run is untouched (already unwound by its own reversing entry) |
 | 24 | Sales invoice open on 31 Dec, its ledger posting reversed 3 Jan, run executed 5 Jan | The invoice is still in scope at the 31 Dec cutoff (reversal is after it); control account reflects the position the ledger held on 31 Dec (Design decision 17) |
@@ -1822,7 +1729,7 @@ Admin UI strings (the "Run FX Revaluation" action, preview table
 column headers, run-history list) live under the `fx_revaluation.*`
 i18n namespace via `useT()`/`resolveTranslations()`, the same
 convention `financial_pl.statements.*` established in #6188.
-Currency codes, provider `source` names ("NBP", "NBP Table A",
+Currency codes, provider `source` names ("NBP", "nbp_average",
 "Raiffeisen Bank Polska"), and GL account names are data, not UI copy, and
 are not translated. The API error codes added by the 2026-10-15 review round
 (`FISCAL_PERIOD_LOCKED`, `NEXT_PERIOD_UNAVAILABLE`, `FX_RUN_CONFLICT`,
@@ -1924,7 +1831,7 @@ practice for not-yet-built modules.
   recognition except long-term investments). Closing this citation
   surfaced a load-bearing consequence: `NBPProvider`'s Table C (not
   Table A) rate source is now a confirmed gap, not a speculative one —
-  see Risks and Implementation Plan Step 0.
+  see Risks (closed on `main` by PR 9411).
 
 ### Step 3 — Real-system comparison (consciously narrowed)
 
@@ -1984,11 +1891,6 @@ and why.
 
 ### Non-Compliant Items
 
-- **High, open until Implementation Plan Step 0 (extension mechanism
-  verified 2026-10-15, Design decision 9c):** `currencies` has no
-  Table A (`NBP_A`) provider yet, and the spec refuses to post rather than
-  fall back to Table C (Design decision 9). The design is complete; the
-  prerequisite is not built.
 - **Open, owned by other specs:** ledger #5663/#6340 and the
   sales/AP/payments/cash-bank specs this one depends on are still open PRs.
   The sibling-spec patches are written (AP invoices, AP payments incl.
@@ -1997,7 +1899,7 @@ and why.
 ### Verdict
 
 **Design consistent after the 2026-10-15 review round; implementation is
-blocked on Step 0 and on the sibling-spec contracts above** (Implementation
+blocked on the sibling-spec contracts above** (Implementation
 Plan, "Blocked on"). Previous "fully compliant / approved" wording withdrawn;
 re-review requested.
 
@@ -2412,3 +2314,12 @@ Not yet reviewed by a maintainer.
 - **F5 (booked base identity).** Design decision 16 adds `bookedBaseCurrencyId` on the sibling documents and validates every in-scope document against the run base, covering a base change before the first run and mixed booked bases. Tests 26–27.
 - **F6 (rollback).** Migration & Backward Compatibility defines rollback as disabling new runs while retaining run/line history and captured rates; removal only for a proven-unused deployment. Test 31.
 - **F7 (rollout).** The backfill bullet no longer promises implicit exclusion; all in-scope legacy rates must be remediated (preview → backfill → re-preview → run) because a null rate rejects the whole run.
+
+### 2026-11-28 — aligned with the merged NBP average-rate provider (PR 9411)
+
+- **Design decision 9c** now describes the provider that shipped in `currencies` with PR 9411 (merged 2026-11-27) instead of the proposed `NBPTableAProvider`: source `nbp_average`, tables A and B, rows `type = 'average'` with the table number in `externalReference`, explicit-only selection. `ratePriority` defaults to `['nbp_average']`. The note on the customers deals display consumers is removed, because unfiltered calls no longer see `nbp_average` rows.
+- **Design decision 9g** now uses the merged selectors `provider` and `rateType` instead of the proposed `source` parameter; the behaviour (selected source only, provider-limited fetch, day-by-day step back, no fallback) is unchanged. Design decision 9f takes the last published `nbp_average` rate.
+- **Design decision 9e** notes, as an option, keeping `externalReference` (the NBP table number) next to the stored rate.
+- **Table B.** Working decision added to 9c: a Table B average rate is treated like a Table A one, and a currency quoted only in Table B takes the last publication before the operation day. ⚠ NEEDS HUMAN CONFIRMATION; whether art. 30 UoR covers Table B in the same way is Unverified.
+- **Units and precision.** Observed on the public NBP API on 2026-11-28 (table `231/A/NBP/2026`, `effectiveDate` 2026-11-27): `mid` for JPY (`0.025549`) and HUF (`0.012087`) is per one unit, and values carry up to eight decimals (IDR `0.00022282`). This replaces the earlier "Unverified" unit check and the "four decimals" note.
+- **Implementation Plan Step 0** is removed (the provider exists), with its three File Manifest rows, the open High item in Non-Compliant Items and the Step 0 condition in the Verdict. Risks, Edge Cases, R3, the "No NBP average rate" case and Testing Strategy case 21 now name `nbp_average`. Earlier changelog entries that mention `NBP_A` are kept as history.
