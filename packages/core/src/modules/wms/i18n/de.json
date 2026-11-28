@@ -128,6 +128,8 @@
   "wms.backend.asns.receive.summary.expected": "Erwartet",
   "wms.backend.asns.receive.summary.received": "Empfangen",
   "wms.backend.asns.search": "Lieferavise suchen",
+  "wms.backend.asns.staging.missing.action": "Unter WMS → Lagerorte hinzufügen",
+  "wms.backend.asns.staging.missing.message": "Dieses Lager hat keinen Lagerort vom Typ Dock oder Bereitstellung.",
   "wms.backend.asns.status.closed": "Geschlossen",
   "wms.backend.asns.status.draft": "Entwurf",
   "wms.backend.asns.status.in_transit": "Unterwegs",

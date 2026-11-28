@@ -128,6 +128,8 @@
   "wms.backend.asns.receive.summary.expected": "예정",
   "wms.backend.asns.receive.summary.received": "입고",
   "wms.backend.asns.search": "사전 출하 통지 검색",
+  "wms.backend.asns.staging.missing.action": "WMS → 위치에서 추가하세요",
+  "wms.backend.asns.staging.missing.message": "이 창고에는 독 또는 입고 대기 유형의 위치가 없습니다.",
   "wms.backend.asns.status.closed": "종료됨",
   "wms.backend.asns.status.draft": "초안",
   "wms.backend.asns.status.in_transit": "운송 중",

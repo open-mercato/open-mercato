@@ -2,7 +2,7 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { CreateAsnDialog } from '../CreateAsnDialog'
 import type { WmsInventoryMutationAccess } from '../useWmsInventoryMutationAccess'
 
@@ -54,7 +54,19 @@ jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
   ),
 }))
 
+const mockHasStagingLocations = jest.fn()
+
+jest.mock('next/link', () => ({
+  __esModule: true,
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}))
+
 jest.mock('../inventoryMutationLoaders', () => ({
+  hasStagingLocations: (...args: unknown[]) => mockHasStagingLocations(...args),
   loadCatalogVariantOptions: jest.fn(async () => []),
   loadStagingLocationOptions: jest.fn(async () => []),
   loadWarehouseOptions: jest.fn(async () => []),
@@ -89,6 +101,35 @@ const access: WmsInventoryMutationAccess = {
 describe('CreateAsnDialog', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockHasStagingLocations.mockResolvedValue(true)
+  })
+
+  it('shows a missing-location hint once a warehouse without Dock or Staging locations is selected', async () => {
+    mockHasStagingLocations.mockResolvedValue(false)
+    render(<CreateAsnDialog open onOpenChange={jest.fn()} access={access} />)
+
+    expect(screen.queryByTestId('wms-staging-location-missing-hint')).toBeNull()
+    expect(mockHasStagingLocations).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByTestId('combobox-Select warehouse'), {
+      target: { value: '22222222-2222-2222-2222-222222222222' },
+    })
+
+    const hint = await screen.findByTestId('wms-staging-location-missing-hint')
+    expect(hint.querySelector('a')?.getAttribute('href')).toBe('/backend/wms/locations')
+    expect(mockHasStagingLocations).toHaveBeenCalledWith('22222222-2222-2222-2222-222222222222')
+  })
+
+  it('does not show the missing-location hint when the selected warehouse has a Dock or Staging location', async () => {
+    render(<CreateAsnDialog open onOpenChange={jest.fn()} access={access} />)
+
+    fireEvent.change(screen.getByTestId('combobox-Select warehouse'), {
+      target: { value: '22222222-2222-2222-2222-222222222222' },
+    })
+
+    await waitFor(() => expect(mockHasStagingLocations).toHaveBeenCalled())
+    await Promise.resolve()
+    expect(screen.queryByTestId('wms-staging-location-missing-hint')).toBeNull()
   })
 
   it('shows translatable validation errors instead of raw zod messages on an empty submit', async () => {

@@ -128,6 +128,8 @@
   "wms.backend.asns.receive.summary.expected": "Expected",
   "wms.backend.asns.receive.summary.received": "Received",
   "wms.backend.asns.search": "Search ASNs",
+  "wms.backend.asns.staging.missing.action": "Add one in WMS → Locations",
+  "wms.backend.asns.staging.missing.message": "This warehouse has no Dock or Staging location.",
   "wms.backend.asns.status.closed": "Closed",
   "wms.backend.asns.status.draft": "Draft",
   "wms.backend.asns.status.in_transit": "In transit",
