@@ -11,6 +11,7 @@ import { User } from '../../auth/data/entities'
 import { Message } from '../data/entities'
 import { notificationTypes } from '../notifications'
 import { SYSTEM_SENDER_USER_ID } from '../lib/constants'
+import { isNotificationsModuleAvailable } from '../lib/optionalModules'
 import { resolveMessageChannelThreadAccess } from '../lib/channelThreadAccess'
 import {
   EXTERNAL_CONVERSATION_SOURCE_ENTITY_TYPE,
@@ -155,12 +156,21 @@ async function isChannelRoutedMessage(payload: MessageSentPayload, ctx: Resolver
   }
 }
 
+async function canCreateNotifications(ctx: ResolverContext): Promise<boolean> {
+  try {
+    const em = ctx.resolve<EntityManager>('em')
+    return em ? await isNotificationsModuleAvailable(em) : true
+  } catch {
+    return true
+  }
+}
+
 export default async function handle(payload: MessageSentPayload, ctx: ResolverContext): Promise<void> {
   const uniqueRecipientUserIds = Array.from(new Set(payload.recipientUserIds))
     .filter((recipientUserId) => recipientUserId !== SYSTEM_SENDER_USER_ID)
 
   const typeDef = notificationTypes.find((type) => type.type === 'messages.new')
-  if (typeDef && uniqueRecipientUserIds.length > 0) {
+  if (typeDef && uniqueRecipientUserIds.length > 0 && (await canCreateNotifications(ctx))) {
     const variables = await resolveNotificationVariables(payload, ctx)
     const notificationService = resolveNotificationService(ctx)
     const notificationInput = buildBatchNotificationFromType(typeDef, {

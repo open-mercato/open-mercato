@@ -2,8 +2,9 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { hash } from 'bcryptjs'
 import { ensureDefaultCustomerRoleAcls } from '@open-mercato/core/modules/customer_accounts/lib/customerRoleAcls'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
-import { EXAMPLE_PORTAL_ACCOUNTS } from '@open-mercato/core/modules/customer_accounts/lib/exampleAccounts'
+import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { EXAMPLE_PORTAL_ACCOUNTS, resolveExamplePortalSeedPassword } from '@open-mercato/core/modules/customer_accounts/lib/exampleAccounts'
 import {
   CustomerRole,
   CustomerRoleAcl,
@@ -227,14 +228,20 @@ export const setup: ModuleSetupConfig = {
     const BCRYPT_COST = 10
 
     for (const entry of EXAMPLE_PORTAL_ACCOUNTS) {
-      const emailHash = hashForLookup(entry.email)
-      const existing = await em.findOne(CustomerUser, { emailHash, tenantId, deletedAt: null })
+      const password = resolveExamplePortalSeedPassword(entry)
+      if (password === undefined) return
+
+      const existing = await findOneWithDecryption(em, CustomerUser, {
+        emailHash: { $in: lookupHashCandidates(entry.email) },
+        tenantId,
+        deletedAt: null,
+      })
       if (existing) continue
 
-      const passwordHash = await hash(entry.password, BCRYPT_COST)
+      const passwordHash = await hash(password, BCRYPT_COST)
       const user = em.create(CustomerUser, {
         email: entry.email,
-        emailHash,
+        emailHash: hashForLookup(entry.email),
         passwordHash,
         displayName: entry.displayName,
         tenantId,

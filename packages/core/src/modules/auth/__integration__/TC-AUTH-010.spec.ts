@@ -27,7 +27,7 @@ test.describe('TC-AUTH-010: Edit Existing User', () => {
       userId = await createUserFixture(request, token, {
         email: initialEmail,
         name: 'Initial QA Name',
-        password: 'Valid1!Pass',
+        password: 'QaValid1!Pass',
         organizationId,
         roles: ['employee'],
       })

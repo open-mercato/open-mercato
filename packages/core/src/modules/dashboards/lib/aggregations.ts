@@ -1,12 +1,12 @@
 import type { AnalyticsRegistry } from '../services/analyticsRegistry'
 import type { AnalyticsEntityTypeConfig, AnalyticsFieldMapping } from '@open-mercato/shared/modules/analytics'
+import { assertSafeIdentifier, isSafeIdentifier, readOwnProperty } from './identifiers'
 
 export type AggregateFunction = 'count' | 'sum' | 'avg' | 'min' | 'max'
 export type DateGranularity = 'day' | 'week' | 'month' | 'quarter' | 'year'
 
 const VALID_GRANULARITIES: readonly DateGranularity[] = ['day', 'week', 'month', 'quarter', 'year']
 const VALID_AGGREGATES: readonly AggregateFunction[] = ['count', 'sum', 'avg', 'min', 'max']
-const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
 export function isValidGranularity(value: unknown): value is DateGranularity {
   return typeof value === 'string' && VALID_GRANULARITIES.includes(value as DateGranularity)
@@ -16,28 +16,26 @@ export function isValidAggregate(value: unknown): value is AggregateFunction {
   return typeof value === 'string' && VALID_AGGREGATES.includes(value as AggregateFunction)
 }
 
-function isSafeIdentifier(value: string): boolean {
-  return SAFE_IDENTIFIER_PATTERN.test(value)
-}
-
 // Re-export types from shared module for convenience
 export type EntityTypeConfig = AnalyticsEntityTypeConfig
 export type FieldMapping = AnalyticsFieldMapping
 
 export function buildAggregateExpression(aggregate: AggregateFunction, column: string): string {
+  if (!isValidAggregate(aggregate)) {
+    throw new Error(`Invalid aggregate: ${String(aggregate)}`)
+  }
+  const safeColumn = assertSafeIdentifier(column, 'column name')
   switch (aggregate) {
     case 'count':
-      return column === 'id' ? 'COUNT(*)' : `COUNT(${column})`
+      return safeColumn === 'id' ? 'COUNT(*)' : `COUNT(${safeColumn})`
     case 'sum':
-      return `COALESCE(SUM(${column}::numeric), 0)`
+      return `COALESCE(SUM(${safeColumn}::numeric), 0)`
     case 'avg':
-      return `COALESCE(AVG(${column}::numeric), 0)`
+      return `COALESCE(AVG(${safeColumn}::numeric), 0)`
     case 'min':
-      return `MIN(${column}::numeric)`
+      return `MIN(${safeColumn}::numeric)`
     case 'max':
-      return `MAX(${column}::numeric)`
-    default:
-      return `COUNT(*)`
+      return `MAX(${safeColumn}::numeric)`
   }
 }
 
@@ -45,10 +43,12 @@ export function buildDateTruncExpression(column: string, granularity: DateGranul
   if (!isValidGranularity(granularity)) {
     throw new Error(`Invalid granularity: ${granularity}`)
   }
-  return `DATE_TRUNC('${granularity}', ${column})`
+  const safeColumn = assertSafeIdentifier(column, 'column name')
+  return `DATE_TRUNC('${granularity}', ${safeColumn})`
 }
 
 export function buildJsonbFieldExpression(column: string, path: string): string {
+  const safeColumn = assertSafeIdentifier(column, 'column name')
   const parts = path.split('.')
   for (const part of parts) {
     if (!isSafeIdentifier(part)) {
@@ -56,11 +56,11 @@ export function buildJsonbFieldExpression(column: string, path: string): string 
     }
   }
   if (parts.length === 1) {
-    return `${column}->>'${parts[0]}'`
+    return `${safeColumn}->>'${parts[0]}'`
   }
   const intermediate = parts.slice(0, -1).map((p) => `'${p}'`).join('->')
   const lastPart = parts[parts.length - 1]
-  return `${column}->${intermediate}->>'${lastPart}'`
+  return `${safeColumn}->${intermediate}->>'${lastPart}'`
 }
 
 export type AggregationQuery = {
@@ -120,26 +120,30 @@ export function resolveGroupExpression(
   if (!groupMapping && groupBy.field.includes('.')) {
     const [baseField, ...pathParts] = groupBy.field.split('.')
     const baseMapping = registry.getFieldMapping(entityType, baseField)
-    if (baseMapping?.type !== 'jsonb') return null
+    if (readOwnProperty(baseMapping, 'type') !== 'jsonb') return null
+    const baseColumn = assertSafeIdentifier(readOwnProperty(baseMapping, 'dbColumn'), 'column name')
     const jsonPath = pathParts.join('.')
     return {
-      expression: buildJsonbFieldExpression(baseMapping.dbColumn, jsonPath),
-      dbColumn: baseMapping.dbColumn,
+      expression: buildJsonbFieldExpression(baseColumn, jsonPath),
+      dbColumn: baseColumn,
       jsonPath,
     }
   }
 
   if (!groupMapping) return null
 
-  if (groupMapping.type === 'timestamp' && groupBy.granularity) {
+  const groupColumn = assertSafeIdentifier(readOwnProperty(groupMapping, 'dbColumn'), 'column name')
+  const groupType = readOwnProperty(groupMapping, 'type')
+
+  if (groupType === 'timestamp' && groupBy.granularity) {
     return {
-      expression: buildDateTruncExpression(groupMapping.dbColumn, groupBy.granularity),
-      dbColumn: groupMapping.dbColumn,
+      expression: buildDateTruncExpression(groupColumn, groupBy.granularity),
+      dbColumn: groupColumn,
       jsonPath: null,
     }
   }
 
-  return { expression: groupMapping.dbColumn, dbColumn: groupMapping.dbColumn, jsonPath: null }
+  return { expression: groupColumn, dbColumn: groupColumn, jsonPath: null }
 }
 
 /**
@@ -208,9 +212,10 @@ function buildWhereClause(
   if (options.dateRange) {
     const dateMapping = registry.getFieldMapping(options.entityType, options.dateRange.field)
     if (dateMapping) {
-      whereClauses.push(`${dateMapping.dbColumn} >= ?`)
+      const dateColumn = assertSafeIdentifier(readOwnProperty(dateMapping, 'dbColumn'), 'column name')
+      whereClauses.push(`${dateColumn} >= ?`)
       params.push(options.dateRange.start)
-      whereClauses.push(`${dateMapping.dbColumn} <= ?`)
+      whereClauses.push(`${dateColumn} <= ?`)
       params.push(options.dateRange.end)
     }
   }
@@ -219,38 +224,39 @@ function buildWhereClause(
     for (const filter of options.filters) {
       const filterMapping = registry.getFieldMapping(options.entityType, filter.field)
       if (!filterMapping) continue
+      const filterColumn = assertSafeIdentifier(readOwnProperty(filterMapping, 'dbColumn'), 'column name')
 
       switch (filter.operator) {
         case 'eq':
           if (filter.value === null) {
-            whereClauses.push(`${filterMapping.dbColumn} IS NULL`)
+            whereClauses.push(`${filterColumn} IS NULL`)
             break
           }
-          whereClauses.push(`${filterMapping.dbColumn} = ?`)
+          whereClauses.push(`${filterColumn} = ?`)
           params.push(filter.value)
           break
         case 'neq':
           if (filter.value === null) {
-            whereClauses.push(`${filterMapping.dbColumn} IS NOT NULL`)
+            whereClauses.push(`${filterColumn} IS NOT NULL`)
             break
           }
-          whereClauses.push(`${filterMapping.dbColumn} != ?`)
+          whereClauses.push(`${filterColumn} != ?`)
           params.push(filter.value)
           break
         case 'gt':
-          whereClauses.push(`${filterMapping.dbColumn} > ?`)
+          whereClauses.push(`${filterColumn} > ?`)
           params.push(filter.value)
           break
         case 'gte':
-          whereClauses.push(`${filterMapping.dbColumn} >= ?`)
+          whereClauses.push(`${filterColumn} >= ?`)
           params.push(filter.value)
           break
         case 'lt':
-          whereClauses.push(`${filterMapping.dbColumn} < ?`)
+          whereClauses.push(`${filterColumn} < ?`)
           params.push(filter.value)
           break
         case 'lte':
-          whereClauses.push(`${filterMapping.dbColumn} <= ?`)
+          whereClauses.push(`${filterColumn} <= ?`)
           params.push(filter.value)
           break
         case 'in':
@@ -262,15 +268,15 @@ function buildWhereClause(
           }
           const keyword = filter.operator === 'in' ? 'IN' : 'NOT IN'
           const placeholders = values.map(() => '?').join(', ')
-          whereClauses.push(`${filterMapping.dbColumn} ${keyword} (${placeholders})`)
+          whereClauses.push(`${filterColumn} ${keyword} (${placeholders})`)
           params.push(...values)
           break
         }
         case 'is_null':
-          whereClauses.push(`${filterMapping.dbColumn} IS NULL`)
+          whereClauses.push(`${filterColumn} IS NULL`)
           break
         case 'is_not_null':
-          whereClauses.push(`${filterMapping.dbColumn} IS NOT NULL`)
+          whereClauses.push(`${filterColumn} IS NOT NULL`)
           break
       }
     }
@@ -280,7 +286,13 @@ function buildWhereClause(
 }
 
 function resolveTableName(config: EntityTypeConfig): string {
-  return config.schema ? `"${config.schema}"."${config.tableName}"` : `"${config.tableName}"`
+  const tableName = assertSafeIdentifier(readOwnProperty(config, 'tableName'), 'table name')
+  const schema = readOwnProperty(config, 'schema')
+  if (schema !== undefined) {
+    assertSafeIdentifier(schema, 'schema name')
+    return `"${schema}"."${tableName}"`
+  }
+  return `"${tableName}"`
 }
 
 export type BuildDistinctCurrencyQueryOptions = Pick<
@@ -299,16 +311,19 @@ export function buildDistinctCurrencyQuery(
 ): AggregationQuery | null {
   const { registry } = options
   const config = registry.getEntityTypeConfig(options.entityType)
-  if (!config?.currencyField) return null
+  const currencyField = readOwnProperty(config, 'currencyField')
+  if (!config || typeof currencyField !== 'string' || !currencyField) return null
 
-  const currencyMapping = registry.getFieldMapping(options.entityType, config.currencyField)
-  if (!currencyMapping || !isSafeIdentifier(currencyMapping.dbColumn)) return null
+  const currencyMapping = registry.getFieldMapping(options.entityType, currencyField)
+  if (!currencyMapping) return null
+  const currencyColumn = assertSafeIdentifier(readOwnProperty(currencyMapping, 'dbColumn'), 'currency column')
 
+  const tableName = resolveTableName(config)
   const where = buildWhereClause(options)
-  const normalizedCurrencyExpression = `UPPER(NULLIF(BTRIM(${currencyMapping.dbColumn}), ''))`
+  const normalizedCurrencyExpression = `UPPER(NULLIF(BTRIM(${currencyColumn}), ''))`
   const sql = [
     `SELECT DISTINCT ${normalizedCurrencyExpression} AS code`,
-    `FROM ${resolveTableName(config)}`,
+    `FROM ${tableName}`,
     where.clause,
     'LIMIT 2',
   ]
@@ -316,6 +331,15 @@ export function buildDistinctCurrencyQuery(
     .join(' ')
 
   return { sql, params: where.params }
+}
+
+export const MAX_WIDGET_GROUPS = 100
+const MAX_CALENDAR_WIDGET_GROUPS = 366
+
+export function resolveWidgetGroupLimit(limit: number | undefined, calendarRange = false): number {
+  return typeof limit === 'number' && Number.isInteger(limit) && limit > 0
+    ? Math.min(limit, MAX_WIDGET_GROUPS)
+    : calendarRange ? MAX_CALENDAR_WIDGET_GROUPS : MAX_WIDGET_GROUPS
 }
 
 export function buildAggregationQuery(options: BuildAggregationQueryOptions): AggregationQuery | null {
@@ -327,7 +351,8 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
   if (!metricMapping) return null
 
   const tableName = resolveTableName(config)
-  const aggregateExpr = buildAggregateExpression(options.metric.aggregate, metricMapping.dbColumn)
+  const metricColumn = assertSafeIdentifier(readOwnProperty(metricMapping, 'dbColumn'), 'column name')
+  const aggregateExpr = buildAggregateExpression(options.metric.aggregate, metricColumn)
 
   let selectClause = `SELECT ${aggregateExpr} AS value`
   let groupByClause = ''
@@ -345,9 +370,9 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
       // encrypted path can mirror the same ordering (#4622).
       orderByClause = `ORDER BY value DESC NULLS LAST`
 
-      if (options.groupBy.limit && options.groupBy.limit > 0) {
-        limitClause = `LIMIT ${Math.min(options.groupBy.limit, 100)}`
-      }
+      const calendarRange = Boolean(options.groupBy.granularity && options.dateRange?.field === options.groupBy.field)
+      const limit = resolveWidgetGroupLimit(options.groupBy.limit, calendarRange)
+      limitClause = `LIMIT ${limit + (options.groupBy.limit === undefined ? 1 : 0)}`
     }
   }
 
@@ -380,14 +405,14 @@ export function buildGroupSourceRowsQuery(options: BuildGroupSourceRowsQueryOpti
   const metricMapping = registry.getFieldMapping(options.entityType, options.metric.field)
   if (!metricMapping) return null
 
-  if (!isSafeIdentifier(options.groupColumn)) {
-    throw new Error(`Invalid group column: ${options.groupColumn}`)
-  }
+  const groupColumn = assertSafeIdentifier(options.groupColumn, 'group column')
+  const metricColumn = assertSafeIdentifier(readOwnProperty(metricMapping, 'dbColumn'), 'column name')
+  const tableName = resolveTableName(config)
 
   const where = buildWhereClause(options)
   const sql = [
-    `SELECT ${options.groupColumn} AS group_source, ${metricMapping.dbColumn} AS metric_value`,
-    `FROM ${resolveTableName(config)}`,
+    `SELECT ${groupColumn} AS group_source, ${metricColumn} AS metric_value`,
+    `FROM ${tableName}`,
     where.clause,
     `LIMIT ${Math.max(1, Math.floor(options.rowLimit)) + 1}`,
   ]

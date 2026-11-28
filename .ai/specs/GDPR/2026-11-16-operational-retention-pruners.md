@@ -58,9 +58,9 @@ The windows are installation-wide. `*` marks an existing worker that this spec s
 | `indexer_error_logs` | query_index | all (`occurred_at`) | 30 d | `OM_QUERY_INDEX_INDEXER_ERROR_LOGS_RETENTION_DAYS` |
 | `progress_jobs` | progress | `completed`, `failed`, `cancelled` (`finished_at`); a parent only once no child rows remain | 90 d | `OM_PROGRESS_PROGRESS_JOBS_RETENTION_DAYS` |
 | `sync_runs` | data_sync | `completed`, `failed`, `cancelled`, soft-deleted included (`updated_at`) | 90 d | `OM_DATA_SYNC_SYNC_RUNS_RETENTION_DAYS` |
-| `channel_ingest_dead_letters` | communication_channels | all (`created_at`) | 90 d | `OM_COMMUNICATION_CHANNELS_CHANNEL_INGEST_DEAD_LETTERS_RETENTION_DAYS` |
+| `channel_ingest_dead_letters` | communication_channels | all (`created_at`) | 30 d | `OM_COMMUNICATION_CHANNELS_CHANNEL_INGEST_DEAD_LETTERS_RETENTION_DAYS` |
 | `sync_excel_uploads` (`sample_rows` hold imported people data) with its stored file | sync_excel | all (`created_at`); the file is deleted through the attachments service | 30 d | `OM_SYNC_EXCEL_SYNC_EXCEL_UPLOADS_RETENTION_DAYS` |
-| `rule_execution_logs` (`input_context`/`output_context` copy record data) | business_rules | all (`executed_at`) | 90 d | `OM_BUSINESS_RULES_RULE_EXECUTION_LOGS_RETENTION_DAYS` |
+| `rule_execution_logs` (`input_context`/`output_context` copy record data) | business_rules | all (`executed_at`) | 30 d | `OM_BUSINESS_RULES_RULE_EXECUTION_LOGS_RETENTION_DAYS` |
 | `message_channel_links` | communication_channels | **clear** `channel_payload` on inbound links, and on outbound links not `pending` or `queued` (`created_at`) | 90 d | `OM_COMMUNICATION_CHANNELS_MESSAGE_CHANNEL_LINKS_RETENTION_DAYS` |
 | `gateway_transactions` | payment_gateways | **clear** `gateway_metadata`, `client_secret`, `redirect_url` on `failed`, `cancelled`, `expired` (`updated_at`) | 90 d | `OM_PAYMENT_GATEWAYS_GATEWAY_TRANSACTIONS_RETENTION_DAYS` |
 | `inbox_emails` | inbox_ops | **clear** `raw_text`, `raw_html`, `cleaned_text`, `thread_messages` on `processed` or `failed` emails with no `pending` or `partial` proposal (`updated_at`) | 90 d | `OM_INBOX_OPS_INBOX_EMAILS_RETENTION_DAYS` |
@@ -74,6 +74,8 @@ The windows are installation-wide. `*` marks an existing worker that this spec s
 | `forms_form_submission` with its revisions, uploads and invitations | forms* | past the form's own `retention_days` | per form | `OM_FORMS_SUBMISSION_RETENTION_ENABLED` (default `true`) |
 
 **Variables.** Each name is built mechanically: `OM_<MODULE>_<TABLE>_RETENTION_DAYS`. A rule that covers only part of a table uses a name for that part (`AI_CHAT_DRAFTS`). If a variable is unset or empty, its default applies. `0` turns the rule off. A positive integer sets the window in days. Any other value falls back to the default, and each process logs the variable's name once, without its value. The existing `AI_TOKEN_USAGE_EVENTS_RETENTION_DAYS`, `AI_AGENT_RUNS_RETENTION_DAYS` and `AUDIT_LOGS_*` variables do not change. Setting the log window below 30 days shortens the integrations analytics view, which covers 30 days (`integrations/lib/log-service.ts:204`).
+
+**Why 30 days for copies.** A table that copies a person's data and is not cleared by that person's erasure defaults to at most 30 days, the one-month answer period of Art. 12(3): webhook deliveries and ingestions, push deliveries, integration and indexer logs, Excel upload samples, dead letters and rule execution logs. Tables the erasure handlers clear per person (`message_channel_links`, `gateway_transactions`, `inbox_emails`) keep 90 days. Read notifications (90 days) and moderation flags (365 days) keep longer windows because staff and abuse review read them; the deployment docs list both as copies an erasure does not remove.
 
 **Already bounded, listed in the docs only:** `ai_token_usage_events` (90 d), `ai_agent_runs` with their steps and tool calls (30 d), `gateway_session_initializations` (expired claims), carts with their `cart_idempotency_keys` (90 d after resolution, `cart/lib/sweepers.ts:246`), `access_logs`.
 
@@ -135,7 +137,7 @@ The attachments handler selects candidates in pages of 100: `entity_id = 'ai-cha
 
 ### Business records
 
-CRM people and companies, sales documents, form content within a form's period, messages, attachments and staff records are kept for a period the controller chooses. Every OSS module already supports deletion through its UI and API. Erasure on request and tenant-set retention of business records are handled by the Enterprise `privacy` module ([DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md)) through the `pruneExpired` handler in the [contract](2026-11-16-privacy-data-class-contract.md). The action-log age bound is also Enterprise (#2980). The age limits on Enterprise tables (sudo sessions, MFA challenges, SCIM log, agent-orchestrator traces) are in [privacy-coverage-enterprise](../enterprise/GDPR/2026-11-16-privacy-coverage-enterprise.md). The [deployment docs](2026-11-16-gdpr-deployment-docs.md) publish the full window table, including the already-bounded tables, and the procedure for reviewing inactive subjects.
+CRM people and companies, sales documents, form content within a form's period, messages, attachments and staff records are kept for a period the controller chooses. Every OSS module already supports deletion through its UI and API. Live AI chat conversations, which can quote CRM records, end by the tenant's `ai_assistant.retention.conversationDays` ([privacy-coverage](2026-11-16-privacy-coverage.md), AI conversation retention). Erasure on request and tenant-set retention of business records are handled by the Enterprise `privacy` module ([DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md)) through the `pruneExpired` handler in the [contract](2026-11-16-privacy-data-class-contract.md). The action-log age bound is also Enterprise (#2980). The age limits on Enterprise tables (sudo sessions, MFA challenges, SCIM log, agent-orchestrator traces) are in [privacy-coverage-enterprise](../enterprise/GDPR/2026-11-16-privacy-coverage-enterprise.md). The [deployment docs](2026-11-16-gdpr-deployment-docs.md) publish the full window table, including the already-bounded tables, and the procedure for reviewing inactive subjects.
 
 ### Alternatives considered
 
@@ -330,3 +332,4 @@ Ready for implementation. Phase 5 waits for the forms full-erasure mode in priva
 
 ### 2026-11-20
 - Rewritten to minimal GDPR scope.
+- Post-minimization review: dead letters and rule execution logs default to 30 days, so copies an erasure does not clear stay within the one-month answer period; pointer to the AI conversation retention setting.

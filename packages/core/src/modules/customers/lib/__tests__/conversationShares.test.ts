@@ -208,16 +208,32 @@ describe('loadLiveInteractionAuthority', () => {
     expect(where).toMatchObject({ tenantId: 'tenant-1' })
   })
 
-  it('caps the resolved set at LIVE_INTERACTION_ARM_MAX', async () => {
-    const many = Array.from({ length: LIVE_INTERACTION_ARM_MAX + 25 }, (_v, i) => ({
-      id: `int-${i}`,
-      visibility: 'private',
+  it.each([499, 500, 501, 1001])('resolves every requested interaction across bounded batches (%s rows)', async (count) => {
+    const rows = Array.from({ length: count }, (_value, index) => ({
+      id: `int-${index}`,
+      visibility: 'shared',
       authorUserId: 'owner-1',
       channelId: null,
     }))
-    const find = jest.fn(async () => many)
-    const ids = many.map((row) => row.id)
-    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, ids)
-    expect(result.size).toBe(LIVE_INTERACTION_ARM_MAX)
+    const find = jest.fn(async (_entity: unknown, where: { id: { $in: string[] } }) =>
+      rows.filter((row) => where.id.$in.includes(row.id)),
+    )
+    const result = await loadLiveInteractionAuthority(em({ find }), SCOPE, rows.map((row) => row.id))
+    expect([...result.keys()]).toEqual(rows.map((row) => row.id))
+    expect(result.get(`int-${count - 1}`)?.visibility).toBe('shared')
+    expect(find).toHaveBeenCalledTimes(Math.ceil(count / LIVE_INTERACTION_ARM_MAX))
+    for (const [, where] of find.mock.calls) {
+      expect(where.id.$in.length).toBeLessThanOrEqual(LIVE_INTERACTION_ARM_MAX)
+      expect(where).toMatchObject({ tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, deletedAt: null })
+    }
+  })
+
+  it('fails closed for every batch when a later batch lookup fails', async () => {
+    const ids = Array.from({ length: 501 }, (_value, index) => `int-${index}`)
+    const find = jest.fn()
+      .mockResolvedValueOnce([{ id: ids[0], visibility: 'shared', authorUserId: 'owner-1' }])
+      .mockRejectedValueOnce(new Error('[internal] authority lookup failed'))
+    await expect(loadLiveInteractionAuthority(em({ find }), SCOPE, ids)).resolves.toEqual(new Map())
+    expect(find).toHaveBeenCalledTimes(2)
   })
 })

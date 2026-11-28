@@ -7,6 +7,7 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { useMessageCompose } from '../useMessageCompose'
+import { flash } from '../../FlashMessages'
 import { apiCall, withScopedApiRequestHeaders } from '../../utils/apiCall'
 import type { MessageSenderOption } from '../message-composer.types'
 
@@ -136,6 +137,24 @@ describe('useMessageCompose sender selection', () => {
     const payload = await submitAndReadPayload(() => result.current.handleSubmit())
 
     expect(payload.senderChannelId).toBe('mailbox-other')
+  })
+
+  it('warns about unconfirmed delivery and completes the submission with the saved message', async () => {
+    const onSuccess = jest.fn()
+    const saved = { id: 'message-1', threadId: 'thread-1', deliveryEnqueueStatus: 'unconfirmed' }
+    mockApiCall((url) => url === '/api/messages' ? { ok: true, status: 201, result: saved } : null)
+    const { result } = renderHook(
+      () => useMessageCompose({ variant: 'compose', inline: true, senderOptions, onSuccess }),
+      { wrapper: createWrapper() },
+    )
+    await fillExternalCompose(result)
+    act(() => result.current.setSenderChannelId('mailbox-other'))
+    await submitAndReadPayload(() => result.current.handleSubmit())
+
+    expect(flash).toHaveBeenCalledWith('Message saved. Delivery could not be confirmed.', 'warning')
+    expect(onSuccess).toHaveBeenCalledWith({ id: saved.id, deliveryEnqueueStatus: 'unconfirmed' })
+    await expect(result.current.handleSubmit()).resolves.toBe(false)
+    expect((apiCall as jest.Mock).mock.calls.filter(([url, init]) => url === '/api/messages' && init?.method === 'POST')).toHaveLength(1)
   })
 
   it('drops a mailbox that is no longer offered', async () => {

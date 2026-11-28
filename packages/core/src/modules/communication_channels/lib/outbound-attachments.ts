@@ -4,6 +4,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { MAILBOX_ATTACHMENT_COUNT_LIMIT } from '@open-mercato/shared/modules/messages/compose-payload'
 import {
   getAttachmentExtension,
   hasDangerousExecutableExtension,
@@ -25,7 +26,7 @@ const logger = createLogger('communication_channels').child({ component: 'outbou
  */
 
 export const OUTBOUND_ATTACHMENTS_METADATA_KEY = 'outboundAttachments'
-export const OUTBOUND_ATTACHMENTS_MAX_COUNT = 10
+export const OUTBOUND_ATTACHMENTS_MAX_COUNT = MAILBOX_ATTACHMENT_COUNT_LIMIT
 export const OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES = EMAIL_MAX_ATTACHMENT_BYTES
 
 // Control and bidirectional-override characters let a name display as
@@ -173,6 +174,13 @@ function totalLimitBytes(capabilities: ChannelCapabilities): number {
   return capabilities.maxTotalBytes ?? OUTBOUND_ATTACHMENTS_MAX_TOTAL_BYTES
 }
 
+function countLimit(capabilities: ChannelCapabilities): number {
+  const limit = capabilities.maxAttachmentCount ?? OUTBOUND_ATTACHMENTS_MAX_COUNT
+  return Number.isSafeInteger(limit) && limit >= 0
+    ? Math.min(limit, OUTBOUND_ATTACHMENTS_MAX_COUNT)
+    : OUTBOUND_ATTACHMENTS_MAX_COUNT
+}
+
 function isAllowedMimeType(capabilities: ChannelCapabilities, mimeType: string): boolean {
   const allowed = capabilities.supportedMimeTypes
   if (!allowed || allowed.length === 0) return true
@@ -182,6 +190,7 @@ function isAllowedMimeType(capabilities: ChannelCapabilities, mimeType: string):
 async function fail(
   code: OutboundAttachmentErrorCode,
   limitBytes = 0,
+  max = OUTBOUND_ATTACHMENTS_MAX_COUNT,
 ): Promise<ValidateOutboundAttachmentsResult> {
   const { t } = await resolveTranslations()
   const message = ERROR_MESSAGES[code]
@@ -190,7 +199,7 @@ async function fail(
     ok: false,
     status: 422,
     code,
-    error: t(message.key, message.fallback, { max: OUTBOUND_ATTACHMENTS_MAX_COUNT, limit }),
+    error: t(message.key, message.fallback, { max, limit }),
   }
 }
 
@@ -285,7 +294,8 @@ export async function validateOutboundAttachments(input: {
   const { refs, capabilities } = input
   if (refs.length === 0) return { ok: true, stored: [] }
   if (!capabilities.fileSharing) return fail('attachments_unsupported')
-  if (refs.length > OUTBOUND_ATTACHMENTS_MAX_COUNT) return fail('too_many_attachments')
+  const max = countLimit(capabilities)
+  if (refs.length > max) return fail('too_many_attachments', 0, max)
   if (new Set(refs.map((ref) => ref.attachmentId)).size !== refs.length) return fail('duplicate_attachment')
 
   const attachmentService = resolveAttachmentService(input.container)
@@ -363,6 +373,7 @@ export async function loadOutboundAttachments(input: {
   const { stored, capabilities } = input
   if (stored.length === 0) return []
   if (!capabilities.fileSharing) throw new OutboundAttachmentDeliveryError('attachments_unsupported')
+  if (stored.length > countLimit(capabilities)) throw new OutboundAttachmentDeliveryError('attachments_too_large')
   const attachmentService = resolveAttachmentService(input.container)
   if (!attachmentService) throw new OutboundAttachmentDeliveryError('attachment_unavailable')
 

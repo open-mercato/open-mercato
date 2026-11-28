@@ -6,7 +6,15 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(async () => []),
-  findOneWithDecryption: jest.fn(async () => null),
+  findOneWithDecryption: jest.fn(async (...args: unknown[]) => {
+    const [em, entity, where, options] = args as [
+      { findOne: (entity: unknown, where: unknown, options?: unknown) => Promise<unknown> },
+      unknown,
+      unknown,
+      unknown,
+    ]
+    return em.findOne(entity, where, options)
+  }),
 }))
 
 import '@open-mercato/core/modules/customers/commands'
@@ -128,5 +136,23 @@ describe('customers.people.update — optimistic-lock version (#8643)', () => {
     const { person } = await runUpdate({})
 
     expect(person.updatedAt).toBe(LOADED_VERSION)
+  })
+
+  it('advances updatedAt when undo restores only profile fields (#7042)', async () => {
+    const person = makePerson()
+    const profile = { ...makeProfile(), company: null, jobTitle: 'Team Lead' }
+    const ctx = makeCtx(makeEm(person, profile))
+    const handler = commandRegistry.get('customers.people.update') as CommandHandler
+    const before = {
+      entity: { ...person },
+      profile: { ...profile, jobTitle: 'Engineer' },
+      tagIds: [],
+      custom: {},
+    }
+
+    await handler.undo!({ logEntry: { commandPayload: { undo: { before, after: null } } }, ctx } as never)
+
+    expect(profile.jobTitle).toBe('Engineer')
+    expect(person.updatedAt.getTime()).toBeGreaterThan(LOADED_VERSION.getTime())
   })
 })

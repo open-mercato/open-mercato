@@ -17,6 +17,7 @@
   "notifications.error.actionCommandNotAllowed": "Akcje powiadomień utworzone przez API nie mogą uruchamiać poleceń",
   "notifications.error.actionForbidden": "Nie masz uprawnień do wykonania tej akcji powiadomienia",
   "notifications.error.load": "Nie udało się załadować powiadomień",
+  "notifications.error.markAllRead": "Nie udało się oznaczyć powiadomień jako przeczytane. Spróbuj ponownie.",
   "notifications.filters.actionRequired": "Wymagana akcja",
   "notifications.filters.all": "Wszystkie",
   "notifications.filters.unread": "Nieprzeczytane",

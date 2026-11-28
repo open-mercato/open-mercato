@@ -2,6 +2,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { ensureRoles } from '@open-mercato/core/modules/auth/lib/setup-app'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { FeatureToggle } from '@open-mercato/core/modules/feature_toggles/data/entities'
 import features from '../acl'
 import setup from '../setup'
 import {
@@ -26,6 +27,15 @@ const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<t
 
 const ACL_FEATURE_IDS = features.map((feature) => feature.id)
 
+function createEm(registeredEntities: unknown[] = [FeatureToggle]) {
+  return {
+    persist: jest.fn(),
+    create: jest.fn(),
+    flush: jest.fn().mockResolvedValue(undefined),
+    getMetadata: () => ({ find: (entity: unknown) => (registeredEntities.includes(entity) ? { className: 'FeatureToggle' } : undefined) }),
+  }
+}
+
 describe('wms setup seedDefaults', () => {
   beforeEach(() => {
     mockEnsureRoles.mockClear()
@@ -34,11 +44,7 @@ describe('wms setup seedDefaults', () => {
   })
 
   it('calls ensureRoles with operator and supervisor for the tenant', async () => {
-    const em = {
-      persist: jest.fn(),
-      create: jest.fn(),
-      flush: jest.fn().mockResolvedValue(undefined),
-    } as unknown as EntityManager
+    const em = createEm() as unknown as EntityManager
     const tenantId = 'tenant-abc'
 
     await setup.seedDefaults?.({ em, tenantId, organizationId: 'org-1', container: {} as never })
@@ -52,11 +58,7 @@ describe('wms setup seedDefaults', () => {
   })
 
   it('re-invokes ensureRoles on each seedDefaults run (ensureRoles handles idempotency)', async () => {
-    const em = {
-      persist: jest.fn(),
-      create: jest.fn(),
-      flush: jest.fn().mockResolvedValue(undefined),
-    } as unknown as EntityManager
+    const em = createEm() as unknown as EntityManager
     const tenantId = 'tenant-repeat'
     const ctx = { em, tenantId, organizationId: 'org-1', container: {} as never }
 
@@ -68,6 +70,39 @@ describe('wms setup seedDefaults', () => {
       tenantId,
       roleNames: ['operator', 'supervisor'],
     })
+  })
+})
+
+describe('wms setup seedDefaults without the feature_toggles module (#9216)', () => {
+  beforeEach(() => {
+    mockEnsureRoles.mockClear()
+    mockFindOneWithDecryption.mockClear()
+    mockFindOneWithDecryption.mockResolvedValue(null)
+  })
+
+  it('skips the integration toggle seed and still seeds the WMS roles', async () => {
+    const em = createEm([])
+    const tenantId = 'tenant-no-toggles'
+
+    await setup.seedDefaults?.({ em: em as unknown as EntityManager, tenantId, organizationId: 'org-1', container: {} as never })
+
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.persist).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(mockEnsureRoles).toHaveBeenCalledWith(em, { tenantId, roleNames: ['operator', 'supervisor'] })
+  })
+
+  it('seeds the missing integration toggles when the module is enabled', async () => {
+    const em = createEm()
+
+    await setup.seedDefaults?.({ em: em as unknown as EntityManager, tenantId: 'tenant-toggles', organizationId: 'org-1', container: {} as never })
+
+    expect(mockFindOneWithDecryption).toHaveBeenCalledTimes(3)
+    expect(em.create).toHaveBeenCalledTimes(3)
+    expect(em.create.mock.calls.every(([entity]) => entity === FeatureToggle)).toBe(true)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(mockEnsureRoles).toHaveBeenCalledTimes(1)
   })
 })
 

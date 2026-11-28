@@ -4,7 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { User, PasswordReset } from '@open-mercato/core/modules/auth/data/entities'
-import { sendEmail } from '@open-mercato/shared/lib/email/send'
+import { sendStaffCredentialEmail } from '@open-mercato/core/modules/auth/lib/sendStaffCredentialEmail'
 import InviteUserEmail from '@open-mercato/core/modules/auth/emails/InviteUserEmail'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
@@ -175,7 +175,7 @@ export async function POST(req: Request) {
 
   let emailSent = true
   try {
-    await sendEmail({
+    await sendStaffCredentialEmail(em, String(user.id), {
       to: user.email,
       subject,
       react: InviteUserEmail({ inviteUrl, copy }),

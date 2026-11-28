@@ -9,9 +9,9 @@
 | | Before | After |
 |---|---:|---:|
 | Child specs | 41 | 8 (6 OSS, 2 Enterprise), plus the program |
-| Spec lines (GDPR folders, incl. program) | ~21,500 | ~2,400 |
+| Spec lines (GDPR folders, incl. program) | ~21,500 | ~2,400 (~2,650 after the post-minimization review) |
 | Pre-existing specs edited by the branch | 9 | 0. Reverted to `main`; the only kept edit is a one-line *Superseded by* note on `enterprise/2026-07-08-gdpr-data-erasure.md` |
-| Work packages | 60+ across 7 tracks | 11 |
+| Work packages | 60+ across 7 tracks | 12 (WP12 added by the [post-minimization review](#post-minimization-review)) |
 
 **Why the drafts grew.** Repeated review rounds added machinery for edge cases the law does not require: legal-hold fences, erasure journals and confirmation tokens, restore-replay manifests, evidence-expiry clocks for evidence records, compatibility bridges spanning several minors, lookup-hash rehash programs, store-scanning verification suites and closure-evidence registers. The minimal program keeps every legally required capability and drops that machinery.
 
@@ -149,8 +149,8 @@ Verification note: EUR-Lex pages were checked in a browser session (EUR-Lex bloc
 | enterprise/GDPR/…-erasure-restore-replay (C9) | 578 | Cut → procedure | T1-P | Deployment docs: erasure register + re-run after restore |
 | enterprise/GDPR/…-processing-restriction-and-objection (C10) | 177 | Folded | T1-P | Deployment docs: Art. 18/21 procedure |
 | GDPR/…-portal-privacy-self-service (C7) | 553 | Deferred | T3 | Docs: portal users ask the tenant; staff run export/erase |
-| GDPR/…-portal-email-change | 467 | Deferred | T3 | Docs: staff-assisted correction (Art. 16) |
-| GDPR/…-tenant-exit-export (C8) | 435 | Cut → procedure + small command | T1-P | Docs tenant-offboarding page; `privacy purge-tenant` in Enterprise spec |
+| GDPR/…-portal-email-change | 467 | Narrowed (review) | T1 staff slice / T3 self-service | Staff email change in `privacy-coverage` Phase 7 (WP12); self-service change, takeover recovery and credential fences deferred |
+| GDPR/…-tenant-exit-export (C8) | 435 | Narrowed (review) | T1 | Docs tenant-offboarding page; `privacy export-tenant` (decrypting, one deny-list, no per-module readers) and `privacy purge-tenant` in the Enterprise spec |
 | GDPR/…-audit-snapshot-redaction (C2) | 427 | Rewritten (slim) | T1 (Art. 32) | Same file; owns `stripped_at` + `stripForResources` |
 | GDPR/…-command-audit-credential-check | 242 | Cut | T3 | — (report-only matcher, no protection) |
 | GDPR/…-runtime-encryption-key-guard (A1/A2) | 612 | Rewritten (A1 only + Compose defaults) | T1 (Art. 32) | Same file; A2 enforce flip → security backlog |
@@ -162,8 +162,8 @@ Verification note: EUR-Lex pages were checked in a browser session (EUR-Lex bloc
 | GDPR/2026-11-18-crud-response-cache-encryption (B9) | 82 | Moved out | T2 | Security backlog; erase run invalidates CRUD cache tags |
 | GDPR/…-operational-retention-pruners (D1/D2) | 564 | Rewritten | T1 | Same file = the single OSS retention spec |
 | GDPR/…-forms-retention-scheduling | 259 | Merged | T1 | Retention spec |
-| GDPR/…-privacy-record-retention (D3) | 712 | Merged | T1 | Retention spec (notifications, AI chats); business records → Enterprise runner |
-| GDPR/…-inactive-subject-retention | 488 | Folded | T1-P | Docs: periodic review procedure |
+| GDPR/…-privacy-record-retention (D3) | 712 | Merged | T1 | Retention spec (notifications, soft-deleted AI chats); live AI conversations → tenant setting in `privacy-coverage` (review); business records → Enterprise runner |
+| GDPR/…-inactive-subject-retention | 488 | Folded | T1-P review / T1 bulk execution | Docs: periodic review procedure; batch erasure in the Enterprise spec carries out its result (review); last-activity tracking and candidate lists deferred |
 | GDPR/…-access-log-retention (D4) | 322 | Cut | not required | Access logs already bounded inline (7 d / 8 h) |
 | enterprise/GDPR/…-action-log-retention | 439 | Merged | T1 | Enterprise runner: `audit_logs` class `pruneExpired` (#2980) |
 | enterprise/GDPR/…-operational-retention-enterprise | 190 | Merged | T1 | Enterprise coverage spec |
@@ -173,17 +173,17 @@ Verification note: EUR-Lex pages were checked in a browser session (EUR-Lex bloc
 | GDPR/…-ai-model-input-minimisation | 161 | Folded | T1-P | Docs: "what the assistant sends to a model" |
 | GDPR/…-privacy-doctor-cli (G4) | 533 | Cut | T3 | Docs hardening checklist |
 | GDPR/…-privacy-ropa-generator (G3) | 428 | Folded | T1-P | Docs: Art. 30(1)/(2) templates + per-module table |
-| GDPR/…-privacy-verification-suite (G6) | 495 | Cut | T3 | Per-handler integration tests + one end-to-end erase test |
+| GDPR/…-privacy-verification-suite (G6) | 495 | Narrowed (review) | T1 enabler | Per-handler integration tests, the end-to-end erase test and its column-level residue scan `TC-PRIVACY-016`; the operator scan command and queue, hash and network-id scanning deferred |
 | GDPR/…-gdpr-deployment-docs (G5) | 238 | Rewritten (absorbs procedures) | T1 / T1-P | Same file |
 | enterprise/GDPR/…-security-event-alerting (G2) | 634 | Moved out | T3 | Security backlog |
 | enterprise/GDPR/2026-11-18-authentication-lifecycle-audit (G1b) | 121 | Moved out | T2 | Security backlog (password/MFA changes already in action log) |
-| GDPR/…-export-audit-event | 344 | Moved out | T2/T3 | Security backlog |
+| GDPR/…-export-audit-event | 344 | Narrowed | T1 one entry / T2 rest | One `data.export` action-log entry per server-side export in `audit-snapshot-redaction` §7 (WP10); the rest → security backlog |
 
 ### Pre-existing specs edited by the branch — reverted to `main`
 
 | Spec | Why reverted |
 |---|---|
-| `2026-06-15-tenant-scoped-search-settings.md` | Coupled to the cut settings service. The cross-tenant embedding-config runtime gap it recorded is real; file it as a search bug |
+| `2026-06-15-tenant-scoped-search-settings.md` | Coupled to the cut settings service. The cross-tenant embedding-config runtime gap it recorded is real and tracked as #9135 |
 | `2026-06-17-form-to-deals.md` | Added reason gating, projection tables and C4/C5/C8 hooks (T3). The non-GDPR refresh in that diff (forms in core, module placement) belongs in its own PR; recover it from `d3e5a87243` |
 | `2026-07-24-search-architecture-clarification-and-evolution.md` | Rewrote historical changelog entries. Its route-path and env-var corrections are true but unrelated; send them as a docs PR |
 | `2026-10-29-production-content-security-policy.md` | Added the consent gate (T3) and rewrote changelog history |
@@ -195,20 +195,22 @@ Verification note: EUR-Lex pages were checked in a browser session (EUR-Lex bloc
 
 ## Moved out: Art. 32 security backlog (file as ordinary issues)
 
+Tracker status is in the [post-minimization review](#post-minimization-review).
+
 None of these is a specific GDPR obligation; each is risk-based hardening. The drafts at `d3e5a87243` hold the analysis.
 
 - KMS fail-closed on Vault outage (#2241) and rows sealed under the fallback key.
 - Weak or unset tenant key: the warn-to-enforce flip; lookup-secret refusal and rehash tooling.
 - Encryption-map coverage and backfill for unmapped columns (#3854, #7593, #7644, webhook payloads, notification bodies, attachment names/OCR, comm-channel copies, `sso.idp_email`).
 - Encrypted-read correctness bugs (#2115, #5447, #7048, #5845, #5870, #7691, #6002).
-- Search: tenant-keyed token hashing, vector display reseal, default `SEARCH_EXCLUDE_ENCRYPTED_FIELDS=true`. Includes a **bug**: with the flag on, company `display_name`/`description` still reach Meilisearch.
+- Search: tenant-keyed token hashing, vector display reseal, default `SEARCH_EXCLUDE_ENCRYPTED_FIELDS=true` (#10175). The draft's claimed company-name leak with the flag on was not reproduced from the code (see the review).
 - Queue payload sealing and id-only address jobs. The failed-job age bound stays in WP7.
 - CRUD response cache encryption at rest. The erasure run invalidates cache tags in WP6.
 - HSTS / Permissions-Policy headers; Next.js telemetry off in the template.
 - Auth hardening (bcrypt cost, lockout, shared rate limiter #5083/#4184), staff MFA in OSS, portal MFA (#7345). MFA is recommended by ENISA/CNIL but not mandated.
 - S3 server-side encryption option; logger PII redaction; New Relic attribute filtering.
 - Security-event alerting; authentication lifecycle audit receipts.
-- Possible cross-site acceptance on portal profile/password writes (claimed by the deferred portal spec; verify, then file).
+- Possible cross-site acceptance on portal profile/password writes (claimed by the deferred portal spec). Checked and not filed: the portal session cookies are `SameSite=Lax`.
 
 ## Deferred conveniences (T3)
 
@@ -228,3 +230,51 @@ Portal self-service download/delete and portal email change; consent-gate hook a
 - **Breach register template, Art. 33(2) processor notice, Art. 15(1) supplementary information, Art. 30(2) processor record**: now in the docs.
 - **Export audit for breach scoping**: one action-log entry per server-side export (WP10), specified in `GDPR/2026-11-16-audit-snapshot-redaction.md` §7.
 - **Consent text version** (Art. 7(1)): carried by the 08-18 spec's Phase 3 consent ledger (WP9). That carrier attaches no document to marketing consent, which onboarding collects today, so the program adds one requirement: record the label key and a hash of the rendered label text.
+
+<a id="post-minimization-review"></a>
+## Post-minimization review (2026-11-20)
+
+The minimal set was compared with the 41-spec draft (`d3e5a87243`; the GDPR folders are identical at `b0304f2986`) and checked against the legal baseline above and the code. Verdict: the minimization removed machinery, not legally required capability, and no draft spec comes back whole. Six gaps were closed by narrow additions. Three of them (consent withdrawal, AI transcripts, bulk erasure) contradicted this record's own baseline. Consent withdrawal and bulk erasure were missing from the draft too.
+
+| # | Gap | Legal basis (baseline row) | Evidence | Change | Carrier |
+|---|---|---|---|---|---|
+| 1 | No way to withdraw consent | Art. 7(3); EDPB 05/2020 §114 (row 8) | Onboarding records `marketing_email` from one checkbox (`onboarding/api/get/onboarding/verify.ts:247`); `auth/api/users/consents/route.ts` is read-only; the 08-18 carrier ships "no withdraw UI" | Profile toggle and admin "Record withdrawal", both through `consentLogService.record` | Program WP9, second required addition |
+| 2 | AI chat transcripts never end | Art. 17, 5(1)(e) (rows 1 and 4 name "AI-assistant histories") | `ai_chat_messages.content` and `ui_parts` copy tool output with CRM records; only soft-deleted chats were pruned | Tenant `ai_assistant.retention.conversationDays` with `pruneExpired`, run by the Enterprise runner | `privacy-coverage`, AI conversation retention |
+| 3 | No bulk erasure | Art. 5(1)(e), Recital 39 (row 1(i): delete "in bulk by criteria") | Erasure took one subject per run; bulk delete refuses people with deals (`PERSON_HAS_DEPENDENTS`) | Batch erasure from a reviewed `kind:id` list | DSR engine, Batch erasure |
+| 4 | No usable tenant return | Art. 28(3)(g) (row 11) | Field encryption is on by default, so a database dump is ciphertext | `privacy export-tenant`: decrypted NDJSON, files, manifest, secrets left out | DSR engine, Tenant export |
+| 5 | Portal sign-in email cannot be corrected | Art. 16, 5(1)(d) | Neither admin nor portal route changes it; a replacement account detaches orders and claims | Staff "Change sign-in email" with re-verification | `privacy-coverage` Phase 7 (WP12) |
+| 6 | Erasure is only checked per table | Art. 17 (row 4) | The coverage test checks that tables are claimed; the closure test checks APIs only | Column-level residue scan `TC-PRIVACY-016` in the closure gate | DSR engine, Integration Coverage |
+
+Docs-only fixes: the Recital 67 caveat on the restriction procedure (from the draft's C10 Known limits); a retention rule for erasure-register reports; a list of copies an erasure does not remove; a decrypted export instead of a dump at tenant exit. Defaults: dead letters and rule execution logs drop from 90 to 30 days, so every uncleared copy stays within the one-month answer period. The disposition rows above are updated, including the export audit event, which WP10 keeps.
+
+Not reopened: Art. 18 stays a procedure. The draft's C10 had already chosen a procedure (its DEC-8) after weighing a record freeze and full technical restriction.
+
+**Tracker status of the moved-out items** (searched, verified against the code and filed 2026-11-20):
+
+| Item | Issue |
+|---|---|
+| KMS fallback on Vault outage | #2241 |
+| Unencrypted PII columns | #3854 (TOTP), #7593 (webhook headers), #7644 (AI backfill) |
+| Encrypted custom fields in search | #7872 |
+| Tenant embedding settings shared across tenants | #9135 |
+| Shared rate limiter | #5083, #4184 |
+| Portal MFA | #7345 |
+| Durable audit of sensitive operations | #7972 (partial) |
+| HSTS and Permissions-Policy headers | #10174 |
+| Decrypted values in Meilisearch by default (`SEARCH_EXCLUDE_ENCRYPTED_FIELDS` off) | #10175 |
+| Unset tenant key: production writes plaintext through `NoopKmsService` | #10176 |
+| Lookup-hash re-keying after a pepper change | #10177 |
+| Queue payloads in plaintext | #10178 |
+| CRUD response cache in plaintext | #10179 |
+| New Relic request parameters and log forwarding | #10180 |
+| Security-event alerting (Enterprise) | #10181 |
+| WP8 marketing suppression | #7700 (`do_not_contact` / `do_not_email`, "blocks all outreach") with the 10-22 spec |
+
+Not filed, after checking the code:
+- **Company name and description reach Meilisearch with the exclusion on.** Not reproduced: the company search record is the `customer_companies` row, which has no top-level `display_name` or `description`; the entity is hydrated only for the embedding text.
+- **Next.js telemetry.** Already off in the template Dockerfile (`NEXT_TELEMETRY_DISABLED=1`) and the Railway env; development-time telemetry carries no deployment data.
+- **Staff bcrypt cost and lockout.** Cost 10 meets the repository rule; staff login is throttled per email and per IP (`auth/api/login.ts:23-26`); the shared limiter is #5083 / #4184.
+- **S3 server-side encryption.** AWS S3 encrypts new objects with SSE-S3 by default; S3-compatible stores set encryption on the bucket.
+- **Logger PII redaction.** No log call writing an address was found; the logger already redacts password, token, secret and authorization paths.
+- **Authentication lifecycle receipts.** Password changes are commands in the action log; sign-ins are in the 11-13 sign-in log (#8106).
+- **Portal profile and password writes accepted cross-site.** Not shown: the portal session cookies are `SameSite=Lax`, which browsers do not send on cross-site `POST` or `PUT`.

@@ -115,7 +115,7 @@ test.describe('TC-WC-009: warranty claim settings and auto-adjudication', () => 
         features: ['warranty_claims.settings.manage'],
         organizations: [orgBId],
       })
-      const orgBPassword = 'Valid1!Pass'
+      const orgBPassword = 'QaValid1!Pass'
       orgBUserId = await createUserFixture(request, superadminToken, {
         email: `${stamp}@test.invalid`,
         password: orgBPassword,

@@ -39,7 +39,7 @@ const mockEm = {
   findOne: jest.fn(defaultFindOneImpl),
   create: jest.fn((_cls: any, data: any) => ({ ...data })),
   getRepository: jest.fn(() => ({
-    findAll: jest.fn(async () => partitions),
+    find: jest.fn(async () => partitions),
     create: jest.fn((data: any) => data),
   })),
   persist: jest.fn(function persist(this: any) { return this }),

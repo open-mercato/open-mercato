@@ -3,13 +3,15 @@
 > **Tracker:** open-mercato/open-mercato#8593
 > **Program:** [program](2026-11-15-gdpr-ready-deployments-program.md)
 > **Edition:** OSS code, run by Enterprise: these core-module handlers are what the Enterprise `privacy` module calls ([DSR engine](../enterprise/GDPR/2026-11-16-privacy-dsr-engine.md)). An Enterprise client may enable any of these modules, so every one must be covered before an Enterprise release claims GDPR readiness.
-> **GDPR basis:** Art. 5(1)(e), 15, 17, 17(3)(b), 20, 32
+> **GDPR basis:** Art. 5(1)(d), 5(1)(e), 15, 16, 17, 17(3)(b), 20, 32
 
 ## TLDR
 
 - Phase 1 fixes a live bug, independent of everything else: deleting a staff user leaves their per-user data and stored mailbox credentials behind because the cleanup subscribers read a field the event never sets, and deleting a portal user leaves its email, email hash, password hash and name.
 - After that, every OSS module that stores personal data gets a `privacy.ts` declaration and a handler under the [data-class contract](2026-11-16-privacy-data-class-contract.md). One table below says, per module, what is held, what export returns, what erasure does and what is kept under Art. 17(3).
 - Commercial records follow one Art. 17(3)(b) rule: keep a fixed buyer block for a period the tenant chooses, then anonymize through `pruneExpired`.
+- AI chat transcripts copy CRM records into colleagues' conversations, where a person's erasure cannot find them. A tenant retention setting ends them.
+- Phase 7 lets staff correct a portal user's sign-in email (Art. 16) without closing the account, so the person keeps their orders and claims.
 - Enterprise modules (sso, security, record_locks, agent_orchestrator) are covered in [enterprise coverage](../enterprise/GDPR/2026-11-16-privacy-coverage-enterprise.md).
 
 ## Overview
@@ -86,7 +88,7 @@ Subjects: P = CRM person, PU = portal user, S = staff user, TM = team member, R 
 | inbox_ops | X, P | `inbox_emails` raw, HTML, cleaned and thread text, addresses; proposal participants and summary; action payloads | yes | clear content of emails the subject took part in; keep message ids and content hash for deduplication; clear the `messages` copy | — | decrypting scan; raw content age bound |
 | phone_calls (+ `tillio` provider) | X, P | `phone_call_participants` (number, name, email, metadata), `phone_calls.raw_snapshot`, `provider_facts`, `recording_url`, recording attachment | yes | clear every participant of the call and the raw data; keep times, duration, status; set `privacy_cleared_at` | — | decrypting scan; provider-side recordings: docs |
 | workflows | P, PU | `workflow_instances.context`, step input and output, `user_tasks.form_data`, `workflow_events.event_data` | yes | delete terminal instance graphs that reference the subject; others `open_case` | — | terminal instances age bound |
-| ai_assistant | S (P mentioned) | conversations, messages, participants, pending actions, usage events, moderation flags, agent runs with steps and tool calls | S | S: delete everything they own; P: delete pending actions that target them | — | colleagues' transcripts mentioning P: limit, soft-deleted chats age bound |
+| ai_assistant | S (P quoted) | conversations, messages (`content`, tool `ui_parts`), participants, pending actions, usage events, moderation flags, agent runs with steps and tool calls | S | S: delete everything they own; P: delete pending actions that target them | conversations end by the tenant's `ai_assistant.retention.conversationDays` | colleagues' transcripts quoting P are not found per person and end by that setting; soft-deleted chats age bound |
 | staff | TM, S, P and PU copies | member addresses, job histories, comments, activities, timesheet preferences, project memberships, entry tags, custom values; leave requests, time entries, report entries; ticket and comment author copies | yes | delete non-HR rows now; clear customer copies | employment records under labour and tax law, then deleted in the UI (docs procedure) | `auth:user` export lists the linked member in `related` |
 | planner | TM | `planner_availability_rules` of the member | yes | delete | — | rule sets exempt |
 | documents | S, P | favourites, watchers, user shares; `document_entity_links` label | S | S: delete favourites, watches and user shares; P: replace the link label | documents, versions and comments kept as organization work product (`other_party`) | content mentions: limit |
@@ -118,7 +120,21 @@ Subjects: P = CRM person, PU = portal user, S = staff user, TM = team member, R 
 
 **AI assistant.** For S, delete conversations they own with messages and participants, their participant rows elsewhere, pending actions they created, usage events, moderation flags and agent runs with steps and tool calls. Override tables keep `created_by_user_id` as a reference. For P, delete pending actions whose target records are the person's.
 
+**AI conversation retention.** Assistant messages keep the model's answer (`content`) and the tools' `ui_parts`, which copy CRM records (names, emails, order lines) into a colleague's transcript. A person's erasure does not find those copies, and today a conversation that nobody deletes is kept forever; only soft-deleted chats are pruned ([retention spec](2026-11-16-operational-retention-pruners.md)). The `ai_assistant` conversation class therefore declares `retentionSetting: 'ai_assistant.retention.conversationDays'`. Its `pruneExpired(scope, olderThan)` deletes conversations whose `last_message_at` (else `created_at`) is older than the cutoff, with their participants, messages and the chat uploads those messages list (through `attachmentService.deleteByIds`). A conversation with a `pending` action is skipped until the action resolves. Unset keeps conversations, as today; the deployment docs ask the controller to set a period and name 90 days as a starting point.
+
 **Staff and planner.** For TM, delete addresses, job histories, comments, activities and their custom values, timesheet preferences, project memberships, entry tags and planner rules now, and clear free-text notes on decided leave requests (they can hold health data). The employment block (member name and user id, leave dates and status, time entries, report entries) is reported `legal_retention`, `retainedUntil: null`; the controller deletes it in the UI when the labour-law period ends, as the deployment docs describe. For P and PU, clear reporter and author display copies and the text of support tickets and task comments they wrote.
+
+### Portal sign-in email correction — Art. 16
+
+A portal user's email is their sign-in name. Neither the portal profile route nor the staff route can change it (`customer_accounts/api/admin/users/[id].ts`, schema `adminUpdateUserSchema` in `data/validators.ts:108-115`). The only correction today is a new account. Deleting the old one anonymizes it, and the person's orders, carts and claims stay with an account they can no longer open. Art. 16 asks for a correction that keeps the account.
+
+- **Route.** `POST /api/customer_accounts/admin/users/[id]/change-email`, body `{ email }`, feature `customer_accounts.manage`. Staff with that feature can already set a portal user's password (`admin/users/[id]/reset-password.ts`), so no new power is granted.
+- **Checks.** zod email. 404 for a user of another tenant or organization, or a deleted one. 409 `customer_accounts.email_taken` when a live account of the tenant has the same `email_hash`. 409 `customer_accounts.user_anonymized` when `anonymized_at` is set. 400 when the address does not change.
+- **Effect, in one transaction** (`customerUserService.changeEmail(userId, scope, email)`): set `email` and recompute `email_hash` as signup does; set `email_verified_at` to null; revoke every session (`customerSessionService.revokeAllUserSessions`); delete the user's unused verification, magic-link and password-reset tokens. Login already refuses an unverified account (`customer_accounts/api/login.ts:116`), so nobody signs in until the new address is confirmed.
+- **Mail.** A verification link to the new address (`customerTokenService.createEmailVerification` and the existing verify route), and a notice to the old address that staff changed the sign-in email, with no link.
+- **Event.** `customer_accounts.user.email_changed` with `{ id, tenantId, organizationId }` and no addresses.
+- **UI.** A "Change sign-in email" action on the portal user page (`backend/customer_accounts/users/[id]/page.tsx`): a dialog with the new address (`Cmd/Ctrl+Enter`, `Escape`), run through `useGuardedMutation`, locale keys for every string.
+- Self-service change by the portal user, and recovery after an account takeover, stay deferred ([scope record](../analysis/ANALYSIS-2026-11-20-gdpr-scope-minimization.md)).
 
 ### CRM and Sales in detail
 
@@ -197,7 +213,7 @@ Invoices, credit memos and payments with no order carry no subject link and are 
 | `warranty_claims.anonymized_at` | Blocks `closed → in_review` for an anonymized claim |
 | `phone_calls.privacy_cleared_at` | Ingest refill guard |
 
-All are nullable timestamps with no backfill. Retention periods are `module_configs` entries: `sales.retention.commercialRecordsDays`, `checkout.retention.completedPaymentsDays`.
+All are nullable timestamps with no backfill. Retention periods are `module_configs` entries: `sales.retention.commercialRecordsDays`, `checkout.retention.completedPaymentsDays`, `ai_assistant.retention.conversationDays`.
 
 ## API Contracts
 
@@ -212,14 +228,15 @@ All are nullable timestamps with no backfill. Retention periods are `module_conf
 | `AnonymizeService.anonymize(id, scope, { mode })` | forms | Additive optional argument; default unchanged |
 | `attachmentService.readByIds(scope, ids)` / `deleteByIds(scope, ids)` | attachments | Tenant-scoped read and hard delete (row and stored object) by attachment id, for the Enterprise run; refuses ids outside the tenant; idempotent |
 | `customerPersonLookupService.getProfileId(scope, personEntityId)` | customers | Person entity id → `customer_people.id`; used by the sales handler for `customer_contact_id` (defined in the contract spec) |
+| `POST /api/customer_accounts/admin/users/[id]/change-email`, `customerUserService.changeEmail(userId, scope, email)`, event `customer_accounts.user.email_changed` | customer_accounts | Phase 7 staff correction of a portal sign-in email; additive route, method and event |
 | `workflowPrivacyService.deleteTerminalInstance(scope, instanceId)` | workflows | Deletes a `COMPLETED`, `CANCELLED` or `FAILED` instance with its steps, branches, events and user tasks; refuses a running one; used by the workflows handler, the retention age bound and the Enterprise agent class |
 
-Each module adds `privacy.ts` and registers its handler in `di.ts` under `<module>PrivacyHandler`. No route, event, ACL feature or CLI command is added.
+Each module adds `privacy.ts` and registers its handler in `di.ts` under `<module>PrivacyHandler`. Apart from Phase 7's route and event and Phase 1's cleanup commands, no route, event, ACL feature or CLI command is added.
 
 ## Migration & Compatibility
 
-- **UPGRADE_NOTES:** "Deleting a staff user now deletes their notifications, devices, push deliveries, session API keys, private perspectives, dashboard layouts, onboarding requests and stored integration credentials. Deleting a portal user now replaces its email and name with placeholders and removes its password hash."
-- **BACKWARD_COMPATIBILITY:** the `auth.user.deleted` id and payload, both existing subscriber ids, the `softDelete` signature and every route are unchanged; new subscribers, service methods, the forms `mode` argument and nullable columns are additive. Undoing a staff-user delete restores the account, not the per-user stores already deleted.
+- **UPGRADE_NOTES:** "Deleting a staff user now deletes their notifications, devices, push deliveries, session API keys, private perspectives, dashboard layouts, onboarding requests and stored integration credentials. Deleting a portal user now replaces its email and name with placeholders and removes its password hash." A second line: "Staff can change a portal user's sign-in email; the account must confirm the new address before it signs in again."
+- **BACKWARD_COMPATIBILITY:** the `auth.user.deleted` id and payload, both existing subscriber ids, the `softDelete` signature and every route are unchanged; new subscribers, service methods, the forms `mode` argument, nullable columns, the change-email route and its event are additive. Undoing a staff-user delete restores the account, not the per-user stores already deleted.
 - Rows left by users deleted before Phase 1 are not found by the new subscribers. The deployment docs give a per-table check for user ids absent from `users`; the Enterprise erase run or a manual delete removes them.
 
 ## Risks & Impact Review
@@ -284,7 +301,7 @@ Each module adds `privacy.ts` and registers its handler in `di.ts` under `<modul
 
 ### Phase 4 — Forms, documents, workflows, AI
 1. Forms `erasure` mode and `erased_at` barrier; forms handler; form_to_deals rule recorded for when that module lands.
-2. Documents, workflows and ai_assistant handlers.
+2. Documents, workflows and ai_assistant handlers, including the conversation `pruneExpired` and its `retentionSetting`.
 3. Lower the baseline. Tests: `TC-PRIVACY-FORMS-001`, `-DOCUMENTS-001`, `-WORKFLOWS-001`, `-AI-001`.
 
 ### Phase 5 — Communication
@@ -294,6 +311,11 @@ Each module adds `privacy.ts` and registers its handler in `di.ts` under `<modul
 ### Phase 6 — Staff, planner, remaining exemptions
 1. Staff and planner handlers; eudr exemption with its reason.
 2. The baseline holds no OSS table; only enterprise tables remain until the enterprise coverage spec claims them. Tests: `TC-PRIVACY-STAFF-001`, `-PLANNER-001`.
+
+### Phase 7 — Portal sign-in email correction
+Independent of the contract; may ship with Phase 1.
+1. Validator, `customerUserService.changeEmail`, route with `openApi`, event, the two emails, i18n keys. Unit tests: taken address, anonymized user, unchanged address, other tenant, tokens deleted, sessions revoked, no address in the event payload.
+2. Detail-page action and dialog. Test: `TC-PRIVACY-CACC-EMAIL-001`.
 
 ## Integration Coverage
 
@@ -310,9 +332,10 @@ Phase 1 tests are Playwright tests in the owning module's `__integration__` fold
 | `TC-PRIVACY-CHECKOUT-001` | Completed payment keeps name and amount, failed payment anonymized, pending payment `open_case` and unchanged; gateway metadata cleared, provider ids kept |
 | `TC-PRIVACY-CART-001`, `-WARRANTY-001`, `-PROMOTIONS-001`, `-GROUPS-001` | Deletion or anonymization per the table; locked cart and open claim unchanged; anonymized claim cannot be reopened |
 | `TC-PRIVACY-FORMS-001` | Erasure tombstones unflagged answers in every revision and the change summary, clears access-audit IP; save and PDF regeneration refuse afterwards; consent record kept |
-| `TC-PRIVACY-DOCUMENTS-001`, `-WORKFLOWS-001`, `-AI-001` | Documents keep content and lose the subject's favourites and shares; terminal workflow graph deleted, running one `open_case`; owned AI conversations and pending actions deleted |
+| `TC-PRIVACY-DOCUMENTS-001`, `-WORKFLOWS-001`, `-AI-001` | Documents keep content and lose the subject's favourites and shares; terminal workflow graph deleted, running one `open_case`; owned AI conversations and pending actions deleted; conversation `pruneExpired` deletes a conversation past the period with its messages and listed uploads, and keeps a newer one and one with a pending action |
 | `TC-PRIVACY-MESSAGES-001`, `-CHANNELS-001`, `-INBOX-001`, `-CALLS-001` | Inbound text from the subject cleared, staff text kept with the outside address removed; inbox copy in `messages` cleared; a cleared call stays cleared after re-ingest |
 | `TC-PRIVACY-STAFF-001`, `-PLANNER-001` | Non-HR rows deleted, employment block reported `legal_retention`; member rules deleted, shared rule sets kept |
+| `TC-PRIVACY-CACC-EMAIL-001` | Playwright, `customer_accounts/__integration__`. Staff change a fixture portal user's email through the detail page: the old session stops working; login with the old address fails; login with the new address is refused until the link sent to it is used, then succeeds; the account still owns its fixture order and cart; a taken address returns 409; the event payload holds no address |
 
 ## Final Compliance Report — 2026-11-20
 
@@ -331,3 +354,4 @@ Verdict: ready for implementation; Phase 1 can ship before the contract.
 ### 2026-11-20
 - Rewritten to minimal GDPR scope; replaces the four domain coverage specs.
 - Added "CRM and Sales in detail" (field-by-field erasure for `customers` and `sales`, with worked examples); the commercial-record field list moved there.
+- Post-minimization review: AI conversation retention setting (transcripts that quote a person end by a tenant period); Phase 7 staff correction of a portal sign-in email (Art. 16), the staff slice of the dropped portal-email-change draft.

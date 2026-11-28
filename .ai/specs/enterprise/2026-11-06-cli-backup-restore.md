@@ -138,6 +138,10 @@ Neither entry point calls `createRequestContainer()` for `verify`, `restore`, `e
 
 Partial backup directories and restore journals carry a lock record `{runId, host, pid, startedAt, heartbeatAt}`. Backup: an `O_EXCL` lock file whose `heartbeatAt` is refreshed every 10 s. Restore: a session-level advisory lock on the target plus `heartbeatAt` in `restore_run`. A lock is stale when the heartbeat is older than 60 s **and** (same host) the PID is not alive; stale locks are taken over with a printed note. A live lock from another host refuses unless `--take-over-lock <runId>` names it explicitly.
 
+Acquisition, stale-owner replacement and owned removal are serialized by a private `lock.guard` file created with `O_EXCL`. Its diagnostic record names the run, host and PID; it is removed after the short filesystem transaction. A concurrent resume cannot delete another resume's newly acquired lock. Heartbeats continue on the original owned file handle. If a process dies during this short transaction, the guard remains closed: stop and positively verify all involved backup processes, inspect the recorded owner, then remove only the abandoned guard before retrying. Neither heartbeat age nor `--take-over-lock` removes this guard. An explicit takeover is not cancellation of a running process; the operator must stop the old process first.
+
+Regression coverage: `engine-lock.test.ts` pauses the first stale resume immediately before removing the old inode, then starts a second resume while the acquisition guard is held. The second must refuse with `BACKUP_LIVE_LOCK`, and exactly one resume must own the replacement lock. Additional cases cover abandoned guard refusal, preservation of a replacement inode during release, and guard cleanup after ordinary acquisition/refusal.
+
 ### Native execution, connections and safety (retained)
 
 - Explicit binaries from an operator-controlled directory; record real paths and versions; Linux, PostgreSQL 16/17/18, matching client/source/target major. Missing extensions, encoding/collation mismatch or unknown migration set fail preflight.
@@ -391,3 +395,11 @@ Verdict: **design review only; not approved for implementation** until Q2/Q3 sec
 9. Facade used by the automated spec's `backup-run` worker with a chunk-store adapter for object storage and `ProgressJob` updates (B16) — delivered under that spec.
 10. Core rotation warning/acknowledgment and compatibility/upgrade guidance (B19); Enterprise recovery/verifier coordination (B20), implemented with the companion spec on a separate implementation PR.
 11. Full matrix, performance evidence, docs (`apps/docs`: enterprise backup runbook incl. encryption, resume and rotation), configured validation gate.
+
+
+## Changelog
+
+### 2026-11-21
+- Serialize backup lock acquisition, stale replacement and removal; add the forced concurrent-resume regression and preserve publication after a partial-directory rename. Document fail-closed abandoned-guard recovery. Protected custody/architecture decisions and personal recovery QA remain required.
+
+- 2026-11-28: Make the concurrent stale-resume regression deterministic by holding the first contender at stale inode removal before starting the second; retain exclusive-ownership and live-lock refusal assertions.

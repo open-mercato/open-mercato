@@ -1,0 +1,3892 @@
+{
+  "root": "/bench/run-1g-453c6c24",
+  "referencePolicy": "Explicit target-key-only iterator reuses the same prepared metadata, binding, fence, native ordering and fused page guards; it performs no timestamp-intent loading or HMAC comparison and never tries the source key.",
+  "finalSizeGuardMs": 0,
+  "datasetFinalMs": 7873.86604600001,
+  "completeVerifierDurationPolicy": "finalMs is max(source iterator lifetime, complete verifier receipt duration); includes complete header/fence/chunk validation, row comparisons and owned cleanup. Source lifetime is diagnostic only.",
+  "streamingFinalMs": 7980,
+  "streamingComparisonPolicy": "The exact bounded page snapshot is guarded inside every scanner query; no separate final-size phase exists. All fused guard, row authentication, timestamp validation and canonical HMAC comparison time remains in finalMs, streamingFinalMs, totalMs and overheadMs.",
+  "checkpointMs": 3523.4904679999927,
+  "supplementaryTotalProtectionOverheadMs": 49907.29723599997,
+  "comparisonPolicy": "Checkpointing remains in the matched safe rotation baseline; supplementary protection overhead includes backup creation, offline verification, all safety hooks and control work.",
+  "nodeVersion": "v24.22.2",
+  "postgresVersion": "16.15 (Debian 16.15-1.pgdg13+2)",
+  "progressRendererCpuMicros": 57544,
+  "totalCpuMicros": 128621460,
+  "progressRendererCpuPass": true,
+  "nodeMemoryFlags": [
+    "--max-old-space-size=128",
+    "--max-semi-space-size=4"
+  ],
+  "gib": 1,
+  "logicalBytes": "1073741824",
+  "rows": 16384,
+  "scalarRows": 8192,
+  "customRows": 8192,
+  "totalMs": 89707.874375,
+  "backupMs": 17269.776508,
+  "verifyBackupMs": 5704.672127999998,
+  "rotationMs": 51389.259232,
+  "baselineMs": 5992.831461000002,
+  "earlyReadbackMs": 4695.133916999937,
+  "intentMs": 3370.0577080000367,
+  "finalMs": 7980,
+  "scanAfterOwnMs": 6220.322382000668,
+  "scanBeforeOwnMs": 4558.730680999917,
+  "loadIntentMs": 30.59390600012557,
+  "standaloneMs": 5203.195378000004,
+  "overheadMs": 23409.35813199998,
+  "overheadPass": true,
+  "finalThroughputPass": false,
+  "coordinatorPeakRssMiB": 206.53125,
+  "coordinatorRssPass": true,
+  "runner": "Node24/PostgreSQL16/Docker4CPU8GiB",
+  "cacheProtocol": "Warm initial source; exact frozen 48db5f3af0 synchronous runtime and128/semi4 policy for protected/reference. Persistent PGDATA/artifacts. All guards and complete verifier included. Host-load and actual sleep audits accompany run.",
+  "fixture": "64KiB generated synthetic random-base64 plaintext with fresh AES-GCM per scalar/custom JSON row, EXTERNAL storage",
+  "completePersistedCoverage": true,
+  "implementationCommit": "48db5f3af0d09d5e8353116796b02b5b52f7b45b",
+  "bundleSha256": "799c0be42ec3ed9faa6840bb3b66941578ff28e85079d3bb022b27134d2522e5",
+  "resourceSampler": {
+    "complete": true,
+    "observedBenchmarkProcess": true,
+    "samplingTimedOut": false,
+    "externalCoordinatorRssPass": true,
+    "peakProcessTreeRssMiB": 206.6015625,
+    "peakNodeRssMiB": 206.6015625,
+    "totalProcessTreePass": true,
+    "samplingIntervalMs": 100,
+    "samples": 617,
+    "maximumNativeDescendants": 0,
+    "definition": "sum resident RSS of benchmark Node process and all native descendants, excluding PostgreSQL server daemon; sampled with ps"
+  },
+  "envelope": {
+    "runtimeCommit": "48db5f3af0d09d5e8353116796b02b5b52f7b45b",
+    "bundleSha256": "799c0be42ec3ed9faa6840bb3b66941578ff28e85079d3bb022b27134d2522e5",
+    "root": "/bench/run-1g-453c6c24",
+    "gib": 1,
+    "cacheCase": "warm",
+    "artifactStorage": "persistent named volume",
+    "clockPolicy": "Full verifier duration, including header/fence/chunk checks and owned cleanup; no source-clock subtraction",
+    "nodeFlags": [
+      "--max-old-space-size=128",
+      "--max-semi-space-size=4"
+    ],
+    "gateSource": "48db5f3af0d09d5e8353116796b02b5b52f7b45b",
+    "measuredRunStarted": true,
+    "warmupMethod": "Complete read-only native pg_dump --data-only to /dev/null immediately before measurement",
+    "warmupStartUtc": "2026-11-13T10:33:02.438040+00:00",
+    "warmupEndUtc": "2026-11-13T10:33:05.080521+00:00",
+    "warmupElapsedMs": 2642.370209,
+    "warmupExitCode": 0,
+    "measurementStartUtc": "2026-11-13T10:33:05.083112+00:00",
+    "measurementEndUtc": "2026-11-13T10:34:40.346384+00:00",
+    "measurementExitCode": 1,
+    "hostAuditComplete": true,
+    "resourceCaptureComplete": true
+  },
+  "hostSleepAudit": {
+    "auditedUtc": "2026-11-13T10:35:12.860727+00:00",
+    "source": "Actual timestamped pmset -g log events normalized to UTC; independent of ordinary-idle lease",
+    "measurementStartUtc": "2026-11-13T10:33:05.083112+00:00",
+    "measurementEndUtc": "2026-11-13T10:34:40.346384+00:00",
+    "eventsWithinEnvelope": [],
+    "precedingEvent": {
+      "atUtc": "2026-11-13T08:34:56+00:00",
+      "event": "Wake"
+    },
+    "followingEvent": null,
+    "hostSleepOverlap": false
+  },
+  "hostLoadAudit": {
+    "sampleCount": 20,
+    "firstUtc": "2026-11-13T10:33:05.113928+00:00",
+    "lastUtc": "2026-11-13T10:34:40.155829+00:00",
+    "hostMaxCpuByExecutable": {
+      "com.apple.Virtualization.VirtualMachine": 360.9,
+      "esbuild": 274.8,
+      "tsc": 213.1,
+      "node": 154.4,
+      "turbo": 66.4,
+      "ollama": 55.4,
+      "Google Chrome Helper (Aperitif Renderer)": 53.4,
+      "WindowServer": 51.1,
+      "Google Chrome Helper (Aperitif)": 51.1,
+      "msb": 46.0,
+      "com.docker.backend": 31.4,
+      "fseventsd": 29.3,
+      "Google Chrome": 22.0,
+      "Discord Helper (Renderer)": 17.7,
+      "VTDecoderXPCService": 16.6,
+      "XprotectService": 16.4,
+      "Terminal": 9.9,
+      "Discord Helper": 9.8,
+      "usbaudiod": 6.2
+    },
+    "otherDockerMaxCpu": {
+      "om-rls-82462-pg18": 0.01,
+      "om-rls-82462-pg17": 12.27,
+      "om-rls-82462-runtime": 12.36,
+      "om-cli-9334-fixture": 0.01,
+      "om-backup-benchmark-cold1g": 0.01,
+      "om-backup-full9333": 0.39,
+      "om-pg-9334-fixture": 0.01,
+      "om-pg-9333-fixture": 0.41,
+      "mercato-local-v2-93ec9bbe25-opencode": 2.74,
+      "mercato-local-v2-93ec9bbe25-redis": 5.93,
+      "mercato-local-v2-93ec9bbe25-postgres": 0.43,
+      "mercato-local-v2-93ec9bbe25-meilisearch": 1.77,
+      "mercato-opencode": 1.2,
+      "mercato-redis": 6.08,
+      "mercato-postgres": 0.2,
+      "mercato-meilisearch": 1.73,
+      "cool_mclaren": 26.39,
+      "testcontainers-ryuk-77ba52136982": 0.0,
+      "elastic_meninsky": 22.1
+    },
+    "auditErrors": []
+  },
+  "relativeStreamingThroughput": 0.6520294959899754,
+  "allowedOverheadMs": 49889.5548729,
+  "samplingDisclosure": "External ps sampler uses a requested100ms delay plus Docker/ps overhead; complete captured process lifetime and actual sample count are reported. Internal RSS sampling uses25ms.",
+  "benchmarkScope": "Standalone coordinator and scoped metadata fixture using production backup/rotation/verifier helpers; actual CLI functional integration is separate and does not establish full application bootstrap RSS.",
+  "baselineTimingScope": "baselineMs is the source iterator lifetime; all preparation/control/flush costs remain in totalMs and overheadMs.",
+  "hostAuditReviewed": false,
+  "actualConcurrentWork": "New unrelated turbo/Node build began15s into measured run; Node34306 accumulated5.99 to34.40CPU seconds over25seconds. One-second aggregate idle fell to16%; complete audit retained. No unrelated work was stopped.",
+  "releaseAcceptance": false,
+  "remainingGate": "Final-source all-pass warm/cold1GiB, warm/cold20GiB and near-limit-row matrix, concluding review/report. Local recurring independent builds make long clean windows unreliable.",
+  "perRunNumericGatePassed": false,
+  "perRunGatePassed": false,
+  "disposition": "Throughput gate failed; new sustained unrelated build began after readiness. No acceptance, normalization, or attribution solely to infrastructure.",
+  "hostPressureAudit": [
+    {
+      "utc": "2026-11-13T10:33:05.113928+00:00",
+      "hostAllProcessCpuPercentSum": 529.1,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 24.0,
+        "systemPercent": 15.0,
+        "idlePercent": 61.0,
+        "loadAverage1m": 8.4,
+        "loadAverage5m": 7.99,
+        "loadAverage15m": 7.85,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 126.5,
+          "cumulativeCpuTime": "1401:18.00",
+          "elapsed": "07-01:00:07",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 32735,
+          "parent": 31846,
+          "cpuPercent": 123.8,
+          "cumulativeCpuTime": "0:01.01",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 45.1,
+          "cumulativeCpuTime": "554:02.88",
+          "elapsed": "08-16:47:17",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 40.9,
+          "cumulativeCpuTime": "9:42.19",
+          "elapsed": "28:54",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 35.7,
+          "cumulativeCpuTime": "4:09.05",
+          "elapsed": "10:42",
+          "executable": "ollama"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 20.4,
+          "cumulativeCpuTime": "221:19.02",
+          "elapsed": "08-16:46:55",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 23392,
+          "parent": 778,
+          "cpuPercent": 16.7,
+          "cumulativeCpuTime": "0:06.47",
+          "elapsed": "16:38",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 16.2,
+          "cumulativeCpuTime": "64:56.74",
+          "elapsed": "08-16:41:27",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 32732,
+          "parent": 31846,
+          "cpuPercent": 15.6,
+          "cumulativeCpuTime": "0:01.68",
+          "elapsed": "00:02",
+          "executable": "esbuild"
+        },
+        {
+          "pid": 18135,
+          "parent": 778,
+          "cpuPercent": 8.8,
+          "cumulativeCpuTime": "0:00.48",
+          "elapsed": "02:00",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 778,
+          "parent": 1,
+          "cpuPercent": 7.8,
+          "cumulativeCpuTime": "179:02.34",
+          "elapsed": "08-16:46:56",
+          "executable": "Google Chrome"
+        },
+        {
+          "pid": 788,
+          "parent": 1,
+          "cpuPercent": 7.6,
+          "cumulativeCpuTime": "146:49.90",
+          "elapsed": "08-16:46:56",
+          "executable": "Terminal"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "299.62%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.35%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.30%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.61%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.28%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.17%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.63%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.28%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.13%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:10.114046+00:00",
+      "hostAllProcessCpuPercentSum": 731.7,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 35.0,
+        "systemPercent": 16.0,
+        "idlePercent": 48.0,
+        "loadAverage1m": 8.13,
+        "loadAverage5m": 7.94,
+        "loadAverage15m": 7.83,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 338.5,
+          "cumulativeCpuTime": "1401:32.01",
+          "elapsed": "07-01:00:12",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 33223,
+          "parent": 33219,
+          "cpuPercent": 52.0,
+          "cumulativeCpuTime": "0:00.25",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 46.7,
+          "cumulativeCpuTime": "9:44.55",
+          "elapsed": "28:59",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 46.3,
+          "cumulativeCpuTime": "4:11.30",
+          "elapsed": "10:47",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 43.0,
+          "cumulativeCpuTime": "554:05.20",
+          "elapsed": "08-16:47:22",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 36.1,
+          "cumulativeCpuTime": "19:07.28",
+          "elapsed": "01:19:50",
+          "executable": "msb"
+        },
+        {
+          "pid": 33219,
+          "parent": 33195,
+          "cpuPercent": 32.0,
+          "cumulativeCpuTime": "0:00.53",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 21.3,
+          "cumulativeCpuTime": "221:20.14",
+          "elapsed": "08-16:47:00",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 1417,
+          "parent": 1,
+          "cpuPercent": 16.4,
+          "cumulativeCpuTime": "45:09.48",
+          "elapsed": "08-16:46:37",
+          "executable": "XprotectService"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 13.7,
+          "cumulativeCpuTime": "64:57.53",
+          "elapsed": "08-16:41:32",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 788,
+          "parent": 1,
+          "cpuPercent": 9.9,
+          "cumulativeCpuTime": "146:50.39",
+          "elapsed": "08-16:47:01",
+          "executable": "Terminal"
+        },
+        {
+          "pid": 61917,
+          "parent": 2260,
+          "cpuPercent": 8.0,
+          "cumulativeCpuTime": "0:45.44",
+          "elapsed": "10:37",
+          "executable": "ollama"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "299.81%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.69%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.29%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.41%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "1.40%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.75%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.28%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.13%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:15.117501+00:00",
+      "hostAllProcessCpuPercentSum": 590.8,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 34.0,
+        "systemPercent": 18.0,
+        "idlePercent": 48.0,
+        "loadAverage1m": 9.08,
+        "loadAverage5m": 8.14,
+        "loadAverage15m": 7.9,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 339.9,
+          "cumulativeCpuTime": "1401:48.86",
+          "elapsed": "07-01:00:17",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 46.9,
+          "cumulativeCpuTime": "554:07.60",
+          "elapsed": "08-16:47:27",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 40.2,
+          "cumulativeCpuTime": "4:13.66",
+          "elapsed": "10:52",
+          "executable": "ollama"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 26.0,
+          "cumulativeCpuTime": "9:45.90",
+          "elapsed": "29:04",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 23.3,
+          "cumulativeCpuTime": "221:21.34",
+          "elapsed": "08-16:47:05",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 15.6,
+          "cumulativeCpuTime": "64:58.34",
+          "elapsed": "08-16:41:37",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 15.1,
+          "cumulativeCpuTime": "19:08.13",
+          "elapsed": "01:19:55",
+          "executable": "msb"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 8.4,
+          "cumulativeCpuTime": "58:46.12",
+          "elapsed": "07-01:00:18",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 788,
+          "parent": 1,
+          "cpuPercent": 7.7,
+          "cumulativeCpuTime": "146:50.88",
+          "elapsed": "08-16:47:06",
+          "executable": "Terminal"
+        },
+        {
+          "pid": 61917,
+          "parent": 2260,
+          "cpuPercent": 7.2,
+          "cumulativeCpuTime": "0:45.85",
+          "elapsed": "10:42",
+          "executable": "ollama"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 6.3,
+          "cumulativeCpuTime": "10:31.85",
+          "elapsed": "01:29:29",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 726,
+          "parent": 1,
+          "cpuPercent": 5.8,
+          "cumulativeCpuTime": "38:06.93",
+          "elapsed": "08-16:47:07",
+          "executable": "usbaudiod"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "12.27%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "12.36%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "293.54%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.63%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.29%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.24%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.58%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.29%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.03%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.12%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:20.120461+00:00",
+      "hostAllProcessCpuPercentSum": 1114.6,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 53.0,
+        "systemPercent": 32.0,
+        "idlePercent": 16.0,
+        "loadAverage1m": 9.87,
+        "loadAverage5m": 8.32,
+        "loadAverage15m": 7.97,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 360.9,
+          "cumulativeCpuTime": "1402:07.82",
+          "elapsed": "07-01:00:22",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 34301,
+          "parent": 33865,
+          "cpuPercent": 95.7,
+          "cumulativeCpuTime": "0:00.54",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 34090,
+          "parent": 33872,
+          "cpuPercent": 80.7,
+          "cumulativeCpuTime": "0:00.89",
+          "elapsed": "00:02",
+          "executable": "node"
+        },
+        {
+          "pid": 33865,
+          "parent": 33853,
+          "cpuPercent": 66.4,
+          "cumulativeCpuTime": "0:01.57",
+          "elapsed": "00:03",
+          "executable": "turbo"
+        },
+        {
+          "pid": 34057,
+          "parent": 33869,
+          "cpuPercent": 66.3,
+          "cumulativeCpuTime": "0:01.26",
+          "elapsed": "00:02",
+          "executable": "node"
+        },
+        {
+          "pid": 34295,
+          "parent": 33861,
+          "cpuPercent": 58.6,
+          "cumulativeCpuTime": "0:00.64",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 55.4,
+          "cumulativeCpuTime": "4:16.30",
+          "elapsed": "10:57",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 51.1,
+          "cumulativeCpuTime": "554:10.17",
+          "elapsed": "08-16:47:32",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 354,
+          "parent": 1,
+          "cpuPercent": 29.3,
+          "cumulativeCpuTime": "91:03.78",
+          "elapsed": "08-16:47:33",
+          "executable": "fseventsd"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 24.5,
+          "cumulativeCpuTime": "221:22.68",
+          "elapsed": "08-16:47:10",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 23.9,
+          "cumulativeCpuTime": "9:47.24",
+          "elapsed": "29:09",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 2183,
+          "parent": 2169,
+          "cpuPercent": 17.7,
+          "cumulativeCpuTime": "85:57.69",
+          "elapsed": "08-16:45:34",
+          "executable": "Discord Helper (Renderer)"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "297.17%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.34%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.41%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "2.74%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.33%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "1.69%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.66%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.33%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.18%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:25.121271+00:00",
+      "hostAllProcessCpuPercentSum": 699.8,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 29.0,
+        "systemPercent": 18.0,
+        "idlePercent": 54.0,
+        "loadAverage1m": 9.88,
+        "loadAverage5m": 8.35,
+        "loadAverage15m": 7.98,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 173.8,
+          "cumulativeCpuTime": "1402:22.17",
+          "elapsed": "07-01:00:27",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 34306,
+          "parent": 34301,
+          "cpuPercent": 122.9,
+          "cumulativeCpuTime": "0:05.99",
+          "elapsed": "00:05",
+          "executable": "node"
+        },
+        {
+          "pid": 34090,
+          "parent": 33872,
+          "cpuPercent": 110.1,
+          "cumulativeCpuTime": "0:05.38",
+          "elapsed": "00:07",
+          "executable": "node"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 46.0,
+          "cumulativeCpuTime": "19:10.10",
+          "elapsed": "01:20:05",
+          "executable": "msb"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 45.3,
+          "cumulativeCpuTime": "554:12.60",
+          "elapsed": "08-16:47:37",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 42.9,
+          "cumulativeCpuTime": "4:18.80",
+          "elapsed": "11:02",
+          "executable": "ollama"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 24.2,
+          "cumulativeCpuTime": "221:23.95",
+          "elapsed": "08-16:47:15",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 23.3,
+          "cumulativeCpuTime": "9:48.50",
+          "elapsed": "29:14",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 354,
+          "parent": 1,
+          "cpuPercent": 19.6,
+          "cumulativeCpuTime": "91:04.42",
+          "elapsed": "08-16:47:38",
+          "executable": "fseventsd"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 16.1,
+          "cumulativeCpuTime": "64:59.75",
+          "elapsed": "08-16:41:47",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 8.7,
+          "cumulativeCpuTime": "58:47.83",
+          "elapsed": "07-01:00:28",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 7.7,
+          "cumulativeCpuTime": "10:33.17",
+          "elapsed": "01:29:39",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.02%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "150.11%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.74%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.29%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.19%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.59%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.24%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.15%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:30.126346+00:00",
+      "hostAllProcessCpuPercentSum": 659.1,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 31.0,
+        "systemPercent": 16.0,
+        "idlePercent": 53.0,
+        "loadAverage1m": 9.89,
+        "loadAverage5m": 8.38,
+        "loadAverage15m": 7.99,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 282.6,
+          "cumulativeCpuTime": "1402:32.04",
+          "elapsed": "07-01:00:32",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 34306,
+          "parent": 34301,
+          "cpuPercent": 115.0,
+          "cumulativeCpuTime": "0:11.85",
+          "elapsed": "00:10",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 48.1,
+          "cumulativeCpuTime": "4:21.03",
+          "elapsed": "11:07",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 46.1,
+          "cumulativeCpuTime": "554:14.97",
+          "elapsed": "08-16:47:42",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 39.6,
+          "cumulativeCpuTime": "9:50.37",
+          "elapsed": "29:19",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 22.2,
+          "cumulativeCpuTime": "221:25.13",
+          "elapsed": "08-16:47:20",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 14.5,
+          "cumulativeCpuTime": "65:00.51",
+          "elapsed": "08-16:41:52",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 13.6,
+          "cumulativeCpuTime": "19:10.95",
+          "elapsed": "01:20:10",
+          "executable": "msb"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 11.2,
+          "cumulativeCpuTime": "58:48.42",
+          "elapsed": "07-01:00:33",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 788,
+          "parent": 1,
+          "cpuPercent": 9.0,
+          "cumulativeCpuTime": "146:52.40",
+          "elapsed": "08-16:47:21",
+          "executable": "Terminal"
+        },
+        {
+          "pid": 61917,
+          "parent": 2260,
+          "cpuPercent": 7.9,
+          "cumulativeCpuTime": "0:47.09",
+          "elapsed": "10:57",
+          "executable": "ollama"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 7.5,
+          "cumulativeCpuTime": "10:33.96",
+          "elapsed": "01:29:44",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "254.36%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.67%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.32%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.42%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "1.63%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.73%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.27%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "1.48%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:35.129000+00:00",
+      "hostAllProcessCpuPercentSum": 653.7,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 26.0,
+        "systemPercent": 14.0,
+        "idlePercent": 60.0,
+        "loadAverage1m": 9.5,
+        "loadAverage5m": 8.32,
+        "loadAverage15m": 7.97,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 296.7,
+          "cumulativeCpuTime": "1402:46.46",
+          "elapsed": "07-01:00:37",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 34306,
+          "parent": 34301,
+          "cpuPercent": 116.2,
+          "cumulativeCpuTime": "0:17.56",
+          "elapsed": "00:15",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 46.4,
+          "cumulativeCpuTime": "4:23.48",
+          "elapsed": "11:12",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 45.7,
+          "cumulativeCpuTime": "554:17.34",
+          "elapsed": "08-16:47:47",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 25.2,
+          "cumulativeCpuTime": "9:52.32",
+          "elapsed": "29:24",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 23.5,
+          "cumulativeCpuTime": "221:26.33",
+          "elapsed": "08-16:47:25",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 15.6,
+          "cumulativeCpuTime": "65:01.29",
+          "elapsed": "08-16:41:57",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 10.6,
+          "cumulativeCpuTime": "58:49.03",
+          "elapsed": "07-01:00:38",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 61917,
+          "parent": 2260,
+          "cpuPercent": 7.7,
+          "cumulativeCpuTime": "0:47.51",
+          "elapsed": "11:02",
+          "executable": "ollama"
+        },
+        {
+          "pid": 788,
+          "parent": 1,
+          "cpuPercent": 7.3,
+          "cumulativeCpuTime": "146:52.90",
+          "elapsed": "08-16:47:26",
+          "executable": "Terminal"
+        },
+        {
+          "pid": 726,
+          "parent": 1,
+          "cpuPercent": 6.2,
+          "cumulativeCpuTime": "38:08.26",
+          "elapsed": "08-16:47:27",
+          "executable": "usbaudiod"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 5.3,
+          "cumulativeCpuTime": "10:34.43",
+          "elapsed": "01:29:49",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "184.26%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.58%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.26%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.14%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.71%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.29%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.16%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:40.134102+00:00",
+      "hostAllProcessCpuPercentSum": 658.4,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 28.0,
+        "systemPercent": 16.0,
+        "idlePercent": 56.0,
+        "loadAverage1m": 9.22,
+        "loadAverage5m": 8.28,
+        "loadAverage15m": 7.96,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 257.2,
+          "cumulativeCpuTime": "1402:57.77",
+          "elapsed": "07-01:00:42",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 34306,
+          "parent": 34301,
+          "cpuPercent": 114.5,
+          "cumulativeCpuTime": "0:23.19",
+          "elapsed": "00:20",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 46.4,
+          "cumulativeCpuTime": "4:25.74",
+          "elapsed": "11:17",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 46.1,
+          "cumulativeCpuTime": "554:19.70",
+          "elapsed": "08-16:47:52",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 45.0,
+          "cumulativeCpuTime": "19:13.06",
+          "elapsed": "01:20:20",
+          "executable": "msb"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 26.7,
+          "cumulativeCpuTime": "9:53.67",
+          "elapsed": "29:29",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 23.7,
+          "cumulativeCpuTime": "221:27.61",
+          "elapsed": "08-16:47:30",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 16.6,
+          "cumulativeCpuTime": "65:02.12",
+          "elapsed": "08-16:42:02",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 16.1,
+          "cumulativeCpuTime": "10:35.13",
+          "elapsed": "01:29:54",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 788,
+          "parent": 1,
+          "cpuPercent": 9.6,
+          "cumulativeCpuTime": "146:53.37",
+          "elapsed": "08-16:47:31",
+          "executable": "Terminal"
+        },
+        {
+          "pid": 61917,
+          "parent": 2260,
+          "cpuPercent": 7.9,
+          "cumulativeCpuTime": "0:47.91",
+          "elapsed": "11:07",
+          "executable": "ollama"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 7.9,
+          "cumulativeCpuTime": "58:49.63",
+          "elapsed": "07-01:00:43",
+          "executable": "com.docker.backend"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.03%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.02%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "175.88%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.73%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "1.62%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "1.39%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.76%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.97%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.12%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:45.134260+00:00",
+      "hostAllProcessCpuPercentSum": 622.2,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 29.0,
+        "systemPercent": 18.0,
+        "idlePercent": 53.0,
+        "loadAverage1m": 8.88,
+        "loadAverage5m": 8.23,
+        "loadAverage15m": 7.94,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 235.4,
+          "cumulativeCpuTime": "1403:09.80",
+          "elapsed": "07-01:00:47",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 34306,
+          "parent": 34301,
+          "cpuPercent": 104.3,
+          "cumulativeCpuTime": "0:28.86",
+          "elapsed": "00:25",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 49.0,
+          "cumulativeCpuTime": "4:28.10",
+          "elapsed": "11:22",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 47.2,
+          "cumulativeCpuTime": "554:22.09",
+          "elapsed": "08-16:47:57",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 27.5,
+          "cumulativeCpuTime": "221:28.97",
+          "elapsed": "08-16:47:35",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 27.3,
+          "cumulativeCpuTime": "10:36.36",
+          "elapsed": "01:29:59",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 21.9,
+          "cumulativeCpuTime": "9:54.91",
+          "elapsed": "29:34",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 15.4,
+          "cumulativeCpuTime": "65:02.92",
+          "elapsed": "08-16:42:07",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 11.9,
+          "cumulativeCpuTime": "19:13.90",
+          "elapsed": "01:20:25",
+          "executable": "msb"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 11.0,
+          "cumulativeCpuTime": "58:50.22",
+          "elapsed": "07-01:00:48",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 788,
+          "parent": 1,
+          "cpuPercent": 9.4,
+          "cumulativeCpuTime": "146:53.87",
+          "elapsed": "08-16:47:36",
+          "executable": "Terminal"
+        },
+        {
+          "pid": 61917,
+          "parent": 2260,
+          "cpuPercent": 8.3,
+          "cumulativeCpuTime": "0:48.31",
+          "elapsed": "11:12",
+          "executable": "ollama"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "186.02%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.71%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.30%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.13%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.74%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.24%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.18%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:50.134773+00:00",
+      "hostAllProcessCpuPercentSum": 858.2,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 43.0,
+        "systemPercent": 19.0,
+        "idlePercent": 38.0,
+        "loadAverage1m": 9.05,
+        "loadAverage5m": 8.27,
+        "loadAverage15m": 7.96,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 253.2,
+          "cumulativeCpuTime": "1403:21.64",
+          "elapsed": "07-01:00:52",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 37438,
+          "parent": 37425,
+          "cpuPercent": 122.6,
+          "cumulativeCpuTime": "0:02.35",
+          "elapsed": "00:02",
+          "executable": "node"
+        },
+        {
+          "pid": 34306,
+          "parent": 34301,
+          "cpuPercent": 101.0,
+          "cumulativeCpuTime": "0:34.40",
+          "elapsed": "00:30",
+          "executable": "node"
+        },
+        {
+          "pid": 37811,
+          "parent": 37803,
+          "cpuPercent": 99.6,
+          "cumulativeCpuTime": "0:00.88",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 48.1,
+          "cumulativeCpuTime": "4:30.54",
+          "elapsed": "11:27",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 45.7,
+          "cumulativeCpuTime": "554:24.47",
+          "elapsed": "08-16:48:02",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 30.0,
+          "cumulativeCpuTime": "221:30.39",
+          "elapsed": "08-16:47:40",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 24.3,
+          "cumulativeCpuTime": "9:56.06",
+          "elapsed": "29:39",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 23.2,
+          "cumulativeCpuTime": "10:37.88",
+          "elapsed": "01:30:04",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 15.6,
+          "cumulativeCpuTime": "65:03.67",
+          "elapsed": "08-16:42:12",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 10.1,
+          "cumulativeCpuTime": "58:50.83",
+          "elapsed": "07-01:00:53",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 2173,
+          "parent": 2169,
+          "cpuPercent": 9.8,
+          "cumulativeCpuTime": "23:45.03",
+          "elapsed": "08-16:46:05",
+          "executable": "Discord Helper"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "134.46%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.92%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.98%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.43%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "1.72%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.74%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "1.08%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "1.69%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:33:55.139835+00:00",
+      "hostAllProcessCpuPercentSum": 619.8,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 26.0,
+        "systemPercent": 16.0,
+        "idlePercent": 58.0,
+        "loadAverage1m": 10.49,
+        "loadAverage5m": 8.58,
+        "loadAverage15m": 8.07,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 186.4,
+          "cumulativeCpuTime": "1403:31.77",
+          "elapsed": "07-01:00:57",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 34306,
+          "parent": 34301,
+          "cpuPercent": 104.3,
+          "cumulativeCpuTime": "0:39.91",
+          "elapsed": "00:35",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 49.9,
+          "cumulativeCpuTime": "4:33.13",
+          "elapsed": "11:32",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 47.1,
+          "cumulativeCpuTime": "554:26.86",
+          "elapsed": "08-16:48:07",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 43.0,
+          "cumulativeCpuTime": "9:58.32",
+          "elapsed": "29:44",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 41.3,
+          "cumulativeCpuTime": "19:15.84",
+          "elapsed": "01:20:35",
+          "executable": "msb"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 26.1,
+          "cumulativeCpuTime": "221:31.87",
+          "elapsed": "08-16:47:45",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 18.6,
+          "cumulativeCpuTime": "10:39.16",
+          "elapsed": "01:30:09",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 15.3,
+          "cumulativeCpuTime": "65:04.44",
+          "elapsed": "08-16:42:17",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 10.1,
+          "cumulativeCpuTime": "58:51.44",
+          "elapsed": "07-01:00:58",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 788,
+          "parent": 1,
+          "cpuPercent": 9.1,
+          "cumulativeCpuTime": "146:54.89",
+          "elapsed": "08-16:47:46",
+          "executable": "Terminal"
+        },
+        {
+          "pid": 61917,
+          "parent": 2260,
+          "cpuPercent": 8.5,
+          "cumulativeCpuTime": "0:49.19",
+          "elapsed": "11:22",
+          "executable": "ollama"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "142.85%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "2.04%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.26%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.19%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.79%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.28%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.11%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:34:00.143250+00:00",
+      "hostAllProcessCpuPercentSum": 552.8,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 30.0,
+        "systemPercent": 16.0,
+        "idlePercent": 55.0,
+        "loadAverage1m": 10.29,
+        "loadAverage5m": 8.57,
+        "loadAverage15m": 8.07,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 180.1,
+          "cumulativeCpuTime": "1403:41.74",
+          "elapsed": "07-01:01:02",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 34306,
+          "parent": 34301,
+          "cpuPercent": 120.1,
+          "cumulativeCpuTime": "0:45.64",
+          "elapsed": "00:40",
+          "executable": "node"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 45.5,
+          "cumulativeCpuTime": "554:29.23",
+          "elapsed": "08-16:48:12",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 39.2,
+          "cumulativeCpuTime": "4:35.33",
+          "elapsed": "11:37",
+          "executable": "ollama"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 25.4,
+          "cumulativeCpuTime": "221:33.28",
+          "elapsed": "08-16:47:50",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 22.4,
+          "cumulativeCpuTime": "10:00.12",
+          "elapsed": "29:49",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 18.4,
+          "cumulativeCpuTime": "10:40.18",
+          "elapsed": "01:30:14",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 15.0,
+          "cumulativeCpuTime": "65:05.25",
+          "elapsed": "08-16:42:22",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 11.7,
+          "cumulativeCpuTime": "19:16.70",
+          "elapsed": "01:20:40",
+          "executable": "msb"
+        },
+        {
+          "pid": 788,
+          "parent": 1,
+          "cpuPercent": 8.3,
+          "cumulativeCpuTime": "146:55.37",
+          "elapsed": "08-16:47:51",
+          "executable": "Terminal"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 7.5,
+          "cumulativeCpuTime": "58:52.05",
+          "elapsed": "07-01:01:03",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 61917,
+          "parent": 2260,
+          "cpuPercent": 6.8,
+          "cumulativeCpuTime": "0:49.58",
+          "elapsed": "11:27",
+          "executable": "ollama"
+        }
+      ],
+      "docker": [
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "146.98%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.84%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "1.44%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "1.60%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.09%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "1.54%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "1.43%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:34:05.144504+00:00",
+      "hostAllProcessCpuPercentSum": 891.7,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 47.0,
+        "systemPercent": 26.0,
+        "idlePercent": 27.0,
+        "loadAverage1m": 12.67,
+        "loadAverage5m": 9.1,
+        "loadAverage15m": 8.26,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 187.6,
+          "cumulativeCpuTime": "1403:51.84",
+          "elapsed": "07-01:01:07",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 34306,
+          "parent": 34301,
+          "cpuPercent": 107.2,
+          "cumulativeCpuTime": "0:51.28",
+          "elapsed": "00:45",
+          "executable": "node"
+        },
+        {
+          "pid": 39415,
+          "parent": 39406,
+          "cpuPercent": 92.8,
+          "cumulativeCpuTime": "0:01.73",
+          "elapsed": "00:02",
+          "executable": "node"
+        },
+        {
+          "pid": 39473,
+          "parent": 39444,
+          "cpuPercent": 83.6,
+          "cumulativeCpuTime": "0:00.45",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 39441,
+          "parent": 39422,
+          "cpuPercent": 57.1,
+          "cumulativeCpuTime": "0:00.43",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 50.8,
+          "cumulativeCpuTime": "4:37.76",
+          "elapsed": "11:42",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 46.4,
+          "cumulativeCpuTime": "554:31.61",
+          "elapsed": "08-16:48:17",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 35.0,
+          "cumulativeCpuTime": "221:34.77",
+          "elapsed": "08-16:47:55",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 88383,
+          "parent": 88365,
+          "cpuPercent": 34.9,
+          "cumulativeCpuTime": "5:06.55",
+          "elapsed": "22:04:12",
+          "executable": "node"
+        },
+        {
+          "pid": 39438,
+          "parent": 39437,
+          "cpuPercent": 32.2,
+          "cumulativeCpuTime": "0:00.60",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 24.1,
+          "cumulativeCpuTime": "10:41.63",
+          "elapsed": "01:30:19",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 23.6,
+          "cumulativeCpuTime": "10:01.35",
+          "elapsed": "29:54",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        }
+      ],
+      "docker": [
+        {
+          "name": "cool_mclaren",
+          "cpuPercent": "0.02%"
+        },
+        {
+          "name": "testcontainers-ryuk-77ba52136982",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "134.08%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.39%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.81%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.27%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.17%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "1.20%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.26%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.19%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:34:10.144646+00:00",
+      "hostAllProcessCpuPercentSum": 940.7,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 53.0,
+        "systemPercent": 22.0,
+        "idlePercent": 25.0,
+        "loadAverage1m": 12.45,
+        "loadAverage5m": 9.11,
+        "loadAverage15m": 8.27,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 181.2,
+          "cumulativeCpuTime": "1404:05.70",
+          "elapsed": "07-01:01:12",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 40028,
+          "parent": 39659,
+          "cpuPercent": 154.3,
+          "cumulativeCpuTime": "0:01.45",
+          "elapsed": "00:02",
+          "executable": "node"
+        },
+        {
+          "pid": 39557,
+          "parent": 39550,
+          "cpuPercent": 125.9,
+          "cumulativeCpuTime": "0:04.65",
+          "elapsed": "00:04",
+          "executable": "node"
+        },
+        {
+          "pid": 39406,
+          "parent": 52651,
+          "cpuPercent": 110.4,
+          "cumulativeCpuTime": "0:04.30",
+          "elapsed": "00:07",
+          "executable": "node"
+        },
+        {
+          "pid": 40056,
+          "parent": 40032,
+          "cpuPercent": 51.9,
+          "cumulativeCpuTime": "0:00.42",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 45.4,
+          "cumulativeCpuTime": "4:40.21",
+          "elapsed": "11:47",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 43.7,
+          "cumulativeCpuTime": "554:34.02",
+          "elapsed": "08-16:48:22",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 42.4,
+          "cumulativeCpuTime": "19:18.79",
+          "elapsed": "01:20:50",
+          "executable": "msb"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 28.5,
+          "cumulativeCpuTime": "221:36.43",
+          "elapsed": "08-16:48:00",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 21.6,
+          "cumulativeCpuTime": "10:02.58",
+          "elapsed": "29:59",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 20.0,
+          "cumulativeCpuTime": "10:42.98",
+          "elapsed": "01:30:24",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 13.9,
+          "cumulativeCpuTime": "65:06.73",
+          "elapsed": "08-16:42:32",
+          "executable": "VTDecoderXPCService"
+        }
+      ],
+      "docker": [
+        {
+          "name": "elastic_meninsky",
+          "cpuPercent": "0.04%"
+        },
+        {
+          "name": "cool_mclaren",
+          "cpuPercent": "0.02%"
+        },
+        {
+          "name": "testcontainers-ryuk-77ba52136982",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "131.45%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.87%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.85%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.41%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "1.77%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.61%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "1.26%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "1.62%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:34:15.146249+00:00",
+      "hostAllProcessCpuPercentSum": 956.3,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 49.0,
+        "systemPercent": 19.0,
+        "idlePercent": 33.0,
+        "loadAverage1m": 12.42,
+        "loadAverage5m": 9.16,
+        "loadAverage15m": 8.29,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 175.5,
+          "cumulativeCpuTime": "1404:18.48",
+          "elapsed": "07-01:01:17",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 40645,
+          "parent": 40207,
+          "cpuPercent": 154.4,
+          "cumulativeCpuTime": "0:01.48",
+          "elapsed": "00:02",
+          "executable": "node"
+        },
+        {
+          "pid": 39406,
+          "parent": 52651,
+          "cpuPercent": 121.8,
+          "cumulativeCpuTime": "0:11.49",
+          "elapsed": "00:12",
+          "executable": "node"
+        },
+        {
+          "pid": 39557,
+          "parent": 39550,
+          "cpuPercent": 109.4,
+          "cumulativeCpuTime": "0:10.35",
+          "elapsed": "00:09",
+          "executable": "node"
+        },
+        {
+          "pid": 40028,
+          "parent": 39659,
+          "cpuPercent": 99.9,
+          "cumulativeCpuTime": "0:07.19",
+          "elapsed": "00:07",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 54.5,
+          "cumulativeCpuTime": "4:43.05",
+          "elapsed": "11:52",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 47.0,
+          "cumulativeCpuTime": "554:36.41",
+          "elapsed": "08-16:48:27",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 28.5,
+          "cumulativeCpuTime": "221:38.06",
+          "elapsed": "08-16:48:05",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 23.1,
+          "cumulativeCpuTime": "10:03.92",
+          "elapsed": "30:04",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 19.4,
+          "cumulativeCpuTime": "10:44.22",
+          "elapsed": "01:30:29",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 14.3,
+          "cumulativeCpuTime": "65:07.43",
+          "elapsed": "08-16:42:37",
+          "executable": "VTDecoderXPCService"
+        },
+        {
+          "pid": 778,
+          "parent": 1,
+          "cpuPercent": 10.6,
+          "cumulativeCpuTime": "179:08.08",
+          "elapsed": "08-16:48:06",
+          "executable": "Google Chrome"
+        }
+      ],
+      "docker": [
+        {
+          "name": "elastic_meninsky",
+          "cpuPercent": "0.02%"
+        },
+        {
+          "name": "cool_mclaren",
+          "cpuPercent": "0.02%"
+        },
+        {
+          "name": "testcontainers-ryuk-77ba52136982",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "138.79%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.76%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.29%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.19%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.77%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.27%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.23%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:34:20.146415+00:00",
+      "hostAllProcessCpuPercentSum": 1038.5,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 38.0,
+        "systemPercent": 18.0,
+        "idlePercent": 45.0,
+        "loadAverage1m": 12.62,
+        "loadAverage5m": 9.25,
+        "loadAverage15m": 8.33,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 41125,
+          "parent": 40028,
+          "cpuPercent": 274.8,
+          "cumulativeCpuTime": "0:01.30",
+          "elapsed": "00:01",
+          "executable": "esbuild"
+        },
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 189.5,
+          "cumulativeCpuTime": "1404:28.08",
+          "elapsed": "07-01:01:22",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 40645,
+          "parent": 40207,
+          "cpuPercent": 104.4,
+          "cumulativeCpuTime": "0:07.24",
+          "elapsed": "00:07",
+          "executable": "node"
+        },
+        {
+          "pid": 39557,
+          "parent": 39550,
+          "cpuPercent": 96.9,
+          "cumulativeCpuTime": "0:15.84",
+          "elapsed": "00:14",
+          "executable": "node"
+        },
+        {
+          "pid": 40028,
+          "parent": 39659,
+          "cpuPercent": 94.2,
+          "cumulativeCpuTime": "0:12.65",
+          "elapsed": "00:12",
+          "executable": "node"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 47.5,
+          "cumulativeCpuTime": "554:38.79",
+          "elapsed": "08-16:48:32",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 47.4,
+          "cumulativeCpuTime": "4:45.61",
+          "elapsed": "11:57",
+          "executable": "ollama"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 26.5,
+          "cumulativeCpuTime": "221:39.60",
+          "elapsed": "08-16:48:10",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 23.7,
+          "cumulativeCpuTime": "10:45.48",
+          "elapsed": "01:30:34",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 20.5,
+          "cumulativeCpuTime": "10:05.09",
+          "elapsed": "30:09",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 49551,
+          "parent": 778,
+          "cpuPercent": 16.8,
+          "cumulativeCpuTime": "0:57.64",
+          "elapsed": "01:51:23",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 14.2,
+          "cumulativeCpuTime": "65:08.15",
+          "elapsed": "08-16:42:42",
+          "executable": "VTDecoderXPCService"
+        }
+      ],
+      "docker": [
+        {
+          "name": "elastic_meninsky",
+          "cpuPercent": "0.02%"
+        },
+        {
+          "name": "cool_mclaren",
+          "cpuPercent": "0.02%"
+        },
+        {
+          "name": "testcontainers-ryuk-77ba52136982",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "139.99%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.35%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.36%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "1.11%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "5.93%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.21%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.74%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "6.08%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "1.73%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:34:25.147782+00:00",
+      "hostAllProcessCpuPercentSum": 878.9,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 35.0,
+        "systemPercent": 20.0,
+        "idlePercent": 45.0,
+        "loadAverage1m": 12.73,
+        "loadAverage5m": 9.33,
+        "loadAverage15m": 8.36,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 230.7,
+          "cumulativeCpuTime": "1404:38.80",
+          "elapsed": "07-01:01:27",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 39557,
+          "parent": 39550,
+          "cpuPercent": 111.9,
+          "cumulativeCpuTime": "0:21.46",
+          "elapsed": "00:19",
+          "executable": "node"
+        },
+        {
+          "pid": 41636,
+          "parent": 40645,
+          "cpuPercent": 80.7,
+          "cumulativeCpuTime": "0:00.51",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 41630,
+          "parent": 40645,
+          "cpuPercent": 72.6,
+          "cumulativeCpuTime": "0:01.82",
+          "elapsed": "00:01",
+          "executable": "esbuild"
+        },
+        {
+          "pid": 40028,
+          "parent": 39659,
+          "cpuPercent": 52.5,
+          "cumulativeCpuTime": "0:13.94",
+          "elapsed": "00:17",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 50.7,
+          "cumulativeCpuTime": "4:48.22",
+          "elapsed": "12:02",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 47.3,
+          "cumulativeCpuTime": "554:41.17",
+          "elapsed": "08-16:48:37",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 41.9,
+          "cumulativeCpuTime": "19:21.59",
+          "elapsed": "01:21:05",
+          "executable": "msb"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 30.8,
+          "cumulativeCpuTime": "221:41.13",
+          "elapsed": "08-16:48:15",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 24.6,
+          "cumulativeCpuTime": "10:06.35",
+          "elapsed": "30:14",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 22.3,
+          "cumulativeCpuTime": "58:56.23",
+          "elapsed": "07-01:01:28",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 22.1,
+          "cumulativeCpuTime": "10:46.56",
+          "elapsed": "01:30:39",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        }
+      ],
+      "docker": [
+        {
+          "name": "elastic_meninsky",
+          "cpuPercent": "4.63%"
+        },
+        {
+          "name": "cool_mclaren",
+          "cpuPercent": "26.39%"
+        },
+        {
+          "name": "testcontainers-ryuk-77ba52136982",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "221.51%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.88%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.34%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.17%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.76%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.25%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.17%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:34:30.148000+00:00",
+      "hostAllProcessCpuPercentSum": 924.0,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 43.0,
+        "systemPercent": 22.0,
+        "idlePercent": 35.0,
+        "loadAverage1m": 18.92,
+        "loadAverage5m": 10.67,
+        "loadAverage15m": 8.84,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 334.5,
+          "cumulativeCpuTime": "1404:54.32",
+          "elapsed": "07-01:01:32",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 39557,
+          "parent": 39550,
+          "cpuPercent": 107.3,
+          "cumulativeCpuTime": "0:27.03",
+          "elapsed": "00:24",
+          "executable": "node"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 52.1,
+          "cumulativeCpuTime": "4:50.96",
+          "elapsed": "12:07",
+          "executable": "ollama"
+        },
+        {
+          "pid": 23392,
+          "parent": 778,
+          "cpuPercent": 49.8,
+          "cumulativeCpuTime": "0:06.86",
+          "elapsed": "18:03",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 40645,
+          "parent": 40207,
+          "cpuPercent": 49.8,
+          "cumulativeCpuTime": "0:13.78",
+          "elapsed": "00:17",
+          "executable": "node"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 45.3,
+          "cumulativeCpuTime": "554:43.57",
+          "elapsed": "08-16:48:42",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 40028,
+          "parent": 39659,
+          "cpuPercent": 38.7,
+          "cumulativeCpuTime": "0:15.96",
+          "elapsed": "00:22",
+          "executable": "node"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 38.0,
+          "cumulativeCpuTime": "221:42.76",
+          "elapsed": "08-16:48:20",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 71350,
+          "parent": 71346,
+          "cpuPercent": 31.4,
+          "cumulativeCpuTime": "58:57.74",
+          "elapsed": "07-01:01:33",
+          "executable": "com.docker.backend"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 27.5,
+          "cumulativeCpuTime": "10:07.91",
+          "elapsed": "30:19",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 778,
+          "parent": 1,
+          "cpuPercent": 22.0,
+          "cumulativeCpuTime": "179:10.04",
+          "elapsed": "08-16:48:21",
+          "executable": "Google Chrome"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 21.7,
+          "cumulativeCpuTime": "10:47.83",
+          "elapsed": "01:30:44",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        }
+      ],
+      "docker": [
+        {
+          "name": "elastic_meninsky",
+          "cpuPercent": "22.10%"
+        },
+        {
+          "name": "cool_mclaren",
+          "cpuPercent": "3.15%"
+        },
+        {
+          "name": "testcontainers-ryuk-77ba52136982",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "219.33%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "0.94%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "1.94%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.36%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "1.72%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.77%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "1.79%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "1.59%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:34:35.151005+00:00",
+      "hostAllProcessCpuPercentSum": 1126.7,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 56.0,
+        "systemPercent": 21.0,
+        "idlePercent": 23.0,
+        "loadAverage1m": 18.29,
+        "loadAverage5m": 10.68,
+        "loadAverage15m": 8.85,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 279.0,
+          "cumulativeCpuTime": "1405:10.52",
+          "elapsed": "07-01:01:37",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 42633,
+          "parent": 42627,
+          "cpuPercent": 213.1,
+          "cumulativeCpuTime": "0:01.11",
+          "elapsed": "00:01",
+          "executable": "tsc"
+        },
+        {
+          "pid": 39557,
+          "parent": 39550,
+          "cpuPercent": 95.5,
+          "cumulativeCpuTime": "0:32.48",
+          "elapsed": "00:29",
+          "executable": "node"
+        },
+        {
+          "pid": 40028,
+          "parent": 39659,
+          "cpuPercent": 72.2,
+          "cumulativeCpuTime": "0:19.13",
+          "elapsed": "00:27",
+          "executable": "node"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 51.1,
+          "cumulativeCpuTime": "221:45.20",
+          "elapsed": "08-16:48:25",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 49.8,
+          "cumulativeCpuTime": "4:53.74",
+          "elapsed": "12:12",
+          "executable": "ollama"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 45.9,
+          "cumulativeCpuTime": "554:45.98",
+          "elapsed": "08-16:48:47",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 42627,
+          "parent": 42104,
+          "cpuPercent": 41.7,
+          "cumulativeCpuTime": "0:00.70",
+          "elapsed": "00:01",
+          "executable": "node"
+        },
+        {
+          "pid": 40645,
+          "parent": 40207,
+          "cpuPercent": 33.0,
+          "cumulativeCpuTime": "0:15.57",
+          "elapsed": "00:22",
+          "executable": "node"
+        },
+        {
+          "pid": 30663,
+          "parent": 778,
+          "cpuPercent": 31.9,
+          "cumulativeCpuTime": "0:10.30",
+          "elapsed": "30:20",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 23.5,
+          "cumulativeCpuTime": "10:09.28",
+          "elapsed": "30:24",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 20.1,
+          "cumulativeCpuTime": "10:49.12",
+          "elapsed": "01:30:49",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        }
+      ],
+      "docker": [
+        {
+          "name": "cool_mclaren",
+          "cpuPercent": "0.02%"
+        },
+        {
+          "name": "testcontainers-ryuk-77ba52136982",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "247.55%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.36%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "1.16%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "0.30%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.18%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "0.93%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "0.32%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.20%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "0.18%"
+        }
+      ]
+    },
+    {
+      "utc": "2026-11-13T10:34:40.155829+00:00",
+      "hostAllProcessCpuPercentSum": 889.2,
+      "aggregateCpuOneSecondDelta": {
+        "userPercent": 24.0,
+        "systemPercent": 15.0,
+        "idlePercent": 61.0,
+        "loadAverage1m": 18.26,
+        "loadAverage5m": 10.8,
+        "loadAverage15m": 8.91,
+        "logicalCpus": 18,
+        "method": "iostat second sample: one-second OS aggregate CPU delta; first since-boot sample discarded"
+      },
+      "hostTop": [
+        {
+          "pid": 71381,
+          "parent": 1,
+          "cpuPercent": 284.8,
+          "cumulativeCpuTime": "1405:27.78",
+          "elapsed": "07-01:01:42",
+          "executable": "com.apple.Virtualization.VirtualMachine"
+        },
+        {
+          "pid": 39557,
+          "parent": 39550,
+          "cpuPercent": 106.9,
+          "cumulativeCpuTime": "0:37.89",
+          "elapsed": "00:34",
+          "executable": "node"
+        },
+        {
+          "pid": 40028,
+          "parent": 39659,
+          "cpuPercent": 98.3,
+          "cumulativeCpuTime": "0:24.61",
+          "elapsed": "00:32",
+          "executable": "node"
+        },
+        {
+          "pid": 92872,
+          "parent": 778,
+          "cpuPercent": 53.4,
+          "cumulativeCpuTime": "10:50.38",
+          "elapsed": "01:30:54",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 878,
+          "parent": 778,
+          "cpuPercent": 49.1,
+          "cumulativeCpuTime": "221:47.56",
+          "elapsed": "08-16:48:30",
+          "executable": "Google Chrome Helper (Aperitif)"
+        },
+        {
+          "pid": 424,
+          "parent": 1,
+          "cpuPercent": 47.3,
+          "cumulativeCpuTime": "554:48.39",
+          "elapsed": "08-16:48:52",
+          "executable": "WindowServer"
+        },
+        {
+          "pid": 61250,
+          "parent": 60848,
+          "cpuPercent": 45.3,
+          "cumulativeCpuTime": "4:56.45",
+          "elapsed": "12:17",
+          "executable": "ollama"
+        },
+        {
+          "pid": 30663,
+          "parent": 778,
+          "cpuPercent": 40.3,
+          "cumulativeCpuTime": "0:11.44",
+          "elapsed": "30:25",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 56699,
+          "parent": 1,
+          "cpuPercent": 34.4,
+          "cumulativeCpuTime": "19:24.57",
+          "elapsed": "01:21:20",
+          "executable": "msb"
+        },
+        {
+          "pid": 30236,
+          "parent": 778,
+          "cpuPercent": 24.0,
+          "cumulativeCpuTime": "10:10.55",
+          "elapsed": "30:29",
+          "executable": "Google Chrome Helper (Aperitif Renderer)"
+        },
+        {
+          "pid": 88383,
+          "parent": 88365,
+          "cpuPercent": 22.1,
+          "cumulativeCpuTime": "5:07.66",
+          "elapsed": "22:04:47",
+          "executable": "node"
+        },
+        {
+          "pid": 27482,
+          "parent": 1,
+          "cpuPercent": 14.2,
+          "cumulativeCpuTime": "65:10.98",
+          "elapsed": "08-16:43:02",
+          "executable": "VTDecoderXPCService"
+        }
+      ],
+      "docker": [
+        {
+          "name": "cool_mclaren",
+          "cpuPercent": "13.06%"
+        },
+        {
+          "name": "testcontainers-ryuk-77ba52136982",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg18",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-pg17",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-rls-82462-runtime",
+          "cpuPercent": "0.12%"
+        },
+        {
+          "name": "om-rotation-benchmark-9334-persistent",
+          "cpuPercent": "0.05%"
+        },
+        {
+          "name": "om-cli-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-benchmark-cold1g",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-backup-full9333",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9334-fixture",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "om-pg-9333-fixture",
+          "cpuPercent": "0.01%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-opencode",
+          "cpuPercent": "2.39%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-redis",
+          "cpuPercent": "1.52%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-postgres",
+          "cpuPercent": "0.00%"
+        },
+        {
+          "name": "mercato-local-v2-93ec9bbe25-meilisearch",
+          "cpuPercent": "0.21%"
+        },
+        {
+          "name": "mercato-opencode",
+          "cpuPercent": "1.01%"
+        },
+        {
+          "name": "mercato-redis",
+          "cpuPercent": "1.47%"
+        },
+        {
+          "name": "mercato-postgres",
+          "cpuPercent": "0.05%"
+        },
+        {
+          "name": "mercato-meilisearch",
+          "cpuPercent": "1.72%"
+        }
+      ]
+    }
+  ],
+  "aggregateIdlePercent": {
+    "min": 16.0,
+    "median": 48.0,
+    "max": 61.0,
+    "samples": 20
+  }
+}

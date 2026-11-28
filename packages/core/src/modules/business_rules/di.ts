@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import type { AwilixContainer } from 'awilix'
 import { asFunction } from 'awilix'
 import * as ruleEvaluator from './lib/rule-evaluator'
@@ -14,3 +15,5 @@ export function register(container: AwilixContainer): void {
     ruleEngine: asFunction(() => ruleEngine).scoped(),
   })
 }
+
+defineProcessDiRegistrar(register)

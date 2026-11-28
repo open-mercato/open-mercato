@@ -112,6 +112,8 @@ describe('EditDefinitionsPage submit (#3115)', () => {
 
     await waitFor(() => expect(calledUrls()).toContain('/api/entities/definitions.batch'))
     expect(calledUrls()).not.toContain('/api/entities/entities')
+    const [, definitionSave] = apiCallMock.mock.calls.find(([url]) => url === '/api/entities/definitions.batch') ?? []
+    expect(JSON.parse(definitionSave.body)).toMatchObject({ preserveOrder: true })
   })
 
   it('still registers entity metadata for custom (user-defined) entities', async () => {
