@@ -152,4 +152,22 @@ describe('GET /api/workflows/instances/[id]/would-do', () => {
     const [, , options] = mockEm.findAndCount.mock.calls[0]
     expect(options.limit).toBe(WOULD_DO_PAGE_SIZE_MAX)
   })
+
+  test.each([100001, 100050, 999999999])('rejects offset %i before reading simulation report entries', async (offset) => {
+    const response = await getWouldDo(makeRequest(`?offset=${offset}&limit=10`), makeContext())
+    expect(response.status).toBe(400)
+    expect(await response.json()).toHaveProperty('error', 'WORKFLOW_LIST_OFFSET_EXCEEDED')
+    expect(mockEm.findAndCount).not.toHaveBeenCalled()
+  })
+
+  test('accepts the maximum offset before reading simulation report entries', async () => {
+    const response = await getWouldDo(makeRequest('?offset=100000&limit=10'), makeContext())
+
+    expect(response.status).toBe(200)
+    expect(mockEm.findAndCount).toHaveBeenCalledWith(
+      WorkflowEvent,
+      expect.objectContaining({ workflowInstanceId: testInstanceId, tenantId: testTenantId }),
+      expect.objectContaining({ limit: 10, offset: 100000 }),
+    )
+  })
 })

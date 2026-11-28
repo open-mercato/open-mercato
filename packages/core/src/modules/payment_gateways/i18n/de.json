@@ -4,6 +4,7 @@
   "payment_gateways.column.gatewayStatus": "Gateway-Status",
   "payment_gateways.errors.amountMustBePositive": "Der Betrag muss größer als null sein",
   "payment_gateways.errors.amountPrecisionExceeded": "Der Betrag {amount} hat mehr Nachkommastellen, als {currencyCode} unterstützt ({decimalPlaces})",
+  "payment_gateways.errors.cancelCaptureConflict": "Eine Zahlung mit eingezogenen Beträgen oder einer ausstehenden Einzugsreservierung kann nicht storniert werden.",
   "payment_gateways.errors.sessionAmountMismatch": "Der Betrag der Zahlungssitzung {amount} stimmt nicht mit dem fälligen Betrag der Bestellung {orderId} überein",
   "payment_gateways.errors.sessionCurrencyMismatch": "Die Währung der Zahlungssitzung {currencyCode} stimmt nicht mit der Währung der Bestellung {orderId} überein",
   "payment_gateways.errors.sessionOrderNotFound": "Bestellung {orderId} wurde im aktuellen Gültigkeitsbereich nicht gefunden",

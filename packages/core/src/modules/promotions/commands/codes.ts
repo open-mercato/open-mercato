@@ -28,6 +28,7 @@ import {
   promotionCodeCreateSchema,
   promotionCodeUpdateSchema,
   promotionCodeDeleteSchema,
+  validateCodeUpdateAgainstStored,
   type PromotionCodeCreateInput,
   type PromotionCodeUpdateInput,
   type PromotionCodeDeleteInput,
@@ -332,6 +333,7 @@ async function executeCodeUpdate(
   if (!existingCode) throw notFound('Promotion code not found')
   let code = existingCode
   assertPromotionScopeOrNotFound(ctx, code)
+  validateCodeUpdateAgainstStored(code, parsed)
 
   await runCrudCommandWrite({
     ctx,

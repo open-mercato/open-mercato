@@ -77,13 +77,16 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
-
+  const { tenantId, filterIds } = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const { id, page, pageSize, search, jurisdiction, sortField, sortDir } = parsed.data
-  let filter: Record<string, unknown> = { tenantId: auth.tenantId }
-  // Selected organization, not the user's home auth.orgId.
-  if (organizationId) filter.organizationId = organizationId
+  if (!tenantId || filterIds?.length === 0) {
+    return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
+  }
+
+  let filter: Record<string, unknown> = {
+    tenantId,
+    ...(filterIds ? { organizationId: { $in: filterIds } } : {}),
+  }
 
   if (id) filter.id = id
   // `?ids=` — comma-separated or repeated — same fail-closed pattern as the

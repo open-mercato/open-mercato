@@ -265,10 +265,6 @@ export type LiveInteractionAuthority = {
   entityId: string | null
 }
 
-/**
- * Upper bound on interaction ids resolved in one batch — mirrors `SHARE_ARM_MAX`;
- * a single audit page cannot reference more rows than it lists.
- */
 export const LIVE_INTERACTION_ARM_MAX = 500
 
 /**
@@ -310,41 +306,34 @@ export async function loadLiveInteractionAuthority(
   )
   if (!ids.length) return new Map()
   try {
-    const where: Record<string, unknown> = { id: { $in: ids }, tenantId: scope.tenantId, deletedAt: null }
-    if (scope.organizationId) where.organizationId = scope.organizationId
-    const rows = (await findWithDecryption(
-      em,
-      CustomerInteraction,
-      where as never,
-      { limit: LIVE_INTERACTION_ARM_MAX + 1 },
-      { tenantId: scope.tenantId, organizationId: scope.organizationId },
-    )) as unknown as Array<{
-      id: string
-      visibility?: string | null
-      authorUserId?: string | null
-      channelId?: string | null
-      entity?: unknown
-    }>
-    if (!Array.isArray(rows)) return new Map()
-
-    if (rows.length > LIVE_INTERACTION_ARM_MAX) {
-      logger.warn('[internal] live interaction authority lookup truncated', {
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        limit: LIVE_INTERACTION_ARM_MAX,
-        dropped: rows.length - LIVE_INTERACTION_ARM_MAX,
-      })
-    }
-
     const map = new Map<string, LiveInteractionAuthority>()
-    for (const row of rows.slice(0, LIVE_INTERACTION_ARM_MAX)) {
-      if (!row || typeof row.id !== 'string' || !row.id) continue
-      map.set(row.id, {
-        visibility: row.visibility ?? null,
-        authorUserId: row.authorUserId ?? null,
-        channelId: row.channelId ?? null,
-        entityId: resolveEntityId(row.entity),
-      })
+    for (let offset = 0; offset < ids.length; offset += LIVE_INTERACTION_ARM_MAX) {
+      const batchIds = ids.slice(offset, offset + LIVE_INTERACTION_ARM_MAX)
+      const where: Record<string, unknown> = { id: { $in: batchIds }, tenantId: scope.tenantId, deletedAt: null }
+      if (scope.organizationId) where.organizationId = scope.organizationId
+      const rows = (await findWithDecryption(
+        em,
+        CustomerInteraction,
+        where as never,
+        { limit: batchIds.length },
+        { tenantId: scope.tenantId, organizationId: scope.organizationId },
+      )) as unknown as Array<{
+        id: string
+        visibility?: string | null
+        authorUserId?: string | null
+        channelId?: string | null
+        entity?: unknown
+      }>
+      if (!Array.isArray(rows)) return new Map()
+      for (const row of rows) {
+        if (!row || typeof row.id !== 'string' || !row.id) continue
+        map.set(row.id, {
+          visibility: row.visibility ?? null,
+          authorUserId: row.authorUserId ?? null,
+          channelId: row.channelId ?? null,
+          entityId: resolveEntityId(row.entity),
+        })
+      }
     }
     return map
   } catch (err) {

@@ -34,9 +34,11 @@ import {
 import { resolveEntityIdFromMetadata } from '@open-mercato/shared/lib/encryption/entityIds'
 import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { rotateCustomEntityDocuments } from './lib/rotate-custom-entity-documents'
+import { rehashLookupColumns } from './lib/rehash-lookup-columns'
 import { Organization } from '../directory/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import crypto from 'node:crypto'
+import { z } from 'zod'
 
 function parseArgs(rest: string[]) {
   return parseModuleCliOptions(rest)
@@ -324,6 +326,40 @@ const OLD_ENCRYPTION_KEY_ENV = 'TENANT_DATA_ENCRYPTION_OLD_KEY'
 
 function failCli(message: string): never {
   throw new Error(message)
+}
+
+const rehashLookupOptions = z.strictObject({
+  tenant: z.uuid().optional(),
+  tenantless: z.literal(true).optional(),
+  'dry-run': z.literal(true).optional(),
+}).refine((args) => Boolean(args.tenant) !== Boolean(args.tenantless))
+
+const rehashLookupUsage = 'mercato entities rehash-lookups (--tenant <uuid> | --tenantless) [--dry-run]'
+
+const rehashLookups: ModuleCli = {
+  command: 'rehash-lookups',
+  help: rehashLookupUsage,
+  async run(rest) {
+    const options = rehashLookupOptions.safeParse(parseArgs(rest))
+    if (!options.success) {
+      failCli(`Usage: ${rehashLookupUsage}`)
+    }
+    const newPepper = normalizeKeyInput(process.env.LOOKUP_HASH_PEPPER ?? '')
+    const oldPepper = normalizeKeyInput(process.env.LOOKUP_HASH_OLD_PEPPER ?? '')
+    if (!newPepper || newPepper === oldPepper) {
+      failCli('Set LOOKUP_HASH_PEPPER to a new value distinct from LOOKUP_HASH_OLD_PEPPER before rehashing.')
+    }
+
+    const { resolve } = await createRequestContainer()
+    const dryRun = options.data['dry-run'] === true
+    const { scanned, changed } = await rehashLookupColumns(
+      resolve<EntityManager>('em'),
+      resolve<TenantDataEncryptionService>('tenantEncryptionService'),
+      getDefaultEncryptionMaps(await resolveEncryptionMapModules()),
+      { tenantId: options.data.tenant?.toLowerCase() ?? null, dryRun },
+    )
+    console.log(`${dryRun ? '[dry-run] ' : ''}Lookup rehash complete. Rows scanned: ${scanned}. Rows ${dryRun ? 'to update' : 'updated'}: ${changed}.`)
+  },
 }
 
 class DerivedKeyKmsService implements KmsService {
@@ -1468,4 +1504,4 @@ const backfillSystemEncryption: ModuleCli = {
 }
 
 // Keep default export stable (install first for help listing)
-export default [seedDefs, reinstallDefs, addField, seedEncryptionMaps, rotateEncryptionKey, decryptDatabase, backfillSystemEncryption]
+export default [seedDefs, reinstallDefs, addField, seedEncryptionMaps, rotateEncryptionKey, decryptDatabase, backfillSystemEncryption, rehashLookups]

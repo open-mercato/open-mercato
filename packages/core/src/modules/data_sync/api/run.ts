@@ -4,7 +4,7 @@ import { organizationScopeRequiredResponse, resolveActiveOrganizationId } from '
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
-import type { ProgressService } from '../../progress/lib/progressService'
+import { resolveProgressService } from '../lib/resolve-progress-service'
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { SyncRunService } from '../lib/sync-run-service'
 import { runSyncSchema } from '../data/validators'
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
 
     const container = await createRequestContainer()
     const syncRunService = container.resolve('dataSyncRunService') as SyncRunService
-    const progressService = container.resolve('progressService') as ProgressService
+    const progressService = resolveProgressService(container)
     const integrationStateService = container.resolve('integrationStateService') as IntegrationStateService
 
     const scope = {

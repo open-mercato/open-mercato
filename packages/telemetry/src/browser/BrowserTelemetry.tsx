@@ -26,8 +26,6 @@
 import * as React from 'react'
 import { registerTelemetryErrorReporter, type TelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { groupableCode } from '@open-mercato/shared/lib/telemetry/error-code'
-import { serializeError } from '../facade/serialize'
-import { redactAttributes } from '../facade/redact'
 import type { BrowserTelemetryConfig } from './config'
 import { createBackupHeaderPropagator } from './propagator'
 
@@ -56,6 +54,9 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<Te
     { FetchInstrumentation },
     { W3CTraceContextPropagator },
     { defaultTextMapSetter, SpanStatusCode },
+    { createRedactingSpanProcessor },
+    { serializeError },
+    { redactAttributes },
   ] = await Promise.all([
     import('@opentelemetry/sdk-trace-web'),
     import('@opentelemetry/sdk-trace-base'),
@@ -66,6 +67,9 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<Te
     import('@opentelemetry/instrumentation-fetch'),
     import('@opentelemetry/core'),
     import('@opentelemetry/api'),
+    import('../provider/redacting-span-processor'),
+    import('../facade/serialize'),
+    import('../facade/redact'),
   ])
 
   const provider = new WebTracerProvider({
@@ -80,12 +84,12 @@ async function startBrowserTelemetry(config: BrowserTelemetryConfig): Promise<Te
       root: new TraceIdRatioBasedSampler(config.samplingRatio),
     }),
     spanProcessors: [
-      new BatchSpanProcessor(
+      createRedactingSpanProcessor(new BatchSpanProcessor(
         new OTLPTraceExporter({ url: config.endpoint }),
         // The interesting spans arrive in bursts around a navigation; a short delay keeps them
         // close together in the trace view without one request per span.
         { scheduledDelayMillis: 3_000, maxQueueSize: 512 },
-      ),
+      )),
     ],
   })
 

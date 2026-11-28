@@ -802,6 +802,11 @@
       ],
       "checks": [
         {
+          "name": "journal_entry_lines_amount_currency_nonneg_chk",
+          "expression": "\"amount_currency\" >= 0",
+          "definition": "check (\"amount_currency\" >= 0)"
+        },
+        {
           "name": "journal_entry_lines_one_sided_chk",
           "expression": "(\"debit\" = 0 OR \"credit\" = 0) AND (\"debit\" > 0 OR \"credit\" > 0)",
           "definition": "check ((\"debit\" = 0 OR \"credit\" = 0) AND (\"debit\" > 0 OR \"credit\" > 0))"

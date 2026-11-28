@@ -1,5 +1,6 @@
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
+import { withRequiredFeatures } from './featureGuard'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, conflict } from '@open-mercato/shared/lib/crud/errors'
@@ -327,8 +328,8 @@ const unassignWarehouseHandler: CommandHandler<
   },
 }
 
-registerCommand(assignWarehouseHandler)
-registerCommand(unassignWarehouseHandler)
+registerCommand(withRequiredFeatures(assignWarehouseHandler, [['wms.manage_reservations']]))
+registerCommand(withRequiredFeatures(unassignWarehouseHandler, [['wms.manage_reservations']]))
 
 export const reRunReservationInputSchema = z.object({
   salesOrderId: z.string().uuid(),
@@ -374,4 +375,4 @@ const reRunReservationHandler: CommandHandler<ReRunReservationInput, { ok: boole
   },
 }
 
-registerCommand(reRunReservationHandler)
+registerCommand(withRequiredFeatures(reRunReservationHandler, [['wms.manage_reservations']]))

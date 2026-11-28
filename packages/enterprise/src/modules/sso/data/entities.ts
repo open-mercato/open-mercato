@@ -42,6 +42,9 @@ export class SsoConfig {
   @Property({ name: 'sso_required', type: 'boolean', default: false })
   ssoRequired: boolean = false
 
+  @Property({ name: 'authorization_user_id', type: 'uuid', nullable: true })
+  authorizationUserId?: string | null
+
   @Property({ name: 'app_role_mappings', type: 'jsonb', default: '{}' })
   appRoleMappings: Record<string, string> = {}
 

@@ -9,6 +9,10 @@ import { runWithCacheTenant } from '@open-mercato/cache'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { buildRecordTag } from '@open-mercato/shared/lib/crud/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import {
+  backfillDealLossReasonDictionary as backfillDealLossReasonDictionaryFromCustomers,
+  type BackfillDealLossReasonDictionaryResult as CustomersBackfillDealLossReasonDictionaryResult,
+} from '@open-mercato/core/modules/customers/lib/dealLossReasons'
 
 export type SalesDictionaryKind =
   | 'order-status'
@@ -168,6 +172,19 @@ export async function resolveCachedDictionaryEntryValue(
 
 export { normalizeDictionaryValue, sanitizeDictionaryColor, sanitizeDictionaryIcon }
 
+/**
+ * @deprecated Since 0.10.0, removal no earlier than 0.12.0. The deal loss-reason dictionary is
+ * owned by `customers`; import `backfillDealLossReasonDictionary` from
+ * `@open-mercato/core/modules/customers/lib/dealLossReasons`.
+ */
+export const backfillDealLossReasonDictionary = backfillDealLossReasonDictionaryFromCustomers
+
+/**
+ * @deprecated Since 0.10.0, removal no earlier than 0.12.0. Import
+ * `BackfillDealLossReasonDictionaryResult` from `@open-mercato/core/modules/customers/lib/dealLossReasons`.
+ */
+export type BackfillDealLossReasonDictionaryResult = CustomersBackfillDealLossReasonDictionaryResult
+
 type SalesDictionarySeed = {
   value: string
   label: string
@@ -176,14 +193,6 @@ type SalesDictionarySeed = {
 }
 
 type SeedScope = { tenantId: string; organizationId: string }
-
-export type BackfillDealLossReasonDictionaryResult = {
-  dictionaryId: string
-  createdDictionary: boolean
-  copiedLegacyEntries: number
-  seededDefaultEntries: number
-  existingEntries: number
-}
 
 const ORDER_STATUS_DEFAULTS: SalesDictionarySeed[] = [
   { value: 'draft', label: 'Draft', color: '#94a3b8', icon: 'lucide:file-pen-line' },
@@ -306,96 +315,6 @@ async function seedSalesDictionary(
   }
 }
 
-const DEAL_LOSS_REASON_DEFAULTS: SalesDictionarySeed[] = [
-  { value: 'lost_to_competitor', label: 'Lost to competitor', color: '#ef4444', icon: 'lucide:users' },
-  { value: 'no_budget', label: 'No budget', color: '#f59e0b', icon: 'lucide:wallet' },
-  { value: 'no_decision', label: 'No decision made', color: '#94a3b8', icon: 'lucide:help-circle' },
-  { value: 'timing', label: 'Bad timing', color: '#6366f1', icon: 'lucide:clock' },
-  { value: 'other', label: 'Other', color: '#71717a', icon: 'lucide:minus-circle' },
-]
-
-export async function backfillDealLossReasonDictionary(
-  em: EntityManager,
-  scope: SeedScope
-): Promise<BackfillDealLossReasonDictionaryResult> {
-  const definition = getSalesDictionaryDefinition('deal-loss-reasons')
-  const existingDictionary = await em.findOne(Dictionary, {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    key: definition.key,
-    deletedAt: null,
-  })
-  const dictionary = existingDictionary ?? await ensureSalesDictionary({
-    em,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    kind: 'deal-loss-reasons',
-  })
-  const targetEntries = await em.find(DictionaryEntry, {
-    dictionary,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-  })
-
-  if (targetEntries.length > 0) {
-    return {
-      dictionaryId: dictionary.id,
-      createdDictionary: !existingDictionary,
-      copiedLegacyEntries: 0,
-      seededDefaultEntries: 0,
-      existingEntries: targetEntries.length,
-    }
-  }
-
-  const legacyDictionary = await em.findOne(Dictionary, {
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    key: 'customer_lost_reason',
-    deletedAt: null,
-  })
-  const legacyEntries = legacyDictionary
-    ? await em.find(
-      DictionaryEntry,
-      {
-        dictionary: legacyDictionary,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-      },
-      { orderBy: { position: 'asc', label: 'asc' } },
-    )
-    : []
-
-  let copiedLegacyEntries = 0
-  let seededDefaultEntries = 0
-  const processedValues = new Set<string>()
-  const seeds = legacyEntries.length
-    ? legacyEntries.map((entry) => ({
-      value: entry.value,
-      label: entry.label,
-      color: entry.color,
-      icon: entry.icon,
-    }))
-    : DEAL_LOSS_REASON_DEFAULTS
-
-  for (const seed of seeds) {
-    const normalizedValue = normalizeDictionaryValue(seed.value ?? '')
-    if (!normalizedValue || processedValues.has(normalizedValue)) continue
-    const entry = await ensureSalesDictionaryEntry(em, scope, 'deal-loss-reasons', seed)
-    if (!entry) continue
-    processedValues.add(normalizedValue)
-    if (legacyEntries.length) copiedLegacyEntries += 1
-    else seededDefaultEntries += 1
-  }
-
-  return {
-    dictionaryId: dictionary.id,
-    createdDictionary: !existingDictionary,
-    copiedLegacyEntries,
-    seededDefaultEntries,
-    existingEntries: 0,
-  }
-}
-
 export async function seedSalesStatusDictionaries(
   em: EntityManager,
   scope: SeedScope
@@ -404,7 +323,6 @@ export async function seedSalesStatusDictionaries(
   await seedSalesDictionary(em, scope, 'order-line-status', ORDER_LINE_STATUS_DEFAULTS)
   await seedSalesDictionary(em, scope, 'shipment-status', SHIPMENT_STATUS_DEFAULTS)
   await seedSalesDictionary(em, scope, 'payment-status', PAYMENT_STATUS_DEFAULTS)
-  await seedSalesDictionary(em, scope, 'deal-loss-reasons', DEAL_LOSS_REASON_DEFAULTS)
 }
 
 export async function seedSalesAdjustmentKinds(

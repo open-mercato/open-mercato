@@ -120,6 +120,7 @@ async function getAttachment(req: NextRequest, ctx: RouteContext) {
   const assignments = metadata.assignments ?? []
   const enrichments = await resolveAssignmentEnrichments(assignments, {
     queryEngine,
+    authorization: { auth, container },
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   })
@@ -225,6 +226,7 @@ async function updateAttachment(req: NextRequest, ctx: RouteContext) {
   const assignments = metadata.assignments ?? []
   const enrichments = await resolveAssignmentEnrichments(assignments, {
     queryEngine,
+    authorization: { auth, container },
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
   })

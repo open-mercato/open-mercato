@@ -115,6 +115,50 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
     })
   })
 
+  // An `audit_logs.view_tenant` holder whose organization visibility list is explicitly empty
+  // resolves to no default organization, which used to drop the organization predicate and
+  // export every organization's action logs in the tenant. Deny it the way undo/redo do.
+  describe('explicitly empty organization scope', () => {
+    const emptyScopes: Array<[string, Record<string, unknown>]> = [
+      ['allowedIds: []', { selectedId: null, filterIds: null, allowedIds: [] }],
+      ['filterIds: []', { selectedId: null, filterIds: [], allowedIds: null }],
+    ]
+
+    it.each(emptyScopes)('is rejected with 403 before the action-log service is reached (%s)', async (_label, scope) => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({ organizationId: null, scope })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+
+      expect(res.status).toBe(403)
+      expect(mockActionLogs.list).not.toHaveBeenCalled()
+    })
+
+    it('keeps the unrestricted all-organizations read unnarrowed', async () => {
+      const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+      const { resolveFeatureCheckContext } = await import('@open-mercato/core/modules/directory/utils/organizationScope')
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(resolveFeatureCheckContext as jest.Mock).mockResolvedValue({
+        organizationId: null,
+        scope: { selectedId: null, filterIds: null, allowedIds: null },
+      })
+      mockRbac.userHasAllFeatures.mockResolvedValue(true)
+      const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
+      ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
+      mockActionLogs.list.mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 0 })
+
+      const res = await GET(makeRequest('http://localhost/api/audit_logs/audit-logs/actions/export'))
+
+      expect(res.status).toBe(200)
+      expect(mockActionLogs.list).toHaveBeenCalledWith(
+        expect.objectContaining({ tenantId: 'tenant-1', organizationId: undefined, actorSubject: undefined }),
+      )
+    })
+  })
+
   it('preserves the intentional cross-tenant export for a tenant-less superadmin', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
@@ -377,10 +421,10 @@ describe('GET /api/audit_logs/audit-logs/actions/export', () => {
       expect(csv).toContain('Old shared subject')
     })
 
-    it('fails closed in the export when the live-authority lookup finds nothing (interaction deleted since)', async () => {
+    it.each(['user-1', 'user-2'])('hides unverified historical ownership from viewer %s when live authority is unavailable', async (viewerUserId) => {
       const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
       const { loadAuditLogDisplayMaps } = await import('@open-mercato/core/modules/audit_logs/api/audit-logs/display')
-      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
+      ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: viewerUserId, tenantId: 'tenant-1', orgId: 'org-1' })
       ;(loadAuditLogDisplayMaps as jest.Mock).mockResolvedValue({ users: {}, tenants: {}, organizations: {} })
       mockRbac.userHasAllFeatures.mockResolvedValue(true)
       mockLiveInteraction(null)

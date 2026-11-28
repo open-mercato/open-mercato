@@ -461,7 +461,6 @@ export function createDealLinkAdapter(options: DealAdapterOptions): LinkEntityAd
           <div className="text-base font-bold text-foreground">{derived.title}</div>
           <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
             {derived.code ? <span>{derived.code}</span> : null}
-            {derived.code && createdRel ? <span>·</span> : null}
             {createdRel ? <span>{createdRel}</span> : null}
           </div>
         </div>

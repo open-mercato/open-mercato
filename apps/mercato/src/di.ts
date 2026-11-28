@@ -1,6 +1,7 @@
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { bootstrap } from '@open-mercato/core/bootstrap'
+import { defineProcessDiRegistrar, registerCallerSetup } from '@open-mercato/shared/lib/di/process-registrar'
 import { applicationLifecycleEvents } from '@open-mercato/shared/lib/runtime/events'
 import { webResearchAdapterEntries } from '@/.mercato/generated/web-research-adapters.generated'
 
@@ -41,7 +42,7 @@ async function emitApplicationLifecycleEvent(
 
 // App-level DI overrides/registrations.
 // This runs after core defaults and module DI registrars.
-export async function register(container: AppContainer) {
+async function registerLegacy(container: AppContainer) {
   const basePayload = {
     source: 'apps/mercato',
     emittedAt: new Date().toISOString(),
@@ -86,3 +87,24 @@ export async function register(container: AppContainer) {
 
   // App-level overrides can follow here
 }
+
+
+export const register = defineProcessDiRegistrar((container: AppContainer) => {
+  container.register({ webResearchAdapterEntries: asValue(webResearchAdapterEntries) })
+  let lifecycle: Promise<void> | null = null
+  registerCallerSetup(container, async (scope) => {
+    if ((globalThis as Record<string, unknown>)[APP_BOOTSTRAP_COMPLETED_EMITTED_KEY] === true) return
+    if (!lifecycle) {
+      lifecycle = (async () => {
+        const payload = { source: 'apps/mercato', emittedAt: new Date().toISOString() }
+        await emitApplicationLifecycleEvent(
+          scope, applicationLifecycleEvents.bootstrapStarted, APP_BOOTSTRAP_STARTED_EMITTED_KEY, payload,
+        )
+        await emitApplicationLifecycleEvent(
+          scope, applicationLifecycleEvents.bootstrapCompleted, APP_BOOTSTRAP_COMPLETED_EMITTED_KEY, payload,
+        )
+      })().finally(() => { lifecycle = null })
+    }
+    await lifecycle
+  })
+}, { legacy: registerLegacy })

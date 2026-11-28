@@ -6,7 +6,7 @@ import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { ScimProvisioningLog } from '../../../data/entities'
 import { SsoConfigError } from '../../../services/ssoConfigService'
 import { resolveSsoAdminContext } from '../../admin-context'
-import { handleSsoAdminApiError } from '../../error-handler'
+import { handleSsoAdminApiError, ssoErrorResponse } from '../../error-handler'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['sso.config.view'] },
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url)
     const ssoConfigId = url.searchParams.get('ssoConfigId')
     if (!ssoConfigId) {
-      return NextResponse.json({ error: 'ssoConfigId is required' }, { status: 400 })
+      return ssoErrorResponse('sso.errors.ssoConfigIdRequired', 'ssoConfigId is required', 400)
     }
 
     const where: FilterQuery<ScimProvisioningLog> = { ssoConfigId }

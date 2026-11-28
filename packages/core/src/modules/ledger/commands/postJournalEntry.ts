@@ -30,6 +30,8 @@ import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/tran
 import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount, type JournalEntryType } from '../data/entities'
 import { postJournalEntrySchema, type PostJournalEntryInput } from '../data/validators'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { emitLedgerEvent } from '../events'
 import { isLineConsistent, resolveLineCurrency, type LineCurrencyProblem } from '../lib/lineCurrency'
 
@@ -510,11 +512,17 @@ export function isComposedPostingCall(ctx: CommandRuntimeContext): boolean {
   return Boolean(ctx.transactionalEm)
 }
 
+type PostingEventSource = Pick<JournalEntryPostCore,
+  'type' | 'operationDate' | 'organizationId' | 'tenantId' | 'referenceType' | 'referenceId'
+>
+
+const logger = createLogger('ledger:posting')
+
 // Exported so a composing caller (see `PostJournalEntryResult.lines`'s
 // doc comment above) can build the exact same event payload from the
 // `PostRunResult`-shaped value `runPostJournalEntry` already gave it,
 // instead of re-deriving this shape itself.
-export async function emitPostedEvent(input: JournalEntryPostCore, result: PostRunResult): Promise<void> {
+export async function emitPostedEvent(input: PostingEventSource, result: PostRunResult): Promise<void> {
   await emitLedgerEvent('ledger.journal_entry.posted', {
     journalEntryId: result.journalEntryId,
     sequenceNumber: result.sequenceNumber,
@@ -525,6 +533,18 @@ export async function emitPostedEvent(input: JournalEntryPostCore, result: PostR
     referenceType: input.referenceType ?? null,
     referenceId: input.referenceId ?? null,
     lines: result.lines.map(toPostedLine),
+  }, { persistent: true })
+}
+
+export function publishCommittedPosting(input: PostingEventSource, result: PostRunResult): void {
+  void emitPostedEvent(input, result).catch((err: unknown) => {
+    const attributes = {
+      journalEntryId: result.journalEntryId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+    }
+    logger.error('Failed to enqueue committed journal entry', { err, ...attributes })
+    getTelemetryRuntime()?.reportError(err, { module: 'ledger', code: 'ledger.posted_event_enqueue_failed', attributes })
   })
 }
 
@@ -549,7 +569,7 @@ const postJournalEntryCommand: CommandHandler<PostJournalEntryInput, PostJournal
     // comment. A composing caller (ctx.transactionalEm set) must emit this
     // event itself once its own outer transaction commits.
     if (!isComposedPostingCall(ctx)) {
-      void emitPostedEvent(input, result).catch(() => undefined)
+      publishCommittedPosting(input, result)
     }
 
     return {

@@ -1,7 +1,8 @@
-import { describe, it, expect } from '@jest/globals'
+import { describe, it, expect, afterEach } from '@jest/globals'
 import {
   buildExchangeRatePayload,
   exchangeRateGroups,
+  formatDateOnlyUtc,
   formatRateForDisplay,
   validateExchangeRateForm,
 } from '../exchangeRateFormConfig'
@@ -60,5 +61,46 @@ describe('formatRateForDisplay', () => {
 
   it('returns a malformed rate unchanged instead of throwing', () => {
     expect(formatRateForDisplay('NaN', 'en')).toBe('NaN')
+  })
+})
+
+describe('exchange rate form dates', () => {
+  const originalTZ = process.env.TZ
+  const rateValues = { ...baseValues, rate: '1.2345' }
+
+  afterEach(() => {
+    process.env.TZ = originalTZ
+  })
+
+  it('normalizes a date-only value to UTC midnight regardless of the local timezone', () => {
+    process.env.TZ = 'Europe/Warsaw'
+    const values = { ...rateValues, date: '2026-10-30' }
+    const payload = buildExchangeRatePayload(values, validateExchangeRateForm(values, t))
+    expect(payload.date).toBe('2026-10-30T00:00:00.000Z')
+  })
+
+  it('normalizes a legacy datetime value to UTC midnight of the same day', () => {
+    process.env.TZ = 'Europe/Warsaw'
+    const values = { ...rateValues, date: '2026-10-30T11:00' }
+    const payload = buildExchangeRatePayload(values, validateExchangeRateForm(values, t))
+    expect(payload.date).toBe('2026-10-30T00:00:00.000Z')
+  })
+
+  it('throws on an invalid date', () => {
+    expect(() => validateExchangeRateForm({ ...rateValues, date: 'not-a-date' }, t)).toThrow()
+  })
+
+  it('formats a stored UTC-midnight date as the same calendar day west of UTC', () => {
+    process.env.TZ = 'America/Los_Angeles'
+    expect(formatDateOnlyUtc(new Date('2026-01-15T00:00:00.000Z'))).toBe('2026-01-15')
+    expect(formatDateOnlyUtc(new Date('2026-01-05T00:00:00.000Z'))).toBe('2026-01-05')
+  })
+
+  it('keeps the stored UTC day unchanged through an edit/save round trip west of UTC', () => {
+    process.env.TZ = 'America/Los_Angeles'
+    const stored = '2026-10-30T00:00:00.000Z'
+    const values = { ...rateValues, date: formatDateOnlyUtc(new Date(stored)) }
+    const payload = buildExchangeRatePayload(values, validateExchangeRateForm(values, t))
+    expect(payload.date).toBe(stored)
   })
 })

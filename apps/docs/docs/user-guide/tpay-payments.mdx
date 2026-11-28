@@ -66,6 +66,8 @@ Each notification is checked before anything changes:
 - Tpay's JWS signature, using Tpay's production or sandbox certificate according to the integration **Environment**;
 - the transaction it refers to (`tr_crc` is the payment id Open Mercato sent to Tpay), its amount, and its currency.
 
+Tpay requires the MD5 field for protocol compatibility. The mandatory JWS check authenticates the sender and the exact notification body before a payment can change. [Tpay webhook specification](https://docs-api.tpay.com/en/webhooks/)
+
 | Situation | Response to Tpay | Effect |
 | --- | --- | --- |
 | Verified and processed | `200 TRUE` | Payment captured (or refunded for a chargeback) once, even if Tpay repeats the notification |

@@ -31,6 +31,7 @@ export async function POST(req: Request) {
     ipConfig: customerMagicLinkIpRateLimitConfig,
     compoundConfig: customerMagicLinkRateLimitConfig,
     compoundIdentifier: rateLimitEmail,
+    isolateByIdentifierWithoutTrustedIp: true,
   })
   if (rateLimitError) return rateLimitError
 

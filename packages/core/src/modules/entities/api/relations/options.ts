@@ -2,27 +2,38 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { tableNameFromEntityId } from '@open-mercato/shared/lib/entities/naming'
 import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
+import type { CustomEntitySpec } from '@open-mercato/shared/modules/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { listEntityMetadata } from '@open-mercato/shared/lib/db/entityMetadata'
 import { resolveRegisteredEntityTableName } from '@open-mercato/shared/lib/query/engine'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getModules, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { classifyRecordsEntity } from '../../lib/entityClassification'
+import { assertEntityAclForRequest, resolveEntityAclRequirement } from '../../lib/entityAcl'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { getSelectedOrganizationFromRequest, resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { isAllOrganizationsSelection } from '@open-mercato/core/modules/directory/constants'
+import { isExplicitlyEmptyOrganizationScope } from '@open-mercato/shared/lib/auth/organizationScope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['entities.definitions.view'] },
 }
 
 const ALLOWED_ROUTE_CONTEXT_FIELDS = new Set(['kind', 'entity_id', 'product_id'])
+const DEFAULT_LABEL_FIELDS = ['name', 'title', 'code', 'email', 'id']
 
 const logger = createLogger('entities')
 
 export async function GET(req: Request) {
   const url = new URL(req.url)
   const entityId = url.searchParams.get('entityId') || ''
-  let labelField = url.searchParams.get('labelField') || ''
+  const requestedLabelField = url.searchParams.get('labelField') || ''
   const q = url.searchParams.get('q') || ''
   const ids = Array.from(
     new Set(
@@ -40,63 +51,116 @@ export async function GET(req: Request) {
         .filter((entry) => ALLOWED_ROUTE_CONTEXT_FIELDS.has(entry)),
     ),
   )
+  const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: translate('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
   if (!entityId) return NextResponse.json({ items: [] })
+  const parsed = relationOptionsQuerySchema.safeParse({
+    entityId,
+    labelField: requestedLabelField,
+    q,
+    ids: url.searchParams.get('ids') ?? undefined,
+    routeContextFields: url.searchParams.get('routeContextFields') ?? undefined,
+  })
+  if (!parsed.success) return NextResponse.json({ error: translate('api.errors.badRequest', 'Bad request') }, { status: 400 })
 
   const container = await createRequestContainer()
   const qe = container.resolve('queryEngine') as QueryEngine
   const em = container.resolve('em') as EntityManager
 
-  const customEntity = await em.findOne(CustomEntity, {
-    entityId,
-    $and: [
-      { $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] },
-      { $or: [ { tenantId: auth.tenantId ?? undefined as any }, { tenantId: null } ] },
-    ],
-    isActive: true,
-  })
+  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+  const forbidden = () => NextResponse.json({ error: translate('api.errors.forbidden', 'Forbidden') }, { status: 403 })
+  if (!organizationScope.tenantId || organizationScope.selectionRejected || isExplicitlyEmptyOrganizationScope(organizationScope)) return forbidden()
+  const requestedOrganizationId = getSelectedOrganizationFromRequest(req)?.trim()
+  if (requestedOrganizationId && !isAllOrganizationsSelection(requestedOrganizationId) && organizationScope.selectedId !== requestedOrganizationId) return forbidden()
+  const scope = { tenantId: organizationScope.tenantId, organizationId: organizationScope.selectedId }
+  const scopedAuth = { ...auth, tenantId: scope.tenantId, orgId: scope.organizationId }
+  const classification = await classifyRecordsEntity(em, entityId, scope)
+  const declared = getModules().flatMap((entry) => entry.customEntities ?? []).find((entry) => entry.id === entityId) as CustomEntitySpec | undefined
+  const requirement = resolveEntityAclRequirement(entityId)
+  const registeredTable = resolveRegisteredEntityTableName(em, entityId)
 
-  // A relation field can point at an entity that does not exist — most often a half-configured
-  // `relatedEntityId` that was never filled in (#4949 reported `entityId=p:0`). The query engine
-  // falls back to a pluralized table-name guess for ids it cannot resolve, so such a lookup used
-  // to reach Postgres as `select ... from "0s"` and escape this handler as an unhandled 500 on
-  // every render of the section holding the field. Resolve the id first and answer with an empty
-  // option list instead, mirroring the empty-`entityId` contract above.
-  if (!customEntity && resolveRegisteredEntityTableName(em, entityId) === null) {
+  if (requirement?.platformOnly || (classification.kind === 'system' && !requirement && !declared)) return forbidden()
+  if (classification.kind === 'unknown' || (classification.kind === 'system' && !registeredTable)) {
     logger.warn('Relation options requested for an unresolvable entity id', { entityId })
     return NextResponse.json({ items: [] })
   }
 
-  if (!labelField) labelField = (customEntity?.labelField as string | undefined) || ''
-  if (!labelField) {
-    const candidates = ['name', 'title', 'code', 'email']
-    const table = tableNameFromEntityId(entityId)
-    const db = (em as any).getKysely() as any
-    for (const c of candidates) {
-      const exists = await db
-        .selectFrom('information_schema.columns')
-        .select('column_name')
-        .where('table_name', '=', table)
-        .where('column_name', '=', c)
-        .executeTakeFirst()
-      if (exists) { labelField = c; break }
-    }
-    if (!labelField) labelField = 'id'
+  const rbac = container.resolve('rbacService') as RbacService
+  if (classification.kind === 'custom' && !(await rbac.userHasAllFeatures(
+    auth.sub,
+    ['entities.records.view'],
+    scope,
+  ))) return forbidden()
+
+  try {
+    await assertEntityAclForRequest({
+      auth: scopedAuth,
+      entityId,
+      action: 'view',
+      isCustomEntity: classification.kind === 'custom',
+      isRestricted: classification.restricted || declared?.accessRestricted === true,
+      rbac,
+    })
+  } catch (error) {
+    if (isCrudHttpError(error)) return NextResponse.json(error.body, { status: error.status })
+    throw error
   }
+
+  const customEntity = await findOneWithDecryption(em, CustomEntity, {
+    entityId,
+    isActive: true,
+    deletedAt: null,
+    $or: [
+      { tenantId: scope.tenantId, organizationId: scope.organizationId },
+      { tenantId: scope.tenantId, organizationId: null },
+      { tenantId: null, organizationId: null },
+    ],
+  }, { orderBy: { tenantId: 'desc nulls last', organizationId: 'desc nulls last' } }, scope)
+  const declaredLabel = declared?.labelField
+  const configuredLabel = classification.kind === 'custom' ? customEntity?.labelField : undefined
+  const labelCandidates = [declaredLabel, configuredLabel, ...DEFAULT_LABEL_FIELDS]
+    .filter((field): field is string => Boolean(field))
+  const metadata = registeredTable
+    ? listEntityMetadata(em).find((entry) => entry.tableName === registeredTable)
+    : undefined
+  const columnsByLabel = new Map<string, string>()
+  for (const property of Object.values(metadata?.properties ?? {})) {
+    if (property.fieldNames?.length !== 1) continue
+    const [column] = property.fieldNames
+    if (!labelCandidates.includes(property.name) && !labelCandidates.includes(column)) continue
+    columnsByLabel.set(property.name, column)
+    columnsByLabel.set(column, column)
+  }
+  const customLabelAliases = classification.kind === 'custom'
+    ? labelCandidates.map((field) => field.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase())
+    : []
+  if (requestedLabelField && !labelCandidates.includes(requestedLabelField) &&
+    !columnsByLabel.has(requestedLabelField) && !customLabelAliases.includes(requestedLabelField)) {
+    return NextResponse.json({ error: translate('api.errors.badRequest', 'Bad request') }, { status: 400 })
+  }
+  const systemLabel = [requestedLabelField, ...labelCandidates]
+    .map((field) => columnsByLabel.get(field))
+    .find((column) => column !== undefined)
+  const labelField = classification.kind === 'custom'
+    ? requestedLabelField || configuredLabel || declaredLabel || 'id'
+    : systemLabel ?? 'id'
   const filters: Record<string, unknown> = {}
   if (ids.length === 1) filters.id = ids[0]
   else if (ids.length > 1) filters.id = { $in: ids }
   if (q) filters[labelField] = { $ilike: `%${escapeLikePattern(q)}%` }
   const fields = Array.from(new Set(['id', labelField, ...routeContextFields]))
-  const res = await qe.query(entityId, {
-    tenantId: auth.tenantId ?? undefined,
-    ...(auth.orgId ? { organizationId: auth.orgId } : {}),
+  const res = await qe.query<Record<string, unknown>>(entityId, {
+    tenantId: scope.tenantId,
+    ...(scope.organizationId
+      ? { organizationId: scope.organizationId }
+      : Array.isArray(organizationScope.filterIds) ? { organizationIds: organizationScope.filterIds } : {}),
     fields,
     filters,
-    page: { page: 1, pageSize: Math.min(ids.length || 50, 200) },
+    ...(classification.kind === 'custom' ? { forceCustomEntityStorage: true } : {}),
+    page: { page: 1, pageSize: Math.min(ids.length || 50, 100) },
   })
-  const items = (res.items || []).map((it: any) => {
+  const items = (res.items || []).map((it: Record<string, unknown>) => {
     const routeContext = routeContextFields.reduce<Record<string, unknown>>((acc, field) => {
       if (it[field] !== undefined) {
         acc[field] = it[field]
@@ -136,13 +200,23 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List relation options',
-      description: 'Returns up to 200 option entries for populating relation dropdowns, automatically resolving label fields when omitted. An entityId that matches neither an active custom entity nor a registered ORM entity yields an empty option list.',
+      description: 'Returns up to 100 option entries for populating relation dropdowns, requiring target read access and accepting only declared or fixed safe label fields. An entityId that matches neither an active custom entity nor a registered ORM entity yields an empty option list.',
       query: relationOptionsQuerySchema,
       responses: [
         {
           status: 200,
           description: 'Option list',
           schema: relationOptionsResponseSchema,
+        },
+        {
+          status: 400,
+          description: 'Unsafe label selector',
+          schema: z.object({ error: z.string() }),
+        },
+        {
+          status: 403,
+          description: 'Target entity access denied',
+          schema: z.object({ error: z.string() }),
         },
         {
           status: 401,

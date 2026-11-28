@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -76,7 +77,7 @@ export function register(container: AppContainer) {
     CustomerAddress: asValue(CustomerAddress),
     CustomerInteraction: asValue(CustomerInteraction),
     calendarEventTypeRegistry: asValue(calendarEventTypeRegistry),
-    calendarEventTypeCatalogService: asValue({
+    calendarEventTypeCatalogService: asScopedService((container) => ({
       async resolveBehavior(input: { tenantId: string; organizationId: string; key: string }) {
         const hierarchy = container.resolve('organizationHierarchyService') as OrganizationHierarchyService
         const ancestors = await hierarchy.resolveAncestorIds({ tenantId: input.tenantId, organizationId: input.organizationId })
@@ -90,7 +91,7 @@ export function register(container: AppContainer) {
         })
         return resolveCatalogEventType(catalog, input.key)?.behavior ?? null
       },
-    }),
+    })),
     // Registers this module's implementation of `audit_logs`'s generic
     // `ActionLogRedactionProvider` extension point (see
     // `audit_logs/lib/actionLogRedaction.ts`). The optional consumer
@@ -107,3 +108,5 @@ export function register(container: AppContainer) {
   // resolves the hand-wired readers above from the global store, so this
   // module no longer needs its own DI binding.
 }
+
+defineProcessDiRegistrar(register)

@@ -113,6 +113,18 @@ describe('drainIntegrationQueue', () => {
     expect(mockDrainQueue).not.toHaveBeenCalled()
   })
 
+  it('finishes derived projection writes before a standalone drain child exits without changing the parent mode', async () => {
+    process.env.OM_TEST_APP_ROOT = path.resolve(process.cwd(), 'standalone-app')
+    process.env.AUTO_SPAWN_WORKERS = 'false'
+    process.env.OM_CACHE_SAFETY_ALWAYS_CONSISTENT = 'false'
+    jest.mocked(spawn).mockReturnValue(createDrainChild(1) as never)
+
+    await expect(drainIntegrationQueue('attachments-document-structure')).resolves.toBe(1)
+
+    expect(jest.mocked(spawn).mock.calls[0]?.[2]?.env?.OM_CACHE_SAFETY_ALWAYS_CONSISTENT).toBe('true')
+    expect(process.env.OM_CACHE_SAFETY_ALWAYS_CONSISTENT).toBe('false')
+  })
+
   it('does not wait for scheduled future jobs that an explicit drain would leave queued', async () => {
     getJobCounts.mockResolvedValue(counts({ waiting: 1 }))
     jest.mocked(getQueuePendingProbe).mockResolvedValue({

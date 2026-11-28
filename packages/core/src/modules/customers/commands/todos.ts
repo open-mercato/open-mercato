@@ -10,6 +10,7 @@ import {
   type InteractionCreateInput,
 } from '../data/validators'
 import {
+  commandScopeWhere,
   extractUndoPayload,
   ensureOrganizationScope,
   ensureTenantScope,
@@ -288,7 +289,7 @@ async function resolveTodoTarget(
   }
 
   const em = (ctx.container.resolve('em') as EntityManager).fork()
-  const legacyLink = await em.findOne(CustomerTodoLink, { id: linkId }, { populate: ['entity'] })
+  const legacyLink = await em.findOne(CustomerTodoLink, { id: linkId, ...commandScopeWhere(ctx) }, { populate: ['entity'] })
   if (!legacyLink) {
     throw notFound('Todo link not found')
   }

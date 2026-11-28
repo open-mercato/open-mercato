@@ -190,6 +190,37 @@ describe('CRUD Factory — list cache is partitioned per caller identity', () =>
     expect(apiKeyKey).toContain('user:api-key-9')
   })
 
+  it.each([
+    'filter[conditions][0][field]=owner_user_id&filter[conditions][0][op]=is&filter[conditions][0][value]=user-b',
+    'filter[v]=2&filter[root][combinator]=and&filter[root][children][0][type]=rule&filter[root][children][0][field]=owner_user_id&filter[root][children][0][op]=is&filter[root][children][0][value]=user-b',
+  ])('ignores persisted pre-intersection cache entries after upgrading: %s', async (filterQuery) => {
+    const requestUrl = `${url}&${filterQuery}`
+    const params = new URL(requestUrl).searchParams
+    const serializedQuery = JSON.stringify(
+      Array.from(params.entries())
+        .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+        .map(([key, value]) => [key, [value]]),
+    )
+    const legacyKey = [
+      'crud', 'todo', 'GET', '/api/example/todos',
+      `tenant:${defaultTenantId}`, `selectedOrg:${defaultOrganizationId}`,
+      `scope:${defaultOrganizationId}`, 'user:user-a', `query:${serializedQuery}`,
+    ].join('|')
+    store.set(legacyKey, { payload: { items: [{ id: 'legacy-escaped-row' }], total: 1 }, generatedAt: Date.now() })
+
+    const first = await route.GET(new Request(requestUrl))
+    expect(first.status).toBe(200)
+    expect(first.headers.get('x-om-cache')).toBe('miss')
+    expect((await first.json()).items).not.toContainEqual({ id: 'legacy-escaped-row' })
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    expect(cache.get).not.toHaveBeenCalledWith(legacyKey)
+
+    const repeat = await route.GET(new Request(requestUrl))
+    expect(repeat.headers.get('x-om-cache')).toBe('hit')
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
+    expect(store.has(legacyKey)).toBe(true)
+  })
+
   it('encodes explicit empty and finite scopes as different cache keys', async () => {
     await scopeIdentityRoute.GET(new Request(url))
     const finiteKey = Array.from(store.keys())[0] as string

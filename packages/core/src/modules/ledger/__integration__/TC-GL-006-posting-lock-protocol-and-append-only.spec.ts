@@ -258,6 +258,120 @@ test.describe('TC-GL-006: posting lock protocol and append-only entries', () => 
     }
   });
 
+  test('concurrent creates of one scoped number return one creation and the ordinary duplicate conflict', async ({ request }) => {
+    const fx = await createFixture(request, 'TC-GL-006 duplicate account');
+    const number = '402-09';
+    const createAccount = () => apiRequest(request, 'POST', '/api/ledger/accounts', {
+      token: fx.token,
+      headers: fx.headers,
+      data: { organizationId: fx.organizationId, tenantId: fx.tenantId, accountTypeId: fx.typeId, number },
+    });
+    const creates: ReturnType<typeof apiRequest>[] = [];
+    let winnerId: string | null = null;
+    try {
+      await withClient(async (client) => {
+        await client.query('begin');
+        try {
+          // This invisible, uncommitted row holds both inserts at the unique index after their prechecks.
+          await client.query(
+            `insert into ledger_accounts (id, organization_id, tenant_id, account_type_id, number, created_at, updated_at)
+             values ($1, $2, $3, $4, $5, now(), now())`,
+            [randomUUID(), fx.organizationId, fx.tenantId, fx.typeId, number],
+          );
+          creates.push(createAccount(), createAccount());
+          void Promise.allSettled(creates);
+          await expect.poll(async () => {
+            const result = await client.query<{ waiting: number }>(
+              `select count(*)::int as waiting from pg_locks
+               where locktype = 'transactionid' and transactionid = pg_current_xact_id()::xid and not granted`,
+            );
+            return result.rows[0]?.waiting;
+          }).toBe(2);
+        } finally {
+          await client.query('rollback');
+        }
+      });
+      const responses = await Promise.all(creates);
+      const [winner, concurrentConflict] = responses.sort((first, second) => first.status() - second.status());
+      winnerId = (await readJsonSafe<{ id: string }>(winner))?.id ?? null;
+      expect([winner.status(), concurrentConflict.status()]).toEqual([201, 409]);
+      expect(winnerId).toBeTruthy();
+      const duplicate = await createAccount();
+      expect(duplicate.status()).toBe(409);
+      expect(await concurrentConflict.json()).toEqual(await duplicate.json());
+      const accounts = await withClient((client) => client.query<{ id: string }>(
+        'select id from ledger_accounts where organization_id = $1 and tenant_id = $2 and number = $3 and deleted_at is null',
+        [fx.organizationId, fx.tenantId, number],
+      ));
+      expect(accounts.rows).toEqual([{ id: winnerId }]);
+    } finally {
+      await Promise.allSettled(creates);
+      await deleteGeneralEntityIfExists(request, fx.token, '/api/ledger/accounts', winnerId, { headers: fx.headers });
+      await fx.cleanup();
+    }
+  });
+
+  test('a type delete waits for an account create and keeps the in-use type', async ({ request }) => {
+    const fx = await createFixture(request, 'TC-GL-006 delete');
+    const accountId = randomUUID();
+    const outcome: { deletion?: ReturnType<typeof apiRequest> } = {};
+    let typeId: string | null = null;
+    try {
+      typeId = await createAccountTypeFixture(request, fx.token, {
+        organizationId: fx.organizationId,
+        tenantId: fx.tenantId,
+        name: 'QA concurrently used type',
+        number: '499',
+        normalBalance: 'DEBIT',
+      }, { headers: fx.headers });
+
+      await withClient(async (client) => {
+        await client.query('begin');
+        try {
+          await client.query('select id from ledger_account_types where id = $1 for share', [typeId]);
+          await client.query(
+            `insert into ledger_accounts (id, organization_id, tenant_id, account_type_id, number, created_at, updated_at)
+             values ($1, $2, $3, $4, '499-01', now(), now())`,
+            [accountId, fx.organizationId, fx.tenantId, typeId],
+          );
+          outcome.deletion = apiRequest(request, 'DELETE', `/api/ledger/account-types?id=${typeId}`, {
+            token: fx.token,
+            headers: fx.headers,
+          });
+          void outcome.deletion.catch(() => undefined);
+          await expect.poll(async () => {
+            const result = await client.query<{ blocked: boolean }>(
+              `select exists (
+                 select 1 from pg_stat_activity
+                 where datname = current_database()
+                   and pg_backend_pid() = any(pg_blocking_pids(pid))
+               ) as blocked`,
+            );
+            return result.rows[0]?.blocked;
+          }).toBe(true);
+          await client.query('commit');
+        } catch (error) {
+          await client.query('rollback');
+          throw error;
+        }
+      });
+
+      const deletion = await outcome.deletion;
+      expect(deletion?.status()).toBe(409);
+
+      const persisted = await withClient((client) => client.query<{ deleted_at: string | null }>(
+        'select deleted_at from ledger_account_types where id = $1',
+        [typeId],
+      ));
+      expect(persisted.rows[0]?.deleted_at).toBeNull();
+    } finally {
+      await outcome.deletion?.catch(() => undefined);
+      await deleteGeneralEntityIfExists(request, fx.token, '/api/ledger/accounts', accountId, { headers: fx.headers });
+      await deleteGeneralEntityIfExists(request, fx.token, '/api/ledger/account-types', typeId, { headers: fx.headers });
+      await fx.cleanup();
+    }
+  });
+
   test('journal entries and their lines are append-only in the database', async ({ request }) => {
     const fx = await createFixture(request, 'TC-GL-006 append-only');
     try {

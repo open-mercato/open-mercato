@@ -32,6 +32,8 @@ for (const kind of ['person', 'company'] as const) {
       { name: 'foreign-organization-grant', visible: false },
       { name: 'foreign-tenant-grant', visible: false },
       { name: 'missing-authority', visible: false },
+      { name: 'missing-authority-former-owner', visible: false },
+      { name: 'deleted-authority-former-owner', visible: false },
       { name: 'deleted-authority', visible: false },
       { name: 'transferred-owner', visible: false },
     ].map((entry) => ({ ...entry, interactionId: randomUUID(), ownerId: randomUUID(), logId: randomUUID() }))
@@ -66,15 +68,15 @@ for (const kind of ['person', 'company'] as const) {
           const foreignOrganization = entry.name === 'foreign-organization-authority'
           const foreignTenant = entry.name === 'foreign-tenant-authority'
           const scopeIndex = foreignTenant ? 2 : foreignOrganization ? 1 : 0
-          if (entry.name !== 'missing-authority') {
+          if (!entry.name.startsWith('missing-authority')) {
             await client.query(
               `insert into customer_interactions
                (id, tenant_id, organization_id, entity_id, interaction_type, visibility, author_user_id, status, pinned, deleted_at, created_at, updated_at)
                values ($1, $2, $3, $4, 'email', $5, $6, 'planned', false, $7, now(), now())`,
               [entry.interactionId, scopeIndex === 2 ? tenantIds[1] : tenantIds[0], organizationIds[scopeIndex], entityIds[scopeIndex],
-                entry.name === 'current-shared' || foreignOrganization || foreignTenant || entry.name === 'deleted-authority' ? 'shared' : 'private',
+                entry.name === 'current-shared' || foreignOrganization || foreignTenant || entry.name.startsWith('deleted-authority') ? 'shared' : 'private',
                 entry.name === 'current-owner' ? userId : entry.name === 'transferred-owner' ? randomUUID() : entry.ownerId,
-                entry.name === 'deleted-authority' ? new Date() : null],
+                entry.name.startsWith('deleted-authority') ? new Date() : null],
             )
           }
           if (['current-grant', 'foreign-organization-grant', 'foreign-tenant-grant', 'transferred-owner'].includes(entry.name)) {
@@ -86,7 +88,7 @@ for (const kind of ['person', 'company'] as const) {
               [randomUUID(), grantIndex === 2 ? tenantIds[1] : tenantIds[0], organizationIds[grantIndex], entityIds[0], entry.ownerId],
             )
           }
-          const before = { id: entry.interactionId, interactionType: 'email', authorUserId: entry.ownerId, title: `${marker}-${entry.name}-before`, body: `${marker}-${entry.name}-body-before` }
+          const before = { id: entry.interactionId, interactionType: 'email', authorUserId: entry.name.endsWith('-former-owner') ? userId : entry.ownerId, title: `${marker}-${entry.name}-before`, body: `${marker}-${entry.name}-body-before` }
           const after = { ...before, title: `${marker}-${entry.name}-after`, body: `${marker}-${entry.name}-body-after` }
           await client.query(
             `insert into action_logs

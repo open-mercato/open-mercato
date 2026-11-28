@@ -14,8 +14,12 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
   flash: jest.fn(),
 }))
 
+const miniWeekCalendarMock = jest.fn((_props: { refreshKey?: number }) => (
+  <div data-testid="mini-week-calendar">mini-week-calendar</div>
+))
+
 jest.mock('../MiniWeekCalendar', () => ({
-  MiniWeekCalendar: () => <div data-testid="mini-week-calendar">mini-week-calendar</div>,
+  MiniWeekCalendar: (props: { refreshKey?: number }) => miniWeekCalendarMock(props),
 }))
 
 describe('InlineActivityComposer', () => {
@@ -47,6 +51,16 @@ describe('InlineActivityComposer', () => {
     expect(
       screen.getByRole('button', { name: /Hide week preview/i }),
     ).toBeInTheDocument()
+  })
+
+  it('forwards the host refresh key to the week preview so it follows changes made outside the composer (#9487)', () => {
+    const { rerender } = renderWithProviders(
+      <InlineActivityComposer entityType="deal" entityId="person-1" refreshKey={3} />,
+    )
+    expect(miniWeekCalendarMock.mock.calls.at(-1)?.[0].refreshKey).toBe(3)
+
+    rerender(<InlineActivityComposer entityType="deal" entityId="person-1" refreshKey={4} />)
+    expect(miniWeekCalendarMock.mock.calls.at(-1)?.[0].refreshKey).toBe(4)
   })
 
   it('toggles the week preview off and persists the choice under the per-entity-kind key', () => {

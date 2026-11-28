@@ -48,6 +48,8 @@ import {
   type PersonUpdateInput,
 } from '../data/validators'
 import {
+  findScopedCustomerCommandRecord,
+  findScopedCustomerCommandTarget,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
@@ -418,44 +420,66 @@ function serializePersonSnapshot(
 async function loadPersonSnapshot(
   em: EntityManager,
   entityId: string,
+  ctx: CommandRuntimeContext,
   options: { includeInteractionRestoreDetails?: boolean } = {},
 ): Promise<PersonSnapshot | null> {
-  const entity = await em.findOne(CustomerEntity, { id: entityId, deletedAt: null })
+  const entity = await findScopedCustomerCommandTarget(
+    em,
+    CustomerEntity,
+    { id: entityId, deletedAt: null },
+    undefined,
+    ctx,
+  )
   if (!entity || entity.kind !== 'person') return null
+  ensureTenantScope(ctx, entity.tenantId)
+  ensureOrganizationScope(ctx, entity.organizationId)
+  const scope = { tenantId: entity.tenantId, organizationId: entity.organizationId }
   const profile = await findOneWithDecryption(
     em,
     CustomerPersonProfile,
-    { entity: entity },
+    { entity, ...scope },
     { populate: ['company'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   if (!profile) return null
   const companyLinks = await loadPersonCompanyLinks(em, entity)
   const tagIds = await loadEntityTagIds(em, entity)
-  const addresses = await em.find(CustomerAddress, { entity }, { orderBy: { createdAt: 'asc' } })
+  const addresses = await findWithDecryption(
+    em,
+    CustomerAddress,
+    { entity, ...scope },
+    { orderBy: { createdAt: 'asc' } },
+    scope,
+  )
   const comments = await findWithDecryption(
     em,
     CustomerComment,
-    { entity },
+    { entity, ...scope },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   const deals = await findWithDecryption(
     em,
     CustomerDealPersonLink,
-    { person: entity },
+    { person: entity, deal: scope },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
   const activities = await findWithDecryption(
     em,
     CustomerActivity,
-    { entity },
+    { entity, ...scope },
     { orderBy: { createdAt: 'asc' }, populate: ['deal'] },
-    { tenantId: entity.tenantId, organizationId: entity.organizationId },
+    scope,
   )
-  const todoLinks = await em.find(CustomerTodoLink, { entity }, { orderBy: { createdAt: 'asc' } })
-  const interactions = await em.find(CustomerInteraction, { entity }, { orderBy: { createdAt: 'asc' } })
+  const todoLinks = await em.find(CustomerTodoLink, { entity, ...scope }, { orderBy: { createdAt: 'asc' } })
+  const interactions = await findWithDecryption(
+    em,
+    CustomerInteraction,
+    { entity, ...scope },
+    { orderBy: { createdAt: 'asc' } },
+    scope,
+  )
   const entityCustom = await loadCustomFieldSnapshot(em, {
     entityId: CUSTOMER_ENTITY_ID,
     recordId: entity.id,
@@ -516,7 +540,13 @@ async function resolveCompanyReference(
   tenantId: string
 ): Promise<CustomerEntity | null> {
   if (!companyId) return null
-  const company = await em.findOne(CustomerEntity, { id: companyId, kind: 'company', deletedAt: null })
+  const company = await findOneWithDecryption(
+    em,
+    CustomerEntity,
+    { id: companyId, kind: 'company', deletedAt: null, tenantId, organizationId },
+    undefined,
+    { tenantId, organizationId },
+  )
   if (!company) {
     throw new CrudHttpError(400, { error: 'Company not found' })
   }
@@ -532,10 +562,11 @@ async function setCustomFieldsForPerson(
   profileId: string,
   organizationId: string,
   tenantId: string,
-  values: Record<string, unknown>
+  values: Record<string, unknown>,
+  transactionalEm?: EntityManager,
 ): Promise<void> {
   if (!values || !Object.keys(values).length) return
-  const em = (ctx.container.resolve('em') as EntityManager)
+  const em = transactionalEm ?? (ctx.container.resolve('em') as EntityManager)
   const routing = await resolvePersonCustomFieldRouting(em, tenantId, organizationId)
   const entityScoped: Record<string, unknown> = {}
   const profileScoped: Record<string, unknown> = {}
@@ -554,6 +585,7 @@ async function setCustomFieldsForPerson(
       organizationId,
       tenantId,
       values: entityScoped,
+      transactionalEm,
       notify: true,
     })
   }
@@ -565,6 +597,7 @@ async function setCustomFieldsForPerson(
       organizationId,
       tenantId,
       values: profileScoped,
+      transactionalEm,
       notify: true,
     })
   }
@@ -751,12 +784,12 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       },
       () => syncLegacyPrimaryCompanyLink(em, entity, profile, parsed.companyEntityId ?? null),
       () => syncEntityTags(em, entity, parsed.tags),
+      () => setCustomFieldsForPerson(ctx, entity.id, profile.id, entity.organizationId, entity.tenantId, custom, em),
     ], { transaction: true })
 
     const tenantId = entity.tenantId
     const organizationId = entity.organizationId
     await invalidateDictionaryKindCaches(ctx, { tenantId, organizationId }, createdDictionaryKinds)
-    await setCustomFieldsForPerson(ctx, entity.id, profile.id, organizationId, tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -779,7 +812,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadPersonSnapshot(em, result.entityId)
+    return await loadPersonSnapshot(em, result.entityId, ctx)
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -803,12 +836,12 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     const entityId = logEntry?.resourceId ?? payload?.after?.entity.id ?? null
     if (!entityId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await em.findOne(CustomerEntity, { id: entityId })
+    const entity = await findScopedCustomerCommandRecord(em, CustomerEntity, { id: entityId }, undefined, ctx)
     if (!entity) return
     const profile = await findOneWithDecryption(
       em,
       CustomerPersonProfile,
-      { entity },
+      { entity, tenantId: entity.tenantId, organizationId: entity.organizationId },
       undefined,
       { tenantId: entity.tenantId, organizationId: entity.organizationId },
     )
@@ -849,7 +882,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     let entity = await findOneWithDecryption(
       em,
       CustomerEntity,
-      { id: after.entity.id },
+      { id: after.entity.id, tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
       undefined,
       { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
     )
@@ -892,7 +925,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           newProfile = graph.profile
         },
         () => syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, after.profile.companyEntityId),
-        () => syncEntityTags(em, newEntity, after.tagIds),
+        () => syncEntityTags(em, newEntity, after.tagIds, { ignoreMissing: true }),
       ], { transaction: true })
       entity = newEntity
       profile = newProfile
@@ -900,7 +933,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       const existingProfile = await findOneWithDecryption(
         em,
         CustomerPersonProfile,
-        { entity },
+        { entity, tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
         undefined,
         { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
       )
@@ -935,7 +968,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           profile.twitterUrl = after.profile.twitterUrl
         },
         () => syncLegacyPrimaryCompanyLink(em, survivingEntity, profile, after.profile.companyEntityId),
-        () => syncEntityTags(em, survivingEntity, after.tagIds),
+        () => syncEntityTags(em, survivingEntity, after.tagIds, { ignoreMissing: true }),
       ], { transaction: true })
     }
 
@@ -966,22 +999,35 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
   },
 }
 
-const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string }> = {
+const updatePersonCommand = {
   id: 'customers.people.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(personUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadPersonSnapshot(em, parsed.id)
+    const snapshot = await loadPersonSnapshot(em, parsed.id, ctx)
     return snapshot ? { before: snapshot } : {}
   },
-  async execute(rawInput, ctx) {
+  async execute(
+    rawInput: PersonUpdateInput,
+    ctx: CommandRuntimeContext,
+    ignoreMissingTags = false,
+  ): Promise<{ entityId: string; updatedAt: Date }> {
     const { parsed, custom } = parseWithCustomFields(personUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await em.findOne(CustomerEntity, { id: parsed.id, deletedAt: null })
+    const entity = await findScopedCustomerCommandTarget(
+      em,
+      CustomerEntity,
+      { id: parsed.id, deletedAt: null },
+      undefined,
+      ctx,
+    )
     const record = assertFound(entity, 'Person not found')
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    const profile = await em.findOne(CustomerPersonProfile, { entity: record })
+    const profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: record, tenantId: record.tenantId, organizationId: record.organizationId }, undefined, {
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+    })
     if (!profile) throw notFound('Person profile not found')
 
     if (parsed.displayName !== undefined) {
@@ -1096,11 +1142,11 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           await syncLegacyPrimaryCompanyLink(em, record, profile, parsed.companyEntityId)
         }
       },
-      () => syncEntityTags(em, record, parsed.tags),
+      () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: ignoreMissingTags }),
+      () => setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom, em),
     ], { transaction: true })
 
     await invalidateDictionaryKindCaches(ctx, record, createdDictionaryKinds)
-    await setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom)
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudSideEffects({
@@ -1124,7 +1170,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadPersonSnapshot(em, result.entityId)
+    return await loadPersonSnapshot(em, result.entityId, ctx)
   },
   buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -1156,7 +1202,10 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await redactRestoredNextInteractionName(em, before.entity)
-    const entity = await em.findOne(CustomerEntity, { id: before.entity.id })
+    const entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId }, undefined, {
+      tenantId: before.entity.tenantId,
+      organizationId: before.entity.organizationId,
+    })
     if (!entity) {
       let newEntity!: CustomerEntity
       let newProfile!: CustomerPersonProfile
@@ -1201,7 +1250,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           em.persist(newProfile)
         },
         () => syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, before.profile.companyEntityId),
-        () => syncEntityTags(em, newEntity, before.tagIds),
+        () => syncEntityTags(em, newEntity, before.tagIds, { ignoreMissing: true }),
       ], { transaction: true })
     } else {
       await withAtomicFlush(em, [
@@ -1220,12 +1269,13 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
           entity.nextInteractionIcon = before.entity.nextInteractionIcon
           entity.nextInteractionColor = before.entity.nextInteractionColor
           entity.isActive = before.entity.isActive
+          entity.updatedAt = new Date()
         },
         async () => {
           const profile = await findOneWithDecryption(
             em,
             CustomerPersonProfile,
-            { entity },
+            { entity, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId },
             undefined,
             { tenantId: before.entity.tenantId, organizationId: before.entity.organizationId },
           )
@@ -1242,11 +1292,14 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
             await syncLegacyPrimaryCompanyLink(em, entity, profile, before.profile.companyEntityId)
           }
         },
-        () => syncEntityTags(em, entity, before.tagIds),
+        () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
       ], { transaction: true })
     }
 
-    const indexedEntity = await em.findOne(CustomerEntity, { id: before.entity.id })
+    const indexedEntity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId }, undefined, {
+      tenantId: before.entity.tenantId,
+      organizationId: before.entity.organizationId,
+    })
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     await emitCrudUndoSideEffects({
       dataEngine: de,
@@ -1271,7 +1324,10 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
       await setCustomFieldsForPerson(ctx, before.entity.id, before.profile.id, before.entity.organizationId, before.entity.tenantId, resetValues)
     }
   },
-}
+  redo({ input, ctx }): Promise<{ entityId: string }> {
+    return updatePersonCommand.execute(input, ctx, true)
+  },
+} satisfies CommandHandler<PersonUpdateInput, { entityId: string }>
 
 const deletePersonCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
@@ -1282,7 +1338,7 @@ const deletePersonCommand: CommandHandler<
     async prepare(input, ctx) {
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadPersonSnapshot(em, id, { includeInteractionRestoreDetails: true })
+      const snapshot = await loadPersonSnapshot(em, id, ctx, { includeInteractionRestoreDetails: true })
       if (!snapshot) return {}
       ensureTenantScope(ctx, snapshot.entity.tenantId)
       ensureOrganizationScope(ctx, snapshot.entity.organizationId)
@@ -1306,7 +1362,7 @@ const deletePersonCommand: CommandHandler<
     async execute(input, ctx) {
       const id = requireId(input, 'Person id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const snapshot = await loadPersonSnapshot(em, id)
+      const snapshot = await loadPersonSnapshot(em, id, ctx)
 
       let record!: CustomerEntity
       const profileHolder: { value: CustomerPersonProfile | null } = { value: null }
@@ -1318,7 +1374,13 @@ const deletePersonCommand: CommandHandler<
           // concurrent insert of a child row (e.g. a label assignment) serializes
           // behind this transaction instead of racing the final delete with a
           // 409 FOREIGN_KEY_VIOLATION. See issue #7613.
-          const entity = await em.findOne(CustomerEntity, { id, deletedAt: null }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+          const entity = await findScopedCustomerCommandTarget(
+            em,
+            CustomerEntity,
+            { id, deletedAt: null },
+            { lockMode: LockMode.PESSIMISTIC_WRITE },
+            ctx,
+          )
           record = assertFound(entity, 'Person not found')
           ensureTenantScope(ctx, record.tenantId)
           ensureOrganizationScope(ctx, record.organizationId)
@@ -1329,7 +1391,10 @@ const deletePersonCommand: CommandHandler<
             throw buildPersonHasDependentsError(translate, { dealLinks })
           }
 
-          const profile = await em.findOne(CustomerPersonProfile, { entity: record })
+          const profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: record, tenantId: record.tenantId, organizationId: record.organizationId }, undefined, {
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
           profileHolder.value = profile
           labelAssignmentsHolder.value = await removeEntityLabelAssignments(em, record)
           await em.nativeDelete(CustomerEmailConversationShare, { personEntity: record, organizationId: record.organizationId, tenantId: record.tenantId })
@@ -1601,7 +1666,7 @@ const deletePersonCommand: CommandHandler<
         }
       }
       await withAtomicFlush(em, [
-        () => syncEntityTags(em, entity, before.tagIds),
+        () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
       ])
       const restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)
       await em.flush()
@@ -1620,11 +1685,17 @@ const deletePersonCommand: CommandHandler<
       }
       let dealMap = new Map<string, CustomerDeal>()
       if (relatedDealIds.size) {
-        const deals = await em.find(CustomerDeal, {
-          id: { $in: Array.from(relatedDealIds) },
-          organizationId: entity.organizationId,
-          tenantId: entity.tenantId,
-        })
+        const deals = await findWithDecryption(
+          em,
+          CustomerDeal,
+          {
+            id: { $in: Array.from(relatedDealIds) },
+            organizationId: entity.organizationId,
+            tenantId: entity.tenantId,
+          },
+          undefined,
+          { tenantId: entity.tenantId, organizationId: entity.organizationId },
+        )
         dealMap = new Map(deals.map((deal) => [deal.id, deal]))
       }
 

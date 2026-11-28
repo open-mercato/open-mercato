@@ -1,11 +1,12 @@
 'use client'
 
 import * as React from 'react'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, type Locale as DateFnsLocale } from 'date-fns'
 import { Loader2, Smartphone, Trash2 } from 'lucide-react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation.js'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useDateFnsLocale } from '@open-mercato/ui/primitives/date-locale'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -64,11 +65,11 @@ function normalizeTotpSetupResponse(response: TotpSetupResponse): TotpSetupState
   }
 }
 
-function formatRelative(value: string | null, fallback: string): string {
+function formatRelative(value: string | null, fallback: string, locale?: DateFnsLocale): string {
   if (!value) return fallback
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return fallback
-  return formatDistanceToNow(parsed, { addSuffix: true })
+  return formatDistanceToNow(parsed, { addSuffix: true, locale })
 }
 
 export default function TotpProviderDetails({
@@ -78,6 +79,7 @@ export default function TotpProviderDetails({
   onMethodsChanged,
 }: TotpProviderDetailsProps) {
   const t = useT()
+  const dateLocale = useDateFnsLocale()
   const router = useRouter()
   const [loading, setLoading] = React.useState(false)
   const [setup, setSetup] = React.useState<TotpSetupState | null>(null)
@@ -195,6 +197,7 @@ export default function TotpProviderDetails({
                   {formatRelative(
                     method.createdAt,
                     t('security.profile.mfa.method.unknownTime', 'Unknown'),
+                    dateLocale,
                   )}
                 </p>
               </div>

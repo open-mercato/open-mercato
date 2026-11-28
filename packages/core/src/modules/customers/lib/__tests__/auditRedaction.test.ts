@@ -47,6 +47,15 @@ function ctx(overrides: Partial<CustomerAuditRedactionContext> = {}): CustomerAu
   }
 }
 
+function verifiedOwnerCtx(): CustomerAuditRedactionContext {
+  return ctx({
+    viewerUserId: OWNER,
+    liveInteractionsById: new Map([
+      ['verified-interaction', { visibility: 'private', authorUserId: OWNER, channelId: null, entityId: PERSON_ID }],
+    ]),
+  })
+}
+
 describe('redactCustomerAuditEntry — customers.interaction', () => {
   const INTERACTION_ID = 'interaction-1'
 
@@ -496,6 +505,15 @@ describe('redactCustomerAuditEntry — customers.interaction revocation (live au
     expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
   })
 
+  it('does not trust the historical owner when current authority cannot be verified', () => {
+    const entry = revocationEntry()
+    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    expect(interactionSnapshot(redacted.snapshotBefore).interaction.title).toBeNull()
+    expect(interactionSnapshot(redacted.snapshotAfter).interaction.body).toBeNull()
+    expect(redacted.changesJson).toEqual({})
+    expect(interactionSnapshot(entry.snapshotBefore).interaction.title).toBe('Old shared subject')
+  })
+
   it('fails closed to hidden when the interaction has been deleted (no live record resolves)', () => {
     // The batched lookup found nothing for this id — deleted, or otherwise
     // unresolvable — so the conservative fallback (private) applies even
@@ -660,9 +678,9 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
 
   it('keeps the embedded email visible to its own author', () => {
     const entry = personDeleteEntry([
-      { interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
+      { id: 'verified-interaction', interactionType: 'email', authorUserId: OWNER, title: 'Secret', body: 'Secret body' },
     ])
-    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const redacted = redactCustomerAuditEntry(entry, verifiedOwnerCtx())
     const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].title).toBe('Secret')
     expect(interactions[0].body).toBe('Secret body')
@@ -917,6 +935,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
   it('leaves the custom-field snapshot visible on an embedded email row for its own author', () => {
     const entry = personDeleteEntry([
       {
+        id: 'verified-interaction',
         interactionType: 'email',
         authorUserId: OWNER,
         title: 'Secret',
@@ -924,7 +943,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company dele
         custom: { privateEmail: 'ghost@example.com' },
       },
     ])
-    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const redacted = redactCustomerAuditEntry(entry, verifiedOwnerCtx())
     const interactions = embeddedInteractionsSnapshot(redacted.snapshotBefore).interactions
     expect(interactions[0].custom).toEqual({ privateEmail: 'ghost@example.com' })
   })
@@ -952,8 +971,8 @@ describe('redactCustomerAuditEntry — customers.person / customers.company chan
       changesJson: {
         status: { from: 'lead', to: 'active' },
         interactions: {
-          from: [{ interactionType: 'email', authorUserId: OWNER, title: 'Old secret', body: 'Old secret body' }],
-          to: [{ interactionType: 'email', authorUserId: OWNER, title: 'New secret', body: 'New secret body' }],
+          from: [{ id: 'verified-interaction', interactionType: 'email', authorUserId: OWNER, title: 'Old secret', body: 'Old secret body' }],
+          to: [{ id: 'verified-interaction', interactionType: 'email', authorUserId: OWNER, title: 'New secret', body: 'New secret body' }],
         },
       },
       ...overrides,
@@ -977,7 +996,7 @@ describe('redactCustomerAuditEntry — customers.person / customers.company chan
 
   it('leaves the embedded email diff visible to its own author', () => {
     const entry = personUpdateEntry()
-    const redacted = redactCustomerAuditEntry(entry, ctx({ viewerUserId: OWNER }))
+    const redacted = redactCustomerAuditEntry(entry, verifiedOwnerCtx())
     const changes = redacted.changesJson as { interactions: { from: InteractionFields[]; to: InteractionFields[] } }
     expect(changes.interactions.from[0].title).toBe('Old secret')
     expect(changes.interactions.to[0].title).toBe('New secret')

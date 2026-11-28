@@ -13,8 +13,7 @@ import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/tran
 import { JournalEntry, JournalEntryLine } from '../data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { reverseJournalEntrySchema, type ReverseJournalEntryInput } from '../data/validators'
-import { isComposedPostingCall, runPostJournalEntry, toPostedLine, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
-import { emitLedgerEvent } from '../events'
+import { isComposedPostingCall, publishCommittedPosting, runPostJournalEntry, toPostedLine, withPostingTransaction, type JournalEntryPostCore, type PostJournalEntryResult } from './postJournalEntry'
 
 type Scope = { organizationId: string; tenantId: string }
 
@@ -207,17 +206,12 @@ const reverseJournalEntryCommand: CommandHandler<ReverseJournalEntryInput, PostJ
     // comment. A composing caller must emit this event itself once its
     // own outer transaction commits.
     if (!isComposedPostingCall(ctx)) {
-      void emitLedgerEvent('ledger.journal_entry.posted', {
-        journalEntryId: result.journalEntryId,
-        sequenceNumber: result.sequenceNumber,
+      publishCommittedPosting({
+        ...input,
         type: 'REVERSAL',
-        operationDate: input.operationDate.toISOString().slice(0, 10),
-        organizationId: input.organizationId,
-        tenantId: input.tenantId,
         referenceType: 'journal_entry',
         referenceId: input.journalEntryId,
-        lines: result.lines.map(toPostedLine),
-      }).catch(() => undefined)
+      }, result)
     }
 
     return {

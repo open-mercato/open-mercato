@@ -6,6 +6,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scope'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { CustomerRbacService } from '@open-mercato/core/modules/customer_accounts/services/customerRbacService'
@@ -54,7 +55,11 @@ export async function generateMetadata({ params }: FrontendParams): Promise<Meta
   })
 }
 
-export default async function SiteCatchAll({ params }: FrontendParams) {
+export default async function SiteCatchAll(props: FrontendParams) {
+  return runInOwnedRequestScope(() => renderSiteCatchAll(props))
+}
+
+async function renderSiteCatchAll({ params }: FrontendParams) {
   const p = await params
   const pathname = '/' + (p.slug?.join('/') ?? '')
   const match = findRouteManifestMatch(getFrontendRouteManifests(), pathname)

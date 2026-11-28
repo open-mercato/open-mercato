@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { BRIDGE_RECONNECTED_EVENT_ID, useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { ConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
@@ -265,7 +265,7 @@ export function VectorSearchSection({
     void fetchActivityLogs()
   }, [fetchActivityLogs])
 
-  useAppEvent('om:bridge:reconnected', () => {
+  useAppEvent(BRIDGE_RECONNECTED_EVENT_ID, () => {
     void fetchActivityLogs()
   }, [fetchActivityLogs])
 

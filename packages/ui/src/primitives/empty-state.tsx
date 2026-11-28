@@ -12,12 +12,13 @@ const emptyStateVariants = cva(
     variants: {
       size: {
         sm: 'gap-2 px-4 py-6',
-        default: 'gap-3 px-6 py-10',
-        lg: 'gap-4 px-8 py-16',
+        default: 'gap-3 px-6 py-8',
+        lg: 'gap-4 px-8 py-12',
       },
       variant: {
-        default: 'rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30',
+        default: 'rounded-lg',
         subtle: 'rounded-lg',
+        outlined: 'rounded-lg border border-dashed border-muted-foreground/40 bg-muted/30',
       },
     },
     defaultVariants: {
@@ -57,7 +58,7 @@ export type EmptyStateProps = VariantProps<typeof emptyStateVariants> & {
    * wrapping so the illustration's own circular background shows through.
    */
   illustration?: React.ReactNode
-  /** Optional leading icon. With `variant="subtle"` it is wrapped in a round muted box; with default variant it sits inline tinted as muted-foreground. Ignored when `illustration` is provided. */
+  /** Optional leading icon. With `variant="default"` or `"subtle"` it is wrapped in a round muted box; with `variant="outlined"` it sits inline tinted as muted-foreground. Ignored when `illustration` is provided. */
   icon?: React.ReactNode
   className?: string
   children?: React.ReactNode
@@ -97,7 +98,7 @@ export function EmptyState({
           {illustration}
         </div>
       ) : icon ? (
-        variant === 'subtle' ? (
+        variant !== 'outlined' ? (
           <div
             className={cn(
               'flex items-center justify-center rounded-full bg-muted text-muted-foreground',

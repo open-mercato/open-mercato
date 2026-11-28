@@ -9,6 +9,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { FiscalPeriod, JournalEntry, JournalEntryLine, LedgerAccount } from '../../data/entities'
 import { createLedgerCrudOpenApi, createPagedListResponseSchema } from '../openapi'
+import { currencyCodeOrId, loadCurrencyCodes } from '../../lib/currencyCodes'
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 
@@ -17,7 +18,9 @@ import { readQueryParamList } from '@open-mercato/shared/lib/crud/query-params'
 // `reverseJournalEntry` (see commands/), never through this route.
 //
 // A request narrowed to one entry (`?id=`) also returns that entry's posted
-// lines (account number, name, debit, credit) for the read-only detail page.
+// lines (account number, name, debit, credit, currency code) for the read-only
+// detail page. `currencyCode` sits next to the unchanged `currencyId`; when the
+// code cannot be resolved it carries the identifier, so it is never empty.
 // The list itself stays headers only.
 //
 // `accountId` and `periodId` are not stored columns on `JournalEntry`
@@ -77,6 +80,10 @@ type JournalEntryLineRow = {
   accountName: string | null
   debit: string
   credit: string
+  currencyId: string
+  currencyCode: string
+  exchangeRate: string
+  amountCurrency: string
 }
 
 type JournalEntryDetailRow = JournalEntryRow & { lines?: JournalEntryLineRow[] }
@@ -125,13 +132,16 @@ export async function GET(req: Request) {
 
   const container = await createRequestContainer()
   const em = container.resolve('em') as EntityManager
-  const organizationScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
-  const organizationId = organizationScope?.selectedId ?? auth.orgId ?? null
-
+  const { tenantId, filterIds } = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const { id, page, pageSize, accountId, periodId, type, referenceType, referenceId, sortField, sortDir } = parsed.data
-  let filter: Record<string, unknown> = { tenantId: auth.tenantId }
-  // Selected organization, not the user's home auth.orgId.
-  if (organizationId) filter.organizationId = organizationId
+  if (!tenantId || filterIds?.length === 0) {
+    return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
+  }
+
+  let filter: Record<string, unknown> = {
+    tenantId,
+    ...(filterIds ? { organizationId: { $in: filterIds } } : {}),
+  }
 
   if (id) filter.id = id
   // `?ids=` — comma-separated or repeated — documented by the shared OpenAPI
@@ -155,11 +165,15 @@ export async function GET(req: Request) {
   // instead, with a fixed, small number of bind parameters regardless of
   // how many lines the account has.
   if (accountId) {
-    const params = organizationId ? [accountId, auth.tenantId, organizationId] : [accountId, auth.tenantId]
     const accountHasLine = raw(
-      (alias) =>
-        `exists (select 1 from journal_entry_lines jel where jel.journal_entry_id = ${alias}.id and jel.account_id = ? and jel.tenant_id = ?${organizationId ? ' and jel.organization_id = ?' : ''})`,
-      params,
+      (alias) => `exists (
+        select 1 from journal_entry_lines jel
+        where jel.journal_entry_id = ${alias}.id
+          and jel.account_id = ?
+          and jel.tenant_id = ${alias}.tenant_id
+          and jel.organization_id = ${alias}.organization_id
+      )`,
+      [accountId],
     )
     const andFilters = (filter.$and as unknown[] | undefined) ?? []
     andFilters.push({ [accountHasLine]: true })
@@ -170,12 +184,17 @@ export async function GET(req: Request) {
   // as an `operationDate` filter — `FiscalPeriod` is not a stored FK on
   // `JournalEntry` (app-layer resolution only, see spec's Queries/API).
   if (periodId) {
-    const periodFilter: FilterQuery<FiscalPeriod> = { id: periodId, tenantId: auth.tenantId, deletedAt: null }
-    if (organizationId) periodFilter.organizationId = organizationId
+    const periodFilter: FilterQuery<FiscalPeriod> = {
+      id: periodId,
+      tenantId,
+      deletedAt: null,
+      ...(filterIds ? { organizationId: { $in: filterIds } } : {}),
+    }
     const period = await em.findOne(FiscalPeriod, periodFilter)
     if (!period) {
       return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
     }
+    filter.organizationId = period.organizationId
     filter.operationDate = { $gte: period.startDate, $lte: period.endDate }
   }
 
@@ -205,7 +224,8 @@ export async function GET(req: Request) {
 
 // Lines of one entry, scoped to the entry's own organization/tenant, with the
 // account number and name resolved in one extra query (no ORM relation
-// between lines and accounts). Debit lines first, then credit lines.
+// between lines and accounts) and the currency codes in one more, in the same
+// scope. Debit lines first, then credit lines.
 async function loadEntryLines(em: EntityManager, entry: JournalEntry): Promise<JournalEntryLineRow[]> {
   const scope = { organizationId: entry.organizationId, tenantId: entry.tenantId }
   const lines = await findWithDecryption(
@@ -220,6 +240,7 @@ async function loadEntryLines(em: EntityManager, entry: JournalEntry): Promise<J
     ? await em.find(LedgerAccount, { id: { $in: accountIds }, ...scope }, { fields: ['id', 'number', 'description'] })
     : []
   const accountById = new Map(accounts.map((account) => [account.id, account]))
+  const currencyCodes = await loadCurrencyCodes(em, lines.map((line) => String(line.currencyId)), scope)
   const isDebit = (line: JournalEntryLine) => Number(line.debit) > 0
   return [...lines]
     .sort((a, b) => Number(isDebit(b)) - Number(isDebit(a)))
@@ -232,6 +253,10 @@ async function loadEntryLines(em: EntityManager, entry: JournalEntry): Promise<J
         accountName: account?.description ?? null,
         debit: String(line.debit),
         credit: String(line.credit),
+        currencyId: String(line.currencyId),
+        currencyCode: currencyCodeOrId(currencyCodes, String(line.currencyId)),
+        exchangeRate: String(line.exchangeRate),
+        amountCurrency: String(line.amountCurrency),
       }
     })
 }
@@ -262,6 +287,10 @@ const journalEntryLineSchema = z.object({
   accountName: z.string().nullable(),
   debit: z.string(),
   credit: z.string(),
+  currencyId: z.uuid(),
+  currencyCode: z.string().describe('Currency code resolved in the entry scope; the currency identifier when the code cannot be resolved'),
+  exchangeRate: z.string(),
+  amountCurrency: z.string(),
 })
 
 export const openApi = createLedgerCrudOpenApi({

@@ -13,6 +13,7 @@ import { createHealthcheckHandler } from '../route'
 type ProbeOptions = {
   database?: () => Promise<unknown>
   redis?: () => Promise<boolean>
+  dispose?: () => Promise<void>
 }
 
 function createContainer(options: ProbeOptions = {}) {
@@ -20,6 +21,7 @@ function createContainer(options: ProbeOptions = {}) {
   const redis = options.redis ?? (async () => false)
 
   return async () => ({
+    dispose: options.dispose ?? jest.fn(async () => undefined),
     resolve: (name: string) => {
       if (name === 'em') {
         return {
@@ -114,4 +116,49 @@ describe('GET /api/healthz', () => {
       ts: '2026-06-05T10:00:00.000Z',
     })
   })
+
+  it('disposes the probe scope after completed probes', async () => {
+    const dispose = jest.fn(async () => undefined)
+    const handler = createHealthcheckHandler({ createContainer: createContainer({ dispose }) as never, now, logger })
+    const response = await handler()
+    expect(response.status).toBe(200)
+    expect(dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('retains a timed-out probe scope until its underlying operation settles', async () => {
+    let finishProbe!: () => void
+    let finishedCleanup!: () => void
+    const operation = new Promise<void>((resolve) => { finishProbe = resolve })
+    const cleanup = new Promise<void>((resolve) => { finishedCleanup = resolve })
+    const dispose = jest.fn(async () => { finishedCleanup() })
+    const handler = createHealthcheckHandler({
+      createContainer: createContainer({ database: () => operation, dispose }) as never,
+      now, logger, timeoutMs: 5,
+    })
+    const response = await handler()
+    expect(response.status).toBe(503)
+    expect(dispose).not.toHaveBeenCalled()
+    finishProbe()
+    await cleanup
+    expect(dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('disposes a scope when dependency resolution throws', async () => {
+    const dispose = jest.fn(async () => undefined)
+    const handler = createHealthcheckHandler({
+      createContainer: (async () => ({ dispose, resolve: () => { throw new Error('missing dependency') } })) as never,
+      now, logger,
+    })
+    expect((await handler()).status).toBe(503)
+    expect(dispose).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves the successful response when scope cleanup fails', async () => {
+    const dispose = jest.fn(async () => { throw new Error('cleanup failure') })
+    const handler = createHealthcheckHandler({ createContainer: createContainer({ dispose }) as never, now, logger })
+    expect((await handler()).status).toBe(200)
+    expect(dispose).toHaveBeenCalledTimes(1)
+    expect(logger.error).toHaveBeenCalledWith('[healthz] Scope cleanup failed', expect.any(Object))
+  })
+
 })

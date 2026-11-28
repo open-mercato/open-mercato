@@ -168,6 +168,17 @@ describe('admin customer invitations listing route', () => {
     expect(json.totalPages).toBe(1)
   })
 
+  it('breaks createdAt ties by id so offset pages stay stable', async () => {
+    const { GET } = await import('../users-invite')
+
+    await GET(makeListRequest('page=2&pageSize=5'))
+
+    const [, , , options] = mockFindAndCountWithDecryption.mock.calls[0]
+    expect(options.orderBy).toEqual({ createdAt: 'DESC', id: 'DESC' })
+    expect(Object.keys(options.orderBy)).toEqual(['createdAt', 'id'])
+    expect(options).toEqual(expect.objectContaining({ limit: 5, offset: 5 }))
+  })
+
   it('rejects a non-uuid entity filter before it reaches the database', async () => {
     const { GET } = await import('../users-invite')
 

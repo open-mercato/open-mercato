@@ -6,7 +6,7 @@ import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { parseWithCustomFields } from '@open-mercato/shared/lib/commands/helpers'
 import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
-import { badRequest, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { badRequest, conflict, isUniqueViolation, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { TranslateWithFallbackFn } from '@open-mercato/shared/lib/i18n/translate'
 import { Currency } from '@open-mercato/core/modules/currencies/data/entities'
@@ -23,6 +23,17 @@ import {
 } from '../data/validators'
 
 type Scope = { organizationId: string; tenantId: string }
+
+function accountNumberTaken(translate: TranslateWithFallbackFn) {
+  return conflict(
+    translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'),
+  )
+}
+
+function rethrowAccountNumberConflict(error: unknown, translate: TranslateWithFallbackFn): never {
+  if (isUniqueViolation(error, 'ledger_accounts_scope_number_unique')) throw accountNumberTaken(translate)
+  throw error
+}
 
 /**
  * Whether `accountId` has any posted `JournalEntryLine` — the invariant
@@ -145,9 +156,7 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
         tenantId: scope.tenantId,
         deletedAt: null,
       })
-      if (existing) {
-        throw conflict(translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'))
-      }
+      if (existing) throw accountNumberTaken(translate)
 
       const accountType = await requireExistingAccountType(em, parsed.accountTypeId, scope, translate)
       await requireAccountNumberMatchesType(em, parsed.number, accountType, scope, translate)
@@ -189,7 +198,7 @@ const createLedgerAccountCommand: CommandHandler<LedgerAccountCreateInput, { led
       })
 
       return record
-    })
+    }).catch((error: unknown) => rethrowAccountNumberConflict(error, translate))
 
     return { ledgerAccountId: record.id }
   },
@@ -248,7 +257,7 @@ const updateLedgerAccountCommand: CommandHandler<LedgerAccountUpdateInput, { led
           deletedAt: null,
           id: { $ne: record.id },
         })
-        if (existing) throw conflict(translate('ledger.errors.accountNumberTaken', 'An account with this number already exists for this organization.'))
+        if (existing) throw accountNumberTaken(translate)
       }
 
       const changesNumber = parsed.number !== undefined && parsed.number !== record.number
@@ -320,7 +329,7 @@ const updateLedgerAccountCommand: CommandHandler<LedgerAccountUpdateInput, { led
       })
 
       return record
-    })
+    }).catch((error: unknown) => rethrowAccountNumberConflict(error, translate))
 
     return { ledgerAccountId: record.id }
   },

@@ -85,6 +85,13 @@ describe('generateWebResearchAdapters', () => {
     expect(content).not.toMatch(/import\(/)
   })
 
+  it('does not require @open-mercato/web-research to be installed in the app', async () => {
+    const content = await generate()
+
+    expect(content).not.toContain("from '@open-mercato/web-research'")
+    expect(content).toContain('type AdapterRegistryEntry = {')
+  })
+
   it('imports every discovered adapter with a literal specifier and no static import', async () => {
     writeInstalledAdapter('@acme/web-research-installed', 'installed')
     writeWorkspaceOnlyAdapter('web-research-workspace-only', '@acme/web-research-workspace-only', 'workspace-only')

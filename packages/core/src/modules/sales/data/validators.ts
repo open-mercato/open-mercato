@@ -112,7 +112,7 @@ export type SalesEditingSettingsInput = z.infer<typeof salesEditingSettingsSchem
 export const channelCreateSchema = scoped.extend({
   name: z.string().trim().min(1).max(255),
   code: channelCodeSchema,
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   statusEntryId: uuid().optional(),
   websiteUrl: z.string().trim().url().max(300).optional(),
   contactEmail: z.string().trim().email().max(320).optional(),
@@ -145,7 +145,7 @@ const shippingMethodBaseSchema = scoped.extend({
     .toLowerCase()
     .regex(/^[a-z0-9\-_]+$/)
     .max(120),
-  description: z.string().trim().max(2000).optional(),
+  description: z.string().trim().max(2000).nullable().optional(),
   carrierCode: z.string().trim().max(120).optional(),
   providerKey: z.string().trim().max(120).optional(),
   serviceLevel: z.string().trim().max(120).optional(),

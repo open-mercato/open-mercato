@@ -1,0 +1,118 @@
+import { randomUUID } from 'node:crypto'
+import { expect, test } from '@playwright/test'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import {
+  createProductFixture,
+  createVariantFixture,
+  deleteCatalogProductIfExists,
+} from '@open-mercato/core/helpers/integration/catalogFixtures'
+import {
+  deleteGeneralEntityIfExists,
+  getTokenScope,
+  readJsonSafe,
+} from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createCrudFixture, ensureRoleFeatures } from './helpers/wmsFixtures'
+
+export const integrationMeta = {
+  dependsOnModules: ['wms', 'catalog'],
+}
+
+type LotListResponse = {
+  items?: Array<{ id?: string; expires_at?: string | null }>
+}
+
+type ValidationErrorBody = {
+  details?: Array<{ path?: Array<string | number> }>
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+function daysFromNow(days: number): string {
+  const date = new Date(Date.now() + days * DAY_MS)
+  date.setUTCHours(0, 0, 0, 0)
+  return date.toISOString()
+}
+
+test.describe('TC-WMS-036: Lot update keeps date ordering against the stored dates', () => {
+  test('a single-date patch that conflicts with the stored dates is rejected and nothing changes', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const scope = getTokenScope(adminToken)
+    const suffix = randomUUID().slice(0, 8)
+
+    const restoreAdminAcl = await ensureRoleFeatures(request, superadminToken, scope.tenantId, 'admin', [
+      'wms.view',
+      'wms.manage_inventory',
+    ])
+
+    let productId: string | null = null
+    let lotId: string | null = null
+    const manufacturedAt = daysFromNow(-30)
+    const bestBeforeAt = daysFromNow(60)
+    const expiresAt = daysFromNow(120)
+    const conflictingExpiresAt = daysFromNow(-60)
+    const validExpiresAt = daysFromNow(90)
+
+    const readExpiresAt = async () => {
+      const response = await apiRequest(request, 'GET', `/api/wms/lots?ids=${lotId}&page=1&pageSize=1`, {
+        token: adminToken,
+      })
+      expect(response.status()).toBe(200)
+      const body = await readJsonSafe<LotListResponse>(response)
+      const storedExpiresAt = body?.items?.find((item) => item.id === lotId)?.expires_at
+      return storedExpiresAt ? new Date(storedExpiresAt).toISOString() : null
+    }
+
+    try {
+      productId = await createProductFixture(request, adminToken, {
+        title: `TC-WMS-036 Lot dates ${suffix}`,
+        sku: `TCW36-P-${suffix}`,
+      })
+      const variantId = await createVariantFixture(request, adminToken, {
+        productId,
+        name: `TC-WMS-036 Variant ${suffix}`,
+        sku: `TCW36-V-${suffix}`,
+      })
+      lotId = await createCrudFixture(request, adminToken, '/api/wms/lots', {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        catalogVariantId: variantId,
+        sku: `TCW36-V-${suffix}`,
+        lotNumber: `TCW36-L-${suffix}`,
+        manufacturedAt,
+        bestBeforeAt,
+        expiresAt,
+      })
+
+      const rejected = await apiRequest(request, 'PUT', '/api/wms/lots', {
+        token: adminToken,
+        data: { id: lotId, expiresAt: conflictingExpiresAt },
+      })
+      expect(rejected.status()).toBe(400)
+      const rejectedBody = await readJsonSafe<ValidationErrorBody>(rejected)
+      expect(rejectedBody?.details?.some((issue) => issue.path?.[0] === 'expiresAt')).toBe(true)
+
+      expect(await readExpiresAt()).toBe(expiresAt)
+
+      const accepted = await apiRequest(request, 'PUT', '/api/wms/lots', {
+        token: adminToken,
+        data: { id: lotId, expiresAt: validExpiresAt },
+      })
+      expect(accepted.status()).toBe(200)
+
+      expect(await readExpiresAt()).toBe(validExpiresAt)
+
+      const cleared = await apiRequest(request, 'PUT', '/api/wms/lots', {
+        token: adminToken,
+        data: { id: lotId, expiresAt: null },
+      })
+      expect(cleared.status()).toBe(200)
+
+      expect(await readExpiresAt()).toBeNull()
+    } finally {
+      await deleteGeneralEntityIfExists(request, adminToken, '/api/wms/lots', lotId)
+      await deleteCatalogProductIfExists(request, adminToken, productId)
+      await restoreAdminAcl()
+    }
+  })
+})

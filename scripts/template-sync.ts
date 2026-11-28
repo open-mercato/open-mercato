@@ -177,6 +177,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/watch-scope.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'build-next.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'build-next.mjs'),
+    rel: 'scripts/build-next.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime.mjs'),
     rel: 'scripts/dev-runtime.mjs',

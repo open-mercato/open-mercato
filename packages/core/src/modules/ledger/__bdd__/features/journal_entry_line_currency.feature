@@ -102,4 +102,3 @@ Feature: Currency, exchange rate and original amount on every journal entry line
       | account | side   | amount | currency | rate       | original |
       | expense | credit | 430.00 | PLN      | 1          | 430.00   |
       | payable | debit  | 430.00 | EUR      | 4.30000000 | 100.00   |
-
