@@ -340,6 +340,14 @@ export function formatSseEvent(payload: Record<string, unknown>): string {
  * stream — it pipes bytes through and only parses event boundaries to know
  * when to inject extra chunks.
  */
+async function cancelUpstreamQuietly(reader: ReadableStreamDefaultReader<Uint8Array>, reason: unknown): Promise<void> {
+  try {
+    await reader.cancel(reason)
+  } catch {
+    return
+  }
+}
+
 export function injectTaskPlanIntoStream(
   baseResponse: Response,
   planId: string,
@@ -354,6 +362,9 @@ export function injectTaskPlanIntoStream(
       return
     }
     const reader = baseResponse.body.getReader()
+    writer.closed.catch((reason: unknown) => {
+      void cancelUpstreamQuietly(reader, reason)
+    })
     let textBuffer = ''
     try {
       for (;;) {

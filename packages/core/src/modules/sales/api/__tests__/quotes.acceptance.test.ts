@@ -8,8 +8,14 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
+import type { MutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
+import { renderToStaticMarkup } from 'react-dom/server'
+import type { ReactElement } from 'react'
 import { createSalesDocumentLockKyselyFixture } from '../../commands/__tests__/salesDocumentLockFixture'
 
+const registeredGuards: MutationGuard[] = []
+const mockReportError = jest.fn()
+const mockInvalidateCrudCache = jest.fn()
 const mockCommandBus = { execute: jest.fn() }
 const mockRateLimiterService = { trustProxyDepth: 1, consume: jest.fn() }
 const mockEm: Record<string, jest.Mock> = {
@@ -59,6 +65,19 @@ jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => 
   resolveOrganizationScopeForRequest: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/telemetry/runtime', () => ({
+  getTelemetryRuntime: jest.fn(() => ({ reportError: mockReportError })),
+}))
+
+jest.mock('@open-mercato/shared/lib/crud/mutation-guard-store', () => ({
+  getAllMutationGuardInstances: jest.fn(() => registeredGuards),
+}))
+
+jest.mock('@open-mercato/shared/lib/crud/cache', () => ({
+  ...jest.requireActual('@open-mercato/shared/lib/crud/cache'),
+  invalidateCrudCache: (...args: unknown[]) => mockInvalidateCrudCache(...args),
+}))
+
 function makeRequest(body: unknown) {
   return new Request('http://localhost/api/sales/quotes/send', {
     method: 'POST',
@@ -81,6 +100,7 @@ function makeAcceptRequest(body: unknown) {
 describe('quote send + accept flow', () => {
   beforeEach(async () => {
     jest.clearAllMocks()
+    registeredGuards.length = 0
     mockEm.fork.mockReturnValue(mockEm)
     mockRateLimiterService.consume.mockResolvedValue({ allowed: true, remainingPoints: 9, msBeforeNext: 0 })
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
@@ -136,6 +156,289 @@ describe('quote send + accept flow', () => {
     // Send-state is now persisted inside em.transactional (committed before the email), not via a bare em.flush.
     expect(mockEm.transactional).toHaveBeenCalled()
     expect(mockEm.persist).toHaveBeenCalledWith(quote)
+  })
+
+  test('sends to the document\'s "Send to" address ahead of the snapshot contact (#8459)', async () => {
+    const quote = {
+      id: '22222222-2222-4222-8222-222222222223',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-2',
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: {
+        contact: { email: 'contact@example.com' },
+        customer: { primaryEmail: 'primary@example.com' },
+      },
+      metadata: { customerEmail: 'accounting@example.com' },
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+
+    mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string } | null) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+
+    const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+    expect(res.status).toBe(200)
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'accounting@example.com' }))
+  })
+
+  describe('CC recipients (#8460)', () => {
+    const ccQuoteId = '22222222-2222-4222-8222-222222222224'
+    const acceptanceLink = /\/quote\/[0-9a-f-]{36}/i
+
+    function arrangeCcQuote() {
+      const quote = {
+        id: ccQuoteId,
+        tenantId: '00000000-0000-4000-8000-000000000000',
+        organizationId: '11111111-1111-4111-8111-111111111111',
+        quoteNumber: 'SQ-3',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: '10',
+        status: 'draft',
+        statusEntryId: null,
+        customerSnapshot: { customer: { primaryEmail: 'buyer@example.com' } },
+        metadata: { customerEmail: 'buyer@example.com', note: 'keep me' } as Record<string, unknown>,
+        updatedAt: new Date(),
+        validUntil: null,
+        sentAt: null,
+        acceptanceToken: null,
+      }
+      mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string }) => {
+        if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+        if (cls === Dictionary) return { id: 'dict-1' }
+        if (cls === DictionaryEntry) return { id: 'entry-sent' }
+        return null
+      })
+      return quote
+    }
+
+    async function sentMails(): Promise<Array<{ to: string; cc?: string[]; html: string }>> {
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      return (sendEmail as jest.Mock).mock.calls.map(([options]: [{ to: string; cc?: string[]; react: ReactElement }]) => ({
+        to: options.to,
+        cc: options.cc,
+        html: renderToStaticMarkup(options.react),
+      }))
+    }
+
+    const requestBody = {
+      quoteId: ccQuoteId,
+      validForDays: 14,
+      cc: ['purchasing@example.com', 'Buyer@example.com', 'purchasing@example.com', 'accounting@example.com'],
+    }
+
+    test('remembers the list without the primary address or duplicates', async () => {
+      const quote = arrangeCcQuote()
+
+      const res = await sendQuote(makeRequest(requestBody))
+
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ ok: true })
+      expect(quote.metadata).toEqual({
+        customerEmail: 'buyer@example.com',
+        note: 'keep me',
+        recipients: { cc: ['purchasing@example.com', 'accounting@example.com'] },
+      })
+    })
+
+    test('only the main recipient gets the acceptance link', async () => {
+      arrangeCcQuote()
+
+      await sendQuote(makeRequest(requestBody))
+
+      const mails = await sentMails()
+      expect(mails.map((mail) => mail.to)).toEqual(['buyer@example.com', 'purchasing@example.com', 'accounting@example.com'])
+      const [main, ...copies] = mails
+      expect(main.html).toMatch(acceptanceLink)
+      expect(main.html).toContain('View quote')
+      expect(main.html).not.toContain('You are receiving this copy')
+      for (const copy of copies) {
+        expect(copy.cc).toBeUndefined()
+        expect(copy.html).not.toMatch(/\/quote\//)
+        expect(copy.html).not.toContain('<a ')
+        expect(copy.html).not.toContain('View quote')
+        expect(copy.html).toContain('Total:')
+        expect(copy.html).toContain('Valid until:')
+        expect(copy.html).toContain('You are receiving this copy')
+      }
+    })
+
+    test('a failed copy is reported and neither fails the send nor stops the other copies', async () => {
+      const quote = arrangeCcQuote()
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      const failure = new Error('provider rejected the address')
+      ;(sendEmail as jest.Mock).mockImplementation(async ({ to }: { to: string }) => {
+        if (to === 'purchasing@example.com') throw failure
+      })
+
+      try {
+        const res = await sendQuote(makeRequest(requestBody))
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ ok: true })
+        expect(quote.status).toBe('sent')
+        expect((await sentMails()).map((mail) => mail.to)).toContain('accounting@example.com')
+        expect(mockReportError).toHaveBeenCalledTimes(1)
+        expect(mockReportError).toHaveBeenCalledWith(failure, expect.objectContaining({
+          module: 'sales',
+          code: 'sales.quote_cc_copy_failed',
+          attributes: { quoteId: ccQuoteId },
+        }))
+      } finally {
+        ;(sendEmail as jest.Mock).mockReset()
+        ;(sendEmail as jest.Mock).mockResolvedValue(undefined)
+      }
+    })
+
+    test('a reporter that throws on a failed copy does not fail the send or stop the other copies', async () => {
+      const quote = arrangeCcQuote()
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      ;(sendEmail as jest.Mock).mockImplementation(async ({ to }: { to: string }) => {
+        if (to === 'purchasing@example.com') throw new Error('provider rejected the address')
+      })
+      mockReportError.mockImplementationOnce(() => {
+        throw new Error('telemetry backend unavailable')
+      })
+      const afterSuccess = jest.fn(async () => undefined)
+      registeredGuards.push({
+        id: 'test.after-success',
+        targetEntity: '*',
+        operations: ['update'],
+        priority: 10,
+        validate: async () => ({ ok: true, shouldRunAfterSuccess: true }),
+        afterSuccess,
+      } as unknown as MutationGuard)
+
+      try {
+        const res = await sendQuote(makeRequest(requestBody))
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toEqual({ ok: true })
+        expect(quote.status).toBe('sent')
+        expect(mockReportError).toHaveBeenCalledTimes(1)
+        expect((await sentMails()).map((mail) => mail.to)).toContain('accounting@example.com')
+        expect(afterSuccess).toHaveBeenCalledTimes(1)
+      } finally {
+        ;(sendEmail as jest.Mock).mockReset()
+        ;(sendEmail as jest.Mock).mockResolvedValue(undefined)
+      }
+    })
+
+    test('a failed main mail reports the failure and sends no copies', async () => {
+      arrangeCcQuote()
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      ;(sendEmail as jest.Mock).mockRejectedValueOnce(new Error('SMTP connection refused'))
+
+      const res = await sendQuote(makeRequest(requestBody))
+
+      expect(res.status).toBe(400)
+      expect(sendEmail).toHaveBeenCalledTimes(1)
+      expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'buyer@example.com' }))
+    })
+  })
+
+  describe('mutation guard payload (#8460)', () => {
+    const guardedQuoteId = '22222222-2222-4222-8222-222222222225'
+
+    function arrangeGuardedQuote() {
+      const quote = {
+        id: guardedQuoteId,
+        tenantId: '00000000-0000-4000-8000-000000000000',
+        organizationId: '11111111-1111-4111-8111-111111111111',
+        quoteNumber: 'SQ-4',
+        currencyCode: 'USD',
+        grandTotalGrossAmount: '10',
+        status: 'draft',
+        statusEntryId: null,
+        customerSnapshot: { customer: { primaryEmail: 'buyer@example.com' } },
+        metadata: null as Record<string, unknown> | null,
+        updatedAt: new Date(),
+        validUntil: null as Date | null,
+        sentAt: null,
+        acceptanceToken: null,
+      }
+      mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string }) => {
+        if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+        if (cls === Dictionary) return { id: 'dict-1' }
+        if (cls === DictionaryEntry) return { id: 'entry-sent' }
+        return null
+      })
+      return quote
+    }
+
+    function registerCcGuard(modifiedPayload: Record<string, unknown>) {
+      registeredGuards.push({
+        id: 'test.quote-cc-policy',
+        targetEntity: 'sales.quote',
+        operations: ['update'],
+        validate: async () => ({ ok: true, modifiedPayload }),
+      })
+    }
+
+    async function sentRecipients(): Promise<string[]> {
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      return (sendEmail as jest.Mock).mock.calls.map(([options]: [{ to: string }]) => options.to)
+    }
+
+    test.each([
+      ['removes', [], []],
+      ['rewrites', ['approved@example.com'], ['approved@example.com']],
+    ])('a guard that %s the CC list decides who is stored and who gets mail', async (_label, guardedCc, expectedCc) => {
+      const quote = arrangeGuardedQuote()
+      registerCcGuard({ cc: guardedCc })
+
+      const res = await sendQuote(makeRequest({
+        quoteId: guardedQuoteId,
+        validForDays: 14,
+        cc: ['outsider@example.com'],
+      }))
+
+      expect(res.status).toBe(200)
+      expect(quote.metadata).toEqual({ recipients: { cc: expectedCc } })
+      const recipients = await sentRecipients()
+      expect(recipients).toContain('buyer@example.com')
+      expect(recipients).not.toContain('outsider@example.com')
+      expect(recipients).toEqual(expect.arrayContaining(expectedCc))
+    })
+
+    test('guarded values replace the validated input everywhere', async () => {
+      const quote = arrangeGuardedQuote()
+      registerCcGuard({ validForDays: 3 })
+
+      const res = await sendQuote(makeRequest({ quoteId: guardedQuoteId, validForDays: 14 }))
+
+      expect(res.status).toBe(200)
+      const expected = new Date()
+      expected.setUTCDate(expected.getUTCDate() + 3)
+      expect(quote.validUntil?.toISOString().slice(0, 10)).toBe(expected.toISOString().slice(0, 10))
+    })
+
+    test('a guard rewrite is validated again and an invalid one sends nothing', async () => {
+      const quote = arrangeGuardedQuote()
+      registerCcGuard({ cc: ['not-an-email'] })
+
+      const res = await sendQuote(makeRequest({ quoteId: guardedQuoteId, validForDays: 14 }))
+
+      expect(res.status).toBe(400)
+      expect(quote.status).toBe('draft')
+      const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+      expect(sendEmail).not.toHaveBeenCalled()
+    })
+  })
+
+  test('rejects an invalid CC address', async () => {
+    const res = await sendQuote(makeRequest({ quoteId: '22222222-2222-4222-8222-222222222222', validForDays: 14, cc: ['not-an-email'] }))
+    expect(res.status).toBe(400)
   })
 
   test('accept never matches a raw (unhashed) stored token — hashed lookup only (#2929)', async () => {
@@ -770,6 +1073,190 @@ describe('send - commits send-state before email delivery (fix: #2336, supersede
     expect(res.status).toBe(200)
     expect(callOrder.indexOf('commit')).toBeGreaterThanOrEqual(0)
     expect(callOrder.indexOf('commit')).toBeLessThan(callOrder.indexOf('sendEmail'))
+  })
+
+  test('a cache backend that rejects the list invalidation is reported and the quote is still mailed', async () => {
+    const quote = {
+      id: '22222222-2222-4222-8222-222222222222',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-CACHE-1',
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: { customer: { primaryEmail: 'test@example.com' } },
+      metadata: null,
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+
+    mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string } | undefined) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+
+    const cacheFailure = new Error('deleteByTags rejected: cache backend unavailable')
+    mockInvalidateCrudCache.mockRejectedValueOnce(cacheFailure)
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    ;(sendEmail as jest.Mock).mockResolvedValue(undefined)
+
+    const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+
+    expect(res.status).toBe(200)
+    expect(quote.status).toBe('sent')
+    expect(mockInvalidateCrudCache).toHaveBeenCalledTimes(1)
+    expect(sendEmail).toHaveBeenCalledTimes(1)
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'test@example.com' }))
+    expect(mockReportError).toHaveBeenCalledWith(
+      cacheFailure,
+      expect.objectContaining({ code: 'sales.quote_send_cache_invalidation_failed' }),
+    )
+  })
+
+  test('a reporter that throws on the failed invalidation still lets the quote go out', async () => {
+    const quote = {
+      id: '22222222-2222-4222-8222-222222222222',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber: 'SQ-CACHE-2',
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: { customer: { primaryEmail: 'test@example.com' } },
+      metadata: null,
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+
+    mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string } | undefined) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+
+    mockInvalidateCrudCache.mockRejectedValueOnce(new Error('deleteByTags rejected: cache backend unavailable'))
+    mockReportError.mockImplementationOnce(() => {
+      throw new Error('telemetry sink unavailable')
+    })
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    ;(sendEmail as jest.Mock).mockResolvedValue(undefined)
+
+    const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+
+    expect(res.status).toBe(200)
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'test@example.com' }))
+  })
+
+  function draftQuoteFixture(quoteNumber: string) {
+    return {
+      id: '22222222-2222-4222-8222-222222222222',
+      tenantId: '00000000-0000-4000-8000-000000000000',
+      organizationId: '11111111-1111-4111-8111-111111111111',
+      quoteNumber,
+      currencyCode: 'USD',
+      grandTotalGrossAmount: '10',
+      status: 'draft',
+      statusEntryId: null,
+      customerSnapshot: { customer: { primaryEmail: 'test@example.com' } },
+      metadata: null,
+      updatedAt: new Date(),
+      validUntil: null,
+      sentAt: null,
+      acceptanceToken: null,
+    }
+  }
+
+  function serveQuote(quote: { id: string }) {
+    mockEm.findOne.mockImplementation(async (cls: unknown, where: { id?: string } | undefined) => {
+      if (cls === SalesQuote) return where?.id === quote.id ? quote : null
+      if (cls === Dictionary) return { id: 'dict-1' }
+      if (cls === DictionaryEntry) return { id: 'entry-sent' }
+      return null
+    })
+  }
+
+  test('mails the quote while the cache invalidation is still pending', async () => {
+    const quote = draftQuoteFixture('SQ-CACHE-3')
+    serveQuote(quote)
+
+    let settleInvalidation: () => void = () => undefined
+    mockInvalidateCrudCache.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        settleInvalidation = resolve
+      }),
+    )
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    let invalidationSettledBeforeDelivery: boolean | null = null
+    let invalidationSettled = false
+    ;(sendEmail as jest.Mock).mockImplementation(async () => {
+      invalidationSettledBeforeDelivery = invalidationSettled
+    })
+
+    const pendingResponse = sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+    while ((sendEmail as jest.Mock).mock.calls.length === 0) {
+      await new Promise((resolve) => setImmediate(resolve))
+    }
+    invalidationSettled = true
+    settleInvalidation()
+    const res = await pendingResponse
+
+    expect(res.status).toBe(200)
+    expect(invalidationSettledBeforeDelivery).toBe(false)
+    expect(sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: 'test@example.com' }))
+    expect(mockReportError).not.toHaveBeenCalled()
+  })
+
+  test('a cache invalidation that never settles is abandoned after the deadline and reported', async () => {
+    const quote = draftQuoteFixture('SQ-CACHE-4')
+    serveQuote(quote)
+
+    mockInvalidateCrudCache.mockReturnValueOnce(new Promise<void>(() => undefined))
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    ;(sendEmail as jest.Mock).mockResolvedValue(undefined)
+
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+    try {
+      const pendingResponse = sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+      while ((sendEmail as jest.Mock).mock.calls.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      await jest.advanceTimersByTimeAsync(2000)
+      const res = await pendingResponse
+
+      expect(res.status).toBe(200)
+      expect(quote.status).toBe('sent')
+      expect(sendEmail).toHaveBeenCalledTimes(1)
+      expect(mockReportError).toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({ code: 'sales.quote_send_cache_invalidation_timed_out' }),
+      )
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('a failed delivery still flushes the quotes list cache', async () => {
+    const quote = draftQuoteFixture('SQ-CACHE-5')
+    serveQuote(quote)
+
+    mockInvalidateCrudCache.mockResolvedValueOnce(undefined)
+    const { sendEmail } = await import('@open-mercato/shared/lib/email/send')
+    ;(sendEmail as jest.Mock).mockRejectedValue(new Error('email down'))
+
+    const res = await sendQuote(makeRequest({ quoteId: quote.id, validForDays: 14 }))
+
+    expect(res.status).toBe(400)
+    expect(quote.status).toBe('sent')
+    expect(mockInvalidateCrudCache).toHaveBeenCalledTimes(1)
   })
 })
 

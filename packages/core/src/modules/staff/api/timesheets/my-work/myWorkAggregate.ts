@@ -17,6 +17,7 @@
  */
 
 import { countWorkingDays, type TimesheetDateRange } from '../../../lib/time-tracking-ui/timesheetPeriod'
+import type { ResolvedCapacity } from '../../../lib/time-tracking/capacity'
 
 export type MyWorkTotals = {
   todayMinutes: number
@@ -35,20 +36,50 @@ export type MyWorkKpis = MyWorkTotals & {
   nonBillableSharePercent: number | null
 }
 
+/**
+ * Targets a contributed EP-40 capacity provider answered for the caller. The
+ * built-in answer is ignored on purpose: the flat `dailyHours` arithmetic below
+ * is what the built-in means, edge cases included.
+ */
+export type MyWorkCapacity = {
+  today: string
+  week: ResolvedCapacity | null
+  month: ResolvedCapacity | null
+}
+
+function contributedTotal(capacity: ResolvedCapacity | null | undefined): number | null | undefined {
+  if (!capacity || capacity.isBuiltIn) return undefined
+  return capacity.totalTargetMinutes === null ? null : Math.round(capacity.totalTargetMinutes)
+}
+
+function contributedDay(capacity: MyWorkCapacity | null | undefined): number | null | undefined {
+  const week = capacity?.week
+  if (!capacity || !week || week.isBuiltIn) return undefined
+  const target = week.targetMinutesByDate[capacity.today]
+  return typeof target === 'number' && target > 0 ? Math.round(target) : null
+}
+
+function preferContributed(contributed: number | null | undefined, flat: number | null): number | null {
+  return contributed === undefined ? flat : contributed
+}
+
 export function buildMyWorkKpis(
   totals: MyWorkTotals,
   ranges: { week: TimesheetDateRange; month: TimesheetDateRange },
   dailyHours: number | null,
+  capacity?: MyWorkCapacity | null,
 ): MyWorkKpis {
   const hasTarget = typeof dailyHours === 'number' && Number.isFinite(dailyHours) && dailyHours > 0
   const weekWorkingDays = countWorkingDays(ranges.week)
   const monthWorkingDays = countWorkingDays(ranges.month)
-  const dailyTargetMinutes = hasTarget ? Math.round(dailyHours * 60) : null
+  const flatDailyTargetMinutes = hasTarget ? Math.round(dailyHours * 60) : null
+  const flatTarget = (workingDays: number) =>
+    flatDailyTargetMinutes === null ? null : flatDailyTargetMinutes * workingDays
   return {
     ...totals,
-    dailyTargetMinutes,
-    weekTargetMinutes: dailyTargetMinutes === null ? null : dailyTargetMinutes * weekWorkingDays,
-    monthTargetMinutes: dailyTargetMinutes === null ? null : dailyTargetMinutes * monthWorkingDays,
+    dailyTargetMinutes: preferContributed(contributedDay(capacity), flatDailyTargetMinutes),
+    weekTargetMinutes: preferContributed(contributedTotal(capacity?.week), flatTarget(weekWorkingDays)),
+    monthTargetMinutes: preferContributed(contributedTotal(capacity?.month), flatTarget(monthWorkingDays)),
     weekWorkingDays,
     monthWorkingDays,
     nonBillableSharePercent:

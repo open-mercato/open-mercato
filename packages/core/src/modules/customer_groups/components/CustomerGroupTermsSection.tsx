@@ -18,6 +18,12 @@ import {
   tagLookupSource,
 } from '@open-mercato/core/modules/catalog/components/lookupSources'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  decimalToString,
+  isDecimalInput,
+  isNegativeDecimal,
+  resolveExactDecimal,
+} from '@open-mercato/shared/lib/decimal'
 import { CustomerGroupTermsPriceKindField } from './CustomerGroupTermsPriceKindField'
 import {
   buildAssortmentScopePayload,
@@ -36,9 +42,12 @@ export type CustomerGroupTermsDTO = {
   paymentTermsDays: number | null
   allowPurchaseOnAccount: boolean | null
   defaultCreditLimit: number | null
+  defaultCreditLimitExact?: string | null
   creditCurrencyCode: string | null
   approvalRequiredAbove: number | null
+  approvalRequiredAboveExact?: string | null
   minOrderValue: number | null
+  minOrderValueExact?: string | null
   assortmentScope?: GroupAssortmentScope | null
   metadata: Record<string, unknown> | null
   createdAt: string
@@ -71,10 +80,22 @@ type CustomerGroupTermsFormValues = AssortmentScopeFormValues & {
   priceKindId: string
   paymentTermsDays?: number
   allowPurchaseOnAccount: PurchaseOnAccountValue
-  defaultCreditLimit?: number
+  defaultCreditLimit?: string
   creditCurrencyCode: string
-  approvalRequiredAbove?: number
-  minOrderValue?: number
+  approvalRequiredAbove?: string
+  minOrderValue?: string
+}
+
+function exactAmountOrUndefined(exact: string | null | undefined, legacy: number | null | undefined): string | undefined {
+  return resolveExactDecimal(exact, legacy) ?? undefined
+}
+
+function amountOrNull(value: unknown): string | null {
+  return isDecimalInput(value) ? decimalToString(value) : null
+}
+
+function isEmptyAmount(value: unknown): boolean {
+  return value === undefined || value === null || value === ''
 }
 
 function mapTermsToFormValues(terms: CustomerGroupTermsDTO | null): CustomerGroupTermsFormValues {
@@ -82,10 +103,10 @@ function mapTermsToFormValues(terms: CustomerGroupTermsDTO | null): CustomerGrou
     priceKindId: terms?.priceKindId ?? '',
     paymentTermsDays: terms?.paymentTermsDays ?? undefined,
     allowPurchaseOnAccount: toPurchaseOnAccountValue(terms?.allowPurchaseOnAccount),
-    defaultCreditLimit: terms?.defaultCreditLimit ?? undefined,
+    defaultCreditLimit: exactAmountOrUndefined(terms?.defaultCreditLimitExact, terms?.defaultCreditLimit),
     creditCurrencyCode: terms?.creditCurrencyCode ?? '',
-    approvalRequiredAbove: terms?.approvalRequiredAbove ?? undefined,
-    minOrderValue: terms?.minOrderValue ?? undefined,
+    approvalRequiredAbove: exactAmountOrUndefined(terms?.approvalRequiredAboveExact, terms?.approvalRequiredAbove),
+    minOrderValue: exactAmountOrUndefined(terms?.minOrderValueExact, terms?.minOrderValue),
     ...mapAssortmentScopeToFormValues(terms?.assortmentScope),
   }
 }
@@ -159,27 +180,33 @@ export function CustomerGroupTermsSection({
 
   const negativeMessage = t('customer_groups.groups.form.terms.errors.negative', 'Must be zero or greater.')
 
-  const schema = React.useMemo(
-    () =>
-      z.object({
+  const schema = React.useMemo(() => {
+    const amountSchema = z
+      .union([z.string(), z.number()])
+      .optional()
+      .refine(
+        (value) => isEmptyAmount(value) || (isDecimalInput(value) && !isNegativeDecimal(value)),
+        negativeMessage,
+      )
+      .transform((value) => (isEmptyAmount(value) ? undefined : amountOrNull(value) ?? undefined))
+    return z.object({
         priceKindId: z.string().trim(),
         paymentTermsDays: z.coerce.number().int().min(0, negativeMessage).optional(),
         allowPurchaseOnAccount: z.enum(PURCHASE_ON_ACCOUNT_VALUES),
-        defaultCreditLimit: z.coerce.number().min(0, negativeMessage).optional(),
+        defaultCreditLimit: amountSchema,
         creditCurrencyCode: z
           .string()
           .trim()
           .max(4, t('customer_groups.groups.form.terms.errors.currencyLength', 'Use up to 4 characters.')),
-        approvalRequiredAbove: z.coerce.number().min(0, negativeMessage).optional(),
-        minOrderValue: z.coerce.number().min(0, negativeMessage).optional(),
+        approvalRequiredAbove: amountSchema,
+        minOrderValue: amountSchema,
         categoryIds: z.array(z.string()).default([]),
         tagIds: z.array(z.string()).default([]),
         excludeProductIds: z.array(z.string()).default([]),
         excludeCategoryIds: z.array(z.string()).default([]),
         excludeTagIds: z.array(z.string()).default([]),
-      }),
-    [negativeMessage, t],
-  )
+      })
+  }, [negativeMessage, t])
 
   const fields = React.useMemo<CrudField[]>(
     () => [
@@ -225,7 +252,7 @@ export function CustomerGroupTermsSection({
       {
         id: 'defaultCreditLimit',
         label: t('customer_groups.groups.form.terms.field.defaultCreditLimit', 'Default credit limit'),
-        type: 'number',
+        type: 'decimal',
         layout: 'half',
       },
       {
@@ -239,13 +266,13 @@ export function CustomerGroupTermsSection({
       {
         id: 'approvalRequiredAbove',
         label: t('customer_groups.groups.form.terms.field.approvalRequiredAbove', 'Approval required above'),
-        type: 'number',
+        type: 'decimal',
         layout: 'half',
       },
       {
         id: 'minOrderValue',
         label: t('customer_groups.groups.form.terms.field.minOrderValue', 'Minimum order value'),
-        type: 'number',
+        type: 'decimal',
         layout: 'half',
       },
       scopePickerField(
@@ -320,14 +347,13 @@ export function CustomerGroupTermsSection({
         priceKindId: values.priceKindId && values.priceKindId.trim().length ? values.priceKindId : null,
         paymentTermsDays: typeof values.paymentTermsDays === 'number' ? values.paymentTermsDays : null,
         allowPurchaseOnAccount: fromPurchaseOnAccountValue(values.allowPurchaseOnAccount),
-        defaultCreditLimit: typeof values.defaultCreditLimit === 'number' ? values.defaultCreditLimit : null,
+        defaultCreditLimit: amountOrNull(values.defaultCreditLimit),
         creditCurrencyCode:
           values.creditCurrencyCode && values.creditCurrencyCode.trim().length
             ? values.creditCurrencyCode.trim().toUpperCase()
             : null,
-        approvalRequiredAbove:
-          typeof values.approvalRequiredAbove === 'number' ? values.approvalRequiredAbove : null,
-        minOrderValue: typeof values.minOrderValue === 'number' ? values.minOrderValue : null,
+        approvalRequiredAbove: amountOrNull(values.approvalRequiredAbove),
+        minOrderValue: amountOrNull(values.minOrderValue),
         assortmentScope: buildAssortmentScopePayload(values),
       }
       // `updateCrud` PUTs to `/api/customer_groups/customer-groups/{groupId}/terms`, matching the

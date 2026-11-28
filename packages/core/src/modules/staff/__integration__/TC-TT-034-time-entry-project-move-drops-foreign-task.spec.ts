@@ -175,6 +175,39 @@ test.describe('TC-TT-034: moving a time entry to another project drops the old p
     }
   })
 
+  test('clearing the project also clears its task', async ({ request }) => {
+    const world = emptyWorld(await getAuthToken(request, 'admin'))
+    try {
+      const { entryId } = await setUpEntryOnProjectA(request, world, randomUUID().slice(0, 8))
+      const response = await apiRequest(request, 'PUT', ENTRIES_PATH, {
+        token: world.token,
+        data: { id: entryId, timeProjectId: null },
+      })
+      expect(response.ok(), `Clearing the project should succeed: ${response.status()}`).toBeTruthy()
+      expect(await readEntry(request, world.token, entryId)).toEqual({ taskId: null, timeProjectId: null })
+    } finally {
+      await cleanUp(request, world)
+    }
+  })
+
+  test('an explicit task with a cleared project is rejected without changing the entry', async ({ request }) => {
+    const world = emptyWorld(await getAuthToken(request, 'admin'))
+    try {
+      const { projectA, taskOnA, entryId } = await setUpEntryOnProjectA(request, world, randomUUID().slice(0, 8))
+      const response = await apiRequest(request, 'PUT', ENTRIES_PATH, {
+        token: world.token,
+        data: { id: entryId, timeProjectId: null, taskId: taskOnA },
+      })
+      expect(response.status()).toBe(422)
+      const body = await readJsonSafe<{ fieldErrors?: { taskId?: string } }>(response)
+      expect(body?.fieldErrors?.taskId).toEqual(expect.any(String))
+      expect(body?.fieldErrors?.taskId).not.toBe('')
+      expect(await readEntry(request, world.token, entryId)).toEqual({ taskId: taskOnA, timeProjectId: projectA })
+    } finally {
+      await cleanUp(request, world)
+    }
+  })
+
   test('undo of the project move restores both the project and the task', async ({ request }) => {
     skipIfUndoTestsDisabled()
     const world = emptyWorld(await getAuthToken(request, 'admin'))

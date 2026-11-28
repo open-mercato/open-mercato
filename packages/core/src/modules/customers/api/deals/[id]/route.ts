@@ -844,11 +844,13 @@ export async function GET(request: Request, context: { params?: Record<string, u
         id: stage.id,
         label: stage.label,
         order: stage.order,
+        defaultProbability: stage.defaultProbability ?? null,
         color: appearance?.color ?? null,
         icon: appearance?.icon ?? null,
       }
     }),
     pipelineName: pipeline?.name ?? null,
+    pipelineStageProbabilitiesEnabled: pipeline?.stageProbabilitiesEnabled === true,
     stageTransitions: stageTransitionPayload,
     owner: ownerPayload,
   }
@@ -883,6 +885,7 @@ const pipelineStageInfoSchema = z.object({
   id: z.string().uuid(),
   label: z.string(),
   order: z.number().int(),
+  defaultProbability: z.number().int().nullable().optional(),
   color: z.string().nullable(),
   icon: z.string().nullable(),
 })
@@ -941,6 +944,7 @@ const dealDetailResponseSchema = z.object({
     email: z.string().nullable(),
   }),
   pipelineStages: z.array(pipelineStageInfoSchema),
+  pipelineStageProbabilitiesEnabled: z.boolean(),
   stageTransitions: z.array(stageTransitionInfoSchema),
   owner: z.object({
     id: z.string().uuid(),

@@ -4,7 +4,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   lockAuthorizationState,
 } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
-import { computeEmailHash } from './emailHash'
+import { computeEmailHash, emailHashLookupValues } from './emailHash'
 import { Role, RoleAcl, User, UserRole, type UserKind } from '../data/entities'
 
 /**
@@ -133,18 +133,17 @@ export async function provisionExecutionPrincipal(
       await trx.flush()
     }
 
-    const emailHash = computeEmailHash(principalEmail)
     let user = await findOneWithDecryption(
       trx,
       User,
-      { emailHash, tenantId, deletedAt: null },
+      { emailHash: { $in: emailHashLookupValues(principalEmail) }, tenantId, deletedAt: null },
       {},
       { tenantId, organizationId },
     )
     if (!user) {
       user = trx.create(User, {
         email: principalEmail,
-        emailHash,
+        emailHash: computeEmailHash(principalEmail),
         passwordHash: null,
         isConfirmed: false,
         kind,
@@ -231,11 +230,11 @@ export async function resolveExecutionPrincipalUserId(
 ): Promise<string | null> {
   const { tenantId, organizationId } = scope
   if (!principalKey || !tenantId || !organizationId) return null
-  const emailHash = computeEmailHash(executionPrincipalEmail(principalKey, organizationId, namePrefix))
+  const email = executionPrincipalEmail(principalKey, organizationId, namePrefix)
   const user = await findOneWithDecryption(
     em,
     User,
-    { emailHash, tenantId, deletedAt: null },
+    { emailHash: { $in: emailHashLookupValues(email) }, tenantId, deletedAt: null },
     {},
     { tenantId, organizationId },
   )

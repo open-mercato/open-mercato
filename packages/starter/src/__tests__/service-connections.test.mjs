@@ -40,7 +40,8 @@ function redacted(error) {
 test('verifies PostgreSQL query, every configured Redis consumer and a protected Meilisearch API', async () => {
   const mock = clients()
   let responseClosed = false
-  const result = await verifyServiceConnections(options(mock, { fetchImpl: async (url, request) => {
+  const messages = []
+  const result = await verifyServiceConnections(options(mock, { log: (message) => messages.push(message), fetchImpl: async (url, request) => {
     assert.equal(url.pathname, '/indexes')
     assert.equal(request.headers.Authorization, 'Bearer meili-secret')
     assert.ok(request.signal)
@@ -51,6 +52,12 @@ test('verifies PostgreSQL query, every configured Redis consumer and a protected
   assert.deepEqual(mock.calls.filter(([kind]) => kind === 'ping').map(([, url]) => url), [env.REDIS_URL, env.QUEUE_REDIS_URL])
   assert.equal(mock.closed.length, 3)
   assert.equal(responseClosed, true)
+  assert.deepEqual(messages, [
+    '🔌 PostgreSQL connection verified at postgres://127.0.0.1:5432/fixture.',
+    '🔌 Redis connection verified for REDIS_URL at redis://127.0.0.1:6379.',
+    '🔌 Redis connection verified for QUEUE_REDIS_URL at redis://127.0.0.1:6380.',
+    '🔌 Meilisearch authenticated API connection verified at http://127.0.0.1:7700.',
+  ])
 })
 
 test('the documents collaboration Redis is only verified when collaboration is enabled', async () => {

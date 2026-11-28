@@ -25,6 +25,7 @@ import {
   buildDistinctCurrencyQuery,
   buildGroupSourceRowsQuery,
   resolveGroupExpression,
+  resolveWidgetGroupLimit,
 } from '../lib/aggregations'
 import {
   type ExactDecimal,
@@ -34,6 +35,12 @@ import {
   exactDecimalToNumber,
   parseExactDecimal,
 } from '../lib/exactDecimal'
+import {
+  assertSafeIdentifier,
+  hasOwnProperty,
+  isSafeIdentifier,
+  readOwnProperty,
+} from '../lib/identifiers'
 import type { AnalyticsRegistry } from './analyticsRegistry'
 import type { BaseCurrencyResolver } from '../lib/optionalBaseCurrency'
 
@@ -49,8 +56,6 @@ const WIDGET_DATA_SEGMENT_KEY = 'widget-data:__segment__'
  * instead of charting a silently truncated result (#4622).
  */
 const ENCRYPTED_GROUP_SCAN_LIMIT = 20_000
-
-const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 
 export class WidgetDataValidationError extends Error {
   constructor(message: string) {
@@ -85,12 +90,6 @@ type EncryptedGroupSource = {
   jsonPath: string | null
 }
 
-function assertSafeIdentifier(value: string, name: string): void {
-  if (!SAFE_IDENTIFIER_PATTERN.test(value)) {
-    throw new Error(`Invalid ${name}: ${value}`)
-  }
-}
-
 /**
  * Encryption maps may register a field in either casing (`findKey` in the encryption service
  * accepts both), so match the analytics column tolerantly rather than by exact snake_case.
@@ -104,6 +103,7 @@ function readJsonPath(value: unknown, path: string): unknown {
   let current = value
   for (const part of path.split('.')) {
     if (current === null || typeof current !== 'object') return null
+    if (!hasOwnProperty(current, part)) return null
     current = (current as Record<string, unknown>)[part]
   }
   return current
@@ -205,6 +205,8 @@ export type WidgetDataItem = {
   value: number | null
 }
 
+type WidgetQueryResult = { value: number | null; data: WidgetDataItem[]; truncated?: boolean }
+
 export type WidgetDataResponse = {
   value: number | null
   data: WidgetDataItem[]
@@ -216,6 +218,7 @@ export type WidgetDataResponse = {
   metadata: {
     fetchedAt: string
     recordCount: number
+    truncated?: boolean
     currency?: string | null
   }
 }
@@ -252,7 +255,7 @@ export class WidgetDataService {
   private buildCacheKey(request: WidgetDataRequest): string {
     const hash = createHash('sha256')
     hash.update(JSON.stringify({ request, scope: this.scope }))
-    return `widget-data:${hash.digest('hex').slice(0, 16)}`
+    return `widget-data:v3:${hash.digest('hex').slice(0, 16)}`
   }
 
   private getCacheTags(entityType: string): string[] {
@@ -293,7 +296,7 @@ export class WidgetDataService {
       this.executeQuery(request, dateRangeResolved),
       shouldFetchComparison && comparisonRange
         ? this.executeQuery(request, comparisonRange)
-        : Promise.resolve<{ value: number | null; data: WidgetDataItem[] } | undefined>(undefined),
+        : Promise.resolve(undefined),
       this.resolveCurrencyLabel(request, aggregatedRanges),
     ])
 
@@ -303,6 +306,7 @@ export class WidgetDataService {
       metadata: {
         fetchedAt: now.toISOString(),
         recordCount: mainResult.data.length || (mainResult.value !== null ? 1 : 0),
+        ...(mainResult.truncated ? { truncated: true } : {}),
         currency,
       },
     }
@@ -430,6 +434,22 @@ export class WidgetDataService {
       throw new WidgetDataValidationError(`Invalid entity type: ${request.entityType}`)
     }
 
+    const entityConfig = this.registry.getEntityTypeConfig(request.entityType)
+    if (entityConfig) {
+      assertSafeIdentifier(readOwnProperty(entityConfig, 'tableName'), 'table name')
+      const schema = readOwnProperty(entityConfig, 'schema')
+      if (schema !== undefined) {
+        assertSafeIdentifier(schema, 'schema name')
+      }
+      const currencyField = readOwnProperty(entityConfig, 'currencyField')
+      if (typeof currencyField === 'string' && currencyField.length > 0) {
+        const currencyMapping = this.registry.getFieldMapping(request.entityType, currencyField)
+        if (currencyMapping) {
+          assertSafeIdentifier(readOwnProperty(currencyMapping, 'dbColumn'), 'currency column')
+        }
+      }
+    }
+
     if (!request.metric?.field || !request.metric?.aggregate) {
       throw new WidgetDataValidationError('Metric field and aggregate are required')
     }
@@ -440,23 +460,56 @@ export class WidgetDataService {
         `Invalid metric field: ${request.metric.field} for entity type: ${request.entityType}`
       )
     }
+    assertSafeIdentifier(readOwnProperty(metricMapping, 'dbColumn'), 'column name')
 
     const validAggregates: AggregateFunction[] = ['count', 'sum', 'avg', 'min', 'max']
     if (!validAggregates.includes(request.metric.aggregate)) {
       throw new WidgetDataValidationError(`Invalid aggregate function: ${request.metric.aggregate}`)
     }
 
-    if (request.dateRange && !isValidDateRangePreset(request.dateRange.preset)) {
-      throw new WidgetDataValidationError(`Invalid date range preset: ${request.dateRange.preset}`)
+    if (request.dateRange) {
+      if (!isValidDateRangePreset(request.dateRange.preset)) {
+        throw new WidgetDataValidationError(`Invalid date range preset: ${request.dateRange.preset}`)
+      }
+      const dateMapping = this.registry.getFieldMapping(request.entityType, request.dateRange.field)
+      if (dateMapping) {
+        assertSafeIdentifier(readOwnProperty(dateMapping, 'dbColumn'), 'column name')
+      }
+    }
+
+    if (request.filters) {
+      for (const filter of request.filters) {
+        const filterMapping = this.registry.getFieldMapping(request.entityType, filter.field)
+        if (filterMapping) {
+          assertSafeIdentifier(readOwnProperty(filterMapping, 'dbColumn'), 'column name')
+        }
+      }
     }
 
     if (request.groupBy) {
       const groupMapping = this.registry.getFieldMapping(request.entityType, request.groupBy.field)
       if (!groupMapping) {
-        const [baseField] = request.groupBy.field.split('.')
+        const [baseField, ...pathParts] = request.groupBy.field.split('.')
         const baseMapping = this.registry.getFieldMapping(request.entityType, baseField)
-        if (!baseMapping || baseMapping.type !== 'jsonb') {
+        if (
+          !baseMapping
+          || readOwnProperty(baseMapping, 'type') !== 'jsonb'
+          || pathParts.length === 0
+          || !pathParts.every((part) => isSafeIdentifier(part))
+        ) {
           throw new WidgetDataValidationError(`Invalid groupBy field: ${request.groupBy.field}`)
+        }
+        assertSafeIdentifier(readOwnProperty(baseMapping, 'dbColumn'), 'column name')
+      } else {
+        assertSafeIdentifier(readOwnProperty(groupMapping, 'dbColumn'), 'column name')
+      }
+
+      if (request.groupBy.resolveLabels) {
+        const labelConfig = this.registry.getLabelResolverConfig(request.entityType, request.groupBy.field)
+        if (labelConfig) {
+          assertSafeIdentifier(readOwnProperty(labelConfig, 'table'), 'table name')
+          assertSafeIdentifier(readOwnProperty(labelConfig, 'idColumn'), 'id column')
+          assertSafeIdentifier(readOwnProperty(labelConfig, 'labelColumn'), 'label column')
         }
       }
     }
@@ -465,11 +518,11 @@ export class WidgetDataService {
   private async executeQuery(
     request: WidgetDataRequest,
     dateRange?: { start: Date; end: Date },
-  ): Promise<{ value: number | null; data: WidgetDataItem[] }> {
+  ): Promise<WidgetQueryResult> {
     if (request.groupBy) {
       const encryptedSource = await this.resolveEncryptedGroupSource(request.entityType, request.groupBy)
       if (encryptedSource) {
-        return this.executeEncryptedGroupQuery(request, encryptedSource, dateRange)
+        return this.executeEncryptedGroupQuery(request, request.groupBy, encryptedSource, dateRange)
       }
     }
 
@@ -491,17 +544,12 @@ export class WidgetDataService {
     const results = Array.isArray(rows) ? rows : []
 
     if (request.groupBy) {
-      let data: WidgetDataItem[] = results.map((row: Record<string, unknown>) => ({
+      const data: WidgetDataItem[] = results.map((row: Record<string, unknown>) => ({
         groupKey: row.group_key,
         value: row.value !== null ? Number(row.value) : null,
       }))
 
-      if (request.groupBy.resolveLabels) {
-        data = await this.resolveGroupLabels(data, request.entityType, request.groupBy.field)
-      }
-
-      const totalValue = data.reduce((sum: number, item: WidgetDataItem) => sum + (item.value ?? 0), 0)
-      return { value: totalValue, data }
+      return this.finishGroupedQuery(request, request.groupBy, data, dateRange)
     }
 
     const singleValue = results[0]?.value !== undefined ? Number(results[0].value) : null
@@ -524,8 +572,8 @@ export class WidgetDataService {
     const resolved = resolveGroupExpression(this.registry, entityType, groupBy)
     if (!resolved) return null
 
-    const tableName = this.registry.getEntityTypeConfig(entityType)?.tableName
-    if (!tableName) return null
+    const tableName = readOwnProperty(this.registry.getEntityTypeConfig(entityType), 'tableName')
+    if (typeof tableName !== 'string' || !tableName) return null
 
     // Without an encryption entity id the table is outside the encryption map entirely, which is
     // the same state the encrypting subscriber sees when it skips the row.
@@ -575,9 +623,10 @@ export class WidgetDataService {
    */
   private async executeEncryptedGroupQuery(
     request: WidgetDataRequest,
+    groupBy: NonNullable<WidgetDataRequest['groupBy']>,
     source: EncryptedGroupSource,
     dateRange?: { start: Date; end: Date },
-  ): Promise<{ value: number | null; data: WidgetDataItem[] }> {
+  ): Promise<WidgetQueryResult> {
     const query = buildGroupSourceRowsQuery({
       entityType: request.entityType,
       metric: request.metric,
@@ -649,20 +698,30 @@ export class WidgetDataService {
       })
     }
 
-    let data: WidgetDataItem[] = Array.from(buckets.entries())
+    const data: WidgetDataItem[] = Array.from(buckets.entries())
       .map(([groupKey, bucket]) => ({ groupKey, value: aggregateBucket(request.metric.aggregate, bucket) }))
       .sort(compareWidgetDataItemsByValueDesc)
 
-    if (request.groupBy?.limit && request.groupBy.limit > 0) {
-      data = data.slice(0, Math.min(request.groupBy.limit, 100))
-    }
+    return this.finishGroupedQuery(request, groupBy, data, dateRange)
+  }
 
-    if (request.groupBy?.resolveLabels) {
-      data = await this.resolveGroupLabels(data, request.entityType, request.groupBy.field)
-    }
-
-    const totalValue = data.reduce((sum: number, item: WidgetDataItem) => sum + (item.value ?? 0), 0)
-    return { value: totalValue, data }
+  private async finishGroupedQuery(
+    request: WidgetDataRequest,
+    groupBy: NonNullable<WidgetDataRequest['groupBy']>,
+    buckets: WidgetDataItem[],
+    dateRange?: { start: Date; end: Date },
+  ): Promise<WidgetQueryResult> {
+    const calendarRange = Boolean(groupBy.granularity && dateRange && request.dateRange?.field === groupBy.field)
+    const limit = resolveWidgetGroupLimit(groupBy.limit, calendarRange)
+    const truncated = groupBy.limit === undefined && buckets.length > limit
+    const visible = buckets.slice(0, limit)
+    const data = groupBy.resolveLabels
+      ? await this.resolveGroupLabels(visible, request.entityType, groupBy.field)
+      : visible
+    const value = truncated
+      ? (await this.executeQuery({ ...request, groupBy: undefined }, dateRange)).value
+      : visible.reduce((sum, item) => sum + (item.value ?? 0), 0)
+    return { value, data, ...(truncated ? { truncated } : {}) }
   }
 
   /**
@@ -725,13 +784,13 @@ export class WidgetDataService {
 
     const uniqueIds = [...new Set(ids)]
 
-    assertSafeIdentifier(config.table, 'table name')
-    assertSafeIdentifier(config.idColumn, 'id column')
-    assertSafeIdentifier(config.labelColumn, 'label column')
+    const table = assertSafeIdentifier(readOwnProperty(config, 'table'), 'table name')
+    const idColumn = assertSafeIdentifier(readOwnProperty(config, 'idColumn'), 'id column')
+    const labelColumn = assertSafeIdentifier(readOwnProperty(config, 'labelColumn'), 'label column')
 
-    const meta = this.resolveEntityMetadata(config.table)
-    const idProp = meta ? this.resolveEntityPropertyName(meta, config.idColumn) : null
-    const labelProp = meta ? this.resolveEntityPropertyName(meta, config.labelColumn) : null
+    const meta = this.resolveEntityMetadata(table)
+    const idProp = meta ? this.resolveEntityPropertyName(meta, idColumn) : null
+    const labelProp = meta ? this.resolveEntityPropertyName(meta, labelColumn) : null
     const tenantProp = meta
       ? (this.resolveEntityPropertyName(meta, 'tenant_id') ?? this.resolveEntityPropertyName(meta, 'tenantId'))
       : null
@@ -798,7 +857,7 @@ export class WidgetDataService {
       }
     }
 
-    const clauses = [`"${config.idColumn}" = ANY(?::uuid[])`, 'tenant_id = ?']
+    const clauses = [`"${idColumn}" = ANY(?::uuid[])`, 'tenant_id = ?']
     const params: unknown[] = [`{${uniqueIds.join(',')}}`, this.scope.tenantId]
 
     if (this.scope.organizationIds && this.scope.organizationIds.length > 0) {
@@ -806,7 +865,7 @@ export class WidgetDataService {
       params.push(`{${this.scope.organizationIds.join(',')}}`)
     }
 
-    const sql = `SELECT "${config.idColumn}" as id, "${config.labelColumn}" as label, tenant_id, organization_id FROM "${config.table}" WHERE ${clauses.join(
+    const sql = `SELECT "${idColumn}" as id, "${labelColumn}" as label, tenant_id, organization_id FROM "${table}" WHERE ${clauses.join(
       ' AND ',
     )}`
 
@@ -824,11 +883,11 @@ export class WidgetDataService {
           const rowOrgId = row.organization_id ?? organizationId ?? null
           const decrypted = await encryptionService.decryptEntityPayload(
             entityId,
-            { [config.labelColumn]: labelValue },
+            { [labelColumn]: labelValue },
             this.scope.tenantId,
             rowOrgId,
           )
-          const resolved = decrypted[config.labelColumn]
+          const resolved = decrypted[labelColumn]
           if (typeof resolved === 'string' || typeof resolved === 'number') {
             labelValue = String(resolved)
           }

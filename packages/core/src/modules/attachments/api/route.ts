@@ -1,3 +1,4 @@
+import { attachmentPartitionVisibility, canUseAttachmentPartition, resolveAttachmentPartition } from '../lib/partitionScope'
 import { attachmentErrorSchema } from './openapi'
 import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { assertAttachmentStoragePartitionExists, getAttachmentStoragePolicy } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
@@ -24,6 +25,7 @@ import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
 import { lockAttachmentStorageReferences, resolveAttachmentStorageRelease } from '../lib/storageReferences'
+import { enqueuePurgedSectionSearchDelete, purgeDocumentStructure } from '../lib/documentStructure/purge'
 import { assertAttachmentScopeInvariant } from '../lib/access'
 import { resolveAttachmentRequestScope } from '../lib/requestScope'
 import {
@@ -232,9 +234,9 @@ async function listRecordAttachments(req: Request) {
   const currentPage = usePaging ? Math.max(1, page) : null
   const currentPageSize = usePaging ? pageSize : null
   const pageOffset = usePaging ? (currentPage! - 1) * currentPageSize! : undefined
-  const partitions = await em.find(AttachmentPartition, {})
-  const protectedScan = requiresAttachmentAccessScan(partitions)
   const scope = { tenantId: auth.tenantId ?? null, organizationId: orgId ?? null }
+  const partitions = await em.find(AttachmentPartition, attachmentPartitionVisibility(scope, !orgId))
+  const protectedScan = requiresAttachmentAccessScan(partitions)
   let items: Attachment[]
   let total: number | null
   if (protectedScan) {
@@ -461,7 +463,7 @@ async function uploadAttachment(req: Request) {
   )
   let partition: AttachmentPartition | null = null
   for (const code of partitionCodeCandidates) {
-    const record = await em.findOne(AttachmentPartition, { code })
+    const record = await resolveAttachmentPartition(em, code, { tenantId, organizationId: orgId })
     assertAttachmentStoragePartitionExists(Boolean(record))
     if (record) {
       partition = record
@@ -469,9 +471,9 @@ async function uploadAttachment(req: Request) {
     }
   }
   if (!partition) {
-    partition = await em.findOne(AttachmentPartition, { code: defaultPartitionCode })
+    partition = await resolveAttachmentPartition(em, defaultPartitionCode, { tenantId, organizationId: orgId })
   }
-  if (!partition) {
+  if (!partition || !canUseAttachmentPartition(partition, { tenantId, organizationId: orgId })) {
     assertAttachmentStoragePartitionExists(false)
     return NextResponse.json({ error: 'Storage partition is not configured.' }, { status: 400 })
   }
@@ -653,8 +655,9 @@ async function uploadAttachment(req: Request) {
   }
 
   if (useLlmOcr) {
-    // Await so wait-queue overflow can finish the inline text fallback before
-    // the response returns (background LLM OCR still schedules via setImmediate).
+    // Await so the durable `attachments-ocr` job is enqueued (or, when the queue is
+    // unavailable, an in-process wait-queue overflow finishes its inline text
+    // fallback) before the response returns.
     try {
       await requestOcrProcessing(em, att, uploadDriver, storedPath)
     } catch (error) {
@@ -760,11 +763,16 @@ async function deleteAttachment(req: Request) {
     const driver = record.storagePath ? await storageDriverFactory.resolveForPartition(record.partitionCode, {
       tenantId: record.tenantId ?? auth.tenantId!, organizationId: record.organizationId ?? orgId ?? '',
     }) : null
+    const purgeScope = { tenantId: record.tenantId ?? null, organizationId: record.organizationId ?? null }
+    const purge = await purgeDocumentStructure(tx, { attachmentId: record.id, ...purgeScope }, { flush: false })
     tx.remove(record)
     await tx.flush()
-    return { record, driver, guard, releaseStorage: removal.releaseStorage }
+    return { record, driver, guard, releaseStorage: removal.releaseStorage, purgeScope, indexedSectionIds: purge.indexedSectionIds }
   })
   const { record } = outcome
+  if (outcome.indexedSectionIds.length > 0) {
+    await enqueuePurgedSectionSearchDelete(outcome.purgeScope, outcome.indexedSectionIds)
+  }
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
     logger.error('Failed to cleanup cached thumbnails', { err: error })
   })

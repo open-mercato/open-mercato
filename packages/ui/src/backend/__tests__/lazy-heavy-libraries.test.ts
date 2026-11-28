@@ -30,6 +30,13 @@ describe('heavy libraries are lazy-loaded', () => {
     expect(source).toMatch(/from\s+['"]\.\/inputs\/MarkdownField['"]/)
   })
 
+  it('AttachmentMetadataDialog lazy-loads DocumentStructurePanel and does not statically import it', () => {
+    const source = read('packages/ui/src/backend/detail/AttachmentMetadataDialog.tsx')
+    expect(source).not.toMatch(/^import\s+\{[^}]*\}\s+from\s+['"]\.\/DocumentStructurePanel['"]/m)
+    expect(source).toMatch(/import\(['"]\.\/DocumentStructurePanel['"]\)/)
+    expect(source).toMatch(/next\/dynamic/)
+  })
+
   it('MarkdownField lazy-loads MdxEditorImpl and does not statically import it', () => {
     const source = read('packages/ui/src/backend/inputs/MarkdownField.tsx')
     expect(source).not.toMatch(/^[^\n/]*import\s+[^'\n]+from\s+['"]\.\/MdxEditorImpl['"]/m)

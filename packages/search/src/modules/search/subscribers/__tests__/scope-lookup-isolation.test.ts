@@ -32,7 +32,7 @@ const metadata = [
 function buildContext() {
   const executeTakeFirst = jest.fn().mockResolvedValue({ organization_id: 'org-1', tenant_id: 'tenant-1' })
   const where = jest.fn(() => ({ executeTakeFirst }))
-  const select = jest.fn(() => ({ where }))
+  const select = jest.fn((_columns: unknown[]) => ({ where }))
   const selectFrom = jest.fn(() => ({ select }))
   const forkKysely = { selectFrom }
   const forkEm = {
@@ -78,7 +78,8 @@ describe('search subscriber scope lookup', () => {
     expect(requestEm.fork).toHaveBeenCalledTimes(1)
     expect(forkEm.getKysely).toHaveBeenCalled()
     expect(selectFrom).toHaveBeenCalledWith('customer_people')
-    expect(select).toHaveBeenCalledWith(['organization_id', 'tenant_id'])
+    expect(select.mock.calls[0][0].map((column: { toOperationNode: () => { alias: { name: string } } }) => column.toOperationNode().alias.name))
+      .toEqual(['organization_id', 'tenant_id'])
     expect(executeTakeFirst).toHaveBeenCalledTimes(1)
   })
 })

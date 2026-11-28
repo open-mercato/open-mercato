@@ -40,6 +40,7 @@ function strategy(id: string) {
     index: jest.fn().mockResolvedValue(undefined),
     bulkIndex: jest.fn().mockResolvedValue(undefined),
     delete: jest.fn().mockResolvedValue(undefined),
+    purge: jest.fn().mockResolvedValue(undefined),
     recreateIndex: jest.fn().mockResolvedValue(undefined),
   } satisfies SearchStrategy & { recreateIndex: () => Promise<void> }
 }
@@ -79,6 +80,7 @@ describe.each(excludedPolicies)('%s', (_name, moduleConfigs) => {
     expect(state.fulltextEnqueue).not.toHaveBeenCalled()
     expect(state.fulltext.bulkIndex).not.toHaveBeenCalled()
     expect(state.fulltext.recreateIndex).not.toHaveBeenCalled()
+    expect(state.fulltext.purge).not.toHaveBeenCalled()
     expect(state.vector.index).not.toHaveBeenCalled()
   })
 

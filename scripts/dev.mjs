@@ -971,7 +971,7 @@ function recordManagedRuntimeExit(exitCode, signal) {
 function ensureStandaloneEnvFile() {
   if (!fs.existsSync('.env') && fs.existsSync('.env.example')) {
     createEnvFileFromExample('.env.example', '.env')
-    const message = '[setup] Copied .env.example to .env'
+    const message = '📄 Copied .env.example to .env'
     console.log(message)
     updateSplashState({
       detail: 'Project files are ready',
@@ -981,7 +981,7 @@ function ensureStandaloneEnvFile() {
   }
 
   if (fs.existsSync('.env')) {
-    console.log('[setup] Keeping existing .env')
+    console.log('📄 Keeping existing .env')
     updateSplashState({
       detail: 'Project files are ready',
       activity: 'Project files are ready',
@@ -1008,7 +1008,7 @@ async function guardDatabaseMutation(commandArgs, env = {}) {
     projectDir: isMonorepo ? path.join(process.cwd(), 'apps', 'mercato') : process.cwd(),
     env: { ...process.env, ...env },
   })
-  console.log(`[setup] encryption preflight: ${compatibility.status}`)
+  console.log(`🔒 encryption preflight: ${compatibility.status}`)
   Object.assign(process.env, compatibility.settings)
   Object.assign(env, compatibility.settings)
 }
@@ -2393,7 +2393,10 @@ function spawnMcpCommand(subcommandArgs, label, onLine) {
   const invocation = resolveMercatoInvocation({ cwd: mcpCliCwd })
   return spawnCommand(invocation.command, [...invocation.args, ...buildMcpCliArgs(subcommandArgs)], {
     cwd: mcpCliCwd,
-    env: isMonorepo ? { PATH: buildWorkspaceBinPath() } : undefined,
+    env: {
+      ...(isMonorepo ? { PATH: buildWorkspaceBinPath() } : {}),
+      MCP_SERVER_API_KEY_FILE: mcpKeyFilePath,
+    },
     label,
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
@@ -2488,9 +2491,11 @@ async function waitForMcpHealthy(child, port, isListening) {
 }
 
 async function fetchOpencodeMcpStatus() {
-  const baseUrl = (process.env.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  const baseUrl = (process.env.OPENCODE_URL?.trim() || appDotEnv.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  const password = process.env.OPENCODE_PASSWORD || appDotEnv.OPENCODE_PASSWORD
+  const headers = password ? { Authorization: `Basic ${Buffer.from(`opencode:${password}`).toString('base64')}` } : undefined
   try {
-    const response = await fetch(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(3000) })
+    const response = await fetch(`${baseUrl}/mcp`, { headers, redirect: 'error', signal: AbortSignal.timeout(3000) })
     if (!response.ok) return null
     const body = await response.json().catch(() => null)
     const status = body?.['open-mercato']?.status

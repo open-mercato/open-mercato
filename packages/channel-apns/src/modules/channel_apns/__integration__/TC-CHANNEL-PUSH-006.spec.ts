@@ -60,7 +60,7 @@ test.describe('TC-CHANNEL-PUSH-006: real APNs adapter reaches sent with a correc
           type: 'admin.custom_message',
           title: 'Order shipped',
           body: 'Your order is on its way',
-          pushOptions: { badge: 5, sound: 'chime.caf' },
+          pushOptions: { badge: 5, sound: 'chime.caf', image: 'https://example.com/tc-channel-push-006.png' },
         })
 
       await drainIntegrationQueue('events')
@@ -80,6 +80,8 @@ test.describe('TC-CHANNEL-PUSH-006: real APNs adapter reaches sent with a correc
         sound: 'chime.caf',
       })
       expect(native.payload.aps['content-available']).toBeUndefined()
+      expect(native.payload.aps['mutable-content']).toBe(1)
+      expect(native.payload.imageUrl).toBe('https://example.com/tc-channel-push-006.png')
     } finally {
       await deleteDeliveriesForDevice(userDeviceId)
       await deleteFakePushDevice(request, adminToken, userDeviceId)

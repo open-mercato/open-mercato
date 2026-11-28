@@ -100,7 +100,7 @@ test.describe('TC-CGRP-027: membership lists are narrowed to the caller organiza
     const { tenantId } = getTokenContext(adminToken);
     const stamp = uniqueStamp();
     const email = `qa-cgrp-027-${stamp}@test.invalid`;
-    const password = 'Valid1!Pass';
+    const password = 'QaValid1!Pass';
 
     let orgAId: string | null = null;
     let orgBId: string | null = null;

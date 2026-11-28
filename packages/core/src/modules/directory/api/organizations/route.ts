@@ -208,6 +208,10 @@ export async function GET(req: Request) {
     }
   }
 
+  if (!isSuperAdmin && (!authTenantId || tenantId !== authTenantId)) {
+    return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
+  }
+
   if (!allowAllTenants && !tenantId) {
     const candidateOrgIds = new Set<string>()
     const cookieOrgId = getSelectedOrganizationFromRequest(req)
@@ -251,26 +255,46 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
   }
 
+  const scope = isSuperAdmin
+    ? null
+    : await resolveOrganizationScopeForRequest({ container, auth, request: req, tenantId })
+  const allowedIds = scope?.allowedIds ?? null
+  const scopedFilter: FilterQuery<Organization> = {
+    deletedAt: null,
+    ...(Array.isArray(allowedIds) ? { id: { $in: allowedIds } } : {}),
+  }
+
   if (query.view === 'options') {
     if (!tenantId) {
       return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
     }
-    const where: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
-    if (status === 'active') where.isActive = true
-    if (status === 'inactive') where.isActive = false
-    if (status === 'all' && !includeInactive) where.isActive = true
-    if (ids) where.id = { $in: ids }
+    let activeFilter: boolean | undefined
+    if (status === 'active' || (status === 'all' && !includeInactive)) activeFilter = true
+    if (status === 'inactive') activeFilter = false
+    const where: FilterQuery<Organization> = { tenant: tenantId, ...scopedFilter }
+    if (allowedIds === null) {
+      if (activeFilter !== undefined) where.isActive = activeFilter
+      if (ids) where.id = { $in: ids }
+    }
     const orgs = await em.find(Organization, where, { orderBy: { name: 'ASC' } })
-    const items = orgs.map((org) => ({
+    const hierarchy = allowedIds === null ? null : computeHierarchyForOrganizations(orgs, tenantId)
+    const requestedIds = ids ? new Set(ids.map((id) => id.toLowerCase())) : null
+    const matchingOrgs = hierarchy
+      ? orgs.filter((org) => (
+          (activeFilter === undefined || org.isActive === activeFilter) &&
+          (!requestedIds || requestedIds.has(stringId(org.id).toLowerCase()))
+        ))
+      : orgs
+    const items = matchingOrgs.map((org) => ({
       id: stringId(org.id),
       name: org.name,
       logoUrl: org.logoUrl ?? null,
       logoPreserveAspectRatio: !!org.logoPreserveAspectRatio,
-      parentId: org.parentId ?? null,
+      parentId: hierarchy ? hierarchy.map.get(stringId(org.id))?.parentId ?? null : org.parentId ?? null,
       tenantId: tenantId,
       isActive: !!org.isActive,
-      depth: org.depth ?? 0,
-      treePath: org.treePath ?? stringId(org.id),
+      depth: hierarchy?.map.get(stringId(org.id))?.depth ?? org.depth ?? 0,
+      treePath: hierarchy?.map.get(stringId(org.id))?.treePath ?? org.treePath ?? stringId(org.id),
     }))
     await logCrudAccess({
       container,
@@ -291,7 +315,7 @@ export async function GET(req: Request) {
     if (!tenantId) {
       return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
     }
-    const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
+    const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, ...scopedFilter }
     const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
     const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
     const nodeMap = new Map<string, { node: ComputedOrganizationNode; children: TreeNode[] }>()
@@ -488,7 +512,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ items: [], error: 'Tenant scope required' }, { status: 400 })
   }
 
-  const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, deletedAt: null }
+  const orgListFilter: FilterQuery<Organization> = { tenant: tenantId, ...scopedFilter }
   const orgs = await em.find(Organization, orgListFilter, { orderBy: { name: 'ASC' } })
   const hierarchy = computeHierarchyForOrganizations(orgs, tenantId)
   const slugByOrgId = new Map<string, string | null>()

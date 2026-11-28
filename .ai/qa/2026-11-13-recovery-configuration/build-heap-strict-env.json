@@ -1,0 +1,23 @@
+{
+  "node": "24.22.2",
+  "sourceCommit": "c095e9a19c",
+  "actualTurboStrictMode": true,
+  "noBuildOrDatabaseOperation": true,
+  "results": [
+    {
+      "heapMiB": 4096,
+      "sandboxTaskHash": "ef6eca3842450e98",
+      "actualAppTaskHash": "3ff9bafc33ff1099",
+      "actualAppInputsSha256": "3bcc3c99d74c7a6429234064c73844cbf7b43f377fbc6804e3137bfe89c94fdf",
+      "strictChildValueConfirmed": true
+    },
+    {
+      "heapMiB": 8192,
+      "sandboxTaskHash": "f58c6129d209f8f5",
+      "actualAppTaskHash": "15a64ba0e6f79cab",
+      "actualAppInputsSha256": "3bcc3c99d74c7a6429234064c73844cbf7b43f377fbc6804e3137bfe89c94fdf",
+      "strictChildValueConfirmed": true
+    }
+  ],
+  "passed": true
+}

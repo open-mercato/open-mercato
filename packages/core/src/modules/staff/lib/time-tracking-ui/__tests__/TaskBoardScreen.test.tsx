@@ -380,8 +380,10 @@ describe('TaskBoardScreen', () => {
     })
 
     const table = await screen.findByTestId('board-task-list')
-    expect(table.querySelector(`[data-task-row="${PARENT_TASK_ID}"]`)).not.toBeNull()
-    expect(table.querySelector(`[data-task-row="${OTHER_TASK_ID}"]`)).not.toBeNull()
+    await waitFor(() => {
+      expect(table.querySelector(`[data-task-row="${PARENT_TASK_ID}"]`)).not.toBeNull()
+      expect(table.querySelector(`[data-task-row="${OTHER_TASK_ID}"]`)).not.toBeNull()
+    })
     expect(container.querySelector(`[data-task-card="${PARENT_TASK_ID}"]`)).toBeNull()
   })
 })

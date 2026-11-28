@@ -37,13 +37,24 @@
     "external": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source", "skills"],
+      "required": ["source", "skills", "ref", "cliVersion"],
       "description": "Skills owned by an external collection and installed via `npx skills add` instead of local symlinks. Folders under .ai/skills/ matching these names are repo-local overrides, not installable skills.",
       "properties": {
         "source": {
           "type": "string",
           "minLength": 1,
-          "description": "The skills package source, e.g. a GitHub owner/repo."
+          "description": "The skills package source, e.g. a GitHub owner/repo.",
+          "pattern": "^[A-Za-z0-9-]+/[A-Za-z0-9][A-Za-z0-9._-]*$"
+        },
+        "ref": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{40}$",
+          "description": "Immutable collection commit. Upgrades require an explicit reviewed change."
+        },
+        "cliVersion": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+          "description": "Exact skills CLI version; floating ranges and tags are rejected."
         },
         "description": {
           "type": "string"

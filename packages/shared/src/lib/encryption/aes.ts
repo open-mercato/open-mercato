@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { isUtf8 } from 'node:buffer'
 import { isEncryptionDebugEnabled } from './toggles'
 import { createLogger } from '../logger'
 
@@ -58,9 +59,8 @@ export function looksLikeEncryptedPayload(value: unknown): boolean {
   const [iv, ciphertext, tag] = parts as [string, string, string, string]
   return iv.length === 16
     && tag.length === 24
-    && ciphertext.length > 0
     && BASE64_PART.test(iv)
-    && BASE64_PART.test(ciphertext)
+    && (ciphertext === '' || BASE64_PART.test(ciphertext))
     && BASE64_PART.test(tag)
 }
 
@@ -124,20 +124,28 @@ export function isEncryptedPayloadShape(value: unknown): value is string {
     return (
       Buffer.from(ivB64, 'base64').length === AES_GCM_IV_BYTES
       && Buffer.from(tagB64, 'base64').length === AES_GCM_TAG_BYTES
-      && Buffer.from(ciphertextB64, 'base64').length > 0
+      && (ciphertextB64 === '' || Buffer.from(ciphertextB64, 'base64').length > 0)
     )
   } catch {
     return false
   }
 }
 
-function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buffer): string {
+function runAesGcmDecrypt(dek: Buffer, iv: Buffer, ciphertext: Buffer, tag: Buffer, requireValidUtf8 = false): string {
   const decipher = crypto.createDecipheriv('aes-256-gcm', dek, iv)
   decipher.setAuthTag(tag)
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8')
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+  if (requireValidUtf8 && !isUtf8(plaintext)) throw new Error('Invalid encrypted UTF-8 text')
+  return plaintext.toString('utf8')
 }
 
-export function decryptWithAesGcm(payload: string, dekBase64: string): string | null {
+/** Maintenance shape includes empty ciphertext; callers must still authenticate with the DEK. */
+export function isRotationCiphertextShape(value: unknown): value is string {
+  return isEncryptedPayloadShape(value) || (typeof value === 'string' && /^[A-Za-z0-9+/]{16}::[A-Za-z0-9+/]{22}==:v1$/.test(value))
+}
+
+/** Protected maintenance can reject lossy text decoding without changing legacy callers. */
+export function decryptWithAesGcm(payload: string, dekBase64: string, options?: { requireValidUtf8?: boolean }): string | null {
   if (!payload) return null
   const parts = payload.split(':')
   if (parts.length !== 4) return null
@@ -148,7 +156,7 @@ export function decryptWithAesGcm(payload: string, dekBase64: string): string | 
   const ciphertext = Buffer.from(ciphertextB64, 'base64')
   const tag = Buffer.from(tagB64, 'base64')
   try {
-    const result = runAesGcmDecrypt(dek, iv, ciphertext, tag)
+    const result = runAesGcmDecrypt(dek, iv, ciphertext, tag, options?.requireValidUtf8)
     logDebug('decrypt', { iv: ivB64, tag: tagB64 })
     return result
   } catch (err) {
@@ -161,6 +169,17 @@ const LOOKUP_HASH_V2_PREFIX = 'v2:'
 
 function normalizeLookupValue(value: string): string {
   return value.toLowerCase().trim()
+}
+
+function normalizeLookupPepper(value: string | undefined): string | null {
+  return value?.trim().replace(/(?:^['"]|['"]$)/g, '') || null
+}
+
+function keyedLookupHash(value: string, pepper: string, context?: string): string {
+  const normalized = normalizeLookupValue(value)
+  const message = context ? `${context}:${normalized}` : normalized
+  const digest = crypto.createHmac('sha256', pepper).update(message).digest('hex')
+  return `${LOOKUP_HASH_V2_PREFIX}${digest}`
 }
 
 /**
@@ -195,8 +214,7 @@ function resolveLookupPepper(): string | null {
     process.env.TENANT_DATA_ENCRYPTION_KEY,
   ]
   for (const candidate of candidates) {
-    if (typeof candidate !== 'string') continue
-    const normalized = candidate.trim().replace(/(?:^['"]|['"]$)/g, '')
+    const normalized = normalizeLookupPepper(candidate)
     if (normalized) return normalized
   }
   return null
@@ -215,26 +233,22 @@ function resolveLookupPepper(): string | null {
  */
 export function hashForLookup(value: string, context?: string): string {
   const pepper = resolveLookupPepper()
-  const normalized = normalizeLookupValue(value)
-  if (!pepper) {
-    return legacyHashForLookup(value)
-  }
-  const message = context ? `${context}:${normalized}` : normalized
-  const digest = crypto.createHmac('sha256', pepper).update(message).digest('hex')
-  return `${LOOKUP_HASH_V2_PREFIX}${digest}`
+  return pepper ? keyedLookupHash(value, pepper, context) : legacyHashForLookup(value)
 }
 
 /**
- * Candidate lookup hashes for matching a value against `*_hash` columns that may hold
- * either the new keyed (`v2:`) digest or a legacy unkeyed digest. Use this in `$in` /
- * `IN (...)` filters during the migration window so reads keep matching rows written
- * before the keyed format. Once a backfill has recomputed all columns this can collapse
- * back to a single {@link hashForLookup} value.
+ * Match the current keyed digest, an optional digest under `LOOKUP_HASH_OLD_PEPPER`,
+ * and the legacy unkeyed digest. Writes always use {@link hashForLookup}.
  */
 export function lookupHashCandidates(value: string, context?: string): string[] {
-  const primary = hashForLookup(value, context)
+  const pepper = resolveLookupPepper()
+  const previousPepper = normalizeLookupPepper(process.env.LOOKUP_HASH_OLD_PEPPER)
   const legacy = legacyHashForLookup(value)
-  return primary === legacy ? [primary] : [primary, legacy]
+  const candidates = pepper ? [keyedLookupHash(value, pepper, context), legacy] : [legacy]
+  if (previousPepper && previousPepper !== pepper) {
+    candidates.splice(1, 0, keyedLookupHash(value, previousPepper, context))
+  }
+  return candidates
 }
 
 /**
@@ -265,7 +279,7 @@ export function decryptWithAesGcmStrict(payload: string, dekBase64: string): str
       'Failed to decode base64 components',
     )
   }
-  if (iv.length !== 12 || tag.length !== 16 || ciphertext.length === 0) {
+  if (iv.length !== AES_GCM_IV_BYTES || tag.length !== AES_GCM_TAG_BYTES || (ciphertext.length === 0 && ciphertextB64 !== '')) {
     throw new TenantDataEncryptionError(
       TenantDataEncryptionErrorCode.MALFORMED_PAYLOAD,
       'Invalid AES-GCM payload: unexpected IV, tag, or ciphertext size',

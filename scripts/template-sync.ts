@@ -1,7 +1,7 @@
 /**
  * Template sync checker/fixer for create-app scaffold parity.
  *
- * Keeps `packages/create-app/template/src/{app,components,i18n,lib,modules}` and selected
+ * Keeps `packages/create-app/template/src/{app,components,i18n,lib,modules,providers}` and selected
  * root src files aligned with app source for shared layout/routes/module scaffolding
  * and locale dictionaries.
  *
@@ -29,7 +29,7 @@ const APP_SRC_ROOT = path.join(ROOT, 'apps', 'mercato', 'src')
 const TEMPLATE_SRC_ROOT = path.join(ROOT, 'packages', 'create-app', 'template', 'src')
 const APP_PACKAGE_FILE = path.join(ROOT, 'apps', 'mercato', 'package.json')
 const TEMPLATE_PACKAGE_FILE = path.join(ROOT, 'packages', 'create-app', 'template', 'package.json.template')
-export const SYNC_FOLDERS = ['app', 'components', 'i18n', 'lib', 'modules'] as const
+export const SYNC_FOLDERS = ['app', 'components', 'i18n', 'lib', 'modules', 'providers'] as const
 const SYNC_ROOT_FILES = ['bootstrap.ts', 'modules.ts', 'official-modules.generated.ts'] as const
 const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
   {
@@ -175,6 +175,11 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     sourceFile: path.join(ROOT, 'scripts', 'watch-scope.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'watch-scope.mjs'),
     rel: 'scripts/watch-scope.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'build-next.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'build-next.mjs'),
+    rel: 'scripts/build-next.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
@@ -333,9 +338,8 @@ function stripTemplateDisabledModules(content: string, rel: string): string {
   return stripped
 }
 
-// Modules that stay commented out (not stripped) in the template: enabling them pushes the
-// generated root close to its byte budget, so the template keeps a maintainer-facing explanation
-// instead of silently dropping the registration like TEMPLATE_DISABLED_MODULE_IDS entries.
+// Modules that stay opt-in (commented out rather than stripped) in the template.
+// Keep activation prerequisites beside each registration.
 // Each entry replaces the app's registration and its leading comment verbatim, so a reworded
 // source comment fails the transform loudly rather than drifting back into the template. The
 // replacement goes in as a function so a `$` in a template body stays literal instead of being
@@ -352,7 +356,7 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // om-refresh-standalone-harness / om-evolve-harness workflow (live agentic release-suite
   // evaluation, a knowledge-change manifest, etc.), which is its own explicitly-authorized
   // task, not a one-line edit. Enabling is therefore a maintainer call about that harness
-  // work, same as channel_discord's byte-budget call below.
+  // work, like the other opt-in modules below.
   // { id: 'customer_groups', from: '@open-mercato/core' },`,
   },
   gateway_tpay: {
@@ -369,17 +373,23 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // provider-owned Gateway worker + a signed Interactions endpoint, plus an
   // optional AI auto-reply subscriber.
   { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
-    template: `  // Discord bot channel (SPEC 2026-06-19). The package ships with the scaffold
-  // but stays disabled by default. #4989 removed the hard overflow this used to
-  // cause (the generated root now sheds its module-fact index instead), but the
-  // headroom is still gone: enabling it puts the generated root at 12,275 of the
-  // 12,288-byte target, so the next module enabled after it drops the inline
-  // index to pointer form. Enabling is therefore a maintainer call about that
-  // budget, not a one-line edit — see
-  // packages/create-app/src/lib/agent-instruction-budget.test.ts
-  // ('one more template module still fits the root budget with its inline index
-  // intact'), and #4983 for the discussion.
+    template: `  // Optional Discord bot channel (SPEC 2026-06-19). To enable it, first run
+  // yarn add @open-mercato/channel-discord, then uncomment the registration.
   // { id: 'channel_discord', from: '@open-mercato/channel-discord' },`,
+  },
+  // template-sync didn't know the ledger module was deliberately kept
+  // commented out in the template (see the comment in
+  // packages/create-app/template/src/modules.ts), so `template-sync --check`
+  // reported it as drift and `template:sync:fix` would have silently
+  // re-enabled it there.
+  ledger: {
+    source: `  { id: 'ledger', from: '@open-mercato/core' },`,
+    template: `  // General Ledger core engine — ships with the scaffold but stays disabled
+  // here until its module fact-sheet gains catalog coverage (run the
+  // om-refresh-standalone-harness skill to add it, then enable this line).
+  // Tracked in TEMPLATE_COMMENTED_MODULES (scripts/template-sync.ts) as a
+  // deliberate divergence, not drift.
+  // { id: 'ledger', from: '@open-mercato/core' },`,
   },
   gateway_autopay: {
     source: `  { id: 'gateway_autopay', from: '@open-mercato/gateway-autopay' },`,
@@ -486,6 +496,21 @@ export const TEMPLATE_COMMENTED_MODULES: Record<string, { source: string; templa
   // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
   // { id: 'cart', from: '@open-mercato/core' },`,
   },
+  assisted_selling: {
+    source: `  // Staff-authored priced proposals on a buyer's basket, accepted as a cart merge
+  // (.ai/specs/2026-09-22-assisted-selling.md). Requires cart.
+  { id: 'assisted_selling', from: '@open-mercato/core' },`,
+    template: `  // Staff-authored priced proposals on a buyer's basket, accepted as a cart merge
+  // (.ai/specs/2026-09-22-assisted-selling.md). Requires cart. Stays commented out with cart
+  // above until the module-sets \`commerce\` preset enables the suite together with its
+  // standalone-harness coverage: no case in
+  // packages/create-app/agentic/shared/ai/harness/cases.json lists
+  // .ai/guides/modules/assisted_selling/index.md in context.required, so enabling it here
+  // trips packages/create-app/src/lib/module-facts-build.test.ts ('every module fact-sheet a
+  // scaffold ships is required by at least one catalog case'). Run the
+  // om-refresh-standalone-harness skill to add that coverage, then enable it in the template.
+  // { id: 'assisted_selling', from: '@open-mercato/core' },`,
+  },
 }
 
 function commentOutTemplateModules(content: string, rel: string): string {
@@ -507,7 +532,7 @@ export const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => st
       "\nfunction isAutoLoginEnabled(): boolean {\n  return Boolean(process.env.OM_AUTOLOGIN_EMAIL?.trim() && process.env.OM_AUTOLOGIN_PASSWORD)\n}\n",
     ),
   // Scaffolds ship the example and design-system source but keep both runtime-disabled;
-  // channel_discord stays commented out with a byte-budget explanation instead.
+  // Optional providers keep their activation instructions beside the commented registration.
   'modules.ts': (content) => commentOutTemplateModules(stripTemplateDisabledModules(content, 'modules.ts'), 'modules.ts'),
   'scripts/dev-cache-purge.mjs': (content) =>
     content

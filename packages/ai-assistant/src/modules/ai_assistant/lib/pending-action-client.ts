@@ -20,6 +20,7 @@
  */
 
 import type {
+  AiPendingActionChannel,
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
   AiPendingActionFieldDiff,
@@ -122,5 +123,34 @@ export function serializePendingActionForClient(
     expiresAt: dateToIso(row.expiresAt),
     resolvedAt: optionalDateToIso(row.resolvedAt),
     resolvedByUserId: row.resolvedByUserId ?? null,
+  }
+}
+
+/**
+ * Owner/approver view of a pending action: the client view plus the channel
+ * the row was created on and who requested it. Served by the list route and
+ * the `:id` read route, which only return rows the caller owns or may approve.
+ */
+export interface SerializedPendingActionWithRequester extends SerializedPendingAction {
+  channel: AiPendingActionChannel
+  requester: { userId: string | null; apiKeyId: string | null }
+}
+
+export interface SerializablePendingActionRowWithRequester extends SerializablePendingActionRow {
+  channel?: AiPendingActionChannel | null
+  createdByUserId?: string | null
+  apiKeyId?: string | null
+}
+
+export function serializePendingActionWithRequester(
+  row: SerializablePendingActionRowWithRequester,
+): SerializedPendingActionWithRequester {
+  return {
+    ...serializePendingActionForClient(row),
+    channel: row.channel ?? 'agent',
+    requester: {
+      userId: row.createdByUserId ?? null,
+      apiKeyId: row.apiKeyId ?? null,
+    },
   }
 }

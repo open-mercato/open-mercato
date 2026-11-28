@@ -152,7 +152,7 @@ async function renderTasks() {
 
 describe('canonical task conflicts through the section and edit dialog', () => {
   beforeEach(() => {
-    jest.clearAllMocks()
+    jest.resetAllMocks()
     dismissRecordConflict()
     readApiResultOrThrowMock
       .mockResolvedValueOnce({ items: [interaction] })
@@ -199,6 +199,43 @@ describe('canonical task conflicts through the section and edit dialog', () => {
     expect(flashMock).toHaveBeenCalledWith('Task updated', 'success')
   })
 
+  it('retains both attempted title and description through a rejected edit and retry', async () => {
+    apiCallOrThrowMock.mockRejectedValueOnce(conflict).mockResolvedValueOnce(undefined)
+    await renderTasks()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Attempted title' } })
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Attempted description' } })
+    fireEvent.click(screen.getByRole('button', { name: /Update task/ }))
+
+    await waitFor(() => expect(screen.getByTestId('record-conflict-banner')).toBeInTheDocument())
+    expect(screen.getByRole('dialog', { name: 'Edit task' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Title')).toHaveValue('Attempted title')
+    expect(screen.getByLabelText('Description')).toHaveValue('Attempted description')
+    expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'success')
+
+    fireEvent.click(screen.getByRole('button', { name: /Update task/ }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(apiCallOrThrowMock).toHaveBeenLastCalledWith(
+      '/api/customers/interactions',
+      expect.objectContaining({ body: expect.stringContaining('Attempted description') }),
+      expect.anything(),
+    )
+    expect(flashMock).toHaveBeenCalledWith('Task updated', 'success')
+  })
+
+  it('closes the edit dialog and announces success after an accepted edit', async () => {
+    apiCallOrThrowMock.mockResolvedValue(undefined)
+    await renderTasks()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Accepted title' } })
+    fireEvent.click(screen.getByRole('button', { name: /Update task/ }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(flashMock).toHaveBeenCalledWith('Task updated', 'success')
+    expect(onDataRefreshMock).toHaveBeenCalledTimes(1)
+  })
+
   it.each(taskActions)('does not announce success or show a raw toast for a rejected %s action', async (_name, activate) => {
     await renderTasks()
     activate()
@@ -209,5 +246,56 @@ describe('canonical task conflicts through the section and edit dialog', () => {
     expect(onDataRefreshMock).not.toHaveBeenCalled()
     expect(screen.getByRole('checkbox')).not.toBeChecked()
     expect(screen.getByRole('checkbox')).toBeEnabled()
+  })
+
+  it('retains the optimistic-lock version across repeated saves after another tab deletes the task', async () => {
+    const deletedConflict = Object.assign(new Error('record_modified'), {
+      status: 409,
+      body: {
+        code: 'optimistic_lock_conflict',
+        error: 'record_modified',
+        expectedUpdatedAt: interaction.updatedAt,
+        currentUpdatedAt: interaction.updatedAt,
+      },
+    })
+    readApiResultOrThrowMock
+      .mockReset()
+      .mockResolvedValueOnce({ items: [interaction] })
+      .mockResolvedValue({ items: [] })
+    // Simulate server enforceRecordGoneIsConflict: returns 409 only when the
+    // optimistic-lock header is present, otherwise falls back to raw 404.
+    apiCallOrThrowMock.mockReset().mockImplementation(() => {
+      const latestHeaders = withScopedApiRequestHeadersMock.mock.calls.at(-1)?.[0] as Record<string, string> | undefined
+      if (latestHeaders?.[OPTIMISTIC_LOCK_HEADER_NAME]) {
+        return Promise.reject(deletedConflict)
+      }
+      return Promise.reject(Object.assign(new Error('Interaction not found'), { status: 404 }))
+    })
+
+    await renderTasks()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Unsaved local note' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /Update task/ }))
+    await waitFor(() => expect(screen.getByTestId('record-conflict-banner')).toBeInTheDocument())
+    expect(screen.queryByText('Original task')).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Edit task' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Description')).toHaveValue('Unsaved local note')
+
+    fireEvent.click(screen.getByRole('button', { name: /Update task/ }))
+    await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalledTimes(2))
+
+    expect(withScopedApiRequestHeadersMock).toHaveBeenNthCalledWith(1, {
+      [OPTIMISTIC_LOCK_HEADER_NAME]: interaction.updatedAt,
+    })
+    expect(withScopedApiRequestHeadersMock).toHaveBeenNthCalledWith(2, {
+      [OPTIMISTIC_LOCK_HEADER_NAME]: interaction.updatedAt,
+    })
+    expect(screen.getByTestId('record-conflict-banner')).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'Edit task' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Description')).toHaveValue('Unsaved local note')
+    expect(flashMock).not.toHaveBeenCalledWith('Interaction not found', 'error')
+    expect(flashMock).not.toHaveBeenCalledWith('record_modified', 'error')
+    expect(flashMock).not.toHaveBeenCalledWith(expect.anything(), 'success')
   })
 })

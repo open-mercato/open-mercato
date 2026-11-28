@@ -65,6 +65,28 @@ describe('ai_assistant encryption maps', () => {
     ])
   })
 
+  it('encrypts agent run content, system prompt, citations and error message', () => {
+    expect(fieldsOf('ai_assistant:ai_agent_run')).toEqual([
+      'input_text',
+      'output_text',
+      'system_prompt',
+      'citations',
+      'error_message',
+    ])
+  })
+
+  it('encrypts agent run step text', () => {
+    expect(fieldsOf('ai_assistant:ai_agent_run_step')).toEqual(['text'])
+  })
+
+  it('encrypts agent run tool call args, result and error message', () => {
+    expect(fieldsOf('ai_assistant:ai_agent_run_tool_call')).toEqual([
+      'args',
+      'result',
+      'error_message',
+    ])
+  })
+
   it('keeps every map tenant-scoped so rows seal under the tenant key', () => {
     for (const map of defaultEncryptionMaps) {
       expect(map.keyScope).toBeUndefined()

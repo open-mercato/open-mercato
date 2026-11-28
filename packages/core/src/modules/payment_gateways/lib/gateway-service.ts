@@ -3,6 +3,7 @@ import { LockMode, QueryOrder } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   getGatewayAdapter,
   type CreateSessionInput,
@@ -20,24 +21,27 @@ import type { CredentialsService } from '../../integrations/lib/credentials-serv
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import { conflict, CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { transactionNotFound } from './transaction-not-found'
 import { GatewayPaymentOperation, GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
 import { canApplyManualAction, isValidTransition, resolveImpliedCaptureStatus, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
-import { reconcileSessionAmountWithOrder } from './order-amount-reconciliation'
+import { reconcileSessionAmountWithOrder, resolveConflictTranslator, resolvePaymentGatewayTranslator } from './order-amount-reconciliation'
+import { decimalToNumber, resolveExactDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyDecimalPlaces, type CurrencyPrecisionResolver } from '@open-mercato/shared/lib/currencyPrecision'
 import {
   alignCapturedAmountWithStatus,
-  assertCaptureWithinRemaining,
-  formatAmountUnits,
-  parseAmountUnits,
-  releaseCaptureAmount,
-  reserveCaptureAmount,
-  settleCapturedAmount,
+  assertCaptureWithinRemainingExact,
+  assertNothingCapturedBeforeCancel,
+  releaseCaptureAmountExact,
+  reserveCaptureAmountExact,
+  settleCapturedAmountExact,
 } from './capture-ledger'
 import {
   completePaymentOperation,
   failPaymentOperation,
   preparePaymentOperation,
+  toOperationIdentityAmount,
 } from './payment-operation-idempotency'
 import {
   buildPaymentSessionOperationKey,
@@ -52,6 +56,14 @@ const PAYMENT_SESSION_CLAIM_STALE_MS = 30_000
 const PAYMENT_SESSION_WAIT_INTERVAL_MS = 25
 const logger = createLogger('payment_gateways').child({ component: 'gateway-service' })
 
+function reportErrorSafely(error: unknown, code: string): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, { module: 'payment_gateways', code })
+  } catch (reportFailure) {
+    logger.warn('Failed to report a payment gateway error', { code, err: reportFailure })
+  }
+}
+
 function assertManualActionAllowed(action: ManualGatewayAction, transaction: GatewayTransaction): void {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
   if (!canApplyManualAction(action, current)) {
@@ -59,21 +71,25 @@ function assertManualActionAllowed(action: ManualGatewayAction, transaction: Gat
   }
 }
 
+type AdapterResultStatusOutcome = 'applied' | 'unchanged' | 'incompatible'
+
 function applyAdapterResultStatus(
   action: ManualGatewayAction,
   transaction: GatewayTransaction,
   resultStatus: UnifiedPaymentStatus,
-): boolean {
+  options?: { tolerateIncompatible?: boolean },
+): AdapterResultStatusOutcome {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
-  if (resultStatus === current) return false
-  if (isValidTransition(resultStatus, current)) return false
+  if (resultStatus === current) return 'unchanged'
+  if (isValidTransition(resultStatus, current)) return 'unchanged'
   if (!isValidTransition(current, resultStatus)) {
+    if (options?.tolerateIncompatible) return 'incompatible'
     throw conflict(
       `Gateway returned status "${resultStatus}" which is not a valid transition from "${current}" for ${action}`,
     )
   }
   transaction.unifiedStatus = resultStatus
-  return true
+  return 'applied'
 }
 
 export interface PaymentGatewayServiceDeps {
@@ -86,6 +102,11 @@ export interface PaymentGatewayServiceDeps {
    * When absent, session amounts cannot be reconciled and are accepted as-is.
    */
   paymentOrderTotalResolver?: PaymentOrderTotalResolver | null
+  /**
+   * Optional tenant currency precision lookup (`currencyPrecisionService`). When absent,
+   * the ISO 4217 digits are used to compare session amounts with the order total.
+   */
+  currencyPrecisionResolver?: CurrencyPrecisionResolver | null
   sessionClaimOptions?: {
     staleAfterMs?: number
     heartbeatIntervalMs?: number
@@ -98,7 +119,9 @@ export interface CreatePaymentSessionInput {
   paymentId: string
   idempotencyKey?: string
   orderId?: string
+  /** Float copy of `amountExact`; prefer the exact field. */
   amount: number
+  amountExact?: string
   currencyCode: string
   captureMethod?: 'automatic' | 'manual'
   paymentTypes?: string[]
@@ -119,12 +142,17 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     deps.sessionClaimOptions?.heartbeatIntervalMs ?? Math.floor(claimStaleAfterMs / 3),
   )
   const claimPollIntervalMs = Math.max(1, deps.sessionClaimOptions?.pollIntervalMs ?? PAYMENT_SESSION_WAIT_INTERVAL_MS)
+  const currencyPrecisionContainer = {
+    resolve<T = unknown>(): T {
+      return (deps.currencyPrecisionResolver ?? null) as T
+    },
+  }
 
   async function findTransactionOrThrow(
     transactionId: string,
     scope: { organizationId: string; tenantId: string },
     targetEm: EntityManager = em,
-    options?: { lockMode: LockMode.PESSIMISTIC_WRITE },
+    options?: { lockMode?: LockMode; refresh?: boolean },
   ): Promise<GatewayTransaction> {
     const transaction = await findOneWithDecryption(
       targetEm,
@@ -139,9 +167,16 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       scope,
     )
     if (!transaction) {
-      throw new Error('Transaction not found')
+      const translate = await resolveConflictTranslator()
+      throw transactionNotFound(translate('payment_gateways.errors.transactionNotFound', 'Transaction not found'))
     }
     return transaction
+  }
+
+  async function withFreshCancelIdentityMap<TResult>(
+    run: (transactionEm: EntityManager) => Promise<TResult>,
+  ): Promise<TResult> {
+    return em.fork({ clear: true }).transactional(run)
   }
 
   function readProviderSessionId(transaction: GatewayTransaction): string {
@@ -151,7 +186,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     throw new Error('Transaction is missing provider session id')
   }
 
-  async function emitStatusEvent(status: UnifiedPaymentStatus, payload: Record<string, unknown>) {
+  async function emitStatusEvent(status: UnifiedPaymentStatus, payload: Record<string, unknown> & { tenantId: string; organizationId: string }) {
     type PaymentGatewayEventId = Parameters<typeof emitPaymentGatewayEvent>[0]
     const eventMap: Partial<Record<UnifiedPaymentStatus, PaymentGatewayEventId>> = {
       authorized: 'payment_gateways.payment.authorized',
@@ -162,7 +197,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     }
     const eventId = eventMap[status]
     if (!eventId) return
-    await emitPaymentGatewayEvent(eventId, payload)
+    await emitPaymentGatewayEvent(eventId, payload, { tenantId: payload.tenantId, organizationId: payload.organizationId })
   }
 
   async function writeTransactionLog(
@@ -250,7 +285,8 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       },
     })
     if (prepared.kind === 'completed') {
-      if (prepared.result.status !== transaction.unifiedStatus) {
+      const settledStatus = prepared.settledStatus ?? prepared.result.status
+      if (settledStatus !== transaction.unifiedStatus) {
         throw conflict(
           `Cannot replay ${input.action} because the payment status has changed since the operation completed`,
         )
@@ -267,31 +303,87 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     // moved the money" from "the provider moved it and only our bookkeeping failed" — the two
     // cases need opposite rollback decisions.
     let providerInvoked = false
+    const startedFrom = transaction.unifiedStatus as UnifiedPaymentStatus
+    const resumesEarlierAttempt = operation.attemptCount > 1
+    let incompatibleConcurrentStatus: UnifiedPaymentStatus | null = null
     try {
       await input.beforeInvoke?.({ transaction, operation })
       const { adapter, credentials } = await resolveAdapterAndCredentials(
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
       )
-      const result = await input.invoke({
-        adapter,
-        credentials,
-        transaction,
-        idempotencyKey: prepared.claim.providerIdempotencyKey,
-      })
-      providerInvoked = true
-      const statusChanged = await completePaymentOperation(
-        em,
-        prepared.claim,
-        result as unknown as Record<string, unknown>,
-        async (tx) => {
-          const current = await findTransactionOrThrow(input.transactionId, input.scope, tx)
-          const changed = applyAdapterResultStatus(input.action, current, result.status)
-          input.applyResult(current, result)
-          return changed
-        },
-      )
+      const invokeAndComplete = async (targetEm: EntityManager, currentTransaction: GatewayTransaction) => {
+        const result = await input.invoke({
+          adapter,
+          credentials,
+          transaction: currentTransaction,
+          idempotencyKey: prepared.claim.providerIdempotencyKey,
+        })
+        providerInvoked = true
+        const statusChanged = await completePaymentOperation(
+          targetEm,
+          prepared.claim,
+          result as unknown as Record<string, unknown>,
+          async (tx) => {
+            const current = await findTransactionOrThrow(input.transactionId, input.scope, tx, {
+              lockMode: LockMode.PESSIMISTIC_WRITE,
+              refresh: true,
+            })
+            const outcome = applyAdapterResultStatus(input.action, current, result.status, {
+              tolerateIncompatible: current.unifiedStatus !== startedFrom || resumesEarlierAttempt,
+            })
+            incompatibleConcurrentStatus = outcome === 'incompatible'
+              ? current.unifiedStatus as UnifiedPaymentStatus
+              : null
+            input.applyResult(current, result)
+            return { statusChanged: outcome === 'applied', settledStatus: current.unifiedStatus }
+          },
+        )
+        return { result, statusChanged }
+      }
+      const { result, statusChanged } = input.action === 'cancel'
+        ? await withFreshCancelIdentityMap(async (tx) => {
+          const current = await findTransactionOrThrow(input.transactionId, input.scope, tx, {
+            lockMode: LockMode.PESSIMISTIC_WRITE,
+          })
+          assertManualActionAllowed(input.action, current)
+          if (toDecimal(current.capturedAmount ?? '0').gt(0)) {
+            const translate = await resolvePaymentGatewayTranslator()
+            throw new CrudHttpError(409, {
+              code: 'payment_cancel_captured_funds',
+              error: translate(
+                'payment_gateways.errors.cancelCaptureConflict',
+                'Cannot cancel a payment with captured funds or an outstanding capture reservation.',
+              ),
+            })
+          }
+          input.assertInitialAllowed?.(current)
+          return invokeAndComplete(tx, current)
+        })
+        : await invokeAndComplete(em, transaction)
       settled = true
+      if (incompatibleConcurrentStatus) {
+        try {
+          await writeTransactionLog(
+            transaction.providerKey,
+            { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+            transaction.id,
+            'warn',
+            'Payment status changed concurrently; provider result not applied',
+            { action: input.action, currentStatus: incompatibleConcurrentStatus, resultStatus: result.status },
+          )
+        } catch (logError) {
+          logger.warn('Failed to log a provider result left unapplied', {
+            transactionId: transaction.id,
+            providerKey: transaction.providerKey,
+            err: logError,
+          })
+        }
+        reportErrorSafely(
+          new Error('[internal] Provider result not applied after a concurrent payment status change'),
+          'payment_gateways.manual_result_not_applied',
+        )
+      }
       if (statusChanged) {
         await emitStatusEvent(result.status, {
           transactionId: transaction.id,
@@ -328,10 +420,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       redirectUrl: session.redirectUrl
         ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null),
       clientSecret: session.clientSecret ?? null,
-      amount: String(input.amount),
+      amount: resolveExactDecimal(input.amountExact, input.amount) ?? '0',
       // An automatic-capture session comes back already captured, so the ledger has to start
       // at the full amount — otherwise a later manual capture would look like the first one.
-      capturedAmount: session.status === 'captured' ? String(input.amount) : '0',
+      capturedAmount: session.status === 'captured' ? (resolveExactDecimal(input.amountExact, input.amount) ?? '0') : '0',
       currencyCode: input.currencyCode,
       gatewayMetadata: {
         ...(session.providerData ?? {}),
@@ -426,7 +518,15 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       await reconcileSessionAmountWithOrder({
         orderId: input.orderId,
         amount: input.amount,
+        amountExact: input.amountExact,
         currencyCode: input.currencyCode,
+        currencyDecimalPlaces: input.orderId && deps.paymentOrderTotalResolver
+          ? await resolveCurrencyDecimalPlaces(currencyPrecisionContainer, {
+            code: input.currencyCode.trim().toUpperCase(),
+            tenantId: input.tenantId,
+            organizationId: input.organizationId,
+          })
+          : null,
         scope,
         resolver: deps.paymentOrderTotalResolver,
       })
@@ -439,6 +539,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         tenantId: input.tenantId,
         organizationId: input.organizationId,
         amount: input.amount,
+        amountExact: resolveExactDecimal(input.amountExact, input.amount) ?? undefined,
         currencyCode: input.currencyCode,
         captureMethod: input.captureMethod,
         paymentTypes: input.paymentTypes,
@@ -549,26 +650,26 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
 
     async capturePayment(
       transactionId: string,
-      amount: number | undefined,
+      amount: number | string | undefined,
       scope: { organizationId: string; tenantId: string },
       operationId?: string,
     ): Promise<CaptureResult> {
-      let reservedUnits: bigint | null = null
-      let providerAmount = amount
+      let reservedAmount: string | null = null
+      let providerAmountExact = amount === undefined ? undefined : (resolveExactDecimal(amount, null) ?? undefined)
       return executeManualOperation({
         action: 'capture',
         transactionId,
         operationId,
-        payload: { amount: amount ?? null },
+        payload: { amount: toOperationIdentityAmount(amount) },
         scope,
-        assertInitialAllowed: (transaction) => { assertCaptureWithinRemaining(transaction, amount) },
+        assertInitialAllowed: (transaction) => { assertCaptureWithinRemainingExact(transaction, amount) },
         beforeInvoke: async ({ transaction, operation }) => {
-          const alreadyCapturedUnits = parseAmountUnits(transaction.capturedAmount)
-          reservedUnits = await reserveCaptureAmount(em, { transaction, operation, amount, scope })
+          const alreadyCaptured = toDecimal(resolveExactDecimal(transaction.capturedAmount, null) ?? 0)
+          reservedAmount = await reserveCaptureAmountExact(em, { transaction, operation, amount, scope })
           // "Capture the rest" has to name the remaining amount once part of the authorization is
           // already captured, otherwise the provider would capture the full amount a second time.
-          if (amount === undefined && alreadyCapturedUnits > 0n) {
-            providerAmount = Number(formatAmountUnits(reservedUnits))
+          if (amount === undefined && alreadyCaptured.gt(0)) {
+            providerAmountExact = reservedAmount
           }
         },
         // The slice goes back only while the provider has not been called yet. Once the capture
@@ -578,7 +679,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         // operation id reuses both the reservation and the provider idempotency key, so the provider
         // itself collapses the duplicate.
         releaseOnFailure: async ({ transaction, operation, providerInvoked }) => {
-          if (reservedUnits === null) return
+          if (reservedAmount === null) return
           if (providerInvoked) {
             await writeTransactionLog(
               transaction.providerKey,
@@ -586,11 +687,11 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
               transaction.id,
               'warn',
               'Capture reservation stays outstanding because the provider call already returned',
-              { operationId: operation.operationId, reservedAmount: formatAmountUnits(reservedUnits) },
+              { operationId: operation.operationId, reservedAmount },
             )
             return
           }
-          const released = await releaseCaptureAmount(em, { transactionId, operation, reservedUnits, scope })
+          const released = await releaseCaptureAmountExact(em, { transactionId, operation, reservedAmount, scope })
           if (released) return
           await writeTransactionLog(
             transaction.providerKey,
@@ -598,21 +699,32 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             transaction.id,
             'warn',
             'Capture reservation stays outstanding after a failed capture',
-            { operationId: operation.operationId, reservedAmount: formatAmountUnits(reservedUnits) },
+            { operationId: operation.operationId, reservedAmount },
           )
         },
-        invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.capture({
-          sessionId: readProviderSessionId(transaction),
-          amount: providerAmount,
-          credentials,
-          idempotencyKey,
-        }),
+        invoke: async ({ adapter, credentials, transaction, idempotencyKey }) => {
+          const result = await adapter.capture({
+            sessionId: readProviderSessionId(transaction),
+            amount: providerAmountExact === undefined ? undefined : decimalToNumber(providerAmountExact),
+            amountExact: providerAmountExact,
+            credentials,
+            idempotencyKey,
+          })
+          const capturedAmountExact = resolveExactDecimal(result.capturedAmountExact ?? reservedAmount, result.capturedAmount)
+          return capturedAmountExact === null ? result : { ...result, capturedAmountExact }
+        },
         applyResult: (transaction, result) => {
           transaction.gatewayMetadata = {
             ...readGatewayMetadata(transaction.gatewayMetadata),
             captureResult: result.providerData,
           }
-          if (reservedUnits !== null) settleCapturedAmount(transaction, reservedUnits, result.capturedAmount)
+          if (reservedAmount !== null) {
+            settleCapturedAmountExact(
+              transaction,
+              reservedAmount,
+              resolveExactDecimal(result.capturedAmountExact, result.capturedAmount) ?? undefined,
+            )
+          }
         },
         afterCommit: (transaction, result) => writeTransactionLog(
           transaction.providerKey,
@@ -627,7 +739,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
 
     async refundPayment(
       transactionId: string,
-      amount: number | undefined,
+      amount: number | string | undefined,
       reason: string | undefined,
       scope: { organizationId: string; tenantId: string },
       operationId?: string,
@@ -636,15 +748,21 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         action: 'refund',
         transactionId,
         operationId,
-        payload: { amount: amount ?? null, reason: reason ?? null },
+        payload: { amount: toOperationIdentityAmount(amount), reason: reason ?? null },
         scope,
-        invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.refund({
-          sessionId: readProviderSessionId(transaction),
-          amount,
-          reason,
-          credentials,
-          idempotencyKey,
-        }),
+        invoke: async ({ adapter, credentials, transaction, idempotencyKey }) => {
+          const requestedAmountExact = amount === undefined ? undefined : (resolveExactDecimal(amount, null) ?? undefined)
+          const result = await adapter.refund({
+            sessionId: readProviderSessionId(transaction),
+            amount: amount === undefined ? undefined : Number(amount),
+            amountExact: requestedAmountExact,
+            reason,
+            credentials,
+            idempotencyKey,
+          })
+          const refundedAmountExact = resolveExactDecimal(result.refundedAmountExact ?? requestedAmountExact, result.refundedAmount)
+          return refundedAmountExact === null ? result : { ...result, refundedAmountExact }
+        },
         applyResult: (transaction, result) => {
           transaction.gatewayRefundId = result.refundId
           transaction.gatewayMetadata = {
@@ -669,12 +787,18 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       scope: { organizationId: string; tenantId: string },
       operationId?: string,
     ): Promise<CancelResult> {
+      const translate = await resolveConflictTranslator()
       return executeManualOperation({
         action: 'cancel',
         transactionId,
         operationId,
         payload: { reason: reason ?? null },
         scope,
+        assertInitialAllowed: (transaction) => { assertNothingCapturedBeforeCancel(transaction, translate) },
+        beforeInvoke: async () => {
+          const current = await findTransactionOrThrow(transactionId, scope, em.fork())
+          assertNothingCapturedBeforeCancel(current, translate)
+        },
         invoke: ({ adapter, credentials, transaction, idempotencyKey }) => adapter.cancel({
           sessionId: readProviderSessionId(transaction),
           reason,
@@ -719,38 +843,61 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       }
 
       const polledAt = new Date()
-      const shouldApplyStatus = status.status !== transaction.unifiedStatus
-        && isValidTransition(transaction.unifiedStatus as UnifiedPaymentStatus, status.status)
-      if (shouldApplyStatus) {
-        const previousStatus = transaction.unifiedStatus
-        transaction.unifiedStatus = status.status
-        alignCapturedAmountWithStatus(transaction, status.status)
-        transaction.gatewayStatus = status.status
-        transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), statusResult: status.providerData ?? null }
-        transaction.lastPolledAt = polledAt
-        await em.flush()
-        await emitStatusEvent(status.status, {
-          transactionId: transaction.id,
-          paymentId: transaction.paymentId,
-          providerKey: transaction.providerKey,
-          previousStatus,
-          organizationId: transaction.organizationId,
-          tenantId: transaction.tenantId,
-        })
-        await writeTransactionLog(
-          transaction.providerKey,
-          { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
-          transaction.id,
-          'info',
-          'Payment status updated by poller',
-          {
-            previousStatus,
-            nextStatus: status.status,
-          },
-        )
-      } else {
+      if (status.status === transaction.unifiedStatus) {
         await stampLastPolledAt(transaction, polledAt)
+        return status
       }
+
+      // Use a fresh identity map so the locked reread cannot reuse the pre-poll transaction.
+      const outcome = await em.fork().transactional(async (tx) => {
+        const locked = await findTransactionOrThrow(transactionId, scope, tx, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        const lockedStatus = locked.unifiedStatus as UnifiedPaymentStatus
+        if (!isValidTransition(lockedStatus, status.status)) {
+          return { applied: false, previousStatus: lockedStatus }
+        }
+        locked.unifiedStatus = status.status
+        alignCapturedAmountWithStatus(locked, status.status)
+        locked.gatewayStatus = status.status
+        locked.gatewayMetadata = { ...readGatewayMetadata(locked.gatewayMetadata), statusResult: status.providerData ?? null }
+        locked.lastPolledAt = polledAt
+        await tx.flush()
+        return { applied: true, previousStatus: lockedStatus }
+      })
+
+      if (!outcome.applied) {
+        await stampLastPolledAt(transaction, polledAt)
+        return status
+      }
+
+      try {
+        await findTransactionOrThrow(transactionId, scope, em, { refresh: true })
+      } catch (refreshError) {
+        logger.warn('Failed to re-read transaction after a polled status update', {
+          transactionId,
+          providerKey: transaction.providerKey,
+          err: refreshError,
+        })
+        reportErrorSafely(refreshError, 'payment_gateways.poll_status_reread_failed')
+      }
+      await emitStatusEvent(status.status, {
+        transactionId: transaction.id,
+        paymentId: transaction.paymentId,
+        providerKey: transaction.providerKey,
+        previousStatus: outcome.previousStatus,
+        organizationId: transaction.organizationId,
+        tenantId: transaction.tenantId,
+      })
+      await writeTransactionLog(
+        transaction.providerKey,
+        { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
+        transaction.id,
+        'info',
+        'Payment status updated by poller',
+        {
+          previousStatus: outcome.previousStatus,
+          nextStatus: status.status,
+        },
+      )
 
       return status
     },

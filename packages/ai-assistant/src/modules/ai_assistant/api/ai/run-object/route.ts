@@ -1,19 +1,33 @@
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
-import type { UIMessage } from 'ai'
+import { NoObjectGeneratedError, NoOutputGeneratedError, type UIMessage } from 'ai'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { loadAgentRegistry } from '../../../lib/agent-registry'
+import { getAgent, loadAgentRegistry } from '../../../lib/agent-registry'
 import { checkAgentPolicy, type AgentPolicyDenyCode } from '../../../lib/agent-policy'
 import { runAiAgentObject } from '../../../lib/agent-runtime'
 import { AgentPolicyError } from '../../../lib/agent-tools'
+import { AiModelFactoryError } from '../../../lib/model-factory'
+import { aiAgentHttpCallSettingsSchema } from '../../../lib/agent-call-contract'
+import { CORRELATION_ID_HEADER, resolveCorrelationId } from '../../../lib/mcp-audit'
+import { reportAiAssistantError } from '../../../lib/report-ai-assistant-error'
+import {
+  isAiAgentDispatchDeniedError,
+  resolveAiAgentRunDispatcher,
+  resolveDispatchOwner,
+  type AiAgentRunDispatchCaller,
+  type AiAgentRunDispatcher,
+} from '../../../lib/agent-run-dispatcher'
 
 const logger = createLogger('ai_assistant')
 
 const MAX_MESSAGES = 100
+
+const DISPATCH_TIMEOUT_MS = 120_000
 
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
@@ -43,6 +57,20 @@ const runObjectRequestSchema = z.object({
   attachmentIds: z.array(z.string()).optional(),
   pageContext: pageContextSchema.optional(),
   modelOverride: z.string().optional(),
+  callSettings: aiAgentHttpCallSettingsSchema.optional(),
+})
+
+const runObjectResponseSchema = z.object({
+  runId: z.string().uuid().nullable(),
+  agentRunId: z.string().nullable().optional(),
+  object: z.unknown(),
+  finishReason: z.string().optional(),
+  usage: z
+    .object({
+      inputTokens: z.number().optional(),
+      outputTokens: z.number().optional(),
+    })
+    .optional(),
 })
 
 export type AiRunObjectRequest = z.infer<typeof runObjectRequestSchema>
@@ -59,28 +87,36 @@ export const openApi: OpenApiRouteDoc = {
         '(matching "<module>.<agent>"). Enforces the same `requiredFeatures`, tool whitelisting, ' +
         'mutationPolicy, and attachment media-type policy as the chat dispatcher, but additionally ' +
         'requires the agent to declare `executionMode: "object"`. Returns the generated object in ' +
-        'a single JSON response (no streaming).',
+        'a single JSON response (no streaming). Agents owned by a registered agent run dispatcher ' +
+        '(for example agent orchestrator agents) are delegated to it: the response then carries ' +
+        '`runId: null` and the dispatcher run id in `agentRunId`. Dispatched agents do not accept ' +
+        '`attachmentIds`, `pageContext`, or `modelOverride`; a request setting any of them is rejected ' +
+        'with 422 `dispatch_option_unsupported`.',
       requestBody: {
         contentType: 'application/json',
         description:
-          'Object-mode dispatch payload. `agent` and `messages` are required; `attachmentIds`, `pageContext`, and `modelOverride` are optional.',
+          'Object-mode dispatch payload. `agent` and `messages` are required; `attachmentIds`, `pageContext`, `modelOverride`, and `callSettings` are optional. Unknown `callSettings` keys (including `providerOptions`) and values outside the documented caps (temperature 0–2, topP 0–1, topK 1–1000, maxOutputTokens 1–32768, at most 4 stopSequences of up to 64 characters, penalties -2–2) are rejected with 400.',
         schema: runObjectRequestSchema,
       },
       responses: [
         {
           status: 200,
-          description: 'Object-mode run completed; response body contains `{ object, usage?, finishReason? }`.',
+          description:
+            'Object-mode run completed; response body contains `{ runId, object, usage?, finishReason? }`, plus `agentRunId` (with `runId: null`) when a dispatcher ran the agent.',
           mediaType: 'application/json',
+          schema: runObjectResponseSchema,
         },
       ],
       errors: [
-        { status: 400, description: 'Malformed payload or message cap exceeded.' },
+        { status: 400, description: 'Malformed payload or message cap exceeded, or `callSettings` sent to an agent declaring `allowRuntimeOverride: false` (`runtime_override_disabled`).' },
         { status: 401, description: 'Unauthenticated caller.' },
         { status: 403, description: 'Caller lacks agent-level or tool-level required features.' },
         { status: 404, description: 'Unknown agent id.' },
-        { status: 409, description: 'Agent/tool/execution-mode policy violation.' },
-        { status: 422, description: 'Agent does not support object-mode execution.' },
+        { status: 409, description: 'Agent/tool/execution-mode policy violation, or no principal to run a dispatched agent as.' },
+        { status: 422, description: 'Agent does not support object-mode execution, or a dispatched agent received an unsupported option (`dispatch_option_unsupported`).' },
         { status: 500, description: 'Internal runtime failure.' },
+        { status: 502, description: 'The model answered, but its answer did not match the agent\'s output schema, or the tool loop ended without a final answer (`structured_output_invalid`). Retrying may succeed.' },
+        { status: 503, description: 'No usable LLM provider is configured for this deployment (`no_provider_configured` / `api_key_missing`).' },
       ],
     },
   },
@@ -114,9 +150,121 @@ function statusForDenyCode(code: AgentPolicyDenyCode): number {
     case 'mutation_blocked_by_policy':
       return 409
     case 'attachment_type_not_accepted':
+    case 'runtime_override_disabled':
       return 400
     default:
       return 409
+  }
+}
+
+type StructuredOutputFailure = { errorName: string; finishReason: string | null }
+
+function findStructuredOutputFailure(error: unknown): StructuredOutputFailure | null {
+  const candidates = [error, error instanceof Error ? error.cause : undefined]
+  for (const candidate of candidates) {
+    if (NoObjectGeneratedError.isInstance(candidate)) {
+      return { errorName: candidate.name, finishReason: candidate.finishReason ?? null }
+    }
+    if (NoOutputGeneratedError.isInstance(candidate)) {
+      return { errorName: candidate.name, finishReason: null }
+    }
+  }
+  return null
+}
+
+type RunObjectAuth = NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>
+
+type RunObjectMessage = z.infer<typeof chatMessageSchema>
+
+function buildDispatchInput(messages: RunObjectMessage[]): unknown {
+  if (messages.length === 1 && messages[0].role === 'user') return messages[0].content
+  return messages
+}
+
+function buildDispatchCaller(
+  auth: RunObjectAuth,
+  acl: { features: string[]; isSuperAdmin: boolean },
+): AiAgentRunDispatchCaller | null {
+  if (!auth.tenantId || !auth.orgId) return null
+  const apiKeyId = auth.isApiKey ? (auth.keyId ?? null) : null
+  const userId = auth.isApiKey ? (auth.userId ?? null) : auth.sub
+  if (!apiKeyId && !userId) return null
+  return {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId,
+    userId,
+    apiKeyId,
+    features: acl.features,
+    isSuperAdmin: acl.isSuperAdmin,
+  }
+}
+
+function hasUnsupportedDispatchOption(body: AiRunObjectRequest): boolean {
+  return Boolean(body.attachmentIds?.length) || body.pageContext !== undefined || Boolean(body.modelOverride)
+}
+
+function unsupportedDispatchOptionResponse(): NextResponse {
+  return jsonError(422, 'This agent does not support the requested options.', 'dispatch_option_unsupported')
+}
+
+function principalMissingResponse(): NextResponse {
+  return jsonError(409, 'No principal is available to run this agent.', 'agent_principal_missing')
+}
+
+async function dispatchRunObject(params: {
+  dispatcher: AiAgentRunDispatcher
+  agentId: string
+  body: AiRunObjectRequest
+  auth: RunObjectAuth
+  acl: { features: string[]; isSuperAdmin: boolean }
+  knownLocally: boolean
+  correlationId: string
+}): Promise<NextResponse> {
+  const { dispatcher, agentId, body, auth, acl, knownLocally, correlationId } = params
+  if (knownLocally) {
+    const decision = checkAgentPolicy({
+      agentId,
+      authContext: { userFeatures: acl.features, isSuperAdmin: acl.isSuperAdmin },
+      requestedExecutionMode: 'object',
+      attachmentMediaTypes: undefined,
+    })
+    if (!decision.ok) {
+      return jsonError(statusForDenyCode(decision.code), decision.message, decision.code)
+    }
+  }
+  if (!(await dispatcher.isAvailable(agentId))) {
+    return jsonError(404, `Agent "${agentId}" is not registered.`, 'agent_unknown')
+  }
+  if (hasUnsupportedDispatchOption(body)) {
+    return unsupportedDispatchOptionResponse()
+  }
+  const caller = buildDispatchCaller(auth, acl)
+  if (!caller) return principalMissingResponse()
+  try {
+    const dispatched = await dispatcher.runObject({
+      agentId,
+      input: buildDispatchInput(body.messages),
+      caller,
+      channel: 'run-object',
+      via: 'route',
+      correlationId,
+      ...(body.callSettings ? { callSettings: body.callSettings } : {}),
+      timeoutMs: DISPATCH_TIMEOUT_MS,
+    })
+    return NextResponse.json({
+      runId: null,
+      agentRunId: dispatched.agentRunId,
+      object: dispatched.result,
+      finishReason: dispatched.finishReason ?? undefined,
+      usage: dispatched.usage,
+    })
+  } catch (error) {
+    if (isAiAgentDispatchDeniedError(error)) {
+      if (error.code === 'agent_principal_missing') return principalMissingResponse()
+      if (error.code === 'agent_call_settings_unsupported') return unsupportedDispatchOptionResponse()
+      return jsonError(403, 'Access to this agent is denied.', 'agent_features_denied')
+    }
+    throw error
   }
 }
 
@@ -150,6 +298,22 @@ export async function POST(req: NextRequest): Promise<Response> {
       organizationId: auth.orgId,
     })
 
+    const agentId = bodyResult.data.agent
+    const correlationId = resolveCorrelationId(req.headers.get(CORRELATION_ID_HEADER))
+    const dispatcher = resolveAiAgentRunDispatcher(container)
+    const knownLocally = Boolean(getAgent(agentId))
+    if (dispatcher && (await resolveDispatchOwner(dispatcher, agentId, { knownLocally }))) {
+      return await dispatchRunObject({
+        dispatcher,
+        agentId,
+        body: bodyResult.data,
+        auth,
+        acl,
+        knownLocally,
+        correlationId,
+      })
+    }
+
     const decision = checkAgentPolicy({
       agentId: bodyResult.data.agent,
       authContext: {
@@ -170,6 +334,11 @@ export async function POST(req: NextRequest): Promise<Response> {
       attachmentIds: bodyResult.data.attachmentIds,
       pageContext: bodyResult.data.pageContext,
       modelOverride: bodyResult.data.modelOverride,
+      callSettings: bodyResult.data.callSettings,
+      trace: {
+        channel: 'run-object',
+        correlationId,
+      },
       authContext: {
         tenantId: auth.tenantId ?? null,
         organizationId: auth.orgId ?? null,
@@ -189,6 +358,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
 
     return NextResponse.json({
+      runId: result.runId,
       object: result.object,
       finishReason: result.finishReason,
       usage: result.usage,
@@ -196,6 +366,30 @@ export async function POST(req: NextRequest): Promise<Response> {
   } catch (error) {
     if (error instanceof AgentPolicyError) {
       return jsonError(statusForDenyCode(error.code), error.message, error.code)
+    }
+    if (error instanceof AiModelFactoryError) {
+      return jsonError(503, 'No LLM provider is configured for this deployment.', error.code)
+    }
+    const structuredOutputFailure = findStructuredOutputFailure(error)
+    if (structuredOutputFailure) {
+      const agentId = bodyResult.data.agent
+      const { errorName, finishReason } = structuredOutputFailure
+      logger.warn('AI Run Object — model answer did not match the output schema', {
+        agentId,
+        errorName,
+        finishReason,
+      })
+      reportAiAssistantError(
+        new Error(`[internal] run-object structured output invalid (${errorName})`),
+        'ai_assistant.run_object_output_invalid',
+        { agentId, errorName },
+      )
+      const { t } = await resolveTranslations()
+      return jsonError(
+        502,
+        t('ai_assistant.errors.structuredOutputInvalid'),
+        'structured_output_invalid',
+      )
     }
     logger.error('AI Run Object — Dispatch failure', { err: error })
     return jsonError(

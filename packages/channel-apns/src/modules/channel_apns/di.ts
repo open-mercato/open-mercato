@@ -1,3 +1,5 @@
+import { validateAdapterCapabilities } from '@open-mercato/core/modules/communication_channels/lib/adapter-compat'
+import { defineProcessDiRegistrar, registerProcessActivation } from '@open-mercato/shared/lib/di/process-registrar'
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
@@ -8,15 +10,21 @@ import { getApnsChannelAdapter } from './lib/adapter'
 import { ensureApnsFakeProviderInstalled } from './lib/fake-provider'
 import { channelApnsHealthCheck } from './lib/health'
 
-export function register(container: AppContainer): void {
+function registerWithActivation(container: AppContainer, activate: (callback: () => void, validate?: () => void) => void) {
   // Test-only: swap @parse/node-apn for a network-free fake when `OM_PUSH_FAKE_PROVIDERS` is set
   // (no-op in production), so integration specs exercise this adapter end-to-end. Swaps the SDK
   // client only — the adapter below stays registered. See lib/fake-provider.ts.
-  ensureApnsFakeProviderInstalled()
+  activate(() => {
+    ensureApnsFakeProviderInstalled()
+  })
 
-  if (!hasChannelAdapter('apns')) {
-    registerChannelAdapter(getApnsChannelAdapter())
-  }
+  activate(() => {
+    if (!hasChannelAdapter('apns')) {
+      registerChannelAdapter(getApnsChannelAdapter())
+    }
+  }, () => {
+    if (!hasChannelAdapter('apns')) validateAdapterCapabilities(getApnsChannelAdapter())
+  })
   container.register({
     channelApnsAdapter: asValue(getApnsChannelAdapter()),
     // Registered under the exact service name declared in `integration.ts`
@@ -24,3 +32,11 @@ export function register(container: AppContainer): void {
     channelApnsHealthCheck: asValue(channelApnsHealthCheck),
   })
 }
+
+export function register(container: AppContainer): void {
+  registerWithActivation(container, (activate) => activate())
+}
+
+defineProcessDiRegistrar((container: AppContainer) => {
+  registerWithActivation(container, (activate, validate) => registerProcessActivation(container, activate, validate))
+}, { legacy: register })

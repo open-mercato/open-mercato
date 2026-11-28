@@ -17,6 +17,7 @@ import {
   mapAgentWindowMetrics,
   formatNumber,
   type AgentDetailView,
+  type AgentPrincipalView,
   type SkillDetailView,
   type AgentWindowMetricsView,
 } from '../../../components/types'
@@ -31,11 +32,13 @@ import { ActivityTab } from './components/ActivityTab'
 import { ConfigurationTab } from './components/ConfigurationTab'
 import EvaluationTab from './components/EvaluationTab'
 import { FilesTab } from './components/FilesTab'
+import { AgentIntegrityRulesSection } from './components/AgentIntegrityRulesSection'
+import { AgentAccessSection } from './components/AgentAccessSection'
 import { TokenCalculatorTab } from './components/TokenCalculatorTab'
 import { computeAgentMetrics, computeRuntimeTokens, type Autonomy, type WorkspaceTab } from './components/workspaceShared'
 
 type PageState = 'loading' | 'notFound' | 'forbidden' | 'error' | 'ready'
-type EvalSection = 'assertions' | 'cases' | 'runs'
+type EvalSection = 'assertions' | 'cases' | 'runs' | 'regressions'
 
 const TAB_IDS: WorkspaceTab[] = ['overview', 'activity', 'evaluation', 'configuration', 'files', 'tokens']
 
@@ -57,7 +60,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
   })()
   const initialSection = ((): EvalSection => {
     const raw = searchParams?.get('section')
-    return raw === 'assertions' || raw === 'cases' || raw === 'runs' ? raw : 'assertions'
+    return raw === 'assertions' || raw === 'cases' || raw === 'runs' || raw === 'regressions' ? raw : 'assertions'
   })()
 
   const [state, setState] = React.useState<PageState>('loading')
@@ -129,6 +132,9 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     blockedMessage: t('agent_orchestrator.proposal.flash.blocked'),
   })
   const [savingIcon, setSavingIcon] = React.useState(false)
+  const updatePrincipal = React.useCallback((principal: AgentPrincipalView | null) => {
+    setAgent((prev) => (prev ? { ...prev, principal } : prev))
+  }, [])
   const [savingTags, setSavingTags] = React.useState(false)
 
   const updateIcon = React.useCallback(
@@ -249,10 +255,11 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     return <Page><PageBody><ErrorMessage label={t('agent_orchestrator.agentDetail.error')} /></PageBody></Page>
   }
 
-  // File-defined (opencode) agents surface a read-only Files browser + a Token
-  // calculator in place of Configuration; native agents keep Configuration and
-  // get neither. `activeValue` guards against a stale `?tab=` from the other set.
-  const fileDefined = agent.runtime === 'opencode'
+  // File-defined agents surface a read-only Files browser + a Token calculator in
+  // place of Configuration, whatever runtime they execute on; code agents keep
+  // Configuration and get neither. `activeValue` guards against a stale `?tab=`
+  // from the other set.
+  const fileDefined = agent.source === 'file'
   const allowedTabs: WorkspaceTab[] = fileDefined
     ? ['overview', 'activity', 'evaluation', 'files', 'tokens']
     : ['overview', 'activity', 'evaluation', 'configuration']
@@ -311,7 +318,13 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
           </TabsContent>
           {fileDefined ? (
             <>
-              <TabsContent value="files" className="pt-4">
+              <TabsContent value="files" className="space-y-4 pt-4">
+                {agent.integrityRules.length || agent.principal ? (
+                  <div className="grid items-start gap-4 lg:grid-cols-2">
+                    <AgentIntegrityRulesSection agent={agent} />
+                    <AgentAccessSection principal={agent.principal} agentId={agent.id} onPrincipalChange={updatePrincipal} />
+                  </div>
+                ) : null}
                 <FilesTab agentId={agent.id} agent={agent} active={activeValue === 'files'} />
               </TabsContent>
               <TabsContent value="tokens" className="pt-4">
@@ -320,7 +333,12 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             </>
           ) : (
             <TabsContent value="configuration" className="pt-4">
-              <ConfigurationTab agent={agent} runtimeTokens={runtimeTokens} onSkillClick={setActiveSkill} />
+              <ConfigurationTab
+                agent={agent}
+                runtimeTokens={runtimeTokens}
+                onSkillClick={setActiveSkill}
+                onPrincipalChange={updatePrincipal}
+              />
             </TabsContent>
           )}
         </Tabs>

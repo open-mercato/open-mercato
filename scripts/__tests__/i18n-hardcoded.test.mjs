@@ -184,6 +184,37 @@ test('scanText flags English NextResponse.json / Response.json error bodies once
   )
 })
 
+test('scanText flags bare json error literals and preserves call boundaries', () => {
+  const text = [
+    "return json({ error: 'Failed to create record' }, { status: 400 })",
+    'return json({ error: "Failed to update record" })',
+    'return json({ error: `Unknown record ${recordId}` })',
+    "return json({ error: '[internal] Storage not ready' })",
+    "return json({ error: t('crud.errors.create') })",
+    "return json({ error: translate('crud.errors.create', 'Failed to create record') })",
+    'return json({ error: message })',
+    "return json({ error: 'crud.errors.create' })",
+    "return json({ error: 'Unauthorized' })",
+    "return json({ ok: false, error: 'Not a leading key' })",
+    "return other.json({ error: 'Unrelated object method' })",
+    "return other?.json({ error: 'Unrelated optional method' })",
+    "return customjson({ error: 'Unrelated function name' })",
+    "return $json({ error: 'Unrelated dollar function' })",
+    "return _json({ error: 'Unrelated underscore function' })",
+    "return CustomResponse.json({ error: 'Unrelated response class' })",
+  ].join('\n')
+
+  const findings = scanText(text, { file: 'lib/crud/factory.ts' })
+  assert.deepEqual(
+    findings.map((finding) => `${finding.kind}:${finding.line}:${finding.value}`),
+    [
+      'json-error-response:1:Failed to create record',
+      'json-error-response:2:Failed to update record',
+      'json-error-response:3:Unknown record ${recordId}',
+    ],
+  )
+})
+
 test('allowlist kind filter applies to the CrudHttpError and JSON error body kinds', () => {
   const matchers = buildAllowlistMatchers({
     entries: [{ kind: HARDCODED_KINDS.jsonErrorResponse, reason: 'machine-facing webhook endpoint' }],

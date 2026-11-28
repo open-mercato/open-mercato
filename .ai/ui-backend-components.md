@@ -119,7 +119,7 @@ function DealsOverview({ stats, loading }: { stats: DealStats | null; loading: b
 3. Always pass `loading` and `error` through to the component instead of conditionally rendering your own spinner/error markup.
 4. `Sparkline` requires `ariaLabel` — pass a translated description.
 
-**Reference call site:** `packages/core/src/modules/customers/components/DealsKpiStrip.tsx` (KpiCard) and `packages/core/src/modules/customers/components/detail/dashboard/helpers.ts` (charts).
+**Reference call site:** `packages/core/src/modules/customers/components/detail/CompanyKpiBar.tsx` (KpiCard) and `packages/core/src/modules/customers/components/detail/dashboard/helpers.ts` (charts).
 
 ---
 
@@ -456,7 +456,7 @@ Small helpers for DataTable columns and row menus.
 
 | Export | Import | Purpose |
 |---|---|---|
-| `RowActions`, `RowActionItem` | `@open-mercato/ui/backend/RowActions` | Per-row "…" menu: `items: { id?, label, onSelect?, href?, destructive? }[]` |
+| `RowActions`, `RowActionItem` | `@open-mercato/ui/backend/RowActions` | Per-row "…" menu: `items: { id?, label, icon?, onSelect?, href?, destructive? }[]` |
 | `TruncatedCell` | `@open-mercato/ui/backend/TruncatedCell` | Truncate + tooltip: `maxWidth?`, `tooltipContent?`, `disabled?`. DataTable applies it automatically from column `meta.truncate`/`meta.maxWidth` — import directly only outside DataTable |
 | `BooleanIcon` | `@open-mercato/ui/backend/ValueIcons` | Check/x icon for boolean cells (`value`, `trueLabel`/`falseLabel`) |
 | `EnumBadge`, `EnumBadgeMap` | `@open-mercato/ui/backend/ValueIcons` | Badge per enum value: `value`, `map: Record<string, { label, className?, icon? }>`, `fallback?` |

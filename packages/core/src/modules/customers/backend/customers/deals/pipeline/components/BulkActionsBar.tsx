@@ -10,10 +10,10 @@ import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 type BulkActionsBarProps = {
   count: number
   totalLabel: string | null
-  onChangeStage: () => void
-  onChangeOwner: () => void
+  onChangeStage?: () => void
+  onChangeOwner?: () => void
   onExportCsv: () => void
-  onDelete: () => void
+  onDelete?: () => void
   onClear: () => void
 }
 
@@ -88,7 +88,6 @@ export function BulkActionsBar({
       </span>
       {totalLabel ? (
         <span className="hidden text-sm text-background/80 sm:inline">
-          ·{' '}
           {translateWithFallback(
             t,
             'customers.deals.kanban.bulk.totalValue',
@@ -99,7 +98,7 @@ export function BulkActionsBar({
       ) : null}
 
       <div className="ml-auto flex items-center gap-1">
-        <Button
+        {onChangeStage ? <Button
           variant="ghost"
           size="sm"
           type="button"
@@ -114,8 +113,8 @@ export function BulkActionsBar({
               'Change stage',
             )}
           </span>
-        </Button>
-        <Button
+        </Button> : null}
+        {onChangeOwner ? <Button
           variant="ghost"
           size="sm"
           type="button"
@@ -130,7 +129,7 @@ export function BulkActionsBar({
               'Change owner',
             )}
           </span>
-        </Button>
+        </Button> : null}
         <Button
           variant="ghost"
           size="sm"
@@ -147,7 +146,7 @@ export function BulkActionsBar({
             )}
           </span>
         </Button>
-        <Button
+        {onDelete ? <Button
           variant="destructive-ghost"
           size="sm"
           type="button"
@@ -162,7 +161,7 @@ export function BulkActionsBar({
               'Delete',
             )}
           </span>
-        </Button>
+        </Button> : null}
       </div>
     </div>
   )

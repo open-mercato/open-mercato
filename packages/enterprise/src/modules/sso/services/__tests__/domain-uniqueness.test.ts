@@ -7,6 +7,7 @@ import type { SsoProviderRegistry } from '../../lib/registry'
 import { HrdService } from '../hrdService'
 import { SsoConfigError, SsoConfigService, type SsoAdminScope } from '../ssoConfigService'
 import { SsoService } from '../ssoService'
+import type { SsoAuthorizationService } from '../ssoAuthorizationService'
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: jest.fn(),
@@ -72,6 +73,7 @@ function createConfigServiceContext(config: SsoConfig) {
       em as unknown as EntityManager,
       {} as unknown as TenantDataEncryptionService,
       registry as unknown as SsoProviderRegistry,
+      { assertConfiguration: jest.fn().mockResolvedValue('tenant-1') } as unknown as SsoAuthorizationService,
     ),
     em,
     txEm,

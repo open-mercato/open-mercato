@@ -476,4 +476,26 @@ describe('omnibus:backfill command', () => {
     expect(errorSpy).toHaveBeenCalled()
     expect(createRequestContainer).not.toHaveBeenCalled()
   })
+
+  it('prints one line and exits with code 1 when the configs module is not enabled', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => undefined)
+    const { createRequestContainer } = jest.requireMock('@open-mercato/shared/lib/di/container') as {
+      createRequestContainer: jest.Mock
+    }
+    const dispose = jest.fn(async () => undefined)
+    createRequestContainer.mockResolvedValueOnce({
+      resolve: (name: string) => {
+        if (name === 'moduleConfigService') throw new Error("Could not resolve 'moduleConfigService'.")
+        return {}
+      },
+      dispose,
+    })
+    await expect(command?.run(['--tenant', TENANT])).resolves.toBeUndefined()
+    expect(process.exitCode).toBe(1)
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(String(errorSpy.mock.calls[0][0])).toContain('configs module is not enabled')
+    expect(logSpy).not.toHaveBeenCalled()
+    expect(dispose).toHaveBeenCalledTimes(1)
+  })
 })

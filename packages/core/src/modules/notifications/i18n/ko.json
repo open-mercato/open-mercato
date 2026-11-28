@@ -17,6 +17,7 @@
   "notifications.error.actionCommandNotAllowed": "API로 생성한 알림 작업은 명령을 실행할 수 없습니다",
   "notifications.error.actionForbidden": "이 알림 작업을 실행할 권한이 없습니다",
   "notifications.error.load": "알림을 불러오지 못했습니다",
+  "notifications.error.markAllRead": "알림을 읽음으로 표시하지 못했습니다. 다시 시도해 주세요.",
   "notifications.filters.actionRequired": "조치 필요",
   "notifications.filters.all": "전체",
   "notifications.filters.unread": "읽지 않음",

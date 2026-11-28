@@ -1010,6 +1010,8 @@ Channel payloads can contain HTML (Slack rich-text, email MIME, future channel t
 
 **Canonical sanitizer**: `packages/core/src/modules/communication_channels/lib/sanitize-channel-html.ts`. The hub owns this `sanitize-html` allowlist. The server-side message-channel enricher applies it to email bodies and exposes `sanitizedHtml`; the client widget never imports the sanitizer or renders raw `channelPayload.html`.
 
+**Email body containment (#10614).** The sanitizer drops out-of-range inline font sizes, spacing, border widths, and corner radii. The widget confines painting to the email body and lets readers scroll wide email tables horizontally within it.
+
 **Image privacy (#7819)**: The sanitizer removes active network image sources before the HTML reaches a browser. Validated HTTP(S) URLs are stored in an inert `data-channel-remote-src` attribute, regenerated from `src` so a sender cannot forge it. Protocol-relative sources are normalized to HTTPS and deferred. Uncontrolled relative, CID, and unsupported schemes remain blocked. Safe base64 PNG, JPEG, GIF, and WebP images retain their source and render without a request; resolving attached CID images is outside this existing path.
 
 The email widget displays a translated privacy notice and **Load remote images** action only when deferred images exist. Explicit consent activates the validated URLs with `referrerPolicy="no-referrer"`. Consent is local to that message rendering and resets when the message ID or sanitized content changes. Opening another message or reopening the widget requires consent again. The raw payload, API fields, exported sanitizer signature, and database schema remain unchanged.
@@ -1022,6 +1024,7 @@ The email widget displays a translated privacy notice and **Load remote images**
 - Allowed tags (`<table>`, `<img src="data:image/png;…">`, `<a href="mailto:...">`) preserved verbatim
 - Integration test: post an HTML payload containing a malicious snippet through the inbound webhook → assert the rendered DOM in `/backend/messages/[id]` contains neither `<script>` nor any `on*` attribute
 - Image privacy regression: sanitizer and enricher tests assert no active remote `src` escapes to the browser, safe embedded raster images survive, and forged deferred attributes are removed. `TC-CHANNEL-EMAIL-032-remote-images.spec.ts` mounts the production widget and i18n provider in Chromium with server-sanitized HTML, intercepts image requests, and proves no request before consent, loading after consent, inline-image rendering, omitted referrers, and consent reset across messages/content changes. This component-browser test does not require seeded data or an application server.
+- Body containment regression: sanitizer tests check style limits and preservation of ordinary formatting. The browser fixture verifies that wide email tables scroll inside the message body without widening the page. `TC-CHANNEL-EMAIL-020.spec.ts` verifies the sanitized detail response and the inbox widget through the application routes.
 
 The email integration spec ([2026-05-21-email-integration-foundation.md](../2026-05-21-email-integration-foundation.md)) gates its Phase 1 acceptance on this helper being present in the hub.
 
@@ -1248,6 +1251,41 @@ communication_channels subscriber: channel-outbound-delivery
   ▼
 Channel delivers to external platform
 ```
+
+**Outbound routing safety (#9739):** Both the bridge and delivery command resolve
+one scoped conversation before selecting a destination. An existing outbound
+`MessageChannelLink` is the explicit mailbox choice and takes precedence over
+inherited source/parent fields. Without it, an external-conversation source and
+the parent's scoped channel link (or source) must agree. A send-as-user source
+identifies a channel, so its parent's link establishes the conversation. Native
+replies inheriting that source enter the bridge only when the existing `replyTo`
+event field matches the persisted parent; the original send-as-user compose
+continues through its dedicated queueing path.
+
+With no conversation provenance, exactly one tenant/organization/thread mapping
+is required. A claimed but missing, mismatched or conflicting conversation never
+falls back to another row. The mapped conversation and channel must agree,
+including provider and link channel type. Ambiguity produces `no_channel_link`
+and a structured routing-refusal diagnostic, without a provider call or new
+link. Terminal delivery links remain idempotent even after mappings disappear.
+The command repeats resolution from current records after queueing. Inputs,
+results, events, adapter contracts and database structure remain unchanged.
+
+Synthetic local regression coverage runs bridge → worker → command and Discord
+conversion, permutes mapping order before/after queueing, checks inbound and
+send-as-user parent provenance with/without a reply link, explicit selection,
+invalid scope/channel/provider records, ambiguity, single-mapping native sends,
+missing explicit mappings, and terminal delivery states.
+
+**Native replies to send-as-user email (#9071):** When the reply link lacks a
+recipient, delivery uses the reply's saved recipient and subject, and derives
+the RFC reply headers from the outbound parent link in the resolved conversation.
+The same lookup applies to retries of failed links. The worker retries when
+the parent is still in flight or its provider-native thread is still being adopted.
+Providers such as SMTP that retain an `outbound:` reference do not wait for
+adoption after the parent has been delivered. Regression coverage runs delivery
+through the Gmail and SMTP converters and checks that the adapter is skipped
+while the reply is waiting to retry.
 
 **Failure handling**: If `sendMessage` fails:
 - `MessageChannelLink.deliveryStatus = 'failed'`
@@ -2313,6 +2351,11 @@ None.
 ---
 
 ## Changelog
+
+- 2026-11-27: Require access to every mapped channel for Messages thread-wide access (#10612). The caller must own each personal mailbox mapped to the thread. Direct sender and recipient access follows the Messages participant rules. The reply command checks the delivery budget against the source conversation when available. `TC-CHANNEL-REPLY-003` covers the Messages detail route.
+- 2026-11-24: Keep SMTP-style replies deliverable when the parent retains its `outbound:` reference; wait only for adoption of provider-native references (#9071).
+- 2026-11-17: Resolve native outbound replies by scoped conversation provenance; refuse ambiguous/conflicting routes and retain explicit mailbox selection (#9739).
+- 2026-11-22: Supply recipient and RFC reply headers for native replies to send-as-user email (#9071).
 
 - 2026-10-29: Block channel-email remote image loads until per-message consent (#7819); preserve safe embedded raster images and add sanitizer, enricher, widget, and browser network-request regression coverage.
 

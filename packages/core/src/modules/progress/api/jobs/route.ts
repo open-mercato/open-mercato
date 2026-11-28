@@ -136,6 +136,7 @@ export async function GET(req: Request) {
   } else {
     orderBy.createdAt = 'DESC'
   }
+  orderBy.id = sortField && sortDir === 'asc' ? 'ASC' : 'DESC'
 
   const [rows, total] = await em.findAndCount(ProgressJob, filter as FilterQuery<ProgressJob>, {
     orderBy,

@@ -1,13 +1,10 @@
 /**
- * Defensive migration for legacy filterValues-shaped perspective records
- * (SPEC-048 / CRM filter Figma redesign Phase 3, Task 3.5).
+ * Deprecated `maybeMigrateLegacyFilterValues` helper, kept as a compatibility export.
  *
- * Production data is not known to use the legacy shape — `PerspectiveSettings.filters`
- * is `z.record(z.string(), z.unknown()).optional()` and existing CRM pages write only
- * advanced-filter URL params (tree shape). The helper is a safety net for old
- * imported saved-view JSON. It MUST:
+ * The perspectives read path no longer calls it (see perspectiveService.filters.test.ts),
+ * but its behaviour is unchanged for callers that still import it. It MUST:
  *   - pass through tree-shaped state unchanged (already a v2 advanced-filter tree)
- *   - drop legacy `FilterValues` records (we have no reliable mapping back to operators)
+ *   - drop legacy `FilterValues` records
  *   - pass through undefined / null filters unchanged
  */
 import { describe, it, expect, jest } from '@jest/globals'

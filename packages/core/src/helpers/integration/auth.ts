@@ -35,8 +35,14 @@ export const DEFAULT_CREDENTIALS: Record<string, { email: string; password: stri
     email: loadEnvValue('OM_INIT_SUPERADMIN_EMAIL') || 'superadmin@acme.com',
     password: loadEnvValue('OM_INIT_SUPERADMIN_PASSWORD') || 'secret',
   },
-  admin: { email: 'admin@acme.com', password: 'secret' },
-  employee: { email: 'employee@acme.com', password: 'secret' },
+  admin: {
+    email: loadEnvValue('OM_INIT_ADMIN_EMAIL') || 'admin@acme.com',
+    password: loadEnvValue('OM_INIT_ADMIN_PASSWORD') || 'secret',
+  },
+  employee: {
+    email: loadEnvValue('OM_INIT_EMPLOYEE_EMAIL') || 'employee@acme.com',
+    password: loadEnvValue('OM_INIT_EMPLOYEE_PASSWORD') || 'secret',
+  },
 };
 
 export type Role = 'superadmin' | 'admin' | 'employee';

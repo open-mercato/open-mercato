@@ -1,5 +1,6 @@
 import { Collection, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { DictionaryEntrySortMode } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import type { CalendarEventTypeBehavior } from '../calendar-event-types'
 
@@ -282,8 +283,11 @@ export class CustomerCompanyProfile {
   @Property({ name: 'size_bucket', type: 'text', nullable: true })
   sizeBucket?: string | null
 
-  @Property({ name: 'annual_revenue', type: 'numeric', precision: 16, scale: 2, nullable: true })
+  @Property({ name: 'annual_revenue', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   annualRevenue?: string | null
+
+  @Property({ name: 'tax_id', type: 'text', nullable: true })
+  taxId?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -335,7 +339,7 @@ export class CustomerDeal {
   @Property({ name: 'pipeline_stage_id', type: 'uuid', nullable: true })
   pipelineStageId?: string | null
 
-  @Property({ name: 'value_amount', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  @Property({ name: 'value_amount', type: ExactDecimalType, columnType: 'numeric', nullable: true })
   valueAmount?: string | null
 
   @Property({ name: 'value_currency', type: 'text', nullable: true })
@@ -970,7 +974,7 @@ export class CustomerDictionaryEntry {
 @Entity({ tableName: 'customer_pipelines' })
 @Index({ name: 'customer_pipelines_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 export class CustomerPipeline {
-  [OptionalProps]?: 'isDefault' | 'createdAt' | 'updatedAt'
+  [OptionalProps]?: 'isDefault' | 'stageProbabilitiesEnabled' | 'createdAt' | 'updatedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -986,6 +990,9 @@ export class CustomerPipeline {
 
   @Property({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean = false
+
+  @Property({ name: 'stage_probabilities_enabled', type: 'boolean', default: false })
+  stageProbabilitiesEnabled: boolean = false
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -1017,6 +1024,9 @@ export class CustomerPipelineStage {
 
   @Property({ name: 'position', type: 'int', default: 0 })
   order: number = 0
+
+  @Property({ name: 'default_probability', type: 'int', nullable: true })
+  defaultProbability?: number | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

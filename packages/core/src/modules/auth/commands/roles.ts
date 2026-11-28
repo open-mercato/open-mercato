@@ -412,7 +412,10 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
           if (nextName !== current.name) {
             const assignments = await em.count(UserRole, { role: current, deletedAt: null })
             if (assignments > 0) {
-              throw new CrudHttpError(400, { error: 'Role name cannot be changed while users are assigned' })
+              const { translate } = await resolveTranslations()
+              throw new CrudHttpError(400, {
+                error: translate('auth.roles.errors.nameChangeBlockedByAssignments', 'Role name cannot be changed while users are assigned'),
+              })
             }
           }
         }
@@ -423,7 +426,10 @@ const updateRoleCommand: CommandHandler<Record<string, unknown>, Role> = {
           }
           const assignments = await em.count(UserRole, { role: current, deletedAt: null })
           if (assignments > 0) {
-            throw new CrudHttpError(400, { error: 'Role cannot be moved to another tenant while users are assigned' })
+            const { translate } = await resolveTranslations()
+            throw new CrudHttpError(400, {
+              error: translate('auth.roles.errors.tenantMoveBlockedByAssignments', 'Role cannot be moved to another tenant while users are assigned'),
+            })
           }
         }
         if (wantsTenantChange) {

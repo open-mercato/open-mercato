@@ -195,6 +195,21 @@ describe('resolveCallApiRoleIds', () => {
     expect(calls.some((c) => c.entity === 'User' && c.filter.id === AUTHOR_ID)).toBe(false)
   })
 
+  test.each([null, ['customers.deals.view']])('a trigger marker uses only the definition grant (%j)', async (grantedFeatures) => {
+    setupCommonStubs({ grantedFeatures })
+
+    const result = await resolveCallApiRoleIds({}, {
+      id: 'inst-event',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      definitionId: DEFINITION_ID,
+      metadata: { initiatedBy: 'trigger:on-person' },
+    })
+
+    expect(result).toEqual(grantedFeatures ? ['role-granted'] : [])
+    expect(findOneCalls().some((call) => call.entity === 'User' && call.filter.id === AUTHOR_ID)).toBe(false)
+  })
+
   test('falls back to the definition author for event-triggered instances with no initiator', async () => {
     setupCommonStubs({ authorRoleIds: ['role-admin'] })
 

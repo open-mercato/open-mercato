@@ -47,6 +47,7 @@ const FIELD_DETAIL_KEYS: Array<keyof CustomFieldDefinition> = [
   'multi',
   'filterable',
   'formEditable',
+  'sectionOnly',
   'listVisible',
   'indexed',
   'encrypted',

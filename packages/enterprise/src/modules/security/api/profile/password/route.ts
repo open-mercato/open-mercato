@@ -55,7 +55,10 @@ export async function PUT(req: Request) {
   const parsed = changePasswordSchema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json(
-      { error: translate('api.errors.invalidPayload', 'Invalid payload.'), issues: parsed.error.issues },
+      await localizeSecurityApiBody({
+        error: translate('api.errors.invalidPayload', 'Invalid payload.'),
+        issues: parsed.error.issues,
+      }),
       { status: 400 },
     )
   }

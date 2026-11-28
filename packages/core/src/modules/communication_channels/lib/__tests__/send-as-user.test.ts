@@ -22,6 +22,7 @@ jest.mock('../queue', () => ({
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sendAsUser } from '../send-as-user'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
   ChannelThreadMapping,
   CommunicationChannel,
@@ -97,7 +98,7 @@ function makeContainer() {
       throw new Error(`unexpected resolve: ${name}`)
     },
   } as unknown as AppContainer
-  return { container, created }
+  return { container, created, commandBus }
 }
 
 const channel: Row = {
@@ -251,5 +252,39 @@ describe('sendAsUser: conversation of a follow-up send', () => {
     const mapping = created.find((row) => row.entity === ChannelThreadMapping)
     expect(mapping?.data.externalThreadRef).toBe(`outbound:${THREAD}`)
     expect(createdLink(created)?.externalConversationId).toBe(conversation?.data.id)
+  })
+})
+
+describe('sendAsUser external email admission', () => {
+  beforeEach(() => {
+    mockFindOne.mockReset()
+    enqueue.mockClear()
+  })
+
+  it('carries all to/cc/bcc recipients into the existing compose boundary', async () => {
+    const { container, commandBus } = makeContainer()
+    primeStore({ channels: [channel], conversations: [], mappings: [], links: [] })
+    await sendAsUser(container, actor, { ...input, cc: ['copy@example.com'], bcc: ['hidden@example.com'] })
+    expect(commandBus.execute.mock.calls[0]).toEqual([
+      'messages.messages.compose',
+      expect.objectContaining({ input: expect.objectContaining({
+        sendViaEmail: false,
+        externalEmailRecipients: ['client@example.com', 'copy@example.com', 'hidden@example.com'],
+      }) }),
+    ])
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves budget429 and Retry-After before channel rows or delivery jobs exist', async () => {
+    const { container, created, commandBus } = makeContainer()
+    primeStore({ channels: [channel], conversations: [], mappings: [], links: [] })
+    const error = Object.assign(new CrudHttpError(429, { error: 'Budget exhausted' }), {
+      headers: new Headers({ 'Retry-After': '60' }),
+    })
+    commandBus.execute.mockRejectedValueOnce(error)
+    const result = await sendAsUser(container, actor, input)
+    expect(result).toMatchObject({ ok: false, status: 429, error: 'Budget exhausted', headers: { 'retry-after': '60' } })
+    expect(created).toHaveLength(0)
+    expect(enqueue).not.toHaveBeenCalled()
   })
 })

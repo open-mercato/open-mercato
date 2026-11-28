@@ -302,6 +302,8 @@ where the operator can get an exact one by opening the run.
 `retrySyncSchema` already accepts `fromBeginning: boolean` with a `false` default, and the route
 already resolves `null` for a from-scratch retry. The UI starts sending `true` for the first time; the
 endpoint needs no change to receive it. Per **D0** it does not gain a `supportsStartControl` check.
+Separately, the route now refuses a disabled integration with `409 integrationDisabled`
+(`.ai/specs/2026-10-22-data-sync-retry-disabled-integration.md`).
 
 ### `POST /api/data_sync/run` — unchanged
 

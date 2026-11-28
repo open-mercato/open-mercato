@@ -1,3 +1,6 @@
+import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
+import { relationOptionAccessKey, type RelationOptionAccess } from '@open-mercato/shared/lib/query/relationOptionAccess'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { asValue } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import {
@@ -26,9 +29,11 @@ import {
 } from './lib/time-tracking/billability'
 import {
   resolveTimesheetCapacity,
+  resolveTimesheetCapacityAsync,
   type CapacityContext,
   type CapacityDateRange,
   type CapacityResult,
+  type ResolvedCapacity,
 } from './lib/time-tracking/capacity'
 import {
   evaluateOverlapPolicies,
@@ -74,11 +79,17 @@ export type BillabilityResolverService = {
 }
 
 export type TimeCapacityResolver = {
+  /** @deprecated Synchronous; never consults a provider's `resolveAsync`. Use `resolveCapacityAsync`. */
   resolveCapacity(
     staffMemberId: string | null,
     dateRange: CapacityDateRange,
     ctx: CapacityContext,
   ): CapacityResult
+  resolveCapacityAsync?(
+    staffMemberId: string | null,
+    dateRange: CapacityDateRange,
+    ctx: CapacityContext,
+  ): Promise<ResolvedCapacity>
 }
 
 export type OverlapPolicyResolver = {
@@ -87,6 +98,28 @@ export type OverlapPolicyResolver = {
 
 export type ProjectCodeResolver = {
   generate(name: string, taken: Set<string>, ctx?: ProjectCodeContext | null): string
+}
+
+const timeEntryRelationAccess: RelationOptionAccess = async ({ auth, container, tenantId, organizationId }) => {
+  const { scopeTimeEntryList } = await import('./api/interceptors')
+  const scoped = await scopeTimeEntryList(undefined, {
+    userId: auth.sub,
+    tenantId,
+    organizationId,
+    container,
+    em: container.resolve<EntityManager>('em'),
+  })
+  if (!scoped.ok) return null
+  const { buildScopedTimeEntryListFilters } = await import('./api/timesheets/time-entries/route')
+  return {
+    filters: await buildScopedTimeEntryListFilters({ page: 1, pageSize: 50, staffMemberId: scoped.query?.staffMemberId }, {
+      auth: { ...auth, tenantId, orgId: organizationId },
+      container,
+      organizationScope: null,
+      selectedOrganizationId: organizationId,
+      organizationIds: [organizationId],
+    }),
+  }
 }
 
 export function register(container: AppContainer) {
@@ -98,12 +131,16 @@ export function register(container: AppContainer) {
   }
   const timeRateResolver: TimeRateResolverService = { resolveRate: resolveTimeRate }
   const timeBillabilityResolver: BillabilityResolverService = { resolveBillability }
-  const timeCapacityResolver: TimeCapacityResolver = { resolveCapacity: resolveTimesheetCapacity }
+  const timeCapacityResolver: TimeCapacityResolver = {
+    resolveCapacity: resolveTimesheetCapacity,
+    resolveCapacityAsync: resolveTimesheetCapacityAsync,
+  }
   const timeOverlapPolicyResolver: OverlapPolicyResolver = { evaluate: evaluateOverlapPolicies }
   const timeProjectCodeResolver: ProjectCodeResolver = {
     generate: (name, taken, ctx) => deriveProjectCode(name, taken, ctx ?? undefined),
   }
   container.register({
+    [relationOptionAccessKey('staff:staff_time_entry')]: asValue(timeEntryRelationAccess),
     availabilityAccessResolver: asValue(resolver),
     timeTrackingAccessResolver: asValue(timeTrackingResolver),
     timeRoundingResolver: asValue(timeRoundingResolver),
@@ -114,3 +151,5 @@ export function register(container: AppContainer) {
     timeProjectCodeResolver: asValue(timeProjectCodeResolver),
   })
 }
+
+defineProcessDiRegistrar(register)

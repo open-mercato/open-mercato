@@ -141,6 +141,63 @@ export class Message {
   externalEmailError?: string | null
 }
 
+@Entity({ tableName: 'message_external_recipient_days' })
+@Unique({
+  name: 'message_external_recipient_days_unique',
+  properties: ['tenantId', 'utcDay', 'recipientHash'],
+})
+export class MessageExternalRecipientDay {
+  [OptionalProps]?: 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'utc_day', type: 'text' })
+  utcDay!: string
+
+  @Property({ name: 'recipient_hash', type: 'text' })
+  recipientHash!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'message_external_email_windows' })
+@Unique({
+  name: 'message_external_email_windows_unique',
+  properties: ['scope', 'tenantId', 'subjectId', 'windowStart'],
+})
+export class MessageExternalEmailWindow {
+  [OptionalProps]?: 'count' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'scope', type: 'text' })
+  scope!: 'user' | 'tenant'
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'subject_id', type: 'uuid' })
+  subjectId!: string
+
+  @Property({ name: 'window_start', type: 'int' })
+  windowStart!: number
+
+  @Property({ name: 'count', type: 'int', default: 0 })
+  count: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 export type RecipientType = 'to' | 'cc' | 'bcc'
 export type RecipientStatus = 'unread' | 'read' | 'archived' | 'deleted'
 
@@ -297,4 +354,12 @@ export class MessageConfirmation {
   updatedAt: Date = new Date()
 }
 
-export default [Message, MessageRecipient, MessageObject, MessageAccessToken, MessageConfirmation]
+export default [
+  Message,
+  MessageRecipient,
+  MessageObject,
+  MessageAccessToken,
+  MessageConfirmation,
+  MessageExternalRecipientDay,
+  MessageExternalEmailWindow,
+]

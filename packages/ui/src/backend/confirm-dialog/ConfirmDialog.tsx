@@ -3,9 +3,12 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { useT } from "@open-mercato/shared/lib/i18n/context";
 import { Button } from "@open-mercato/ui/primitives/button";
+import { DialogFooter, DialogHeader } from "@open-mercato/ui/primitives/dialog";
 import { IconButton } from "../../primitives/icon-button";
 import { cn } from "@open-mercato/shared/lib/utils";
-import { Loader2, X } from "lucide-react";
+import { CircleHelp, Loader2, TriangleAlert, X } from "lucide-react";
+
+const FOOTER_ACTION_CLASS_NAME = "h-auto min-h-9 whitespace-normal py-1.5 text-center";
 
 export type ConfirmDialogProps = {
   /** Whether the dialog is open (controlled mode — used by useConfirmDialog) */
@@ -26,8 +29,14 @@ export type ConfirmDialogProps = {
   /** Cancel button label. Defaults to i18n "ui.dialogs.confirm.cancelText" ("Cancel").
    *  Pass `false` to hide the cancel button entirely. */
   cancelText?: string | false;
-  /** Visual variant — "destructive" renders the confirm button in red */
-  variant?: "default" | "destructive";
+  /** Visual variant per Figma `Status Modals [1.1]`:
+   *  - "default": neutral help badge, primary confirm
+   *  - "warning": amber warning badge, primary confirm — for risky actions that
+   *    lose no data
+   *  - "destructive": error badge and the `destructive-solid` confirm — the
+   *    point of no return for anything that deletes or discards data, including
+   *    unsaved edits */
+  variant?: "default" | "warning" | "destructive";
   /** Whether the confirm button shows a loading spinner.
    *  Useful for async onConfirm handlers (e.g., waiting for API response before closing). */
   loading?: boolean;
@@ -229,7 +238,7 @@ export function ConfirmDialog({
         // Mobile: bottom sheet
         "fixed inset-x-0 bottom-0 top-auto w-full",
         // Desktop: centered
-        "sm:inset-auto sm:mx-auto sm:my-auto sm:max-w-md sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
+        "sm:inset-auto sm:mx-auto sm:my-auto sm:max-w-sm sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2",
         // Animation with reduced motion support
         "motion-safe:open:animate-in motion-safe:open:fade-in-0 motion-safe:open:slide-in-from-bottom-4",
         "sm:motion-safe:open:slide-in-from-bottom-0 sm:motion-safe:open:zoom-in-95",
@@ -240,14 +249,12 @@ export function ConfirmDialog({
       <div
         role="document"
         className={cn(
-          // Panel container
-          "flex flex-col gap-4 rounded-t-2xl border-t bg-card p-6 text-foreground shadow-lg",
-          "sm:rounded-xl sm:border",
-          // Relative positioning for close button
-          "relative"
+          // Same shell as DialogContent: card surface, p-6, sheet on mobile, card on desktop
+          "relative flex flex-col gap-4 rounded-t-xl border-t bg-card p-6 text-foreground shadow-lg",
+          "sm:rounded-xl sm:border"
         )}
       >
-        {/* Close button */}
+        {/* Close button — mirrors DialogContent's auto close affordance */}
         <IconButton
           type="button"
           variant="ghost"
@@ -260,37 +267,38 @@ export function ConfirmDialog({
           <X className="h-4 w-4" />
         </IconButton>
 
-        {/* Title */}
-        <h2
-          id={titleId}
-          className={cn(
-            "text-sm font-medium leading-snug tracking-tight pr-6",
-            // Mobile: centered, Desktop: left-aligned
-            "text-center sm:text-left"
-          )}
+        {/* Header per Figma `Status Modals [1.1]`: status badge + title + description */}
+        <DialogHeader
+          className="pr-6"
+          leading={
+            variant === "default" ? (
+              <CircleHelp className="size-4" aria-hidden />
+            ) : (
+              <TriangleAlert className="size-4" aria-hidden />
+            )
+          }
+          leadingTone={variant === "destructive" ? "error" : variant === "warning" ? "warning" : "default"}
         >
-          {resolvedTitle}
-        </h2>
+          <h2 id={titleId} className="text-lg font-semibold leading-none tracking-tight">
+            {resolvedTitle}
+          </h2>
+          {text ? (
+            <p id={descriptionId} className="text-sm text-muted-foreground">
+              {text}
+            </p>
+          ) : null}
+        </DialogHeader>
 
-        {/* Description (optional) */}
-        {text && (
-          <p
-            id={descriptionId}
-            className="text-sm font-medium leading-snug text-muted-foreground"
-          >
-            {text}
-          </p>
-        )}
-
-        {/* Actions */}
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        {/* Footer per Figma `Modal Footer [1.1]` variant 1: 50/50 confirmation split,
+            stacked on phones, with labels that wrap instead of overflowing the card */}
+        <DialogFooter layout="equal" className="flex-col-reverse sm:flex-row">
           {resolvedCancelText !== false && (
             <Button
               ref={cancelButtonRef}
               variant="outline"
               onClick={handleCancel}
               disabled={loading}
-              className="w-full sm:w-auto"
+              className={FOOTER_ACTION_CLASS_NAME}
             >
               {resolvedCancelText}
             </Button>
@@ -301,13 +309,13 @@ export function ConfirmDialog({
               variant={variant === "destructive" ? "destructive-solid" : "default"}
               onClick={handleConfirm}
               disabled={loading}
-              className="w-full sm:w-auto"
+              className={FOOTER_ACTION_CLASS_NAME}
             >
               {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {resolvedConfirmText}
             </Button>
           )}
-        </div>
+        </DialogFooter>
       </div>
     </dialog>
   );

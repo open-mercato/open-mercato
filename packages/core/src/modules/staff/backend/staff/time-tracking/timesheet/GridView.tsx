@@ -88,6 +88,7 @@ import { DurationInput, formatTrimmedDecimalDuration } from '../../../../lib/tim
 import {
   readErrorCode,
   readErrorMessage,
+  readErrorStatus,
   readRejectedRowIndexes,
   isEntryLockedError,
 } from '../../../../lib/time-tracking-ui/timeEntryListData'
@@ -579,10 +580,12 @@ function DefaultGridView({
       await onSaved()
     } catch (error) {
       const rejectedKeys = bulkCommitted
-        ? taskChanges
-            .map(({ row, cell }) => cellKey(row.key, cell.date))
-            .filter((key) => !savedKeys.has(key))
-            .slice(0, 1)
+        ? readErrorStatus(error) === 403
+          ? taskChanges
+              .map(({ row, cell }) => cellKey(row.key, cell.date))
+              .filter((key) => !savedKeys.has(key))
+              .slice(0, 1)
+          : []
         : readRejectedRowIndexes(error)
             .map((index) => bulkKeys[index])
             .filter((key): key is string => typeof key === 'string')
@@ -712,7 +715,10 @@ function DefaultGridView({
       ) : null}
 
       <div className="isolate overflow-x-auto rounded-lg border">
-        <table className="w-full text-sm table-fixed" aria-busy={isLoading || undefined}>
+        <table
+          className={cn('w-full text-sm table-fixed', dense ? null : 'min-w-4xl')}
+          aria-busy={isLoading || undefined}
+        >
           <caption className="sr-only">
             {t(
               'staff.time_tracking.timesheet.grid.caption',

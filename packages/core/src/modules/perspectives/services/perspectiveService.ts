@@ -149,18 +149,16 @@ function isPerspectivesState(value: unknown): value is PerspectivesState {
 }
 
 /**
- * Defensive migration for legacy filter state shapes captured before the
- * advanced-filter tree (SPEC-048). Existing perspectives only store either
- * advanced-filter URL params (tree shape with `v:2` or a `root` key) or
- * undefined — this helper is a safety net for legacy `FilterValues`-shaped
- * records (flat key/value records of column filters) that could only appear
- * if old saved-view JSON were imported.
+ * @deprecated No longer called by the perspectives read path, which now returns
+ * `settings.filters` exactly as stored. DataTable decides per page whether a
+ * saved filter is a v2 advanced-filter tree or a flat `FilterValues` record, so
+ * stripping the flat shape on the server lost the filters of every view saved
+ * from a page using the legacy `FilterBar`. Kept unchanged for callers that
+ * import it; it will be removed in a future minor release. Use the stored
+ * settings directly instead.
  *
- * - Tree-shaped state (`v:2` or `root` key) is passed through unchanged.
- * - Undefined / null filters are passed through unchanged.
- * - Legacy `FilterValues`-shaped records are dropped (set to `undefined`)
- *   because there is no reliable mapping back to the new operator model;
- *   the user sees an empty tree and can recreate.
+ * Drops a flat `FilterValues`-shaped `filters` record, passing through tree-shaped
+ * state (`v:2` or a `root` key) and undefined / null filters unchanged.
  */
 export function maybeMigrateLegacyFilterValues(settings: PerspectiveSettings): PerspectiveSettings {
   const filters = settings.filters
@@ -173,7 +171,7 @@ export function maybeMigrateLegacyFilterValues(settings: PerspectiveSettings): P
 }
 
 function toResolvedPerspective(entity: Perspective): ResolvedPerspective {
-  const settings = maybeMigrateLegacyFilterValues((entity.settingsJson ?? {}) as PerspectiveSettings)
+  const settings = (entity.settingsJson ?? {}) as PerspectiveSettings
   return {
     id: entity.id,
     name: entity.name,
@@ -186,7 +184,7 @@ function toResolvedPerspective(entity: Perspective): ResolvedPerspective {
 }
 
 function toResolvedRolePerspective(entity: RolePerspective): ResolvedRolePerspective {
-  const settings = maybeMigrateLegacyFilterValues((entity.settingsJson ?? {}) as PerspectiveSettings)
+  const settings = (entity.settingsJson ?? {}) as PerspectiveSettings
   return {
     id: entity.id,
     roleId: entity.roleId,

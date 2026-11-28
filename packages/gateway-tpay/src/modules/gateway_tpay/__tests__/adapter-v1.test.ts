@@ -268,6 +268,25 @@ describe('tpayAdapterV1', () => {
       expect(result).toMatchObject({ status: 'pending', amount: 123.45, amountReceived: 100 })
     })
 
+    it.each([0, '0.00', -1])('keeps a settled transaction with amountPaid %p pending', async (amountPaid) => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ access_token: TOKEN }))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            transactionId: 'ta_unpaid',
+            status: 'paid',
+            amount: 123.45,
+            currency: 'PLN',
+            payments: { amountPaid },
+          }),
+        )
+      const result = await tpayAdapterV1.getStatus({
+        sessionId: 'ta_unpaid',
+        credentials: { clientId: 'client-id', clientSecret: CLIENT_SECRET, environment: 'sandbox' },
+      })
+      expect(result).toMatchObject({ status: 'pending', amount: 123.45 })
+    })
+
     it('defaults amount received to zero and maps unknown statuses', async () => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ access_token: TOKEN }))
@@ -308,9 +327,9 @@ describe('tpayAdapterV1', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('rejects webhook verification as unsupported', async () => {
+  it('delegates webhook verification to the Tpay notification handler', async () => {
     await expect(
       tpayAdapterV1.verifyWebhook({ rawBody: '{}', headers: {}, credentials: {} }),
-    ).rejects.toThrow('[internal] Tpay notifications are not supported yet')
+    ).rejects.toMatchObject({ name: 'TpayNotificationError', reason: 'unsupportedBody' })
   })
 })

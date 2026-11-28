@@ -42,6 +42,10 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: 'Insufficient permissions' }, { status: 403 })
   }
 
+  if (process.env.NODE_ENV?.trim().toLowerCase() === 'production') {
+    return NextResponse.json({ ok: true, items: [] })
+  }
+
   const em = container.resolve('em') as EntityManager
 
   // Emails are stored encrypted, so the seeded addresses are matched through the
@@ -128,7 +132,7 @@ const errorSchema = z.object({ ok: z.literal(false), error: z.string() })
 const getMethodDoc: OpenApiMethodDoc = {
   summary: 'List seeded demo portal accounts (admin)',
   description:
-    'Returns the example-data portal accounts that exist in the caller’s organization and can still be logged into with the credentials the seeding hook created them with. Accounts that were deactivated, left unverified, soft-deleted, or had their password changed are omitted, as is every account when example data was not seeded.',
+    'Returns the example-data portal accounts that exist in the caller’s organization and can still be logged into with the credentials the seeding hook created them with. Accounts that were deactivated, left unverified, soft-deleted, or had their password changed are omitted. Production and installations without seeded example data return an empty list.',
   tags: ['Customer Accounts Admin'],
   responses: [{
     status: 200,

@@ -7,9 +7,14 @@ import type {
   IndexableRecord,
 } from '../types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
-import type { VectorDriver, VectorDriverDocument } from '../vector/types'
+import type { VectorDriver, VectorDriverDocument, VectorDriverListParams } from '../vector/types'
 import { searchDebugWarn } from '../lib/debug'
 import { plaintextSearchFields } from '../lib/plaintext-fields'
+import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { decryptVectorResultFields } from '../vector/lib/result-decryption'
+
+/** @internal Marks an explicit vector opt-out returned by a configured source. */
+export const VECTOR_SOURCE_EXCLUDED = Symbol('vectorSourceExcluded')
 
 /**
  * Embedding service interface - minimal subset needed by VectorSearchStrategy.
@@ -25,6 +30,7 @@ export interface EmbeddingService {
 export type VectorStrategyConfig = {
   /** Default limit for search results */
   defaultLimit?: number
+  encryptionService?: TenantDataEncryptionService | null
 }
 
 function normalizeOrganizationIds(options: SearchOptions): string[] | null {
@@ -52,6 +58,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   }
 
   private readonly defaultLimit: number
+  private readonly encryptionService: TenantDataEncryptionService | null
   private ready = false
   private readyPromise: Promise<void> | null = null
 
@@ -61,6 +68,7 @@ export class VectorSearchStrategy implements SearchStrategy {
     config?: VectorStrategyConfig,
   ) {
     this.defaultLimit = config?.defaultLimit ?? 20
+    this.encryptionService = config?.encryptionService ?? null
   }
 
   async isAvailable(): Promise<boolean> {
@@ -119,24 +127,51 @@ export class VectorSearchStrategy implements SearchStrategy {
       filter,
     })
 
-    return results.map((hit) => ({
-      entityId: hit.entityId,
-      recordId: hit.recordId,
-      score: hit.score,
-      source: this.id,
-      organizationId: hit.organizationId ?? null,
-      presenter: hit.presenter ?? undefined,
-      url: hit.primaryLinkHref ?? hit.url ?? undefined,
-      links: hit.links?.map((link) => ({
-        href: link.href,
-        label: link.label ?? '',
-        kind: link.kind,
-      })),
-      metadata: hit.payload ?? undefined,
+    return Promise.all(results.map(async (hit) => {
+      const fields = await decryptVectorResultFields({
+        tenantId: options.tenantId,
+        organizationId: hit.organizationId ?? options.organizationId ?? null,
+        resultTitle: hit.resultTitle,
+        resultSubtitle: hit.resultSubtitle ?? null,
+        resultIcon: hit.resultIcon ?? null,
+        resultSnapshot: hit.resultSnapshot ?? null,
+        primaryLinkHref: hit.primaryLinkHref ?? null,
+        primaryLinkLabel: hit.primaryLinkLabel ?? null,
+        links: hit.links ?? null,
+        payload: hit.payload ?? null,
+      }, this.encryptionService)
+      const presenter = this.encryptionService?.isEnabled?.()
+        ? {
+          title: fields.resultTitle,
+          subtitle: fields.resultSubtitle ?? undefined,
+          icon: fields.resultIcon ?? undefined,
+          badge: hit.presenter?.badge ?? hit.resultBadge ?? undefined,
+        }
+        : hit.presenter ?? undefined
+      return {
+        entityId: hit.entityId,
+        recordId: hit.recordId,
+        score: hit.score,
+        source: this.id,
+        organizationId: hit.organizationId ?? null,
+        presenter,
+        url: fields.primaryLinkHref ?? hit.url ?? undefined,
+        links: (Array.isArray(fields.links) ? fields.links : undefined)?.map((link) => ({
+          href: link.href,
+          label: link.label ?? '',
+          kind: link.kind,
+        })),
+        metadata: (typeof fields.payload === 'object' ? fields.payload : undefined) ?? undefined,
+      }
     }))
   }
 
   async index(record: IndexableRecord): Promise<void> {
+    if (VECTOR_SOURCE_EXCLUDED in record) {
+      await this.delete(record.entityId as EntityId, record.recordId, record.tenantId)
+      return
+    }
+
     await this.ensureReady()
     // Use text from buildSource if available, otherwise fall back to generic extraction
     const textContent = record.text !== undefined
@@ -221,13 +256,7 @@ export class VectorSearchStrategy implements SearchStrategy {
   /**
    * List entries in the vector index (for admin/debugging).
    */
-  async listEntries(options: {
-    tenantId: string
-    organizationId?: string | null
-    entityId?: string
-    limit?: number
-    offset?: number
-  }): Promise<Array<{
+  async listEntries(options: VectorDriverListParams): Promise<Array<{
     entityId: string
     recordId: string
     tenantId: string
@@ -236,16 +265,7 @@ export class VectorSearchStrategy implements SearchStrategy {
     url?: string
   }>> {
     await this.ensureReady()
-    // Delegate to vector driver's list method if available
-    const listMethod = (this.vectorDriver as unknown as {
-      list?: (options: {
-        tenantId: string
-        organizationId?: string | null
-        entityId?: string
-        limit?: number
-        offset?: number
-      }) => Promise<unknown[]>
-    }).list
+    const listMethod = this.vectorDriver.list
 
     if (typeof listMethod === 'function') {
       const entries = await listMethod.call(this.vectorDriver, options)

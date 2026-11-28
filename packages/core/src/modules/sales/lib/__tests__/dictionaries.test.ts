@@ -2,6 +2,11 @@
 import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from '../dictionaries'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { buildRecordTag } from '@open-mercato/shared/lib/crud/cache'
+import type { EntityManager } from '@mikro-orm/postgresql'
+
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: (em: EntityManager, entity: never, where: never) => em.findOne(entity, where),
+}))
 
 jest.mock('@open-mercato/core/modules/dictionaries/data/entities', () => ({
   Dictionary: 'Dictionary',
@@ -90,6 +95,23 @@ describe('resolveDictionaryEntryValue tenant scoping (issue #2740)', () => {
     const value = await resolveDictionaryEntryValue(em, null, { tenantId: TENANT_A })
     expect(value).toBeNull()
     expect(findOne).not.toHaveBeenCalled()
+  })
+
+  it('rejects an entry in a sibling organization when organization scope is supplied', async () => {
+    const { em, findOne } = createEntityManager(rows)
+    expect(await resolveDictionaryEntryValue(em, 'entry-a', {
+      tenantId: TENANT_A, organizationId: 'org-other',
+    })).toBeNull()
+    expect(findOne).toHaveBeenCalledWith('DictionaryEntry', {
+      id: 'entry-a', tenantId: TENANT_A, organizationId: 'org-other',
+    })
+  })
+
+  it('resolves an entry in the supplied organization', async () => {
+    const { em } = createEntityManager(rows)
+    expect(await resolveDictionaryEntryValue(em, 'entry-a', {
+      tenantId: TENANT_A, organizationId: 'org-a',
+    })).toBe('Approved (A)')
   })
 })
 

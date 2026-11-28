@@ -6,7 +6,15 @@ import type { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import type { AgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkills'
 import { runSandboxedScript } from './lib/runtime/sandboxedScript'
-import { getCurrentRunId, getCurrentRunSource } from './lib/runtime/runContext'
+import { getCurrentRunId, getCurrentRunInvoker, getCurrentRunSource } from './lib/runtime/runContext'
+import { resolveActiveAgentId } from './lib/runtime/activeAgent'
+import {
+  AGENT_INVOKE_DENIED_CODE,
+  AGENT_PRINCIPAL_MISSING_CODE,
+  isAgentInvokeDeniedError,
+  isAgentPrincipalMissingError,
+} from './lib/runtime/errors'
+import { agentResultPayload } from './lib/runtime/agentResultPayload'
 import { webSearchTool, webFetchTool } from './lib/webSearch/tools'
 
 /** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
@@ -17,6 +25,12 @@ export const LOAD_SKILL_TOOL_ID = 'agent_orchestrator.load_skill'
 
 /** Tool id of the sandboxed skill-script / local-tool runner (Phase 5). */
 export const RUN_SKILL_SCRIPT_TOOL_ID = 'agent_orchestrator.run_skill_script'
+
+/** `delegate_agent` refusal: the call belongs to no active agent run. */
+export const DELEGATE_NO_ACTIVE_RUN_CODE = 'no_active_run'
+
+/** `delegate_agent` refusal: the target is not a declared sub-agent of the calling agent. */
+export const DELEGATE_SUB_AGENT_NOT_ALLOWED_CODE = 'sub_agent_not_allowed'
 
 const delegateInput = z.object({
   agentId: z.string().min(1).describe('Id of the sub-agent to run (must be a researcher agent).'),
@@ -66,6 +80,9 @@ async function resolveParentRunIdFromSession(ctx: McpToolContext): Promise<strin
  * one step; the SDK runs them concurrently). Propose-only is preserved:
  *
  *  - the tool is `isMutation: false` — never gated, never a write;
+ *  - the target MUST be one of the `subAgents` declared by the calling agent,
+ *    which is resolved server-side (`resolveActiveAgentId`) and never taken from
+ *    the model; a call with no resolvable parent run is refused (fail closed);
  *  - the target MUST be an `researcher` agent (sub-agents inform; only the
  *    parent proposes), so no nested proposals are created;
  *  - the target may NOT itself delegate (no `subAgents`), which caps tree depth
@@ -79,7 +96,7 @@ const delegateAgentTool: AiToolDefinition = {
   name: DELEGATE_TOOL_ID,
   displayName: 'Delegate to sub-agent',
   description:
-    'Run another agent as a read-only sub-agent and return its result. Only researcher, non-delegating agents may be targeted. Call multiple times in one step to fan out in parallel.',
+    'Run another agent as a read-only sub-agent and return its result. Only the current agent declared sub-agents (researcher, non-delegating) may be targeted. Call multiple times in one step to fan out in parallel.',
   inputSchema: delegateInput,
   requiredFeatures: ['agent_orchestrator.agents.run'],
   isMutation: false,
@@ -90,7 +107,15 @@ const delegateAgentTool: AiToolDefinition = {
       return { ok: false as const, agentId, error: 'missing tenant/org/user scope' }
     }
 
+    const parentAgentId = await resolveActiveAgentId(ctx.container, ctx.sessionId)
+    if (!parentAgentId) {
+      return { ok: false as const, agentId, error: DELEGATE_NO_ACTIVE_RUN_CODE }
+    }
     await ensureAgentsLoaded()
+    const parentEntry = getAgentEntry(parentAgentId)
+    if (!parentEntry || !parentEntry.subAgents.includes(agentId)) {
+      return { ok: false as const, agentId, error: DELEGATE_SUB_AGENT_NOT_ALLOWED_CODE }
+    }
     const entry = getAgentEntry(agentId)
     if (!entry) {
       return { ok: false as const, agentId, error: `unknown sub-agent "${agentId}"` }
@@ -113,6 +138,7 @@ const delegateAgentTool: AiToolDefinition = {
       // neither resolves (the nested run is then a top-level run).
       const parentRunId = getCurrentRunId() ?? (await resolveParentRunIdFromSession(ctx))
       const delegatedSource = getCurrentRunSource()
+      const parentInvoker = getCurrentRunInvoker()
       const result = await agentRuntime.run(agentId, input, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
@@ -125,18 +151,17 @@ const delegateAgentTool: AiToolDefinition = {
         // Inherit the parent's origin so an eval replay's sub-agent runs are not
         // counted as production traffic in the agent's metric rollups.
         ...(delegatedSource ? { source: delegatedSource } : {}),
+        ...(parentInvoker ? { invoker: parentInvoker } : {}),
+        entryPoint: 'delegate',
       })
-      // Whatever the sub-agent produced, handed back verbatim under its own key:
-      // the orchestrator reads a finding, an intent and a file list differently,
-      // and flattening them here would make them indistinguishable.
-      const data =
-        result.kind === 'research'
-          ? result.data
-          : result.kind === 'proposal'
-            ? result.proposal
-            : { artifacts: result.artifacts, summary: result.summary }
-      return { ok: true as const, agentId, data }
+      return { ok: true as const, agentId, data: agentResultPayload(result) }
     } catch (err) {
+      if (isAgentInvokeDeniedError(err)) {
+        return { ok: false as const, agentId, error: AGENT_INVOKE_DENIED_CODE }
+      }
+      if (isAgentPrincipalMissingError(err)) {
+        return { ok: false as const, agentId, error: AGENT_PRINCIPAL_MISSING_CODE }
+      }
       const message = err instanceof Error ? err.message : String(err)
       return { ok: false as const, agentId, error: message }
     }
@@ -257,9 +282,10 @@ const loadSkillInput = z.object({
  * skill's full content on demand AND carries TEMPLATE.md/examples that native
  * skills may not bundle.
  *
- * The allowed skill set is the ACTIVE agent's skills — resolved from the per-run
- * correlation store keyed by THIS run's session token (`ctx.sessionId`) — NEVER
- * trusted from the model. Outcomes:
+ * The allowed skill set is the ACTIVE agent's skills — resolved server-side from
+ * the native run context, or on the OpenCode path from the per-run correlation
+ * store keyed by THIS run's session token (`ctx.sessionId`) — NEVER trusted from
+ * the model. Outcomes:
  *
  *  - missing/stale correlation (no run for this session) → `{ ok:false, code:'no_active_run' }`.
  *  - skillId not registered for the active agent → `{ ok:false, code:'skill_not_allowed' }`.
@@ -278,14 +304,9 @@ const loadSkillTool: AiToolDefinition = {
   tags: ['read', 'agent_orchestrator'],
   async handler(rawInput, ctx) {
     const { skillId } = loadSkillInput.parse(rawInput)
-    const sessionToken = ctx.sessionId
-    if (!sessionToken) {
-      return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
-    }
-    const store = ctx.container.resolve('agentRunSessionStore') as AgentRunSessionStore
-    const agentId = await store.resolveActiveAgentId(sessionToken)
+    const agentId = await resolveActiveAgentId(ctx.container, ctx.sessionId)
     if (!agentId) {
-      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this call' }
     }
     // Populate the file-agent skill registry before resolving — on a fresh
     // process this tool can be the first agent_orchestrator call, so the
@@ -325,8 +346,9 @@ const runSkillScriptInput = z.object({
  * `scripts/<name>.ts` or a local tool file (carried under the synthetic
  * `__agent_tools__` skill id) — and return its value.
  *
- * The active agent + its allowed skill/script set are resolved server-side from
- * the per-run correlation store (`ctx.sessionId`) — NEVER trusted from the model.
+ * The active agent + its allowed skill/script set are resolved server-side (the
+ * native run context, or the OpenCode run's correlation store keyed by
+ * `ctx.sessionId`) — NEVER trusted from the model.
  * The script source runs in the Code Mode `isolated-vm` sandbox: no fs/net/
  * imports, a hard 30s cap, and per-call ACL via `requiredFeatures` + the session
  * token. A script is a pure function of its `args`, so this stays propose-only —
@@ -343,14 +365,9 @@ const runSkillScriptTool: AiToolDefinition = {
   tags: ['read', 'agent_orchestrator'],
   async handler(rawInput, ctx) {
     const { skillId, scriptName, args } = runSkillScriptInput.parse(rawInput)
-    const sessionToken = ctx.sessionId
-    if (!sessionToken) {
-      return { ok: false as const, code: 'no_active_run' as const, error: 'no run session in context' }
-    }
-    const store = ctx.container.resolve('agentRunSessionStore') as AgentRunSessionStore
-    const agentId = await store.resolveActiveAgentId(sessionToken)
+    const agentId = await resolveActiveAgentId(ctx.container, ctx.sessionId)
     if (!agentId) {
-      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this session' }
+      return { ok: false as const, code: 'no_active_run' as const, error: 'no active run for this call' }
     }
     // Populate the file-agent skill registry before resolving — on a fresh
     // process this tool can be the first agent_orchestrator call, so the

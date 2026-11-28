@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { aiTools } from '../ai-tools'
 import { DELEGATE_TOOL_ID, defineAgent } from '../lib/sdk/defineAgent'
+import { withRunContext } from '../lib/runtime/runContext'
 
 // A hung sub-agent tool (e.g. a wedged web_search browser navigation) must not
 // pin the orchestrator for the full top-level deadline: delegate_agent bounds the
@@ -17,6 +18,15 @@ describe('delegate_agent delegated-run wall-clock budget', () => {
       description: 'Researcher sub-agent.',
       instructions: 'BASE',
       result: { kind: 'research', schema },
+    })
+    defineAgent({
+      id: 'test.delegate_timeout_parent',
+      moduleId: 'agent_orchestrator',
+      label: 'Timeout parent',
+      description: 'Parent that declares the timeout target.',
+      instructions: 'BASE',
+      result: { kind: 'research', schema },
+      subAgents: ['test.delegate_timeout_target'],
     })
 
     const delegateTool = aiTools.find((tool) => tool.name === DELEGATE_TOOL_ID)
@@ -44,25 +54,49 @@ describe('delegate_agent delegated-run wall-clock budget', () => {
     const prev = process.env.OM_AGENT_DELEGATE_RUN_TIMEOUT_MS
     try {
       delete process.env.OM_AGENT_DELEGATE_RUN_TIMEOUT_MS
-      const result = await delegateTool!.handler(
-        { agentId: 'test.delegate_timeout_target', input: { foo: 1 } },
-        ctx as never,
+      const result = await withRunContext(
+        'run-timeout-parent',
+        () =>
+          delegateTool!.handler(
+            { agentId: 'test.delegate_timeout_target', input: { foo: 1 } },
+            ctx as never,
+          ),
+        undefined,
+        undefined,
+        undefined,
+        'test.delegate_timeout_parent',
       )
       expect(result).toMatchObject({ ok: true, agentId: 'test.delegate_timeout_target' })
       expect(capturedRunTimeoutMs).toBe(3 * 60_000)
 
       process.env.OM_AGENT_DELEGATE_RUN_TIMEOUT_MS = '45000'
-      await delegateTool!.handler(
-        { agentId: 'test.delegate_timeout_target', input: { foo: 1 } },
-        ctx as never,
+      await withRunContext(
+        'run-timeout-parent',
+        () =>
+          delegateTool!.handler(
+            { agentId: 'test.delegate_timeout_target', input: { foo: 1 } },
+            ctx as never,
+          ),
+        undefined,
+        undefined,
+        undefined,
+        'test.delegate_timeout_parent',
       )
       expect(capturedRunTimeoutMs).toBe(45000)
 
       // A non-positive / non-numeric override is ignored → back to the default.
       process.env.OM_AGENT_DELEGATE_RUN_TIMEOUT_MS = 'not-a-number'
-      await delegateTool!.handler(
-        { agentId: 'test.delegate_timeout_target', input: { foo: 1 } },
-        ctx as never,
+      await withRunContext(
+        'run-timeout-parent',
+        () =>
+          delegateTool!.handler(
+            { agentId: 'test.delegate_timeout_target', input: { foo: 1 } },
+            ctx as never,
+          ),
+        undefined,
+        undefined,
+        undefined,
+        'test.delegate_timeout_parent',
       )
       expect(capturedRunTimeoutMs).toBe(3 * 60_000)
     } finally {

@@ -221,6 +221,8 @@ export class UserRole {
   deletedAt?: Date | null
 }
 
+export type SessionSsoProvenance = { configId: string; configUpdatedAt: number }
+
 @Entity({ tableName: 'sessions' })
 export class Session {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -237,6 +239,9 @@ export class Session {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+
+  @Property({ name: 'sso_provenance', type: 'json', nullable: true })
+  ssoProvenance?: SessionSsoProvenance | null
 
   @Property({ name: 'last_used_at', type: Date, nullable: true })
   lastUsedAt?: Date

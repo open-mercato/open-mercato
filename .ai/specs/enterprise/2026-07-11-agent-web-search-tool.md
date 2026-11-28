@@ -451,6 +451,11 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
 
 ## Changelog
 
+- 2026-11-25 — Fixed keyed-adapter credentials being stored in plaintext despite healthy
+  tenant data encryption: `lib/webSearch/secretStorage.ts` resolved the unregistered DI name
+  `tenantDataEncryptionService` instead of `tenantEncryptionService`. Save now provisions a missing
+  tenant DEK; legacy plaintext keys are read as-is and re-sealed on the next settings save. Regression
+  tests run against the real `TenantDataEncryptionService`.
 - 2026-11-01 — Corrected #7234 independently: suppress unattributed synthesized answers
   under domain policies at the agent and preview boundaries, with explicit diagnostics
   and handler-level regressions. Finding and prior proof of concept: @AHKSammich (#7323).

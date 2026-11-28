@@ -1,6 +1,7 @@
 import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
 import { registerAgentSkills, clearAgentSkills } from '../lib/runtime/fileAgentSkills'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
+import { withRunContext } from '../lib/runtime/runContext'
 
 // Mock the sandbox so the tool-handler ROUTING is tested deterministically
 // without spinning an isolated-vm isolate (the real sandbox is exercised in
@@ -104,5 +105,20 @@ describe('agent_orchestrator.run_skill_script', () => {
     )) as { ok: boolean; code?: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('script_not_found')
+  })
+
+  it('runs an allowed script on the native runtime, resolving the agent from the run context', async () => {
+    const store = new InMemoryAgentRunSessionStore()
+    const result = (await withRunContext(
+      'run-native-script',
+      () =>
+        tool.handler!({ skillId: 'playbook', scriptName: 'score', args: { momentum: 1 } }, makeCtx(store, undefined)),
+      undefined,
+      undefined,
+      undefined,
+      agentId,
+    )) as { ok: boolean; result?: { args?: unknown } }
+    expect(result.ok).toBe(true)
+    expect(result.result?.args).toEqual({ momentum: 1 })
   })
 })

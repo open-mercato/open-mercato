@@ -17,12 +17,9 @@ import {
  *     MiniWeekCalendar from the DOM
  *   - the preference persists in localStorage under the per-entity-kind key
  */
-// TODO(crm-activity-redesign): The `InlineActivityComposer` (Description textarea + week
-// preview toggle) was removed from the people-v2 detail page by PR #1791 in favour of
-// `ActivitiesCard` + `ActivitiesAddNewMenu` (which opens `ScheduleActivityDialog`). Re-author
-// this scenario against the new schedule dialog once UX confirms whether the week-preview
-// toggle should resurface.
-test.describe.skip('TC-CRM-048: Inline activity composer — multiline description + week preview toggle', () => {
+// Re-enabled by #7494: the people-v2 Activities tab renders the shared
+// `InlineActivityComposer` again (deal-layout parity).
+test.describe('TC-CRM-048: Inline activity composer — multiline description + week preview toggle', () => {
   test('shows labelled multi-row textarea and lets the user hide the week preview', async ({
     page,
     request,

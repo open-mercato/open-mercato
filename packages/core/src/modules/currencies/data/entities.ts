@@ -1,4 +1,5 @@
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 
 @Entity({ tableName: 'currencies' })
 @Index({
@@ -87,8 +88,8 @@ export class ExchangeRate {
   @Property({ name: 'to_currency_code', type: 'text' })
   toCurrencyCode!: string
 
-  // Rate value (high precision for crypto/forex)
-  @Property({ type: 'numeric', precision: 18, scale: 8 })
+  // Rate value (unconstrained precision for crypto/forex)
+  @Property({ type: ExactDecimalType, columnType: 'numeric' })
   rate!: string
 
   // Date and time when the rate applies (stored as timestamptz)
@@ -103,6 +104,15 @@ export class ExchangeRate {
   @Property({ type: 'text', nullable: true })
   type?: string | null
 
+  @Property({ name: 'external_reference', type: 'text', nullable: true })
+  externalReference?: string | null
+
+  @Property({ name: 'undo_lineage', type: 'jsonb', nullable: true, hidden: true })
+  undoLineage?: { restoredUpdatedAt: string; writtenUpdatedAt: string } | null
+
+  @Property({ type: 'jsonb', nullable: true })
+  metadata?: Record<string, unknown> | null
+
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
 
@@ -110,7 +120,7 @@ export class ExchangeRate {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  @Property({ name: 'updated_at', type: Date, onUpdate: (rate: ExchangeRate) => new Date(Math.max(Date.now(), rate.updatedAt.getTime() + 1)) })
   updatedAt: Date = new Date()
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })

@@ -255,6 +255,10 @@ async function resolveVariantTaxRate(
   if (!taxRateIdInput) {
     return { taxRateId: product.taxRateId ?? null, taxRate: product.taxRate ?? normalizedRate }
   }
+  if (!em.getMetadata().has(SalesTaxRate)) {
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(400, { error: translate('catalog.products.errors.taxClassNotFound', 'Tax class not found') })
+  }
   const record = await em.findOne(SalesTaxRate, {
     id: taxRateIdInput,
     organizationId,

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { withDecimalCaps } from '@open-mercato/shared/lib/decimal'
 import { parseGuideSteps } from '../lib/troubleshooting'
 
 const uuid = () => z.string().uuid()
@@ -31,6 +32,13 @@ const requiredString = (max: number) =>
 const positiveDecimal = () => z.coerce.number().positive().max(999_999_999)
 const nullableDecimal = () =>
   z.preprocess(emptyStringToNull, z.coerce.number().min(0, 'warranty_claims.errors.decimalNonNegative').max(999_999_999).nullable().optional())
+const moneyInputSchema = <T extends z.ZodType>(schema: T) => withDecimalCaps(schema, 'warranty_claims.errors.invalidInput')
+
+const nullableMoney = () =>
+  z.preprocess(
+    emptyStringToNull,
+    moneyInputSchema(z.coerce.number().min(0, 'warranty_claims.errors.decimalNonNegative')).nullable().optional(),
+  )
 const nullableIsoDateString = () => z.preprocess(emptyStringToNull, z.string().datetime().nullable().optional())
 const jsonObjectSchema = z.record(z.string(), z.unknown())
 const optimisticLockTokenSchema = z.union([z.string().datetime(), z.date()]).nullable().optional()
@@ -159,10 +167,10 @@ const claimLineFields = {
   conditionOnReceipt: clearableString(1000),
   inspectionNotes: clearableString(4000),
   disposition: claimDispositionSchema.nullable().optional(),
-  creditAmount: nullableDecimal(),
-  restockingFee: nullableDecimal(),
-  coreChargeAmount: nullableDecimal(),
-  coreCreditAmount: nullableDecimal(),
+  creditAmount: nullableMoney(),
+  restockingFee: nullableMoney(),
+  coreChargeAmount: nullableMoney(),
+  coreCreditAmount: nullableMoney(),
   vendorName: clearableString(300),
 }
 
@@ -185,7 +193,7 @@ const settingsCurrencyCodeSchema = z.preprocess(
 
 const settingsAmountSchema = z.preprocess(
   emptyStringToNull,
-  z.coerce.number().min(0).nullable().optional(),
+  moneyInputSchema(z.coerce.number().min(0)).nullable().optional(),
 )
 
 export const warrantyClaimSettingsUpdateSchema = z

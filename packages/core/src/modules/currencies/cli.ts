@@ -1,37 +1,16 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RateFetchingService } from './services/rateFetchingService'
 import { NBPProvider } from './services/providers/nbp'
+import { NBPAverageRateProvider } from './services/providers/nbpAverage'
 import { RaiffeisenPolandProvider } from './services/providers/raiffeisen'
 import { CurrencyFetchConfig } from './data/entities'
 import { seedExampleCurrencies } from './lib/seeds'
 
 function parseArgs(args: string[]): Record<string, string | boolean> {
-  const result: Record<string, string | boolean> = {}
-
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i]
-
-    if (arg.startsWith('--')) {
-      const key = arg.slice(2)
-
-      if (arg.includes('=')) {
-        const [k, v] = arg.slice(2).split('=')
-        result[k] = v
-      } else {
-        const nextArg = args[i + 1]
-        if (nextArg && !nextArg.startsWith('--')) {
-          result[key] = nextArg
-          i++
-        } else {
-          result[key] = true
-        }
-      }
-    }
-  }
-
-  return result
+  return parseModuleCliOptions(args)
 }
 
 const fetchRatesCommand: ModuleCli = {
@@ -61,6 +40,7 @@ const fetchRatesCommand: ModuleCli = {
 
       // Register providers
       fetchService.registerProvider(new NBPProvider())
+      fetchService.registerProvider(new NBPAverageRateProvider())
       fetchService.registerProvider(new RaiffeisenPolandProvider())
 
       const dateStr = String(args.date || '')
@@ -151,6 +131,8 @@ const listProvidersCommand: ModuleCli = {
     console.log('  • NBP (National Bank of Poland)')
     console.log('    - ~13 currencies with bid/ask rates')
     console.log('    - Table C: Buy/Sell rates')
+    console.log('  • NBP average rates (tables A/B)')
+    console.log('    - Official foreign-currency to PLN average rates')
     console.log('')
     console.log('  • Raiffeisen Bank Polska')
     console.log('    - 4 major currencies (EUR, USD, CHF, GBP)')

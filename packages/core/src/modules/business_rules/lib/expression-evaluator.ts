@@ -235,11 +235,16 @@ function equals(left: any, right: any): boolean {
 
   // Type coercion for numbers
   if (typeof left === 'number' || typeof right === 'number') {
+    if (isBlankString(left) || isBlankString(right)) return false
     return Number(left) === Number(right)
   }
 
   // String comparison (case-sensitive)
   return left === right
+}
+
+function isBlankString(value: unknown): boolean {
+  return typeof value === 'string' && value.trim() === ''
 }
 
 /**
@@ -265,6 +270,7 @@ function compare(left: any, right: any): number {
   const leftNum = Number(left)
   const rightNum = Number(right)
   if (!isNaN(leftNum) && !isNaN(rightNum)) {
+    if (isBlankString(left) !== isBlankString(right)) return NaN
     return leftNum - rightNum
   }
 

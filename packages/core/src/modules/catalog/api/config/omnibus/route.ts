@@ -24,6 +24,8 @@ import {
   type OmnibusConfigEvaluation,
 } from '../../../lib/omnibusConfig'
 import { invalidateOmnibusTenantCache, resolveOmnibusCache } from '../../../lib/omnibusCache'
+import { tryResolve } from '../../../lib/tryResolve'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 const logger = createLogger('catalog')
 
@@ -74,7 +76,8 @@ export async function GET(req: Request) {
       }
     }
     if (!canRead) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-    const service = container.resolve('moduleConfigService') as ModuleConfigService
+    const service = tryResolve<ModuleConfigService>(container, 'moduleConfigService')
+    if (!service) return NextResponse.json({})
     const config = await readStoredConfig(service, auth.tenantId)
     return NextResponse.json(config ?? {})
   } catch (err) {
@@ -101,7 +104,19 @@ export async function PATCH(req: Request) {
     }
 
     const container = await createRequestContainer()
-    const service = container.resolve('moduleConfigService') as ModuleConfigService
+    const service = tryResolve<ModuleConfigService>(container, 'moduleConfigService')
+    if (!service) {
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        {
+          error: translate(
+            'catalog.config.omnibus.errors.storageUnavailable',
+            'Omnibus settings cannot be saved because the configs module is not enabled.',
+          ),
+        },
+        { status: 503 },
+      )
+    }
     const existing = await readStoredConfig(service, tenantId)
 
     let evaluation = evaluatePatch(existing, body)
@@ -198,6 +213,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid JSON body or invalid config', schema: invalidConfigSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 422, description: 'Backfill required before enabling, or blocked by a mutation guard', schema: backfillRequiredSchema },
+        { status: 503, description: 'Omnibus config storage unavailable (configs module disabled)', schema: errorSchema },
       ],
     },
   },

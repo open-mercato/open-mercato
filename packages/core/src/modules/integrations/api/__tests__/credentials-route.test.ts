@@ -28,6 +28,10 @@ jest.mock('@open-mercato/shared/modules/integrations/types', () => ({
   getIntegration: jest.fn(),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ t: (key: string) => key })),
+}))
+
 jest.mock('../../events', () => ({
   emitIntegrationsEvent: jest.fn(),
 }))
@@ -222,6 +226,50 @@ describe('integrations credentials route — secret masking (issue #2253)', () =
       { apiUrl: 'https://akeneo.example' },
       { organizationId: 'o1', tenantId: 't1' },
     )
+  })
+
+  it.each([
+    { credentials: { apiUrl: 'https://attacker.example', clientSecret: MASKED_SECRET_VALUE } },
+    { credentials: { apiUrl: 'https://attacker.example' }, unchangedSecretFields: ['clientSecret'] },
+    { credentials: { clientSecret: MASKED_SECRET_VALUE } },
+  ])('PUT rejects retained secrets after destination changes without side effects: %j', async (payload) => {
+    resolveMock.mockResolvedValue({ apiUrl: 'https://trusted.example', clientSecret: 'stored-secret' })
+    const response = await PUT(buildRequest(payload.credentials, payload.unchangedSecretFields), {
+      params: { id: 'sync_akeneo' },
+    })
+    expect(response.status).toBe(422)
+    const body = await response.json()
+    expect(body.details.fieldErrors.clientSecret).toBe('integrations.credentials.errors.destinationChanged')
+    expect(JSON.stringify(body)).not.toContain('stored-secret')
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(emitIntegrationsEvent).not.toHaveBeenCalled()
+    expect(runIntegrationMutationGuardAfterSuccess).not.toHaveBeenCalled()
+    expect(resolveMock).toHaveBeenCalledWith('sync_akeneo', { organizationId: 'o1', tenantId: 't1' })
+  })
+
+  it('PUT validates the final destination after mutation-guard transformations', async () => {
+    resolveMock.mockResolvedValue({ apiUrl: 'https://trusted.example', clientSecret: 'stored-secret' })
+    ;(runIntegrationMutationGuards as jest.Mock).mockResolvedValue({
+      ok: true,
+      modifiedPayload: { credentials: { apiUrl: 'https://attacker.example', clientSecret: MASKED_SECRET_VALUE } },
+    })
+    const response = await PUT(buildRequest({ apiUrl: 'https://trusted.example', clientSecret: MASKED_SECRET_VALUE }), {
+      params: { id: 'sync_akeneo' },
+    })
+    expect(response.status).toBe(422)
+    expect(saveMock).not.toHaveBeenCalled()
+    expect(emitIntegrationsEvent).not.toHaveBeenCalled()
+  })
+
+  it('PUT allows a new destination with an explicitly re-entered secret', async () => {
+    resolveMock.mockResolvedValue({ apiUrl: 'https://trusted.example', clientSecret: 'stored-secret' })
+    const response = await PUT(buildRequest({ apiUrl: 'https://new.example', clientSecret: 'new-secret' }, ['clientSecret']), {
+      params: { id: 'sync_akeneo' },
+    })
+    expect(response.status).toBe(200)
+    expect(saveMock).toHaveBeenCalledWith('sync_akeneo', {
+      apiUrl: 'https://new.example', clientSecret: 'new-secret',
+    }, { organizationId: 'o1', tenantId: 't1' })
   })
 
   it('PUT keeps explicit empty-string clearing when a secret is configured', async () => {

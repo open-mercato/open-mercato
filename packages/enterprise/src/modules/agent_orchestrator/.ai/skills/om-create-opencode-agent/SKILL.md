@@ -59,6 +59,10 @@ confidence always routes to a human (fail-closed).
    `format` (and similar) — they fail generation loudly. Mirror the supported shape used by the
    example (object/array/string/number/boolean, `const`, `enum`, `required`, `properties`,
    `items`, `additionalProperties:false`, `minItems`/`minLength`/`minimum`/`maximum`).
+   Every `object` MUST list its `properties`: an object without them always validates to `{}`
+   (content dropped; `yarn generate` warns). Optional properties are fine — on the native
+   runtime the model gets a strict variant (all required, optional ones `nullable`) and the
+   answer is mapped back and judged by your authored schema.
 5. **Sub-agent depth = 1.** A sub-agent is researcher-only (no proposal OUTCOME) and may not
    declare its own `subAgents`.
 6. **Generated files.** Never hand-edit `generated/file-agents.generated.ts` or
@@ -192,6 +196,13 @@ itself at the top level — do NOT wrap it in a `data` key (the runtime wraps it
   JSON-serializable object — synchronous, pure, no side effects.
 - **Sample input (optional):** `agents/<folder>/SAMPLE.json` — pure JSON of one run input; powers
   the Playground "Insert sample" button.
+- **Governance (optional):** `agents/<folder>/GOVERNANCE.json` — `{ "principal"?, "integrity"?,
+  "untrustedInputs"?, "modelSettings"? }`, the same shapes `defineAgent` takes (integrity paths
+  are relative to the result envelope, e.g. `data.findings[*].id`). `yarn generate` fails on an
+  unknown key or bad JSON; the loader refuses to register an agent whose declaration does not
+  validate, and an artifact (OpenCode) agent may not declare `untrustedInputs`, `modelSettings`,
+  a principal in `intersect` mode (declared, or the `OM_AGENT_TOOL_ACL_MODE` default) or an
+  `enforce: "prepare_step"` rule.
 
 Keep `tsconfig.json` `exclude` covering `agents/**/scripts/**` + `agents/**/tools/**` so `tsc`
 does not type-check loose sandbox sources (see `apps/mercato/tsconfig.json`).

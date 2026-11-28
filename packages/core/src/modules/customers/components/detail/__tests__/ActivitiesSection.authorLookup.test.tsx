@@ -16,6 +16,12 @@ import { ActivitiesSection } from '../ActivitiesSection'
 const readApiResultOrThrowMock = jest.fn()
 const apiCallMock = jest.fn()
 
+let mockCanDeleteActivity = true
+
+jest.mock('../hooks/useActivityDeleteAccess', () => ({
+  useActivityDeleteAccess: () => () => mockCanDeleteActivity,
+}))
+
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: jest.fn(),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),

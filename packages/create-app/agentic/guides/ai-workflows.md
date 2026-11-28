@@ -11,6 +11,7 @@ Use typed module contracts for product AI and the workflow engine for durable bu
 | Add a few tools/prompt/suggestions to an installed agent | `aiAgentExtensions`. |
 | Replace or disable an installed agent/tool | `aiAgentOverrides` / `aiToolOverrides` or module entry override. |
 | Coding-agent orchestration with files, outcomes, samples, embedded skill, or subagents | Orchestrator file-agent contract; resolve its installed package guide first. |
+| Reproducible eval CI without provider credentials | `om-create-ai-agent` `references/surface-selector.md` → offline native eval CI; resolve installed eval CLI docs first. |
 | Durable business process, human task, timer, signal, compensation, or event trigger | Workflows module and `om-build-workflow`. |
 | One background AI extraction | Object-mode agent invoked from a scoped command/worker. |
 

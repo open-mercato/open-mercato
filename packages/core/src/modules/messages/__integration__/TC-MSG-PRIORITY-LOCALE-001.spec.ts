@@ -93,9 +93,11 @@ test.describe('TC-MSG-PRIORITY-LOCALE-001: PriorityBadge stays localized on the 
           await expect(badge, `priority=${priority} locale=${locale} should carry the localized aria-label`).toBeVisible()
           await expect(badge).toHaveAttribute('title', expected)
 
-          await badge.hover()
           const tooltip = page.getByRole('tooltip')
-          await expect(tooltip, `priority=${priority} locale=${locale} should render the localized tooltip text`).toBeVisible()
+          await expect.poll(async () => {
+            await badge.hover()
+            return tooltip.isVisible()
+          }, { message: `priority=${priority} locale=${locale} should render the localized tooltip text` }).toBe(true)
           await expect(tooltip).toHaveText(expected)
           await page.mouse.move(0, 0)
         }

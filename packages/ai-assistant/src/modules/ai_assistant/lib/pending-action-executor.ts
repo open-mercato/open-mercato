@@ -26,6 +26,10 @@ import { emitAiAssistantEvent } from '../events'
 import type { AiActionConfirmedPayload } from '../events'
 import type { AiAgentDefinition } from './ai-agent-definition'
 import type { AiToolDefinition, McpToolContext } from './types'
+import {
+  clearPendingActionNotifications,
+  isPendingActionNotifiable,
+} from './pending-action-notify'
 import { hasRequiredFeatures } from './auth'
 import { resolvePendingActionAlreadyResolvedMessage, resolveToolFeaturesDeniedMessage } from './pending-action-messages'
 import type {
@@ -52,7 +56,8 @@ export interface PendingActionExecuteContext {
 
 export interface PendingActionExecuteInput {
   action: AiPendingAction
-  agent: AiAgentDefinition
+  /** Null for raw MCP / tools-api rows, which carry no registered agent. */
+  agent: AiAgentDefinition | null
   tool: AiToolDefinition
   ctx: PendingActionExecuteContext
   /** Carried over from the re-check; written onto the row with status=confirmed. */
@@ -300,7 +305,7 @@ function mergeFailedRecords(
 function toToolHandlerContext(
   ctx: PendingActionExecuteContext,
   tool: AiToolDefinition,
-  approvedPendingActionId: string,
+  action: AiPendingAction,
   expectedRecordVersions: Record<string, string>,
 ): McpToolContext {
   return {
@@ -311,9 +316,26 @@ function toToolHandlerContext(
     userFeatures: ctx.userFeatures,
     isSuperAdmin: ctx.isSuperAdmin,
     tool,
-    approvedPendingActionId,
+    approvedPendingActionId: action.id,
     expectedRecordVersions,
+    auditCorrelation: {
+      correlationId: action.correlationId ?? null,
+      apiKeyId: action.apiKeyId ?? null,
+      pendingActionId: action.id,
+      requestedByUserId: action.createdByUserId,
+    },
   }
+}
+
+async function clearNotificationsForResolvedRow(
+  ctx: PendingActionExecuteContext,
+  row: AiPendingAction,
+): Promise<void> {
+  if (!isPendingActionNotifiable(row)) return
+  await clearPendingActionNotifications(ctx.container, row.id, {
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId ?? null,
+  })
 }
 
 /**
@@ -334,6 +356,7 @@ export async function executePendingActionConfirm(
   input: PendingActionExecuteInput,
 ): Promise<PendingActionExecuteResult> {
   const { action, agent, tool, ctx, failedRecords, now } = input
+  const agentId = agent?.id ?? action.agentId
   const repo = input.repo ?? new AiPendingActionRepository(ctx.container.resolve('em'))
   const scope = {
     tenantId: ctx.tenantId,
@@ -442,7 +465,7 @@ export async function executePendingActionConfirm(
   try {
     handlerOutput = await tool.handler(
       plan.input as never,
-      toToolHandlerContext(ctx, tool, action.id, plan.expectedRecordVersions),
+      toToolHandlerContext(ctx, tool, action, plan.expectedRecordVersions),
     )
   } catch (error) {
     const failureResult: AiPendingActionExecutionResult = {
@@ -454,7 +477,7 @@ export async function executePendingActionConfirm(
     })
     await emitConfirmed(emitter, {
       pendingActionId: failedRow.id,
-      agentId: agent.id,
+      agentId,
       toolName: tool.name,
       status: failedRow.status,
       tenantId: ctx.tenantId,
@@ -464,6 +487,7 @@ export async function executePendingActionConfirm(
       resolvedAt: (failedRow.resolvedAt ?? clock).toISOString?.() ?? new Date(clock).toISOString(),
       executionResult: failureResult,
     })
+    await clearNotificationsForResolvedRow(ctx, failedRow)
     return {
       ok: false,
       action: failedRow,
@@ -495,7 +519,7 @@ export async function executePendingActionConfirm(
       : null
   await emitConfirmed(emitter, {
     pendingActionId: confirmedFinal.id,
-    agentId: agent.id,
+    agentId,
     toolName: tool.name,
     status: confirmedFinal.status,
     tenantId: ctx.tenantId,
@@ -506,6 +530,7 @@ export async function executePendingActionConfirm(
     executionResult: successResult,
     ...(emitFailedRecordsPayload ? { failedRecords: emitFailedRecordsPayload } : {}),
   })
+  await clearNotificationsForResolvedRow(ctx, confirmedFinal)
   return { ok: true, action: confirmedFinal, executionResult: successResult }
 }
 

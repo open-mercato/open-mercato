@@ -40,6 +40,12 @@ describe('SchedulerService', () => {
       persist: jest.fn(),
       remove: jest.fn(),
       flush: jest.fn(),
+      isInTransaction: jest.fn().mockReturnValue(false),
+      begin: jest.fn().mockResolvedValue(undefined),
+      commit: jest.fn().mockResolvedValue(undefined),
+      rollback: jest.fn().mockResolvedValue(undefined),
+      getTransactionContext: jest.fn().mockReturnValue(undefined),
+      getConnection: jest.fn().mockReturnValue({ execute: jest.fn().mockResolvedValue([]) }),
       count: jest.fn(),
       find: jest.fn(),
     } as any
@@ -348,6 +354,25 @@ describe('SchedulerService', () => {
       mockEm.count.mockResolvedValue(0)
 
       const result = await service.exists('test-1')
+
+      expect(result).toBe(false)
+    })
+  })
+
+  describe('isActive', () => {
+    it('counts only enabled, non-deleted schedules', async () => {
+      mockEm.count.mockResolvedValue(1)
+
+      const result = await service.isActive('test-1')
+
+      expect(result).toBe(true)
+      expect(mockEm.count).toHaveBeenCalledWith(ScheduledJob, { id: 'test-1', deletedAt: null, isEnabled: true })
+    })
+
+    it('returns false when the schedule is missing, disabled, or soft-deleted', async () => {
+      mockEm.count.mockResolvedValue(0)
+
+      const result = await service.isActive('test-1')
 
       expect(result).toBe(false)
     })

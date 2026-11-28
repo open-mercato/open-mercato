@@ -17,6 +17,35 @@ Load only the selected branch.
 
 Run `yarn generate` for every discovered branch and verify generated registration selects the intended host exactly once.
 
+## CrudForm section policy
+
+For a Todo showcase policy, start at the [Todo showcase declaration](../../../../src/modules/example/form-sections.ts). Read only the sources mapped to that scenario. Follow [required leaf coverage](../../../../src/modules/example/references/crud-form-extensions/required-coverage.md) for an uncovered leaf or the [typed configuration example](../../../../src/modules/example/references/module-overrides.reference.ts) for an exact section mask.
+
+Select a single matching recipe before reading Example sources. Open `form-sections.ts` first, then exactly the files in that row. For the uncovered leaf or exact mask, use the reference above as the second read. This recipe supplies the Example sources for planning and review.
+
+| Todo showcase recipe | Read next |
+|---|---|
+| Keep a hidden title on edit | `src/modules/example/todo-showcase-update.client.ts` |
+| Default the hidden title on create | `src/modules/example/todo-showcase-create.client.ts` |
+| Replace the completion control | `src/modules/example/todo-showcase-status.client.ts` |
+| Patch or remove a field, validate priority, or add a season Custom Field | `src/modules/example/todo-showcase-sections.client.ts` |
+| Version an extension table independently | `src/modules/example/data/entities.ts` and `src/modules/example/components/TodoShowcaseForm.tsx` |
+| Show an optional observer warning after commit | `src/modules/example/components/TodoShowcaseForm.tsx` |
+| Queue ERP delivery and show retry status | `src/modules/example/lib/exampleExternalErp.ts` and `src/modules/example/components/TodoShowcaseSync.tsx` |
+| Check the guarded route and client request binding | `src/modules/example/api/todos/route.ts` and `src/modules/example/lib/todoShowcaseClient.ts` |
+| Preserve the standard Todo form and pages | `src/modules/example/components/TodoForm.tsx`, `src/modules/example/backend/todos/create/page.tsx` and `src/modules/example/backend/todos/[id]/edit/page.tsx` |
+
+
+A policy that only hides, preserves, defaults or masks stays in `umes`. Reusing an existing guarded write does not add a data route. Add `backend-ui` for a rendered replacement, relabel, feedback or a visible form variant. Add `module-data` for a new persisted Custom Field or app-owned extension table. External delivery adds `integration`, with `backend-ui` for status or retry controls.
+
+- Author `crudFormExtensions` with `defineCrudFormExtension`, `add`/`hide`/`replace`/`modify`, and `field.*` and `store.*` from `@open-mercato/ui/backend/crud-form-extensions`. Use `modify` on field-granular sections and `hide` or `replace` on component-only sections. Use i18n keys, serializable field definitions, and literal browser imports.
+- Added fields inherit a section store or use `store.customField()`. Check the host's definition-set binding, or publish a scoped app-owned entity for `store.table` or `store.external`. Keep storage and validation callbacks on the server. Use `crudFormSections` primitives for a custom host adapter or independent mutation surface.
+- Run `yarn generate`, review the compiled capabilities, routes, and ownership, and commit `form-sections.revisions.json`. Verify the authorized write, denied write, and masked configuration using the exact `overrides.forms.sections` key.
+
+## Markdown code-block language choices
+
+For `MarkdownField`, resolve `section:ui.inputs.MarkdownField` from the framework extension catalog and read the exact installed [props and handle](../../../../node_modules/@open-mercato/ui/src/backend/inputs/MarkdownField.tsx) and [language patch contract](../../../../node_modules/@open-mercato/ui/src/backend/markdown/codeBlockLanguages.ts). Prefer `propsTransform` in `widgets/components.ts` for `codeBlockLanguages`; preserve incoming props and merge the caller's existing language patch. A string adds or renames a choice, `null` hides a nonempty tag, and `{ label, labelKey }` supplies a translated label with fallback. Keep the empty-tag choice and existing Markdown content, including hidden or unknown tags, unchanged. A new choice does not install a syntax highlighter. App-level registration uses the existing `widgets.components` domain described in `unified-overrides.md`.
+
 ## Canonical example source
 
 One compiling contributor per branch, plus the callers that consume it. Open only your branch's row.
@@ -28,6 +57,7 @@ One compiling contributor per branch, plus the callers that consume it. Open onl
 | API interceptors: exact-route and wildcard, rejection, timeout, query rewrite, cross-module `?ids=` narrowing, `after` merge | [`api/interceptors.ts`](../../../../src/modules/example/api/interceptors.ts) |
 | Command interceptors: `beforeExecute` → `afterExecute` state hand-off | [`commands/interceptors.ts`](../../../../src/modules/example/commands/interceptors.ts) |
 | Hosts this module exposes (`defineModuleExtensionPoints`) | [`extension-points.ts`](../../../../src/modules/example/extension-points.ts) |
+| Component replacement, wrapper, and props transform with a mounted host | [`widgets/components.ts`](../../../../src/modules/example/widgets/components.ts) |
 | Every supported spot-id shape mapped to widget ids, as one unconditional object literal | [`widgets/injection-table.ts`](../../../../src/modules/example/widgets/injection-table.ts) |
 | CrudForm field contribution with an `onSave` upsert | [`widgets/injection/customer-priority-field/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-field/widget.ts) |
 | DataTable column reading an enricher accessor path | [`widgets/injection/customer-priority-column/widget.ts`](../../../../src/modules/example/widgets/injection/customer-priority-column/widget.ts) |
@@ -39,4 +69,4 @@ One compiling contributor per branch, plus the callers that consume it. Open onl
 | Subscribers: before-create rewrite, before-update rejection with status, non-blocking after-delete, ephemeral DI-resolved | [`subscribers/auto-default-priority.ts`](../../../../src/modules/example/subscribers/auto-default-priority.ts), [`subscribers/prevent-uncomplete.ts`](../../../../src/modules/example/subscribers/prevent-uncomplete.ts), [`subscribers/audit-delete.ts`](../../../../src/modules/example/subscribers/audit-delete.ts), [`subscribers/example-event.ts`](../../../../src/modules/example/subscribers/example-event.ts) |
 | Browser reaction: reactive handler + client renderer | [`notifications.handlers.ts`](../../../../src/modules/example/notifications.handlers.ts), [`notifications.client.ts`](../../../../src/modules/example/notifications.client.ts) |
 
-[`widgets/components.ts`](../../../../src/modules/example/widgets/components.ts) is marked `qa-only`: it demonstrates `wrapper` mode only, so `replacement` and `propsTransform` have **no** canonical example — follow the component-override branch text above. The example does ship a `search.ts` (indexed as `search.module-config`), so read that one rather than guessing. It ships no `data/extensions.ts` and no `vector.ts`; do not infer either from an adjacent file. `surface-map.md` is the authority on what is absent — check it before assuming a surface is missing.
+The readable `umes.component-replacement` capability covers all three component modes; use its canonical contributor for registration syntax and installed source for the target's props. The example also ships `search.ts` (indexed as `search.module-config`), so read that one rather than guessing. It ships no `data/extensions.ts` and no `vector.ts`; do not infer either from an adjacent file. `surface-map.md` is the authority on what is absent — check it before assuming a surface is missing.

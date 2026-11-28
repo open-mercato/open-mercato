@@ -37,6 +37,7 @@ describe('normalizeCompanyProfilePayload (companies)', () => {
       industry: 'Technology',
       sizeBucket: '51-200',
       annualRevenue: 5000000,
+      taxId: 'PL1234567890',
     }
     const payload = { id: 'c1', profile: profileFields }
     const result = normalizeCompanyProfilePayload(payload, translate)

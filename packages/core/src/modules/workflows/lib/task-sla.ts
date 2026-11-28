@@ -38,6 +38,7 @@ import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('workflows')
 
@@ -499,9 +500,11 @@ async function markInstanceForAttention(
  * Follow the breach route: exit the task's step and drive the run onward,
  * mirroring how `fireTimer` resumes a run parked on a WAIT_FOR_TIMER step.
  *
- * Best-effort: a routing failure leaves the run exactly where it was, with the
- * breach already recorded, rather than throwing the queue job into a retry loop
- * that would re-announce a breach that has already fired.
+ * A step that fails on the far side of the route goes through the engine's
+ * failure contract (`handleTransitionFailure`: error route, handler step,
+ * failure queue, else the run FAILS) exactly as it would in the executor loop.
+ * Nothing is thrown: the breach is already recorded, and throwing the queue job
+ * into a retry loop would re-announce a breach that has already fired.
  */
 async function resumeAfterBreachRoute(
   em: EntityManager,
@@ -547,12 +550,14 @@ async function resumeAfterBreachRoute(
     )
 
     if (!transitionResult.success) {
-      logger.error('SLA-breach transition failed', {
-        component: 'task-sla',
-        taskId: task.id,
-        err: transitionResult.error,
+      const { handleTransitionFailure } = await import('./workflow-executor')
+      const failure = await handleTransitionFailure(em, container, instance, transitionResult, {
+        evalContext: { workflowContext: instance.context, userId: options.userId },
+        fromStepId: route.stepId,
+        toStepId: route.toStepId,
+        source: 'task-sla-breach',
       })
-      return
+      if (failure.kind === 'failed' || failure.kind === 'parked') return
     }
 
     await workflowExecutor.executeWorkflow(em, container, instance.id, { userId: options.userId })
@@ -562,6 +567,15 @@ async function resumeAfterBreachRoute(
       taskId: task.id,
       err: error,
     })
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'workflows',
+        code: 'workflows.task_sla_breach_route_failed',
+        attributes: { taskId: task.id, workflowInstanceId: options.workflowInstanceId },
+      })
+    } catch (reportingError) {
+      logger.warn('Failed to report SLA-breach route error', { taskId: task.id, err: reportingError })
+    }
   }
 }
 

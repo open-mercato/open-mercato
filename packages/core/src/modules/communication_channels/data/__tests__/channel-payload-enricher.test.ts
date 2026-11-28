@@ -74,6 +74,36 @@ describe('communication_channels message-channel-payload enricher', () => {
     expect(payload.sanitizedHtml as string).not.toContain('alert(1)')
   })
 
+  it('strips classes from rendered email HTML while preserving the raw provider payload', async () => {
+    const rawHtml = '<p class="email-body">Hello</p>'
+    findWithDecryptionMock.mockResolvedValue([{
+      messageId: 'msg-email-classes',
+      channelContentType: 'email/rfc822',
+      channelPayload: { html: rawHtml },
+    }])
+
+    const out = await enrichOne({ id: 'msg-email-classes' })
+    const payload = out._channelPayload as { sanitizedHtml: string; channelPayload: { html: string } }
+
+    expect(payload.sanitizedHtml).toBe('<p>Hello</p>')
+    expect(payload.channelPayload.html).toBe(rawHtml)
+  })
+
+  it('returns bounded email formatting in the enriched message detail', async () => {
+    const rawHtml = '<p style="font-size:125%;padding:100px">Hello</p>'
+    findWithDecryptionMock.mockResolvedValue([{
+      messageId: 'msg-email-formatting',
+      channelContentType: 'email/rfc822',
+      channelPayload: { html: rawHtml },
+    }])
+
+    const out = await enrichOne({ id: 'msg-email-formatting' })
+    expect(out._channelPayload).toMatchObject({
+      sanitizedHtml: '<p style="font-size:125%">Hello</p>',
+      channelPayload: { html: rawHtml },
+    })
+  })
+
   it('leaves sanitizedHtml null for non-email payloads', async () => {
     findWithDecryptionMock.mockResolvedValue([
       {

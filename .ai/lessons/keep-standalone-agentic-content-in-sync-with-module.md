@@ -1,8 +1,8 @@
 ---
 title: "Keep standalone agentic content in sync with module conventions"
-modules: ["create_app","documents","events","cli"]
+modules: ["create_app","documents","events","cli","ui"]
 areas: ["architecture","framework-context","testing"]
-topics: ["auto-discovery","generated-files","package-runtime","session-export","testing","context-budget"]
+topics: ["auto-discovery","generated-files","package-runtime","session-export","context-budget","component-overrides"]
 ---
 
 # Keep standalone agentic content in sync with module conventions
@@ -24,3 +24,7 @@ Compatibility guidance is also retrieved by standalone harness cases. Adding to 
 When compacting standalone guidance, preserve phrases asserted by its contract tests or update the source and assertion together when the contract intentionally changes. Run `context-guidance-contracts.test.ts` beside the relevant context-budget test so byte savings cannot silently invalidate the emitted guidance contract.
 
 Measure concurrently prepared release entries in one materialized document, counting shared formatting savings once. Preserve initial budgets, read sets and containment. A deterministic pass does not establish packed-preset or certified release evidence.
+
+A newly mounted framework component handle must appear in the generated framework host catalog with exact bound provenance. Test contribution correlation as well as catalog membership: a missing first-party handle can silently become an optional external target. Route its standalone customization case to the existing canonical contributor and exact installed props source; verify example availability against the readable surface inventory before repeating an older absence claim.
+
+When a focused source-reading task exceeds a generic compatibility case’s frozen budget, preserve the generic case and add a distinct focused case with measured limits. Derive the complete read set through the evaluator, including its automatically allowed surface inventory; separately validate instructions, initial source reads and total reads. Run the original compatibility guard and example-read policy suite beside the new case, and synchronize every pinned count and declaring-case list.

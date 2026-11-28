@@ -125,6 +125,8 @@ describe('buildHistoryEntry', () => {
     ['starts_at + offer_id + announce', { startsAt: new Date(), offerId: '88888888-8888-4888-8888-888888888888' }, { announce: true }, true],
     ['no signal', {}, {}, false],
     ['announce=false without other signals', {}, { announce: false }, false],
+    ['ordinary offer price edit', { offerId: '88888888-8888-4888-8888-888888888888' }, { announce: false }, false],
+    ['dated offer price edit', { startsAt: RECORDED_AT }, { announce: false }, true],
   ])('is_announced for %s', (_label, overrides, options, expected) => {
     const entry = buildHistoryEntry({ ...PRICE, ...overrides }, 'update', { recordedAt: RECORDED_AT, ...options })
     expect(entry.isAnnounced).toBe(expected)
@@ -490,6 +492,13 @@ describe('untracked prices are never recorded', () => {
 })
 
 describe('hasPriceHistoryRelevantChange', () => {
+  it.each(['unitPriceNet', 'unitPriceGross', 'taxAmount'] as const)('detects a %s edit beyond float precision', (field) => {
+    const before = { ...PRICE, [field]: '1.123456789012345678' }
+    const after = { ...PRICE, [field]: '1.123456789012345679' }
+    expect(hasPriceHistoryRelevantChange(before, after)).toBe(true)
+    expect(hasPriceHistoryRelevantChange(before, { ...PRICE, [field]: '1.1234567890123456780' })).toBe(false)
+  })
+
   it('ignores a re-save with equivalent decimal and date representations', () => {
     const before: PriceHistoryPriceInput = {
       ...PRICE,

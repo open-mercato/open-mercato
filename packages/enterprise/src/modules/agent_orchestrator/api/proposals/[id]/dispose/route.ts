@@ -70,6 +70,7 @@ export async function POST(req: Request, ctx: RouteContext) {
     selectedOrganizationId: auth.orgId,
     organizationIds: [auth.orgId],
     request: req,
+    auditCorrelation: { proposalId: id },
   }
 
   const input: DisposeProposalCommandInput = {

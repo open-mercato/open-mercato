@@ -4,7 +4,7 @@ import { buildChanges, requireId, parseWithCustomFields, setCustomFieldsIfAny, e
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CatalogOffer, CatalogProduct, CatalogProductPrice, CatalogProductVariant, CatalogPriceKind } from '../data/entities'
+import { CatalogOffer, CatalogProduct, CatalogProductPrice, CatalogProductVariant, CatalogPriceKind, CatalogPriceHistoryEntry } from '../data/entities'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -33,11 +33,14 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { decimalsEqual, parseDecimal, resolveExactDecimal, withExactAmounts } from '@open-mercato/shared/lib/decimal'
+import { resolveCurrencyAmountDecimalPlaces } from '@open-mercato/shared/lib/currencyPrecision'
 import {
   capturePriceHistoryEntry,
   hasPriceHistoryRelevantChange,
   priceHistoryInputFromRecord,
 } from '../lib/omnibus'
+import { calculatePriceUnitAmounts } from '../lib/priceUnitAmounts'
 import { resolveOmnibusCache } from '../lib/omnibusCache'
 
 const priceCrudEvents: CrudEventsConfig = {
@@ -79,6 +82,7 @@ type PriceSnapshot = {
   createdAt: string
   updatedAt: string
   custom: Record<string, unknown> | null
+  omnibusAnnounced?: false
 }
 
 type PriceUndoPayload = {
@@ -142,6 +146,7 @@ async function loadPriceSnapshot(
   em: EntityManager,
   id: string,
   scopeWhere: Record<string, unknown> = {},
+  captureAnnouncement = false,
 ): Promise<PriceSnapshot | null> {
   const record = await findOneWithDecryption(
     em,
@@ -185,11 +190,25 @@ async function loadPriceSnapshot(
   }
   const priceKindCode =
     typeof priceKind === 'object' && priceKind ? priceKind.code : record.kind
+  const offerId = typeof record.offer === 'string' ? record.offer : record.offer?.id ?? null
+  const scope = { tenantId: record.tenantId, organizationId: record.organizationId }
+  const latestHistory = captureAnnouncement && offerId
+    ? await findOneWithDecryption(
+      em,
+      CatalogPriceHistoryEntry,
+      { priceId: record.id, ...scope },
+      { orderBy: { recordedAt: 'desc', id: 'desc' } },
+      scope,
+    )
+    : null
   return {
     id: record.id,
     variantId,
     productId,
-    offerId: typeof record.offer === 'string' ? record.offer : record.offer ? record.offer.id : null,
+    offerId,
+    ...(latestHistory?.offerId === offerId && latestHistory?.isAnnounced === false
+      ? { omnibusAnnounced: false as const }
+      : {}),
     organizationId: record.organizationId,
     tenantId: record.tenantId,
     currencyCode: record.currencyCode,
@@ -272,45 +291,92 @@ function priceSeedFromSnapshot(snapshot: PriceSnapshot): Record<string, unknown>
 
 type PriceAmountInput = {
   amount: number
+  amountExact: string | null
   mode: 'net' | 'gross'
 }
 
-function resolveAmountInputFromParsed(
-  parsed: Partial<Pick<PriceCreateInput, 'unitPriceNet' | 'unitPriceGross'>>
-): PriceAmountInput | null {
+const PRICE_EXACT_AMOUNT_FIELDS = ['unitPriceNet', 'unitPriceGross'] as const
+
+type ExactPriceInput = Partial<Pick<PriceCreateInput, 'unitPriceNet' | 'unitPriceGross'>> & {
+  unitPriceNetExact?: string | null
+  unitPriceGrossExact?: string | null
+}
+
+function resolveAmountInputFromParsed(parsed: ExactPriceInput): PriceAmountInput | null {
   if (typeof parsed.unitPriceNet === 'number' && Number.isFinite(parsed.unitPriceNet)) {
-    return { amount: parsed.unitPriceNet, mode: 'net' }
+    return {
+      amount: parsed.unitPriceNet,
+      amountExact: resolveExactDecimal(parsed.unitPriceNetExact, parsed.unitPriceNet),
+      mode: 'net',
+    }
   }
   if (typeof parsed.unitPriceGross === 'number' && Number.isFinite(parsed.unitPriceGross)) {
-    return { amount: parsed.unitPriceGross, mode: 'gross' }
+    return {
+      amount: parsed.unitPriceGross,
+      amountExact: resolveExactDecimal(parsed.unitPriceGrossExact, parsed.unitPriceGross),
+      mode: 'gross',
+    }
   }
   return null
 }
 
-function hasAmountChanged(incoming: unknown, current: string | null | undefined): incoming is number {
-  if (typeof incoming !== 'number' || !Number.isFinite(incoming)) return false
-  return numericStringToNumber(current) !== incoming
+function changedAmountInput(
+  incoming: number | null | undefined,
+  incomingExact: string | null | undefined,
+  current: string | null | undefined,
+  mode: PriceAmountInput['mode'],
+): PriceAmountInput | null {
+  if (typeof incoming !== 'number' || !Number.isFinite(incoming)) return null
+  const amountExact = resolveExactDecimal(incomingExact, incoming)
+  const currentExact = parseDecimal(current)
+  if (amountExact !== null && currentExact && decimalsEqual(amountExact, currentExact)) return null
+  return { amount: incoming, amountExact, mode }
 }
 
 function resolveAmountInputForUpdate(
-  parsed: Partial<Pick<PriceCreateInput, 'unitPriceNet' | 'unitPriceGross'>>,
+  parsed: ExactPriceInput,
   record: CatalogProductPrice
 ): PriceAmountInput | null {
-  if (hasAmountChanged(parsed.unitPriceNet, record.unitPriceNet)) {
-    return { amount: parsed.unitPriceNet, mode: 'net' }
-  }
-  if (hasAmountChanged(parsed.unitPriceGross, record.unitPriceGross)) {
-    return { amount: parsed.unitPriceGross, mode: 'gross' }
-  }
-  return resolveAmountInputFromParsed(parsed)
+  return (
+    changedAmountInput(parsed.unitPriceNet, parsed.unitPriceNetExact, record.unitPriceNet, 'net') ??
+    changedAmountInput(parsed.unitPriceGross, parsed.unitPriceGrossExact, record.unitPriceGross, 'gross') ??
+    resolveAmountInputFromParsed(parsed)
+  )
 }
 
 function resolveAmountInputFromRecord(record: CatalogProductPrice): PriceAmountInput | null {
   const net = numericStringToNumber(record.unitPriceNet)
-  if (net !== null) return { amount: net, mode: 'net' }
+  if (net !== null) return { amount: net, amountExact: toNumericString(record.unitPriceNet), mode: 'net' }
   const gross = numericStringToNumber(record.unitPriceGross)
-  if (gross !== null) return { amount: gross, mode: 'gross' }
+  if (gross !== null) return { amount: gross, amountExact: toNumericString(record.unitPriceGross), mode: 'gross' }
   return null
+}
+
+function exactTaxAmount(exact: string | undefined, legacy: number | null): string | null {
+  return resolveExactDecimal(exact, legacy)
+}
+
+async function throwPriceValidityWindowError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate('catalog.prices.validation.validityWindow', 'End date must be after the start date.')
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { endsAt: message },
+    details: [{ path: ['endsAt'], message, code: 'custom', origin: 'validation' }],
+  })
+}
+
+async function throwPriceQuantityRangeError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'catalog.prices.validation.quantityRange',
+    'Maximum quantity must be greater than or equal to the minimum quantity.',
+  )
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { maxQuantity: message },
+    details: [{ path: ['maxQuantity'], message, code: 'custom', origin: 'validation' }],
+  })
 }
 
 function numericStringToNumber(value: string | null | undefined): number | null {
@@ -322,7 +388,8 @@ function numericStringToNumber(value: string | null | undefined): number | null 
 const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> = {
   id: 'catalog.prices.create',
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(priceCreateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(priceCreateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, PRICE_EXACT_AMOUNT_FIELDS)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const actorScope = commandActorScope(ctx)
     let variant: CatalogProductVariant | null = null
@@ -376,24 +443,29 @@ const createPriceCommand: CommandHandler<PriceCreateInput, { priceId: string }> 
     }
     const productEntity = product
     const channelId = parsed.channelId ?? (offer ? offer.channelId : null)
-    const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
     const amountInput = resolveAmountInputFromParsed(parsed)
-    let unitPriceNetValue = toNumericString(parsed.unitPriceNet)
-    let unitPriceGrossValue = toNumericString(parsed.unitPriceGross)
+    let unitPriceNetValue = resolveExactDecimal(parsed.unitPriceNetExact, parsed.unitPriceNet)
+    let unitPriceGrossValue = resolveExactDecimal(parsed.unitPriceGrossExact, parsed.unitPriceGross)
     let taxRateValue = toNumericString(parsed.taxRate)
     let taxAmountValue: string | null = null
     if (amountInput) {
-      const calculation = await taxCalculationService.calculateUnitAmounts({
+      const calculation = await calculatePriceUnitAmounts(ctx.container, {
         amount: amountInput.amount,
+        amountExact: amountInput.amountExact,
+        amountDecimalPlaces: await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+          code: parsed.currencyCode,
+          tenantId: scopeSource.tenantId,
+          organizationId: scopeSource.organizationId,
+        }),
         mode: amountInput.mode,
         organizationId: scopeSource.organizationId,
         tenantId: scopeSource.tenantId,
         taxRateId: parsed.taxRateId ?? null,
         taxRate: parsed.taxRate ?? null,
       })
-      unitPriceNetValue = toNumericString(calculation.netAmount)
-      unitPriceGrossValue = toNumericString(calculation.grossAmount)
-      taxAmountValue = toNumericString(calculation.taxAmount)
+      unitPriceNetValue = exactTaxAmount(calculation.netAmountExact, calculation.netAmount)
+      unitPriceGrossValue = exactTaxAmount(calculation.grossAmountExact, calculation.grossAmount)
+      taxAmountValue = exactTaxAmount(calculation.taxAmountExact, calculation.taxAmount)
       taxRateValue = toNumericString(calculation.taxRate)
     }
 
@@ -530,7 +602,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx))
+    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx), true)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -538,7 +610,8 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
-    const { parsed, custom } = parseWithCustomFields(priceUpdateSchema, rawInput)
+    const { parsed: parsedInput, custom } = parseWithCustomFields(priceUpdateSchema, rawInput)
+    const parsed = withExactAmounts(parsedInput, rawInput, PRICE_EXACT_AMOUNT_FIELDS)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const record = await findOneWithDecryption(
       em,
@@ -661,7 +734,30 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     }
     ensureSameTenant(targetPriceKind, targetProduct.tenantId)
 
-    const taxCalculationService = ctx.container.resolve<TaxCalculationService>('taxCalculationService')
+    const hasStartsAtInput = Object.prototype.hasOwnProperty.call(parsed, 'startsAt')
+    const hasEndsAtInput = Object.prototype.hasOwnProperty.call(parsed, 'endsAt')
+    if (hasStartsAtInput || hasEndsAtInput) {
+      const effectiveStartsAt = hasStartsAtInput ? parsed.startsAt ?? null : record.startsAt ?? null
+      const effectiveEndsAt = hasEndsAtInput ? parsed.endsAt ?? null : record.endsAt ?? null
+      if (effectiveStartsAt && effectiveEndsAt && effectiveEndsAt < effectiveStartsAt) {
+        await throwPriceValidityWindowError()
+      }
+    }
+
+    const hasMinQuantityInput = Object.prototype.hasOwnProperty.call(parsed, 'minQuantity')
+    const hasMaxQuantityInput = Object.prototype.hasOwnProperty.call(parsed, 'maxQuantity')
+    if (hasMinQuantityInput || hasMaxQuantityInput) {
+      const effectiveMinQuantity = hasMinQuantityInput ? parsed.minQuantity ?? 1 : record.minQuantity ?? 1
+      const effectiveMaxQuantity = hasMaxQuantityInput ? parsed.maxQuantity ?? null : record.maxQuantity ?? null
+      if (
+        effectiveMinQuantity != null &&
+        effectiveMaxQuantity != null &&
+        effectiveMaxQuantity < effectiveMinQuantity
+      ) {
+        await throwPriceQuantityRangeError()
+      }
+    }
+
     const amountInput = resolveAmountInputForUpdate(parsed, record)
     const hasNetInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceNet')
     const hasGrossInput = Object.prototype.hasOwnProperty.call(parsed, 'unitPriceGross')
@@ -679,8 +775,14 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
         : taxRateIdForCalculation === null
           ? null
           : record.taxRate ?? null
-      taxCalculationResult = await taxCalculationService.calculateUnitAmounts({
+      taxCalculationResult = await calculatePriceUnitAmounts(ctx.container, {
         amount: calculationBase.amount,
+        amountExact: calculationBase.amountExact,
+        amountDecimalPlaces: await resolveCurrencyAmountDecimalPlaces(ctx.container, {
+          code: parsed.currencyCode ?? record.currencyCode,
+          tenantId: targetProduct.tenantId,
+          organizationId: targetProduct.organizationId,
+        }),
         mode: calculationBase.mode,
         organizationId: targetProduct.organizationId,
         tenantId: targetProduct.tenantId,
@@ -701,16 +803,16 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     if (parsed.minQuantity !== undefined) record.minQuantity = parsed.minQuantity ?? 1
     if (parsed.maxQuantity !== undefined) record.maxQuantity = parsed.maxQuantity ?? null
     if (taxCalculationResult) {
-      record.unitPriceNet = toNumericString(taxCalculationResult.netAmount)
-      record.unitPriceGross = toNumericString(taxCalculationResult.grossAmount)
+      record.unitPriceNet = exactTaxAmount(taxCalculationResult.netAmountExact, taxCalculationResult.netAmount)
+      record.unitPriceGross = exactTaxAmount(taxCalculationResult.grossAmountExact, taxCalculationResult.grossAmount)
       record.taxRate = toNumericString(taxCalculationResult.taxRate)
-      record.taxAmount = toNumericString(taxCalculationResult.taxAmount)
+      record.taxAmount = exactTaxAmount(taxCalculationResult.taxAmountExact, taxCalculationResult.taxAmount)
     } else {
       if (hasNetInput) {
-        record.unitPriceNet = toNumericString(parsed.unitPriceNet)
+        record.unitPriceNet = resolveExactDecimal(parsed.unitPriceNetExact, parsed.unitPriceNet)
       }
       if (hasGrossInput) {
-        record.unitPriceGross = toNumericString(parsed.unitPriceGross)
+        record.unitPriceGross = resolveExactDecimal(parsed.unitPriceGrossExact, parsed.unitPriceGross)
       }
       if (hasTaxRateInput) {
         record.taxRate = toNumericString(parsed.taxRate)
@@ -766,6 +868,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     const historyAfter = priceHistoryInputFromRecord(record)
     if (hasPriceHistoryRelevantChange(historyBefore, historyAfter)) {
       await capturePriceHistoryEntry(em, historyAfter, 'update', {
+        announce: parsed.announce === false && targetPriceKind.isPromotion ? undefined : parsed.announce,
         cache: resolveOmnibusCache(ctx.container),
         invalidatePrices: [historyBefore],
         previous: historyBefore,
@@ -846,6 +949,7 @@ const updatePriceCommand: CommandHandler<PriceUpdateInput, { priceId: string }> 
     applyPriceSnapshot(em, record, before)
     await em.flush()
     await capturePriceHistoryEntry(em, before, 'undo', {
+      announce: before.omnibusAnnounced,
       metadata: { undoneCommand: 'catalog.prices.update' },
       cache: resolveOmnibusCache(ctx.container),
       invalidatePrices: [after],
@@ -876,7 +980,7 @@ const deletePriceCommand: CommandHandler<
   async prepare(input, ctx) {
     const id = requireId(input, 'Price id is required')
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx))
+    const snapshot = await loadPriceSnapshot(em, id, commandScopeWhere(ctx), true)
     if (snapshot) {
       ensureTenantScope(ctx, snapshot.tenantId)
       ensureOrganizationScope(ctx, snapshot.organizationId)
@@ -986,6 +1090,7 @@ const deletePriceCommand: CommandHandler<
     applyPriceSnapshot(em, record, before)
     await em.flush()
     await capturePriceHistoryEntry(em, before, 'undo', {
+      announce: before.omnibusAnnounced,
       metadata: { undoneCommand: 'catalog.prices.delete' },
       cache: resolveOmnibusCache(ctx.container),
     })

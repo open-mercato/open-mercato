@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
 import {
   createCompanyFixture,
@@ -7,7 +7,6 @@ import {
   createPersonFixture,
   createPipelineFixture,
   createPipelineStageFixture,
-  deleteEntityIfExists,
 } from '@open-mercato/core/helpers/integration/crmFixtures'
 
 for (const kind of ['company', 'person', 'deal'] as const) {
@@ -122,9 +121,14 @@ for (const kind of ['company', 'person', 'deal'] as const) {
       await page.screenshot({ path: mobileScreenshot, fullPage: true })
       await testInfo.attach(`${kind}-tab-priority-mobile`, { path: mobileScreenshot, contentType: 'image/png' })
     } finally {
+      const cleanupFailures: string[] = []
       for (const fixture of fixtures.reverse()) {
-        await deleteEntityIfExists(request, token, fixture.path, fixture.id)
+        const response = await apiRequest(request, 'DELETE', fixture.path, { token, data: { id: fixture.id } })
+        if (response.status() !== 200 && response.status() !== 404) {
+          cleanupFailures.push(`${fixture.path}/${fixture.id}: ${response.status()}`)
+        }
       }
+      expect(cleanupFailures, 'Every owned fixture should be deleted').toEqual([])
     }
   })
 }

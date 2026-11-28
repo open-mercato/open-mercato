@@ -103,7 +103,7 @@ export async function verifyServiceConnections({ projectDir = process.cwd(), env
     }
     try {
       await probePostgres(database)
-      log(`[setup] PostgreSQL connection verified at ${endpoint(database)}.`)
+      log(`🔌 PostgreSQL connection verified at ${endpoint(database)}.`)
     } catch (error) {
       if (error.code !== '3D000') throw error
       const maintenance = new URL(database)
@@ -124,15 +124,15 @@ export async function verifyServiceConnections({ projectDir = process.cwd(), env
     let redis
     let redisFailure
     try {
-      const module = await loadModule(projectDir, 'ioredis')
-      const Redis = module.default ?? module.Redis ?? module
+      const redisModule = await loadModule(projectDir, 'ioredis')
+      const Redis = redisModule.default ?? redisModule.Redis ?? redisModule
       redis = new Redis(target.toString(), { lazyConnect: true, connectTimeout: timeoutMs, commandTimeout: timeoutMs, maxRetriesPerRequest: 0, enableOfflineQueue: false, retryStrategy: () => null })
       redis.on('error', (error) => { redisFailure = error })
       await bounded(() => redis.connect(), timeoutMs)
       const reply = await bounded(() => redis.ping(), timeoutMs)
       if (reply !== 'PONG') throw new Error('Unexpected Redis reply')
       checked.push(key)
-      log(`[setup] Redis connection verified for ${key} at ${endpoint(target)}.`)
+      log(`🔌 Redis connection verified for ${key} at ${endpoint(target)}.`)
     } catch (error) {
       throw new ServiceConnectionError('Redis', key, endpoint(target), failureKind(redisFailure ?? error))
     } finally { redis?.disconnect() }
@@ -153,7 +153,7 @@ export async function verifyServiceConnections({ projectDir = process.cwd(), env
         const payload = await bounded(() => response.json(), timeoutMs)
         if (!payload || !Array.isArray(payload.results)) throw new Error('Unexpected Meilisearch API response')
         checked.push('MEILISEARCH_HOST')
-        log(`[setup] Meilisearch authenticated API connection verified at ${endpoint(target)}.`)
+        log(`🔌 Meilisearch authenticated API connection verified at ${endpoint(target)}.`)
       } finally {
         if (response.body && !response.bodyUsed && !response.body.locked) {
           try { await bounded(() => response.body.cancel(), Math.min(timeoutMs, 1000)) } catch {}

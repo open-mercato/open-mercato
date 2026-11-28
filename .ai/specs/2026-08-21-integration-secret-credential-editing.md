@@ -395,3 +395,19 @@ Run the focused core Jest suites, the new Playwright spec, all commands returned
 - Revised the design after the readiness audit to preserve full-blob replacement, the clear-all contract, and the raw masked widget context; added bundle-editor coverage.
 - Passed the pre-implementation analysis in `analysis/ANALYSIS-2026-08-21-integration-secret-credential-editing.md` with no remaining blockers.
 - Completed the current-`develop` implementation with 35 focused Jest tests, the full configured local gate, and the `TC-INT-011` Chromium regression passing.
+
+## Amendment 2026-11-15 — bind preserved secrets to their destination (#9108)
+
+The write-only boundary also forbids redirecting a configured secret without re-entering it. The credentials merge now refuses a retained secret (the sentinel or an omitted key listed in `unchangedSecretFields`) if a schema `url` field or conventional host/hostname/port/apiUrl/baseUrl/endpoint/serverUrl field (including camel-case, underscore or hyphen-prefixed destinations such as imapHost/smtpHost/imapPort/smtpPort) differs from its stored value. Comparison includes additions and omissions because the save is a full replacement and an omitted destination can select a provider default. Validation runs on the final guard-transformed payload before persistence, events or after-success hooks; PUT returns localized HTTP 422 field errors asking for secret re-entry.
+
+Explicit replacements, explicit clearing, plain secret omission and unrelated edits at an unchanged destination retain their existing behavior. All secret types (`secret`, `oauth`, `ssh_keypair`) follow the same rule. Existing bundle schema and credential resolution remain authoritative. Operator env presets, runtime credential resolution, provider architecture, startup and configuration do not change.
+
+### Migration & Backward Compatibility
+
+No endpoint, request property, successful response, schema, registry type or service signature changes. Clients changing a destination must submit replacement values for every stored secret they wish to retain, or explicitly clear/omit those secrets under the existing full-replacement semantics. Ordinary masked edits remain supported. No database migration or operator configuration action is required. This corrects the existing write-only secret boundary; the insecure combination of a new destination with a blindly restored secret now produces the route's existing validation response (422).
+
+Coverage: helper and credentials-route regressions exercise both mask formats, all secret types, destination addition/change/removal, non-destination edits, secret replacement/clearing, guard transforms and no-side-effect rejection. An isolated-organization API integration test verifies persisted destinations remain unchanged after rejected requests and accepts unrelated edits and explicit replacement.
+
+Changelog: 2026-11-15 — added destination-binding validation for masked secret preservation, issue #9108.
+
+Review follow-up: real `channel_imap` credential metadata drives both helper and route regressions for IMAP/SMTP hosts and ports, using the sentinel and unchanged-field list. API integration coverage configures each IMAP/SMTP password independently, refuses host/port retargeting and verifies unchanged persistence, unrelated edits and explicit replacement. Non-destination words such as support/import/transport are not classified by an arbitrary suffix match.

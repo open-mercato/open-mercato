@@ -1,5 +1,6 @@
 import { resolveEntityIndexStrategies } from './lib/entity-strategy-policy'
-import { asValue } from 'awilix'
+import { asValue, type AwilixContainer } from 'awilix'
+import { asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import type { Kysely } from 'kysely'
 import type { FullTextSearchDriver } from './fulltext/types'
 import { SearchService } from './service'
@@ -27,10 +28,18 @@ import type { EncryptionMapEntry } from './lib/field-policy'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { createPresenterEnricher } from './lib/presenter-enricher'
 import { createEncryptionMapResolver } from './lib/encryption-map-resolver'
-import { createEncryptedCustomFieldKeysResolver, type CustomFieldDefinitionsDatabase, type EncryptedCustomFieldKeysResolver } from './lib/encrypted-custom-field-resolver'
+import {
+  createEncryptedCustomFieldKeysResolver,
+  type CustomFieldDefinitionsDatabase,
+  type EncryptedCustomFieldKeysResolver,
+} from './lib/encrypted-custom-field-resolver'
 import { reportSearchError } from './lib/debug'
 
 export { createEncryptionMapResolver } from './lib/encryption-map-resolver'
+export {
+  createEncryptedCustomFieldKeysResolver,
+  type EncryptedCustomFieldKeysResolver,
+} from './lib/encrypted-custom-field-resolver'
 
 type KyselyEntityManager = {
   getKysely<Database>(): Kysely<Database>
@@ -40,6 +49,10 @@ const FULLTEXT_DRIVER_KEY = '__omSearchFulltextDriver__'
 
 type SearchModuleGlobals = {
   [FULLTEXT_DRIVER_KEY]?: FullTextSearchDriver
+}
+
+type GenerationFulltextDriverCache = SearchModuleGlobals & {
+  fieldPolicyResolver: (entityId: EntityId) => SearchFieldPolicy | undefined
 }
 
 function getSearchModuleGlobals(): SearchModuleGlobals {
@@ -54,6 +67,12 @@ function getSearchModuleGlobals(): SearchModuleGlobals {
 function shouldExcludeEncryptedFields(): boolean {
   const raw = (process.env.SEARCH_EXCLUDE_ENCRYPTED_FIELDS ?? '').toLowerCase()
   return raw === '1' || raw === 'true' || raw === 'yes' || raw === 'on'
+}
+
+function createUnavailableEncryptedCustomFieldKeysResolver(): EncryptedCustomFieldKeysResolver {
+  return async () => {
+    throw new Error('[internal] Custom-field definitions are unavailable; refusing to index potentially encrypted custom fields')
+  }
 }
 
 function createUnavailableEncryptionMapResolver(): (entityId: EntityId) => Promise<EncryptionMapEntry[]> {
@@ -102,6 +121,46 @@ export function registerSearchModule(
   container: SearchContainer,
   options?: SearchModuleOptions,
 ): void {
+  const services = createSearchServices(container, options)
+  container.register({
+    searchService: asValue(services.searchService),
+    searchStrategies: asValue(services.searchStrategies),
+    searchIndexer: asValue(services.searchIndexer),
+  })
+}
+
+export function registerScopedSearchModule(root: AwilixContainer, options?: SearchModuleOptions): void {
+  const fieldPolicies = new Map<EntityId, SearchFieldPolicy | undefined>()
+  for (const moduleConfig of options?.moduleConfigs ?? []) {
+    for (const entityConfig of moduleConfig.entities) {
+      if (entityConfig.enabled !== false) fieldPolicies.set(entityConfig.entityId as EntityId, entityConfig.fieldPolicy)
+    }
+  }
+  const fulltextDriverCache: GenerationFulltextDriverCache = {
+    fieldPolicyResolver: (entityId) => fieldPolicies.get(entityId),
+  }
+  const instances = new WeakMap<AwilixContainer, ReturnType<typeof createSearchServices>>()
+  const resolveServices = (caller: AwilixContainer) => {
+    let services = instances.get(caller)
+    if (!services) {
+      services = createSearchServices(caller, options, false, fulltextDriverCache)
+      instances.set(caller, services)
+    }
+    return services
+  }
+  root.register({
+    searchService: asScopedService((caller) => resolveServices(caller).searchService),
+    searchStrategies: asScopedService((caller) => resolveServices(caller).searchStrategies),
+    searchIndexer: asScopedService((caller) => resolveServices(caller).searchIndexer),
+  })
+}
+
+function createSearchServices(
+  container: SearchContainer,
+  options?: SearchModuleOptions,
+  cacheFulltextDriver = true,
+  generationFulltextDriverCache?: GenerationFulltextDriverCache,
+) {
   const moduleConfigs = (options?.moduleConfigs ?? []).map((moduleConfig) => ({
     ...moduleConfig,
     entities: moduleConfig.entities.map((entityConfig) => {
@@ -111,6 +170,14 @@ export function registerSearchModule(
         : entityConfig
     }),
   }))
+  // Resolve encryption service for decrypting presenter data
+  let encryptionService: TenantDataEncryptionService | null = null
+  try {
+    encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
+  } catch {
+    // Encryption service not available, presenters won't be decrypted
+  }
+
   const strategies: SearchStrategy[] = []
 
   // Token strategy (always available unless explicitly skipped)
@@ -134,7 +201,7 @@ export function registerSearchModule(
       const primaryDriver = drivers?.[0]
 
       if (embeddingService && primaryDriver) {
-        strategies.push(new VectorSearchStrategy(embeddingService, primaryDriver))
+        strategies.push(new VectorSearchStrategy(embeddingService, primaryDriver, { encryptionService }))
       }
     } catch {
       // Vector module not available, skipping VectorSearchStrategy
@@ -154,8 +221,9 @@ export function registerSearchModule(
   // Fulltext strategy (requires driver configuration, e.g., MEILISEARCH_HOST)
   if (!options?.skipFulltext) {
     const excludeEncrypted = shouldExcludeEncryptedFields()
-    const singletonCacheEnabled = process.env.SEARCH_DISABLE_SINGLETON_CACHE !== '1'
-    const g = getSearchModuleGlobals()
+    const singletonCacheEnabled = (cacheFulltextDriver || !!generationFulltextDriverCache)
+      && process.env.SEARCH_DISABLE_SINGLETON_CACHE !== '1'
+    const g = generationFulltextDriverCache ?? getSearchModuleGlobals()
 
     // The fulltext driver is safe to memoize only when SEARCH_EXCLUDE_ENCRYPTED_FIELDS is
     // OFF — in that case the driver holds no request-scoped Kysely reference. When the flag
@@ -180,10 +248,10 @@ export function registerSearchModule(
       }
 
       fulltextDriver = createFulltextDriver({
-        fieldPolicyResolver: (entityId: EntityId): SearchFieldPolicy | undefined => {
+        fieldPolicyResolver: generationFulltextDriverCache?.fieldPolicyResolver ?? ((entityId: EntityId): SearchFieldPolicy | undefined => {
           const config = entityConfigMap.get(entityId)
           return config?.fieldPolicy
-        },
+        }),
         encryptionMapResolver,
       })
 
@@ -208,14 +276,6 @@ export function registerSearchModule(
     // QueryEngine not available, reindex will be disabled
   }
 
-  // Resolve encryption service for decrypting presenter data
-  let encryptionService: TenantDataEncryptionService | null = null
-  try {
-    encryptionService = container.resolve<TenantDataEncryptionService>('tenantEncryptionService')
-  } catch {
-    // Encryption service not available, presenters won't be decrypted
-  }
-
   // Create presenter enricher for database-based presenter resolution
   let presenterEnricher: PresenterEnricherFn | undefined
   try {
@@ -230,6 +290,7 @@ export function registerSearchModule(
   const searchService = new SearchService({
     strategies,
     resolveEntityStrategies: (entityId) => resolveEntityIndexStrategies(entityId, moduleConfigs),
+    resolveResultFilter: (entityId) => entityConfigMap.get(entityId as EntityId)?.filterResults,
     defaultStrategies,
     fallbackStrategy: 'tokens',
     mergeConfig: options?.mergeConfig ?? {
@@ -262,12 +323,12 @@ export function registerSearchModule(
   let encryptedCustomFieldKeysResolver: EncryptedCustomFieldKeysResolver
   try {
     const em = container.resolve<KyselyEntityManager>('em')
-    encryptedCustomFieldKeysResolver = createEncryptedCustomFieldKeysResolver(em.getKysely<CustomFieldDefinitionsDatabase>())
+    encryptedCustomFieldKeysResolver = createEncryptedCustomFieldKeysResolver(
+      em.getKysely<CustomFieldDefinitionsDatabase>(),
+    )
   } catch (error) {
     reportSearchError('SearchModule', error, 'search.custom_field_definitions_unavailable')
-    encryptedCustomFieldKeysResolver = async () => {
-      throw new Error('[internal] Custom-field definitions are unavailable')
-    }
+    encryptedCustomFieldKeysResolver = createUnavailableEncryptedCustomFieldKeysResolver()
   }
 
   const searchIndexer = new SearchIndexer(searchService, moduleConfigs, {
@@ -277,12 +338,7 @@ export function registerSearchModule(
     encryptedCustomFieldKeysResolver,
   })
 
-  // Register in container
-  container.register({
-    searchService: asValue(searchService),
-    searchStrategies: asValue(strategies),
-    searchIndexer: asValue(searchIndexer),
-  })
+  return { searchService, searchStrategies: strategies, searchIndexer }
 }
 
 /**

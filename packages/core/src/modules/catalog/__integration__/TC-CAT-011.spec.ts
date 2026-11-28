@@ -69,7 +69,7 @@ async function openProductDetail(page: Page, productId: string): Promise<void> {
 }
 
 async function fillPriceInput(page: Page, index: number, value: string): Promise<void> {
-  const input = page.getByRole('textbox', { name: '0.00' }).nth(index);
+  const input = page.getByPlaceholder('0.00', { exact: true }).nth(index);
   await expect(input).toBeVisible({ timeout: 15_000 });
   await input.click();
   await input.press('ControlOrMeta+A').catch(() => {});
@@ -80,7 +80,7 @@ async function fillPriceInput(page: Page, index: number, value: string): Promise
 }
 
 async function fillVariantPrices(page: Page): Promise<void> {
-  const priceInputs = page.getByRole('textbox', { name: '0.00' });
+  const priceInputs = page.getByPlaceholder('0.00', { exact: true });
   await expect(priceInputs).toHaveCount(2, { timeout: 15_000 });
 
   for (let attempt = 0; attempt < 4; attempt += 1) {

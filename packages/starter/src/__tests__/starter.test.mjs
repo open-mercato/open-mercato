@@ -11,11 +11,13 @@ import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '.
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, hostGatewayStep, infraUpStep, serviceConfigurationStep, serviceConnectionsStep, buildUpSteps, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
-import { ensureEnvFiles } from '../env-setup.mjs'
+import { StepBlocked, buildToolchainStep, containerRuntimeStep, databaseStep, envFilesStep, hostGatewayStep, infraUpStep, serviceConfigurationStep, serviceConnectionsStep, buildUpSteps, clearConvergenceState, databaseIsInitialized, listMigrationModules, migrationsFingerprint, probePostgresCredentials, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps, workspaceBuildStep } from '../steps.mjs'
+import { ensureEnvFiles, ensureOpenCodePassword, openCodeProbeOptions } from '../env-setup.mjs'
 import { describeInfraProblem, devRuntimeArgs, externalDatabaseHost, removeLeftoverComposeResources, resolveUpMode, startInfra } from '../infra.mjs'
 import { detectDockerRuntime, detectWsl, findPortConflicts, findUnhealthyServices, formatInfraProblem, startInfraServices } from '../infra-preflight.mjs'
 import { checkBuildToolchain, defenderExclusionCovers, detectHostGateway, hostIpCandidates } from '../doctor.mjs'
+import { collectStatus } from '../supervise.mjs'
+import { waitForHttp } from '../waits.mjs'
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -492,6 +494,90 @@ test('ensureEnvFiles writes the documented dev credentials and threads them into
   )
 })
 
+test('ensureEnvFiles gives the app and the OpenCode service the same stable credential', () => {
+  const repo = makeFakeAppRepo()
+  const options = { env: {}, log: () => {}, warn: () => {} }
+  const setup = ensureEnvFiles(repo, options)
+  const password = readEnvValue(setup.rootEnv, 'OPENCODE_PASSWORD')
+  assert.match(password ?? '', /^[a-f0-9]{64}$/)
+  assert.equal(readEnvValue(setup.appEnv, 'OPENCODE_PASSWORD'), password)
+  assert.equal(setup.openCodePasswordChanged, true)
+  assert.equal(ensureEnvFiles(repo, options).openCodePasswordChanged, false)
+  assert.equal(readEnvValue(setup.rootEnv, 'OPENCODE_PASSWORD'), password)
+})
+
+test('the starter rejects mismatched saved OpenCode passwords without overwriting or revealing either', () => {
+  const repo = makeFakeAppRepo()
+  const rootEnv = path.join(repo, '.env')
+  const appEnv = path.join(repo, 'apps', 'mercato', '.env')
+  const composePassword = 'test-only-compose-password'
+  const appPassword = 'test-only-app-password'
+  const composeText = `OPENCODE_PASSWORD=${composePassword}\n`
+  const appText = `OPENCODE_PASSWORD=${appPassword}\n`
+  fs.writeFileSync(rootEnv, composeText)
+  fs.writeFileSync(appEnv, appText)
+
+  assert.throws(() => ensureOpenCodePassword(repo, {}), (error) => {
+    assert.match(error.message, /OPENCODE_PASSWORD differs between \.env and apps\/mercato\/\.env/)
+    assert.ok(!error.message.includes(composePassword))
+    assert.ok(!error.message.includes(appPassword))
+    return true
+  })
+  assert.equal(ensureOpenCodePassword(repo, { OPENCODE_PASSWORD: 'test-only-shell-override' }), false)
+  assert.equal(fs.readFileSync(rootEnv, 'utf8'), composeText)
+  assert.equal(fs.readFileSync(appEnv, 'utf8'), appText)
+})
+
+test('the starter restricts existing env files before adding a shared OpenCode password', { skip: process.platform === 'win32' }, (context) => {
+  const repo = makeFakeAppRepo()
+  context.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  const files = [path.join(repo, '.env'), path.join(repo, 'apps', 'mercato', '.env')]
+  for (const file of files) {
+    fs.writeFileSync(file, 'OTHER=keep\n')
+    fs.chmodSync(file, 0o644)
+  }
+
+  ensureOpenCodePassword(repo, {})
+
+  for (const file of files) {
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600)
+    assert.equal(readEnvValue(file, 'OTHER'), 'keep')
+    assert.match(readEnvValue(file, 'OPENCODE_PASSWORD'), /^[a-f0-9]{64}$/)
+  }
+})
+
+test('starter OpenCode probes authenticate status and startup while other probes stay unchanged', async (context) => {
+  const repo = makeFakeRepo()
+  context.after(() => fs.rmSync(repo, { recursive: true, force: true }))
+  assert.deepEqual(openCodeProbeOptions(repo, {}), {})
+  fs.writeFileSync(path.join(repo, '.env'), "OPENCODE_PASSWORD='test-only:dotenv password'\nOPENCODE_PORT=4098\n")
+  const dotenvAuthorization = `Basic ${Buffer.from('opencode:test-only:dotenv password').toString('base64')}`
+  const shellAuthorization = `Basic ${Buffer.from('opencode:test-only-shell-password').toString('base64')}`
+  const requests = new Map()
+  context.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.set(url, options)
+    if (url.endsWith('/status')) return Response.json({})
+    return new Response('connected')
+  })
+
+  const status = await collectStatus(repo, { env: {}, runCompose: () => ({ stdout: '[]' }) })
+  assert.equal(status.opencodeUp, true)
+  assert.equal(status.urls.opencodeHealth, 'http://127.0.0.1:4098/global/health')
+  assert.equal(requests.get(status.urls.opencodeHealth).headers.Authorization, dotenvAuthorization)
+  assert.equal(requests.get(status.urls.opencodeHealth).redirect, 'error')
+  assert.equal(requests.get(status.urls.app).headers, undefined)
+  assert.equal(requests.get(status.urls.mcpHealth).headers, undefined)
+
+  const request = openCodeProbeOptions(repo, { OPENCODE_PASSWORD: 'test-only-shell-password' })
+  const ready = await waitForHttp(status.urls.opencodeMcpStatus, {
+    request,
+    validate: (body) => body === 'connected',
+  })
+  assert.equal(ready, true)
+  assert.equal(requests.get(status.urls.opencodeMcpStatus).headers.Authorization, shellAuthorization)
+  assert.equal(requests.get(status.urls.opencodeMcpStatus).redirect, 'error')
+})
+
 test('ensureEnvFiles gives the app .env the same generated tenant encryption key as the compose .env', () => {
   const repo = makeFakeAppRepo()
   fs.appendFileSync(path.join(repo, 'apps', 'mercato', '.env.example'), 'TENANT_DATA_ENCRYPTION_FALLBACK_KEY=\n')
@@ -885,6 +971,59 @@ test('infraUpStep.check only converges once every container is healthy, not mere
   assert.equal(starting.ok, false)
   assert.deepEqual(ctx.infraMissing, ['postgres'])
   assert.match(starting.detail, /postgres \(starting\)/)
+})
+
+test('starter retries OpenCode reconciliation after a failed start and stops on a credential mismatch', async () => {
+  const repoRoot = makeFakeAppRepo()
+  const rootEnv = path.join(repoRoot, '.env')
+  const appEnv = path.join(repoRoot, 'apps', 'mercato', '.env')
+  const calls = []
+  let firstStartup = true
+  const running = ['postgres', 'redis', 'meilisearch', 'opencode'].map((service) => ({
+    Service: service, State: 'running', Health: 'healthy',
+  }))
+  const ctx = quietCtx({
+    repoRoot,
+    mode: 'hybrid',
+    env: {},
+    runComposeImpl() {
+      calls.push('inspect')
+      return { status: 0, stdout: JSON.stringify(running) }
+    },
+    async startInfraImpl() {
+      calls.push('reconcile')
+      const credential = readEnvValue(rootEnv, 'OPENCODE_PASSWORD')
+      assert.match(credential ?? '', /^[a-f0-9]{64}$/)
+      assert.equal(readEnvValue(appEnv, 'OPENCODE_PASSWORD'), credential)
+      if (firstStartup) {
+        firstStartup = false
+        return { ok: false, problem: { code: 'compose-failed' } }
+      }
+      return { ok: true }
+    },
+  })
+  const steps = [envFilesStep, infraUpStep]
+
+  try {
+    assert.deepEqual(await runSteps(steps, ctx), { ok: false, failedStep: 'infra-up' })
+    assert.deepEqual(calls, ['inspect', 'reconcile'])
+
+    assert.deepEqual(await runSteps(steps, ctx), { ok: true })
+    assert.deepEqual(calls, ['inspect', 'reconcile', 'inspect', 'reconcile'])
+
+    assert.deepEqual(await runSteps(steps, ctx), { ok: true })
+    assert.deepEqual(calls, ['inspect', 'reconcile', 'inspect', 'reconcile', 'inspect'])
+
+    const rootText = fs.readFileSync(rootEnv, 'utf8')
+    setEnvValue(appEnv, 'OPENCODE_PASSWORD', 'different-test-only-secret')
+    const appText = fs.readFileSync(appEnv, 'utf8')
+    assert.deepEqual(await runSteps(steps, ctx), { ok: false, failedStep: 'env-files' })
+    assert.deepEqual(calls, ['inspect', 'reconcile', 'inspect', 'reconcile', 'inspect'])
+    assert.equal(fs.readFileSync(rootEnv, 'utf8'), rootText)
+    assert.equal(fs.readFileSync(appEnv, 'utf8'), appText)
+  } finally {
+    fs.rmSync(repoRoot, { recursive: true, force: true })
+  }
 })
 
 test('the database step initializes with --skip-if-initialized so a re-run never aborts on existing users', async () => {

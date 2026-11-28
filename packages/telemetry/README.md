@@ -302,6 +302,14 @@ without making `@open-mercato/shared` depend on this package.
 | `nodejs.eventloop.delay.p50` / `p90` / `p99` | gauge | `s` | none |
 | `process.memory.usage` | gauge | `By` | none |
 | `v8js.memory.heap.used` | gauge | `By` | `v8js.heap.space.name` |
+| `om.audit_logs.pending_writes` | gauge | `{task}` | `stage=crud_dispatch` or `stage=service_write` |
+| `om.audit_logs.oldest_pending_age` | gauge | `s` | `stage=crud_dispatch` or `stage=service_write` |
+| `om.audit_logs.dropped` | counter | `{task}` | `stage=crud_dispatch` or `stage=service_write`, `reason=capacity` |
+
+Access-log gauges join the process sampler only while a stage has accepted
+pending work and emit a final zero before unregistering. Capacity rejections
+increment `om.audit_logs.dropped` immediately. The two fixed stages are bounded
+independently and metric labels never include request or record data.
 
 Pool acquisition wait is recorded per `pool.connect` call, including failed
 promise and callback acquisitions, and includes opening a new connection when
@@ -399,6 +407,13 @@ consumer.
   fields, span attributes, and metric labels.
 - Postgres parameter-value capture is locked off with
   `enhancedDatabaseReporting: false`.
+- Postgres statement text (`db.query.text` / `db.statement`) keeps the query
+  shape only. MikroORM inlines parameter values into the SQL before it reaches
+  `pg`, so a pg `requestHook` replaces every string, numeric and boolean
+  literal with `?` and drops comments. A statement that cannot be tokenized is
+  exported as `[redacted]` rather than as-is.
+- Not yet covered: the error message of a failed query (span status and
+  exception event) can still quote a value, e.g. a duplicate-key detail.
 - Metric labels must remain low-cardinality and must never contain tenant,
   organization, or user IDs.
 

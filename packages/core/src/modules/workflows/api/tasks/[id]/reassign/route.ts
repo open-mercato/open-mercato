@@ -27,8 +27,8 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { TaskHandlerService } from '../../../../lib/task-handler'
-import { gateTaskAction } from '../../../../lib/task-visibility-request'
-import { reassignUserTaskSchema } from '../../../../data/validators'
+import { gateTaskAction, TASK_NOT_FOUND_BODY } from '../../../../lib/task-visibility-request'
+import { reassignUserTaskSchema, userTaskIdParamSchema } from '../../../../data/validators'
 import { serializeUserTask } from '../../serialize'
 import {
   workflowsTag,
@@ -90,6 +90,10 @@ export async function POST(
         { error: 'Invalid request body', details: parsed.error.issues },
         { status: 400 },
       )
+    }
+
+    if (!userTaskIdParamSchema.safeParse(params.id).success) {
+      return NextResponse.json(TASK_NOT_FOUND_BODY, { status: 404 })
     }
 
     // Visibility only — see the file header. A `workflows.tasks.reassign` holder

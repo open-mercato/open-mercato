@@ -29,13 +29,15 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
+import { parseLocaleDecimal } from '@open-mercato/shared/lib/number'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import {
   listShippingProviders,
   type ShippingProvider,
 } from '../lib/providers'
 import { isRecord } from '@open-mercato/shared/lib/utils'
+import { decimalToString, isDecimalInput, isNegativeDecimal, toDecimal } from '@open-mercato/shared/lib/decimal'
 import { renderProviderFieldInput } from './ProviderFieldInput'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -51,8 +53,8 @@ type ShippingMethodRow = {
   description: string | null
   serviceLevel: string | null
   estimatedTransitDays: number | null
-  baseRateNet: number
-  baseRateGross: number
+  baseRateNet: string
+  baseRateGross: string
   currencyCode: string | null
   isActive: boolean
   updatedAt: string | null
@@ -63,6 +65,14 @@ type DialogState =
   | { mode: 'create' }
   | { mode: 'edit'; entry: ShippingMethodRow }
 
+const baseRateSchema = z
+  .union([z.string(), z.number()])
+  .refine((value) => isDecimalInput(value) && !isNegativeDecimal(value))
+
+function readDecimalString(value: unknown): string {
+  return isDecimalInput(value) ? decimalToString(value) : '0'
+}
+
 const shippingFormSchema = z.object({
   name: z.string().trim().min(1),
   code: z.string().trim().min(1),
@@ -71,8 +81,8 @@ const shippingFormSchema = z.object({
   carrierCode: z.string().optional(),
   serviceLevel: z.string().optional(),
   estimatedTransitDays: z.coerce.number().min(0).optional(),
-  baseRateNet: z.coerce.number().min(0),
-  baseRateGross: z.coerce.number().min(0).optional(),
+  baseRateNet: baseRateSchema,
+  baseRateGross: baseRateSchema.optional(),
   currencyCode: z.string().trim().optional(),
   isActive: z.boolean().optional(),
   providerSettings: z.record(z.string(), z.unknown()).optional(),
@@ -101,9 +111,29 @@ type RateRule = {
   metric?: string
   min?: number | null
   max?: number | null
-  amountNet?: number | null
-  amountGross?: number | null
+  amountNet?: number | string | null
+  amountGross?: number | string | null
   currencyCode?: string | null
+}
+
+function rateAmountText(value: unknown): string {
+  if (typeof value === 'number') return isDecimalInput(value) ? decimalToString(value) : ''
+  return typeof value === 'string' ? value : ''
+}
+
+/** Flat-rate amounts are typed as text; send them as exact decimal strings with the locale separator resolved. */
+export function normalizeFlatRateAmounts(settings: Record<string, unknown>, locale?: string): Record<string, unknown> {
+  if (!Array.isArray(settings.rates)) return settings
+  const normalize = (value: unknown) =>
+    typeof value === 'string' && value.trim() ? parseLocaleDecimal(value, locale) ?? value : value
+  return {
+    ...settings,
+    rates: (settings.rates as RateRule[]).map((rate) => ({
+      ...rate,
+      amountNet: normalize(rate.amountNet),
+      amountGross: normalize(rate.amountGross),
+    })),
+  }
 }
 
 type FlatRateLabels = {
@@ -218,21 +248,19 @@ function FlatRateSettingsEditor(props: {
                 <div className="space-y-1">
                   <Label className="text-xs uppercase text-muted-foreground">{translations.amountNet}</Label>
                   <Input
-                    type="number"
-                    value={rate.amountNet ?? ''}
-                    onChange={(evt) =>
-                      updateRate(index, 'amountNet', evt.target.value === '' ? null : Number(evt.target.value))
-                    }
+                    type="text"
+                    inputMode="decimal"
+                    value={rateAmountText(rate.amountNet)}
+                    onChange={(evt) => updateRate(index, 'amountNet', evt.target.value === '' ? null : evt.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs uppercase text-muted-foreground">{translations.amountGross}</Label>
                   <Input
-                    type="number"
-                    value={rate.amountGross ?? ''}
-                    onChange={(evt) =>
-                      updateRate(index, 'amountGross', evt.target.value === '' ? null : Number(evt.target.value))
-                    }
+                    type="text"
+                    inputMode="decimal"
+                    value={rateAmountText(rate.amountGross)}
+                    onChange={(evt) => updateRate(index, 'amountGross', evt.target.value === '' ? null : evt.target.value)}
                   />
                 </div>
                 <div className="space-y-1">
@@ -340,6 +368,7 @@ function createShippingProviderSettingsRenderer(params: {
 
 export function ShippingMethodsSettings() {
   const t = useT()
+  const locale = useLocale()
   const scopeVersion = useOrganizationScopeVersion()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const providers = React.useMemo(() => listShippingProviders(), [])
@@ -458,12 +487,8 @@ export function ShippingMethodsSettings() {
               ? (item as any).provider_key
               : null
           const provider = providers.find((entry) => entry.key === providerKey)
-          const baseRateGross = typeof item.baseRateGross === 'number'
-            ? item.baseRateGross
-            : Number((item as any)?.base_rate_gross ?? item.baseRateGross ?? 0) || 0
-          const baseRateNet = typeof item.baseRateNet === 'number'
-            ? item.baseRateNet
-            : Number((item as any)?.base_rate_net ?? item.baseRateNet ?? 0) || 0
+          const baseRateGross = readDecimalString(item.baseRateGross ?? item.base_rate_gross)
+          const baseRateNet = readDecimalString(item.baseRateNet ?? item.base_rate_net)
           const currency =
             typeof item.currencyCode === 'string'
               ? item.currencyCode
@@ -598,7 +623,7 @@ export function ShippingMethodsSettings() {
       header: translations.table.rate,
       cell: ({ row }) => (
         <span className="text-sm">
-          {row.original.baseRateGross.toFixed(2)} {row.original.currencyCode ?? ''}
+          {toDecimal(row.original.baseRateGross).toFixed(2)} {row.original.currencyCode ?? ''}
         </span>
       ),
     },
@@ -636,14 +661,11 @@ export function ShippingMethodsSettings() {
         values.estimatedTransitDays === undefined || values.estimatedTransitDays === null
           ? undefined
           : Number(values.estimatedTransitDays),
-      baseRateNet: Number(values.baseRateNet ?? 0),
-      baseRateGross:
-        values.baseRateGross === undefined || values.baseRateGross === null
-          ? Number(values.baseRateNet ?? 0)
-          : Number(values.baseRateGross),
+      baseRateNet: readDecimalString(values.baseRateNet),
+      baseRateGross: readDecimalString(values.baseRateGross ?? values.baseRateNet),
       currencyCode: values.currencyCode?.trim().toUpperCase() || undefined,
       isActive: values.isActive ?? true,
-      providerSettings: isRecord(values.providerSettings) ? values.providerSettings : undefined,
+      providerSettings: isRecord(values.providerSettings) ? normalizeFlatRateAmounts(values.providerSettings, locale) : undefined,
     }
     const path = '/api/sales/shipping-methods'
     const method = dialog.mode === 'create' ? 'POST' : 'PUT'
@@ -670,7 +692,7 @@ export function ShippingMethodsSettings() {
     } finally {
       setSubmitting(false)
     }
-  }, [closeDialog, dialog, loadEntries, translations.errors.save, translations.messages.saved])
+  }, [closeDialog, dialog, loadEntries, locale, translations.errors.save, translations.messages.saved])
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: translations.form.name, type: 'text', required: true },
@@ -693,14 +715,14 @@ export function ShippingMethodsSettings() {
     {
       id: 'baseRateNet',
       label: translations.form.baseRateNet,
-      type: 'number',
+      type: 'decimal',
       required: true,
       layout: 'half',
     },
     {
       id: 'baseRateGross',
       label: translations.form.baseRateGross,
-      type: 'number',
+      type: 'decimal',
       required: false,
       layout: 'half',
     },

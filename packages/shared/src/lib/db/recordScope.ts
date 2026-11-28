@@ -2,6 +2,10 @@ import type { Kysely } from 'kysely'
 import { sql } from 'kysely'
 import { resolveEntityTableName } from '../query/engine'
 import { listEntityMetadata } from './entityMetadata'
+import { getTelemetryRuntime } from '../telemetry/runtime'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared.recordScope')
 
 export type EntityScopeColumns = {
   table: string
@@ -20,7 +24,17 @@ type ScopeLookupEntityManager = {
 }
 
 type ScopePropertyMetadata = { fieldNames?: unknown }
-type ScopeDatabase = Record<string, Record<string, unknown>>
+type ScopeDatabase = Record<string, {
+  id: unknown
+  tenant_id?: unknown
+  organization_id?: unknown
+}> & {
+  'information_schema.columns': {
+    column_name: unknown
+    table_name: unknown
+    table_schema: unknown
+  }
+}
 
 const ORGANIZATION_COLUMN = 'organization_id'
 const TENANT_COLUMN = 'tenant_id'
@@ -73,7 +87,16 @@ async function probeScopeColumns(
     }
     cache.set(table, resolved)
     return resolved
-  } catch {
+  } catch (error) {
+    try {
+      getTelemetryRuntime()?.reportError(error, {
+        module: 'shared',
+        code: 'shared.scope_column_probe_failed',
+        attributes: { table },
+      })
+    } catch (telemetryError) {
+      logger.warn('Failed to report a scope column probe error', { err: telemetryError })
+    }
     return null
   }
 }
@@ -89,7 +112,6 @@ export async function resolveEntityScopeColumns(
   entityType: string,
 ): Promise<EntityScopeColumns | null> {
   const table = resolveEntityTableName(em as never, entityType)
-  if (!table) return null
   const columns = resolveScopeColumnsFromMetadata(em, table)
     ?? await probeScopeColumns(em.getKysely<ScopeDatabase>(), table)
   if (!columns) return null
@@ -113,7 +135,7 @@ export async function loadEntityRecordScope(
   if (selected.length === 0) return null
   const row = await em.getKysely<ScopeDatabase>()
     .selectFrom(columns.table)
-    .select(selected)
+    .select(selected.map((column) => sql<unknown>`${sql.ref(column)}`.as(column)))
     .where('id', '=', recordId)
     .executeTakeFirst()
   if (!row) return null

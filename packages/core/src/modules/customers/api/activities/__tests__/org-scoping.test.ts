@@ -50,6 +50,7 @@ jest.mock('../../../lib/interactionCompatibility', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findAndCountWithDecryption: jest.fn((_em: unknown, entity: unknown, where: unknown, options: unknown) => mockEm.findAndCount(entity, where, options)),
   findWithDecryption: jest.fn(async () => []),
 }))
 

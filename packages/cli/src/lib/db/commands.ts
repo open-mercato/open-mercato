@@ -9,6 +9,7 @@ import { PostgreSqlDriver } from '@mikro-orm/postgresql'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 import { quotePostgresIdentifier } from './identifiers'
+import { preserveUnconstrainedNumericSnapshots } from './numeric-snapshots'
 import {
   checkEncryptionMapBackfills,
   isEncryptionBackfillCheckEnabled,
@@ -400,6 +401,7 @@ export async function dbGenerate(resolver: PackageResolver, options: DbOptions =
     })
 
     try {
+      preserveUnconstrainedNumericSnapshots(orm.em.getDriver().getPlatform())
       const diff = await orm.migrator.create(undefined, false, createInitialMigration)
       if (diff && diff.fileName) {
         try {

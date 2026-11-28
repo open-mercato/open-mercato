@@ -1,3 +1,4 @@
+import { defineProcessDiRegistrar, asScopedService } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction, asValue } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
@@ -5,6 +6,7 @@ import type { CredentialsService } from '../integrations/lib/credentials-service
 import type { IntegrationLogService } from '../integrations/lib/log-service'
 import type { IntegrationStateService } from '../integrations/lib/state-service'
 import type { PaymentOrderTotalResolver } from '@open-mercato/shared/modules/payment_gateways/types'
+import type { CurrencyPrecisionResolver } from '@open-mercato/shared/lib/currencyPrecision'
 import { GatewayTransaction, WebhookProcessedEvent } from './data/entities'
 import { createPaymentGatewayDescriptorService } from './lib/descriptor-service'
 import { createPaymentGatewayService } from './lib/gateway-service'
@@ -18,6 +20,7 @@ type Cradle = {
 }
 
 const ORDER_TOTAL_RESOLVER_NAME = 'paymentOrderTotalResolver'
+const CURRENCY_PRECISION_SERVICE_NAME = 'currencyPrecisionService'
 
 /**
  * The order-total resolver is owned by whichever module owns orders (`sales`
@@ -35,17 +38,24 @@ function resolveOrderTotalResolver(container: AppContainer, cradle: Cradle): Pay
   return candidate
 }
 
+function resolveCurrencyPrecisionResolver(container: AppContainer, cradle: Cradle): CurrencyPrecisionResolver | null {
+  if (!container.hasRegistration(CURRENCY_PRECISION_SERVICE_NAME)) return null
+  const candidate = (cradle as Cradle & { currencyPrecisionService?: CurrencyPrecisionResolver })[CURRENCY_PRECISION_SERVICE_NAME]
+  return candidate ?? null
+}
+
 export function register(container: AppContainer) {
   container.register({
-    paymentGatewayService: asFunction((cradle: Cradle) =>
+    paymentGatewayService: asScopedService((container) => (asFunction((cradle: Cradle) =>
       createPaymentGatewayService({
         em: cradle.em,
         integrationCredentialsService: cradle.integrationCredentialsService,
         integrationLogService: cradle.integrationLogService,
         integrationStateService: cradle.integrationStateService,
         paymentOrderTotalResolver: resolveOrderTotalResolver(container, cradle),
+        currencyPrecisionResolver: resolveCurrencyPrecisionResolver(container, cradle),
       }),
-    ).scoped().proxy(),
+    ).scoped().proxy()).resolve(container)),
     paymentGatewayDescriptorService: asFunction(({ integrationCredentialsService, integrationStateService }: Cradle) =>
       createPaymentGatewayDescriptorService({ integrationCredentialsService, integrationStateService }),
     ).scoped().proxy(),
@@ -54,3 +64,5 @@ export function register(container: AppContainer) {
     WebhookProcessedEvent: asValue(WebhookProcessedEvent),
   })
 }
+
+defineProcessDiRegistrar(register)

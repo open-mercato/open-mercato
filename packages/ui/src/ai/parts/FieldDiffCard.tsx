@@ -32,6 +32,10 @@ function formatValue(value: unknown): string {
   }
 }
 
+function hasNonEmptyValue(entry: AiPendingActionCardFieldDiff): boolean {
+  return (entry.before ?? '') !== '' || (entry.after ?? '') !== ''
+}
+
 function DiffRow({ entry }: { entry: AiPendingActionCardFieldDiff }) {
   const before = formatValue(entry.beforeDisplay ?? entry.before)
   const after = formatValue(entry.afterDisplay ?? entry.after)
@@ -102,8 +106,13 @@ export function FieldDiffCard({ fieldDiff, records }: FieldDiffCardProps) {
     'After',
   )
 
-  const batch = Array.isArray(records) && records.length > 0 ? records : null
-  const flat = Array.isArray(fieldDiff) ? fieldDiff : []
+  const batch = Array.isArray(records) && records.length > 0
+    ? records.map((record) => ({
+        ...record,
+        fieldDiff: record.fieldDiff.filter(hasNonEmptyValue),
+      }))
+    : null
+  const flat = Array.isArray(fieldDiff) ? fieldDiff.filter(hasNonEmptyValue) : []
 
   if (batch) {
     return (

@@ -1,3 +1,4 @@
+import { parseModuleCliOptions } from '@open-mercato/shared/lib/cli/parseModuleCliOptions'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -16,25 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const defaultFilePath = path.resolve(__dirname, 'defaults.json')
 
 function parseArgs(rest: string[]): ParsedArgs {
-  const args: ParsedArgs = {}
-  for (let index = 0; index < rest.length; index += 1) {
-    const part = rest[index]
-    if (!part?.startsWith('--')) continue
-    const [rawKey, rawValue] = part.slice(2).split('=')
-    if (!rawKey) continue
-    if (rawValue !== undefined) {
-      args[rawKey] = rawValue
-      continue
-    }
-    const next = rest[index + 1]
-    if (next && !next.startsWith('--')) {
-      args[rawKey] = next
-      index += 1
-      continue
-    }
-    args[rawKey] = true
-  }
-  return args
+  return parseModuleCliOptions(rest, { skipEmptyKeys: true })
 }
 
 function stringOption(args: ParsedArgs, ...keys: string[]): string | undefined {

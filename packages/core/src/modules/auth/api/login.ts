@@ -16,8 +16,39 @@ import { runCustomRouteAfterInterceptors } from '@open-mercato/shared/lib/crud/c
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { getAppBaseUrl, isCrossSiteBrowserRequest } from '@open-mercato/shared/lib/url'
 import { handleAuthRouteError } from '@open-mercato/core/modules/auth/api/routeError'
-import { isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
+import { capturePasswordSessionProof, isAuthSessionRejectedError } from '@open-mercato/core/modules/auth/lib/sessionEligibility'
 import { isStaffTenantActive } from '@open-mercato/core/modules/auth/lib/tenantEligibility'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import { readBoundedRequestBytes, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks/body'
+
+const logger = createLogger('auth.api')
+
+function reportLoginFailure(
+  error: unknown,
+  code: 'auth.login_interceptor_failed' | 'auth.login_revoke_failed',
+  message: string,
+  attributes?: Record<string, string | number | boolean>,
+): void {
+  try {
+    logger.error(message, { err: error, code, ...(attributes ?? {}) })
+  } catch {
+    // Never let logging prevent the fail-closed response.
+  }
+  try {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'auth',
+      code,
+      ...(attributes ? { attributes } : {}),
+    })
+  } catch (telemetryError) {
+    try {
+      logger.warn('Failed to report auth login error to telemetry', { err: telemetryError, code })
+    } catch {
+      // Never let telemetry prevent the fail-closed response.
+    }
+  }
+}
 
 const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
   points: 5, duration: 60, blockDuration: 60, keyPrefix: 'login',
@@ -25,6 +56,7 @@ const loginRateLimitConfig = readEndpointRateLimitConfig('LOGIN', {
 const loginIpRateLimitConfig = readEndpointRateLimitConfig('LOGIN_IP', {
   points: 20, duration: 60, blockDuration: 60, keyPrefix: 'login-ip',
 })
+const LOGIN_BODY_MAX_BYTES = 16 * 1024
 
 export const metadata = { requireAuth: false }
 
@@ -51,9 +83,9 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
   const contentType = rawContentType.split(';')[0].trim().toLowerCase()
 
   try {
+    const body = Buffer.from(await readBoundedRequestBytes(req, { maxBytes: LOGIN_BODY_MAX_BYTES }))
     if (contentType === 'application/x-www-form-urlencoded') {
-      const body = await req.text()
-      const params = new URLSearchParams(body)
+      const params = new URLSearchParams(body.toString('utf8'))
       const requireRoleRaw = String(params.get('requireRole') ?? params.get('role') ?? '').trim()
       return {
         email: String(params.get('email') ?? ''),
@@ -65,7 +97,7 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
       }
     }
 
-    const form = await req.formData()
+    const form = await new Response(body, { headers: { 'content-type': rawContentType } }).formData()
     const requireRoleRaw = String(form.get('requireRole') ?? form.get('role') ?? '').trim()
     return {
       email: String(form.get('email') ?? ''),
@@ -75,7 +107,8 @@ async function parseLoginForm(req: Request): Promise<ParsedLoginForm> {
       requiredRoles: requireRoleRaw ? parseRequiredRoles(requireRoleRaw) : [],
       redirectTo: String(form.get('redirect') ?? ''),
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) throw error
     return {
       email: '',
       password: '',
@@ -102,6 +135,9 @@ export async function POST(req: Request) {
   try {
     return await handleLoginRequest(req)
   } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return NextResponse.json({ ok: false, error: await resolveGenericLoginError() }, { status: 413 })
+    }
     return handleAuthRouteError(error, {
       scope: 'auth.login',
       message: await resolveGenericLoginError(),
@@ -114,10 +150,15 @@ async function handleLoginRequest(req: Request) {
   if (isCrossSiteBrowserRequest(req)) {
     return NextResponse.json({ ok: false, error: translate('auth.login.errors.crossSiteRequest', 'This sign-in request did not come from this application. Open the sign-in page and try again.') }, { status: 403 })
   }
+  const { error: ipRateLimitError } = await checkAuthRateLimit({
+    req, ipConfig: loginIpRateLimitConfig, ipCheck: 'trusted-only',
+  })
+  if (ipRateLimitError) return ipRateLimitError
   const { email, password, remember, tenantIdRaw, requiredRoles, redirectTo } = await parseLoginForm(req)
   // Rate limit — two layers, both checked before validation and DB work
   const { error: rateLimitError, compoundKey: rateLimitCompoundKey } = await checkAuthRateLimit({
     req, ipConfig: loginIpRateLimitConfig, compoundConfig: loginRateLimitConfig, compoundIdentifier: email,
+    isolateByIdentifierWithoutTrustedIp: true, ipCheck: 'untrusted-only',
   })
   if (rateLimitError) return rateLimitError
   const parsed = userLoginSchema.pick({ email: true, password: true, tenantId: true }).safeParse({
@@ -147,9 +188,10 @@ async function handleLoginRequest(req: Request) {
   // comparison even when the user is missing or has no hash — so unknown-email,
   // wrong-password, and multi-tenant cases return an identical 401 with
   // identical latency.
+  const proof = user ? capturePasswordSessionProof(user) : null
   const ok = await auth.verifyPassword(user, parsed.data.password)
   const tenantActive = user ? await isStaffTenantActive(container.resolve('em'), user.tenantId) : false
-  if (!user || !ok || user.isConfirmed === false || !tenantActive) {
+  if (!user || !proof || !ok || user.isConfirmed === false || !tenantActive) {
     // The 401 body stays identical for every branch so the response never reveals
     // which one fired. `reason` goes to the audit stream instead, where separating a
     // deactivated account from a mistyped password is the whole point — otherwise
@@ -192,7 +234,7 @@ async function handleLoginRequest(req: Request) {
     : new Date(Date.now() + accessTokenMaxAgeSeconds * 1000)
   let createdSession: Awaited<ReturnType<AuthService['createSession']>>
   try {
-    createdSession = await auth.createSession(user, sessionExpiresAt)
+    createdSession = await auth.createSession(user, sessionExpiresAt, proof)
   } catch (error) {
     if (!isAuthSessionRejectedError(error)) throw error
     void emitAuthEvent('auth.login.failed', { email: parsed.data.email, reason: 'account_deactivated' }).catch(() => undefined)
@@ -207,7 +249,6 @@ async function handleLoginRequest(req: Request) {
     email: user.email,
     roles: userRoleNames
   })
-  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
   const responseData: { ok: true; token: string; redirect: string; refreshToken?: string } = {
     ok: true,
     token,
@@ -242,8 +283,32 @@ async function handleLoginRequest(req: Request) {
     },
   })
   if (!interceptedResponse.ok) {
-    return NextResponse.json(interceptedResponse.body, { status: interceptedResponse.statusCode })
+    const interceptorError = new Error(`Login after-interceptor failed with status ${interceptedResponse.statusCode}`)
+    reportLoginFailure(
+      interceptorError,
+      'auth.login_interceptor_failed',
+      'Login after-interceptor failed; revoking provisional session and denying login',
+      { statusCode: interceptedResponse.statusCode },
+    )
+    try {
+      await auth.deleteSessionById(String(loginSession.id))
+    } catch (error) {
+      reportLoginFailure(
+        error,
+        'auth.login_revoke_failed',
+        'Failed to revoke provisional session after login after-interceptor failure',
+      )
+    }
+    void emitAuthEvent('auth.login.failed', {
+      email: parsed.data.email,
+      reason: 'after_interceptor_failed',
+    }).catch(() => undefined)
+    return NextResponse.json(
+      { ok: false, error: translate('auth.login.errors.generic', 'An error occurred. Please try again.') },
+      { status: interceptedResponse.statusCode },
+    )
   }
+  void emitAuthEvent('auth.login.success', { id: String(user.id), email: user.email, tenantId: resolvedTenantId, organizationId: user.organizationId ? String(user.organizationId) : null }).catch(() => undefined)
 
   const interceptedBody = interceptedResponse.body
   const authTokenForCookie = typeof interceptedBody.token === 'string' && interceptedBody.token.length > 0
@@ -261,6 +326,15 @@ async function handleLoginRequest(req: Request) {
 
   const res = NextResponse.json(interceptedBody, { status: interceptedResponse.statusCode })
   res.cookies.set('auth_token', authTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', maxAge: accessTokenMaxAgeSeconds })
+  // A successful login changes the browser's identity. The scope-selection cookies
+  // (`om_selected_org`, `om_selected_tenant`) outlive sessions by design (30-day
+  // client-side max-age) and `applySuperAdminScope` honors them for super-admins
+  // without checking who made the selection, so a selection left by a previous user
+  // would silently re-scope this one under the previous user's tenant/organization.
+  // Expire both next to the identity cookies, mirroring logout (#7465). Refresh and
+  // profile re-issue tokens for the SAME user and deliberately keep the selection.
+  res.cookies.set('om_selected_org', '', { path: '/', maxAge: 0 })
+  res.cookies.set('om_selected_tenant', '', { path: '/', maxAge: 0 })
   if (remember && refreshTokenForCookie) {
     const expiresAt = new Date(Date.now() + rememberMeDays * 24 * 60 * 60 * 1000)
     res.cookies.set('session_token', refreshTokenForCookie, { httpOnly: true, path: '/', sameSite: 'lax', secure: process.env.NODE_ENV === 'production', expires: expiresAt })
@@ -291,7 +365,7 @@ const loginErrorSchema = z.object({
 
 const loginMethodDoc: OpenApiMethodDoc = {
   summary: 'Authenticate user credentials',
-  description: 'Validates the submitted credentials and issues a bearer token cookie for subsequent API calls.',
+  description: 'Validates the submitted credentials and issues a bearer token cookie for subsequent API calls. A successful login also clears the organization-scope selection cookies (`om_selected_org`, `om_selected_tenant`) so a selection left by a previous user in the same browser cannot re-scope the new session; failed logins leave them untouched.',
   tags: ['Authentication & Accounts'],
   requestBody: {
     contentType: 'application/x-www-form-urlencoded',
@@ -309,6 +383,7 @@ const loginMethodDoc: OpenApiMethodDoc = {
     { status: 400, description: 'Validation failed', schema: loginErrorSchema },
     { status: 401, description: 'Invalid credentials', schema: loginErrorSchema },
     { status: 403, description: 'User lacks required role, or the request was submitted cross-site', schema: loginErrorSchema },
+    { status: 413, description: 'Login payload is too large', schema: loginErrorSchema },
     { status: 429, description: 'Too many login attempts', schema: rateLimitErrorSchema },
   ],
 }
