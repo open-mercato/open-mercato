@@ -3179,6 +3179,12 @@ email nor `users.getProfile`, such as send-only (`gmail.send`), can no longer co
 without an address are not repaired. No database migration or API change is needed;
 `GmailApiClient.getProfile` only gains an optional `options` argument.
 
+### Shipping carrier cancel and tracking refresh answer 404 for unknown shipments (#9231)
+
+`POST /api/shipping-carriers/cancel` and `POST /api/shipping-carriers/tracking/refresh` now answer `404` with a localized `{ "error": "Shipment not found" }` body when the `shipmentId` does not exist or belongs to another tenant or organization. They used to answer `502` "Carrier provider request failed. Try again later." and log a provider upstream error, although no carrier was called. `GET /api/shipping-carriers/tracking` was documented to answer `404` for this case, but on production builds the lookup miss fell through to `502` there too; this change restores its `404`.
+
+**Action for API clients:** treat this `404` as final and do not retry it; keep retry/backoff for `502`, which still means a real carrier failure. Branch on the status code, not the `error` text, because the text follows the request locale. Alerts on the upstream-error log for these routes stop firing for unknown ids. No database migration is needed. See [the specification](.ai/specs/2026-11-10-shipping-carriers-cancel-refresh-not-found.md).
+
 ## 0.8.0 → 0.9.0 (2026-10-09)
 
 ### `POST /api/auth/logout` no longer requires a valid access token (#7225)

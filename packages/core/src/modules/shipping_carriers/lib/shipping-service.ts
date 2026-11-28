@@ -23,11 +23,26 @@ import {
   TERMINAL_SHIPPING_STATUSES,
 } from './status-sync'
 
+const CARRIER_SHIPMENT_NOT_FOUND_MARKER = Symbol.for('@open-mercato/shipping_carriers/CarrierShipmentNotFoundError')
+
 export class CarrierShipmentNotFoundError extends Error {
+  readonly [CARRIER_SHIPMENT_NOT_FOUND_MARKER] = true
+
   constructor() {
     super('Shipment not found')
     this.name = 'CarrierShipmentNotFoundError'
   }
+}
+
+/**
+ * Type-safe check that works across module/bundle boundaries. Prefer this over
+ * `instanceof CarrierShipmentNotFoundError` in route handlers, where the thrown
+ * error may originate from a different bundle than the one performing the check.
+ */
+export function isCarrierShipmentNotFoundError(error: unknown): error is CarrierShipmentNotFoundError {
+  return !!error
+    && typeof error === 'object'
+    && (error as Record<symbol, unknown>)[CARRIER_SHIPMENT_NOT_FOUND_MARKER] === true
 }
 
 export function createShippingCarrierService(deps: {

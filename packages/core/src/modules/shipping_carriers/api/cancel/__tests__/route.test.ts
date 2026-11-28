@@ -1,5 +1,6 @@
 /** @jest-environment node */
 import { POST } from '@open-mercato/core/modules/shipping_carriers/api/cancel/route'
+import { CarrierShipmentNotFoundError } from '@open-mercato/core/modules/shipping_carriers/lib/shipping-service'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
@@ -9,6 +10,7 @@ const shipmentId = '44444444-4444-4444-8444-444444444444'
 const validateCrudMutationGuardMock = jest.fn()
 const runCrudMutationGuardAfterSuccessMock = jest.fn()
 const cancelShipmentMock = jest.fn()
+const translateMock = jest.fn((_key: string, fallback: string) => fallback)
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => ({
@@ -34,6 +36,10 @@ jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({
   runCrudMutationGuardAfterSuccess: (...args: unknown[]) => runCrudMutationGuardAfterSuccessMock(...args),
 }))
 
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: jest.fn(async () => ({ translate: translateMock, t: translateMock })),
+}))
+
 function createMockRequest(body: unknown): Request {
   return new Request('http://localhost/api/shipping-carriers/cancel', {
     method: 'POST',
@@ -46,6 +52,17 @@ const validCancelPayload = {
   providerKey: 'test-carrier',
   shipmentId,
   reason: 'Customer requested',
+}
+
+function createNotFoundErrorFromSeparateBundle(): Error {
+  let separateCopy: typeof import('@open-mercato/core/modules/shipping_carriers/lib/shipping-service') | undefined
+  jest.isolateModules(() => {
+    separateCopy = jest.requireActual('@open-mercato/core/modules/shipping_carriers/lib/shipping-service')
+  })
+  if (!separateCopy) throw new Error('[internal] shipping-service did not load')
+  const error = new separateCopy.CarrierShipmentNotFoundError()
+  expect(error).not.toBeInstanceOf(CarrierShipmentNotFoundError)
+  return error
 }
 
 describe('shipping carrier cancel route', () => {
@@ -111,5 +128,25 @@ describe('shipping carrier cancel route', () => {
 
     expect(response.status).toBe(200)
     expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 instead of an upstream error when the shipment is not found in scope', async () => {
+    cancelShipmentMock.mockRejectedValueOnce(new CarrierShipmentNotFoundError())
+
+    const response = await POST(createMockRequest(validCancelPayload))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Shipment not found' })
+    expect(translateMock).toHaveBeenCalledWith('shipping_carriers.errors.shipmentNotFound', 'Shipment not found')
+    expect(runCrudMutationGuardAfterSuccessMock).not.toHaveBeenCalled()
+  })
+
+  it('returns 404 when the not-found error comes from a separately bundled copy of the service', async () => {
+    cancelShipmentMock.mockRejectedValueOnce(createNotFoundErrorFromSeparateBundle())
+
+    const response = await POST(createMockRequest(validCancelPayload))
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Shipment not found' })
   })
 })
