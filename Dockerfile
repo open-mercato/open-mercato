@@ -121,6 +121,7 @@ COPY packages/search/package.json ./packages/search/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
+COPY packages/storefront-ui/package.json ./packages/storefront-ui/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/telemetry/package.json ./packages/telemetry/
 COPY packages/tillio/package.json ./packages/tillio/
@@ -251,6 +252,7 @@ COPY packages/search/package.json ./packages/search/
 COPY packages/shared/package.json ./packages/shared/
 COPY packages/starter/package.json ./packages/starter/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
+COPY packages/storefront-ui/package.json ./packages/storefront-ui/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/telemetry/package.json ./packages/telemetry/
 COPY packages/tillio/package.json ./packages/tillio/

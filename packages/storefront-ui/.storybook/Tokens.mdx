@@ -1,0 +1,64 @@
+import { Meta } from '@storybook/addon-docs/blocks'
+
+<Meta title="Foundations/Tokens" />
+
+# Storefront tokens
+
+`@open-mercato/storefront-ui` ships two stylesheets. `tokens.css` declares the custom properties on `:root` and `.dark`; `theme.css` maps them onto Tailwind 4 utilities. The semantic names are the same as the admin design system, so a merchant `theme.css` written for the back office brands the storefront unchanged.
+
+## Merchant surface
+
+Safe to override per store, through `theme.css` or inline on `<html>`:
+
+| Token | Purpose | Default |
+|---|---|---|
+| `--primary`, `--primary-foreground`, `--primary-hover`, `--ring` | Primary actions and focus ring colour | black on white |
+| `--accent` | Promotional emphasis, hover tints | neutral |
+| `--sf-surface` | Product image background, cards on the page | `#f5f5f5` |
+| `--sf-surface-tint` | Quiet section background, selected option fill | `#ebebeb` |
+| `--sf-primary-soft` | Controls placed on a primary-coloured surface (header pills) | `oklch(0.269 0 0)` |
+| `--sf-sale`, `--sf-sale-foreground` | Sale badges and sale prices | status error red |
+| `--font-base`, `--font-heading` | Type families, the names used by store branding | Inter |
+| `--sf-label-case` | `none` or `uppercase` for buttons, chips, badges, tabs | `none` |
+| `--radius` | Store branding radius; every `--sf-radius-*` is derived from it | `0.625rem` |
+| `--sf-image-ratio-product`, `--sf-image-fit` | Product media ratio and fit | `151 / 178`, `cover` |
+| `data-sf-density` | `compact`, `default`, `comfortable`: grid gap and control size step | `default` |
+
+Use the Brand toolbar above to switch between four presets and the Density toolbar to see the control step.
+
+## Fixed surface
+
+System contracts; changing them breaks states the primitives rely on:
+
+- the status palette `--status-{error|success|warning|info|neutral|pink}-{bg|text|border|icon|solid|solid-foreground}` and the status-to-tone mapping in `Badge.Status`;
+- control heights `--sf-control-{sm|md|lg}` (32 / 40 / 44 px before density);
+- focus ring geometry (`--shadow-focus`, 2 px inner, 4 px outer), disabled construction (`--bg-disabled`, `--text-disabled`, `--border-disabled`);
+- z-index layers, motion durations, overlay widths, minimum text sizes (11 px badge, 13 px meta, 16 px body).
+
+## Type scale
+
+| Token | Size / line | Use |
+|---|---|---|
+| `text-sf-display-xl` | 64 / 68, light | Home hero |
+| `text-sf-display-l` | 48 / 52, light | Page titles on desktop |
+| `text-sf-display-m` | 40 / 44, light | Page titles on mobile, sections on desktop |
+| `text-sf-display-s` | 28 / 32, light | Sections on mobile |
+| `text-sf-title` | 22 / 28, light | Card, sheet and dialog titles from `lg`, section titles below `lg` |
+| `text-sf-title-sm` | 18 / 24 | Card, sheet and dialog titles below `lg` |
+| `text-sf-body-lg` | 16 / 24 | Lead copy |
+| `text-sf-body` | 14 / 20 | Body, product names, prices, inputs |
+| `text-sf-body-sm` | 13 / 20 | Buttons, filters, notes, menu rows |
+| `text-sf-body-xs` | 12 / 16 | Price history, meta, breadcrumbs |
+| `text-sf-badge` | 11 / 16 | Small badges only |
+
+## Radii
+
+| Token | square | rounded | pill |
+|---|---|---|---|
+| `rounded-sf-badge` | 2 | 8 | full |
+| `rounded-sf-button` | 0 | 12 | full |
+| `rounded-sf-chip` | 0 | 12 | full |
+| `rounded-sf-field` | 0 | 12 | 12 |
+| `rounded-sf-card` | 0 | 16 | 20 |
+| `rounded-sf-tile` | 0 | 16 | 20 |
+| `rounded-sf-sheet` | 0 | 20 | 24 |

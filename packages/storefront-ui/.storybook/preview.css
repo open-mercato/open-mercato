@@ -1,0 +1,13 @@
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+@import "../src/tokens.css";
+@import "../src/theme.css";
+@source "../src";
+@source "./";
+
+html, body, #storybook-root { min-height: 100%; background: var(--background); color: var(--foreground); font-family: var(--font-sans); }
+body { margin: 0; -webkit-font-smoothing: antialiased; }
+.sf-story { min-height: 100vh; padding: 2rem; }
+.sf-story[data-layout="centered"] { display: grid; place-items: center; }
+.sf-story[data-layout="fullscreen"] { padding: 0; }
+.sbdocs.sbdocs-wrapper { background: var(--background); color: var(--foreground); }

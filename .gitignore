@@ -41,6 +41,7 @@ build
 # debug
 npm-debug.log*
 yarn-debug.log*
+debug-storybook.log
 yarn-error.log*
 .pnpm-debug.log*
 
