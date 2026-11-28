@@ -411,7 +411,15 @@ describe('reassignConversationCommand redo (personal-mailbox privacy, #3832)', (
     const promise = reassignConversationCommand.redo!({
       input: { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
       ctx,
-      logEntry: { id: 'log-1' } as never,
+      logEntry: {
+        id: 'log-1',
+        snapshotBefore: {
+          threadMappingId: 'mapping-1',
+          conversationId: 'conv-1',
+          previousAssignedUserId: null,
+          newAssignedUserId: ASSIGNEE,
+        },
+      } as never,
     })
     return { promise, em }
   }

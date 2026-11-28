@@ -48,7 +48,8 @@ const DATABASE_PASSWORD = 'reassign_undo'
 const CASE_TIMEOUT_MS = 30_000
 const WAITER_POLL_MS = 25
 const WAITER_TIMEOUT_MS = 10_000
-const CONFLICT_CODE = 'communication_channels.errors.reassignUndoConflict'
+const UNDO_CONFLICT_CODE = 'communication_channels.errors.reassignUndoConflict'
+const REDO_CONFLICT_CODE = 'communication_channels.errors.reassignRedoConflict'
 
 const USER_A = randomUUID()
 const USER_B = randomUUID()
@@ -87,7 +88,7 @@ async function settle<T>(promise: Promise<T>): Promise<Outcome<T>> {
   }
 }
 
-describeWithPostgres('reassign-conversation undo against concurrent reassignments on real PostgreSQL', () => {
+describeWithPostgres('reassign-conversation against concurrent reassignments on real PostgreSQL', () => {
   let postgres: StartedTestContainer | null = null
   let orm: TestOrm | null = null
 
@@ -154,21 +155,25 @@ describeWithPostgres('reassign-conversation undo against concurrent reassignment
     ) as Promise<ExecuteValue>
   }
 
+  function reassignmentLog(target: Seed, previousAssignedUserId: string, newAssignedUserId: string) {
+    return {
+      commandPayload: {
+        undo: {
+          threadMappingId: target.mappingId,
+          conversationId: target.conversationId,
+          tenantId: target.tenantId,
+          previousAssignedUserId,
+          newAssignedUserId,
+        },
+      },
+    } as never
+  }
+
   function undoReassign(target: Seed, previousAssignedUserId: string, newAssignedUserId: string): Promise<void> {
     return reassignConversationCommand.undo!({
       input: {} as never,
       ctx: commandCtx(),
-      logEntry: {
-        commandPayload: {
-          undo: {
-            threadMappingId: target.mappingId,
-            conversationId: target.conversationId,
-            tenantId: target.tenantId,
-            previousAssignedUserId,
-            newAssignedUserId,
-          },
-        },
-      } as never,
+      logEntry: reassignmentLog(target, previousAssignedUserId, newAssignedUserId),
     })
   }
 
@@ -232,7 +237,7 @@ describeWithPostgres('reassign-conversation undo against concurrent reassignment
   it('refuses to undo A->B after a later B->C and keeps C', async () => {
     const target = await seed(USER_C)
     const outcome = await settle(undoReassign(target, USER_A, USER_B))
-    expect(outcome).toMatchObject({ ok: false, error: { status: 409, body: { code: CONFLICT_CODE } } })
+    expect(outcome).toMatchObject({ ok: false, error: { status: 409, body: { code: UNDO_CONFLICT_CODE } } })
     expect(await owners(target)).toEqual({ mapping: USER_C, conversation: USER_C })
   }, CASE_TIMEOUT_MS)
 
@@ -264,6 +269,25 @@ describeWithPostgres('reassign-conversation undo against concurrent reassignment
     expect(await owners(target)).toEqual({ mapping: USER_C, conversation: USER_C })
   }, CASE_TIMEOUT_MS)
 
+  it('refuses to redo A->B when a concurrent A->C reassignment commits first', async () => {
+    const target = await seed(USER_A)
+    const gate = armGate('ExternalConversation')
+    const reassigning = settle(reassign(target, USER_C))
+    await gate.reached.promise
+    const redoing = settle(Promise.resolve(reassignConversationCommand.redo!({
+      input: { threadId: target.threadId, assignedUserId: USER_B, scope: { tenantId: target.tenantId, organizationId: null } },
+      ctx: commandCtx(),
+      logEntry: reassignmentLog(target, USER_A, USER_B),
+    })))
+    await waitForLockWaiterOrSettled(redoing)
+    gate.release.resolve()
+
+    const [reassignOutcome, redoOutcome] = await Promise.all([reassigning, redoing])
+    expect(reassignOutcome).toMatchObject({ ok: true, value: { status: 'reassigned' } })
+    expect(redoOutcome).toMatchObject({ ok: false, error: { status: 409, body: { code: REDO_CONFLICT_CODE } } })
+    expect(await owners(target)).toEqual({ mapping: USER_C, conversation: USER_C })
+  }, CASE_TIMEOUT_MS)
+
   it('never deadlocks or loses the newer owner across unsynchronised undo and reassign pairs', async () => {
     const failures: Array<{ undo: string; reassign: string; mapping: string | null; conversation: string | null }> = []
     for (let index = 0; index < 25; index += 1) {
@@ -276,7 +300,7 @@ describeWithPostgres('reassign-conversation undo against concurrent reassignment
       const undoResult = undoOutcome.ok ? 'ok' : String(undoOutcome.error.body?.code ?? undoOutcome.error.status)
       const reassignResult = reassignOutcome.ok ? reassignOutcome.value.status : 'error'
       const acceptable =
-        (undoResult === 'ok' || undoResult === CONFLICT_CODE) &&
+        (undoResult === 'ok' || undoResult === UNDO_CONFLICT_CODE) &&
         reassignResult === 'reassigned' &&
         state.mapping === USER_C &&
         state.conversation === USER_C
