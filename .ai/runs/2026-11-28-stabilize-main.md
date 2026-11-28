@@ -30,6 +30,8 @@ The scheduled 08:00 run found this existing PR rather than opening a duplicate. 
 
 Head f7b8cc176b passed hosted run 46089946143, including all 15 integration shards, unit tests, timezone coverage, lint, app build and multi-instance checks. All four workflows for that head completed successfully. The continuation runs the configured local gate afresh, dispatches one final independent review, and verifies the final pushed head before adding automerge. Local validation uses a short TMPDIR and Turbo environment passthrough; the already downloaded unzip executable supplies the missing host utility without changing project dependencies.
 
+Continuation validation passed all eight configured commands in order: package build, generation, package rebuild, translation sync, translation usage, typecheck, full tests (51/51 Turbo tasks; create-app 1,316 passing tests and four existing skips), and production app build. Runner: local. The test command took 861 seconds and the app build took 260 seconds. No implementation changes were needed after f7b8cc176b; final-head hosted CI remains a publication gate after the remaining tracking updates.
+
 ## Risks
 The current main integration run is unfinished, so additional failures may emerge. Full CI may take over an hour. Draft PRs cannot run CI in this repository; initial draft will be marked ready to validate. Initial local unit gate failed because Turbo strict mode stripped TMPDIR=/tmp, exposing tsx Unix socket path length limits in the cockpit temporary directory. Retry uses TURBO_ENV_MODE=loose with TMPDIR=/tmp. Record any further environmental blockers; retain full hosted CI as a requirement.
 
@@ -46,5 +48,5 @@ PR: #10995
 
 ### Phase 2: Validation and handoff
 
-- [ ] 2.1 Run configured local validation and full PR CI; fix failures until green.
+- [x] 2.1 Run configured local validation and full PR CI; fix failures until green. — f7b8cc176b; hosted run 46089946143 and fresh local gate on continuation f28cd74420
 - [ ] 2.2 Obtain one final independent review, resolve findings, and label the green PR automerge.
