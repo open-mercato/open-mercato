@@ -162,12 +162,12 @@ test.describe('TC-STAFF-SUP-015: Support Inbox customer filter and live refresh'
         (response) => response.url().includes('/api/staff/timesheets/tasks?') && response.ok(),
         { timeout: 60_000 },
       )
-      const streamOpened = staff.waitForResponse((response) => response.url().includes('/api/events/stream'), {
-        timeout: 60_000,
-      })
       await staff.goto(INBOX_PATH, { waitUntil: 'domcontentloaded' })
-      await Promise.all([listLoaded, streamOpened])
+      await listLoaded
       await dismissNotices(staff)
+      const bridgeReady = (ready: boolean) =>
+        (window as Window & { __omEventBridgeReady?: boolean }).__omEventBridgeReady === ready
+      await staff.waitForFunction(bridgeReady, true, { timeout: 60_000 })
       let reloads = 0
       staff.on('framenavigated', (frame) => {
         if (frame === staff.mainFrame()) reloads += 1
@@ -183,6 +183,21 @@ test.describe('TC-STAFF-SUP-015: Support Inbox customer filter and live refresh'
       const claim = await apiRequest(request, 'POST', `/api/staff/timesheets/tasks/${ticket.id}/claim`, { token: assigner.token })
       expect(claim.status()).toBe(200)
       await expect(row).toContainText(assigner.displayName, { timeout: 30_000 })
+
+      await staff.evaluate(() => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      await staff.waitForFunction(bridgeReady, false)
+      const missedSubject = `${subject} while disconnected`
+      const missedTicket = await fileTicket(request, customer, { categoryValue: category.value, subject: missedSubject })
+      cleanup.add(() => deleteTask(request, admin, missedTicket.id))
+      await staff.evaluate(() => {
+        Reflect.deleteProperty(document, 'visibilityState')
+        document.dispatchEvent(new Event('visibilitychange'))
+      })
+      await staff.waitForFunction(bridgeReady, true)
+      await expect(staff.getByRole('row').filter({ hasText: missedSubject })).toBeVisible({ timeout: 30_000 })
       expect(reloads, 'the inbox must update in place, not by navigating').toBe(0)
     } finally {
       await cleanup.run()
