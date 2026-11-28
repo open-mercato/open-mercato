@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { usePersistedBooleanFlag } from '@open-mercato/ui/backend/crud/usePersistedBooleanFlag'
 import { ActivityTypeSelector, type ActivityType } from './ActivityTypeSelector'
 import { MiniWeekCalendar } from './MiniWeekCalendar'
+import { toLocalDateTimeInput } from './utils'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -21,7 +22,7 @@ type GuardedMutationRunner = <T,>(
 
 const composerSchema = z.object({
   description: z.string().trim().min(1, 'customers.activityComposer.validation.descriptionRequired'),
-  occurredAt: z.string().min(1),
+  occurredAt: z.string().min(1).nullable(),
 })
 
 type TranslateFn = (key: string, fallback?: string, params?: Record<string, string>) => string
@@ -29,7 +30,7 @@ type TranslateFn = (key: string, fallback?: string, params?: Record<string, stri
 function formatDateBadge(isoLocal: string, t: TranslateFn): string {
   if (!isoLocal) return ''
   const now = new Date()
-  const date = new Date(isoLocal.replace('T', ' '))
+  const date = new Date(isoLocal)
   const time = isoLocal.slice(11, 16)
   const isToday =
     date.getFullYear() === now.getFullYear() &&
@@ -67,11 +68,13 @@ export function InlineActivityComposer({
   const calendarRefreshRef = React.useRef<(() => void) | null>(null)
   const [selectedType, setSelectedType] = React.useState<ActivityType | null>('call')
   const [description, setDescription] = React.useState('')
-  const [occurredAt, setOccurredAt] = React.useState(() => new Date().toISOString().slice(0, 16))
+  const [defaultOccurredAt, setDefaultOccurredAt] = React.useState(() => toLocalDateTimeInput(new Date().toISOString()))
+  const [occurredAt, setOccurredAt] = React.useState<string | null>(null)
   const [scheduledAt, setScheduledAt] = React.useState('')
   const [saving, setSaving] = React.useState(false)
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const descriptionRef = React.useRef<HTMLTextAreaElement>(null)
+  const displayedOccurredAt = occurredAt ?? defaultOccurredAt
 
   const weekPreviewStorageKey = `om:inline-composer:week-preview:${entityType}`
   const { value: weekPreviewHidden, toggle: toggleWeekPreview } = usePersistedBooleanFlag(
@@ -98,7 +101,8 @@ export function InlineActivityComposer({
 
   const handleReset = React.useCallback(() => {
     setDescription('')
-    setOccurredAt(new Date().toISOString().slice(0, 16))
+    setDefaultOccurredAt(toLocalDateTimeInput(new Date().toISOString()))
+    setOccurredAt(null)
     setScheduledAt('')
     setErrors({})
   }, [])
@@ -130,7 +134,7 @@ export function InlineActivityComposer({
         interactionType: selectedType,
         body: description.trim(),
         status: scheduledAt ? 'planned' : 'done',
-        occurredAt: scheduledAt ? null : new Date(occurredAt).toISOString(),
+        occurredAt: scheduledAt ? null : new Date(occurredAt ?? Date.now()).toISOString(),
         scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : null,
       }
       const operation = () =>
@@ -236,10 +240,10 @@ export function InlineActivityComposer({
         </div>
         <label className="flex shrink-0 cursor-pointer items-center gap-2 self-start rounded-lg border bg-background px-3 py-2.5 text-sm text-muted-foreground sm:mt-5">
           <Calendar className="size-4" />
-          <span className="text-sm font-medium text-foreground">{formatDateBadge(occurredAt, t)}</span>
+          <span className="text-sm font-medium text-foreground">{formatDateBadge(displayedOccurredAt, t)}</span>
           <input
             type="datetime-local"
-            value={occurredAt}
+            value={displayedOccurredAt}
             onChange={(event) => setOccurredAt(event.target.value)}
             className="sr-only"
           />
