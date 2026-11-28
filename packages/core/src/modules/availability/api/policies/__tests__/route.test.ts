@@ -1,7 +1,7 @@
 /** @jest-environment node */
 
 const mockGetAuthFromRequest = jest.fn()
-const mockResolveAvailabilityListOrganizationIds = jest.fn()
+const mockResolveOrganizationScope = jest.fn()
 const mockFindAndCountWithDecryption = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -17,9 +17,12 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   })),
 }))
 
-jest.mock('../../../lib/organizationScope', () => ({
-  resolveAvailabilityListOrganizationIds: jest.fn((...args: unknown[]) => mockResolveAvailabilityListOrganizationIds(...args)),
-  scopeAvailabilityPolicyWriteInput: jest.fn(),
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn((...args: unknown[]) => mockResolveOrganizationScope(...args)),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: async () => ({ translate: (key: string, fallback?: string) => fallback ?? key }),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -28,17 +31,38 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 
 type RouteModule = typeof import('../route')
 let listHandler: RouteModule['GET']
+let previewHandler: typeof import('../resolve-preview/route')['GET']
+let checkHandler: typeof import('../../check/route')['POST']
 
 beforeAll(async () => {
   listHandler = (await import('../route')).GET
+  previewHandler = (await import('../resolve-preview/route')).GET
+  checkHandler = (await import('../../check/route')).POST
 })
 
-describe('availability policies list route', () => {
+describe('availability read routes', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: 'tenant-1', orgId: 'org-1' })
-    mockResolveAvailabilityListOrganizationIds.mockResolvedValue(['org-1'])
+    mockResolveOrganizationScope.mockResolvedValue({ selectedId: 'org-1', filterIds: ['org-1'], tenantId: 'tenant-1' })
     mockFindAndCountWithDecryption.mockResolvedValue([[], 0])
+  })
+
+  it.each([
+    ['policies', 'GET', (request: Request) => listHandler(request)],
+    ['policies/resolve-preview', 'GET', (request: Request) => previewHandler(request)],
+    ['check', 'POST', (request: Request) => checkHandler(request)],
+  ] as const)('rejects an invalid organization selection for /%s', async (path, method, handler) => {
+    mockResolveOrganizationScope.mockResolvedValue({
+      tenantId: 'tenant-1', selectedId: null, filterIds: ['org-1'], selectionRejected: true,
+    })
+
+    const response = await handler(new Request(`http://localhost/api/availability/${path}`, { method }))
+
+    expect(response.status).toBe(422)
+    expect(response.headers.get('set-cookie')).toContain('Max-Age=0')
+    await expect(response.json()).resolves.toMatchObject({ code: 'organization_selection_invalid' })
+    expect(mockFindAndCountWithDecryption).not.toHaveBeenCalled()
   })
 
   it.each([

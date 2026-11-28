@@ -1,10 +1,27 @@
-import { OptionalProps } from '@mikro-orm/core'
-import { Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
+import { OptionalProps, type EventArgs } from '@mikro-orm/core'
+import { BeforeCreate, BeforeUpdate, Entity, Index, PrimaryKey, Property } from '@mikro-orm/decorators/legacy'
 import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { AssortmentScope } from '@open-mercato/shared/lib/catalog-visibility'
+import { badRequest, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { lockCustomerGroups, lockCustomerGroupMembership } from '../lib/groupLock'
 
 export type CustomerGroupKind = 'b2c' | 'b2b' | 'internal' | 'partner'
 export type CustomerGroupMembershipSource = 'manual' | 'import' | 'rule' | 'onboarding'
+
+type AuthorizedMembershipSource = Pick<CustomerGroupMembership, 'id' | 'groupId' | 'customerId'>
+const authorizedMembershipUpdates = new WeakMap<CustomerGroupMembership, AuthorizedMembershipSource>()
+
+export async function bindAuthorizedMembershipUpdate(
+  membership: CustomerGroupMembership,
+  source: AuthorizedMembershipSource,
+): Promise<void> {
+  if (membership.id !== source.id || membership.groupId !== source.groupId || membership.customerId !== source.customerId) {
+    const { translate } = await resolveTranslations()
+    throw notFound(translate('customer_groups.errors.membershipNotFound', 'Customer group membership not found.'))
+  }
+  authorizedMembershipUpdates.set(membership, source)
+}
 
 // Groups are tenant-scoped, not organization-scoped — spec §5 note: "groups are
 // tenant-scoped here, consistent with `CatalogPriceKind`, which allows a null
@@ -164,6 +181,34 @@ export class CustomerGroupMembership {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+
+  @BeforeCreate()
+  @BeforeUpdate()
+  async assertLiveGroupForAssignment({ em, changeSet }: EventArgs<CustomerGroupMembership>): Promise<void> {
+    if (this.deletedAt) return
+    const authorizedSource = authorizedMembershipUpdates.get(this)
+    const previous = changeSet?.originalEntity
+    if (!authorizedSource && previous && !previous.deletedAt
+      && previous.groupId === this.groupId && previous.customerId === this.customerId) return
+    const source = authorizedSource ?? (previous?.deletedAt ? null : previous)
+    const sourceGroupId = typeof source?.groupId === 'string' ? source.groupId.toLowerCase() : null
+    const destinationGroupId = this.groupId.toLowerCase()
+    const groupIds = sourceGroupId ? [...new Set([sourceGroupId, destinationGroupId])] : [destinationGroupId]
+    const groups = await lockCustomerGroups(em, this.tenantId, groupIds)
+    if (groups.length !== groupIds.length || groups.some(({ deleted_at }) => deleted_at !== null)) {
+      const { translate } = await resolveTranslations()
+      throw badRequest(translate('customer_groups.errors.membershipGroupNotFound', 'The selected customer group does not exist.'))
+    }
+    if (sourceGroupId) {
+      const membership = await lockCustomerGroupMembership(em, this.tenantId, this.id)
+      if (!membership || membership.deleted_at !== null || membership.group_id !== sourceGroupId
+        || membership.customer_id !== source?.customerId) {
+        const { translate } = await resolveTranslations()
+        const message = translate('customer_groups.errors.membershipNotFound', 'Customer group membership not found.')
+        throw authorizedSource ? notFound(message) : badRequest(message)
+      }
+    }
+  }
 }
 
 // `group_id` is a plain uuid column rather than a MikroORM relation, for the same

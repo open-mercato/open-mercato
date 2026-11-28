@@ -2,11 +2,13 @@
 import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 
 type FieldTrace = { value: unknown; policySourceId: string | null }
 export type PolicyTrace = Record<string, FieldTrace>
 
-type ResponsePayload = { policyTrace?: PolicyTrace }
+type ResponsePayload = { policyTrace?: PolicyTrace; error?: string }
 
 const TRACE_FIELDS: Array<{ key: string; labelKey: string }> = [
   { key: 'isStockManaged', labelKey: 'availability.policies.form.field.isStockManaged' },
@@ -47,6 +49,7 @@ export function ResolutionPreviewPanel({
   const t = useT()
   const [trace, setTrace] = React.useState<PolicyTrace | null>(null)
   const [isLoading, setIsLoading] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
   const onTraceChangeRef = React.useRef(onTraceChange)
   onTraceChangeRef.current = onTraceChange
 
@@ -56,16 +59,29 @@ export function ResolutionPreviewPanel({
 
   React.useEffect(() => {
     setTrace(null)
+    setError(null)
+    setIsLoading(Boolean(productId))
     if (!productId) return
     let cancelled = false
     const handle = setTimeout(() => {
-      setIsLoading(true)
       const params = new URLSearchParams({ productId })
       if (variantId) params.set('variantId', variantId)
       if (storeId) params.set('storeId', storeId)
       apiCall<ResponsePayload>(`/api/availability/policies/resolve-preview?${params.toString()}`, undefined, { fallback: null })
         .then((call) => {
-          if (!cancelled && call.ok) setTrace(call.result?.policyTrace ?? null)
+          if (cancelled) return
+          if (!call.ok) {
+            setError(typeof call.result?.error === 'string' && call.result.error.trim()
+              ? call.result.error
+              : t('availability.policies.form.preview.failed'))
+            return
+          }
+          setTrace(call.result?.policyTrace ?? null)
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return
+          reportTelemetryError(error, { module: 'availability', code: 'availability.preview_request_failed' })
+          setError(t('availability.policies.form.preview.failed'))
         })
         .finally(() => {
           if (!cancelled) setIsLoading(false)
@@ -75,7 +91,7 @@ export function ResolutionPreviewPanel({
       cancelled = true
       clearTimeout(handle)
     }
-  }, [productId, variantId, storeId])
+  }, [productId, variantId, storeId, t])
 
   if (!productId) {
     return (
@@ -88,8 +104,10 @@ export function ResolutionPreviewPanel({
   return (
     <div className="rounded-md border bg-muted p-4 text-sm" data-testid="availability-resolution-preview">
       <div className="mb-2 font-medium">{t('availability.policies.form.preview.title')}</div>
-      {isLoading && !trace ? (
-        <div className="text-muted-foreground">{t('availability.common.loading')}</div>
+      {isLoading ? (
+        <LoadingMessage label={t('availability.common.loading')} />
+      ) : error ? (
+        <ErrorMessage label={error} />
       ) : (
         <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {TRACE_FIELDS.map(({ key, labelKey }) => {

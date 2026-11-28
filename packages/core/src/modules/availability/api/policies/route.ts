@@ -10,11 +10,13 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { availabilityPolicyCreateSchema, availabilityPolicyUpdateSchema } from '../../data/validators'
-import { resolveAvailabilityListOrganizationIds, scopeAvailabilityPolicyWriteInput } from '../../lib/organizationScope'
+import { resolveAvailabilityListOrganizationIds, scopeAvailabilityPolicyWriteInput, withAvailabilityReadScope } from '../../lib/organizationScope'
 import {
   createAvailabilityCrudOpenApi,
   createPagedListResponseSchema,
   defaultOkResponseSchema,
+  organizationSelectionInvalidError,
+  organizationScopeUnavailableError,
 } from '../openapi'
 
 const routeMetadata = {
@@ -124,7 +126,7 @@ const toRow = (policy: AvailabilityPolicy): AvailabilityPolicyRow => ({
   updatedAt: policy.updatedAt ? policy.updatedAt.toISOString() : null,
 })
 
-export async function GET(req: Request) {
+export const GET = withAvailabilityReadScope(async (req) => {
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
     return NextResponse.json({ items: [], total: 0, page: 1, pageSize: 50, totalPages: 1 }, { status: 401 })
@@ -185,7 +187,7 @@ export async function GET(req: Request) {
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return NextResponse.json({ items, total, page, pageSize, totalPages })
-}
+})
 
 export const POST = crud.POST
 export const PUT = crud.PUT
@@ -238,6 +240,9 @@ export const openApi: OpenApiRouteDoc = {
   ...policyCrudOpenApi,
   methods: {
     ...policyCrudOpenApi.methods,
+    ...(policyCrudOpenApi.methods.GET
+      ? { GET: { ...policyCrudOpenApi.methods.GET, errors: [organizationSelectionInvalidError, organizationScopeUnavailableError] } }
+      : {}),
     ...(policyCrudOpenApi.methods.DELETE
       ? { DELETE: { ...policyCrudOpenApi.methods.DELETE, query: policyDeleteQuerySchema } }
       : {}),

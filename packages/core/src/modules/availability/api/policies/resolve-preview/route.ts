@@ -7,7 +7,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createPolicyResolutionService } from '../../../lib/policyResolution'
-import { resolveAvailabilityOrganizationId } from '../../../lib/organizationScope'
+import { resolveAvailabilityOrganizationId, withAvailabilityReadScope } from '../../../lib/organizationScope'
+import { organizationScopeUnavailableError, organizationSelectionInvalidError } from '../../openapi'
 
 /**
  * `GET /api/availability/policies/resolve-preview` — the currently PERSISTED
@@ -41,12 +42,14 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid request or missing organization scope', schema: errorSchema },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
+        organizationSelectionInvalidError,
+        organizationScopeUnavailableError,
       ],
     },
   },
 }
 
-export async function GET(req: Request) {
+export const GET = withAvailabilityReadScope(async (req) => {
   const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
@@ -80,4 +83,4 @@ export async function GET(req: Request) {
   })
 
   return NextResponse.json({ policyTrace: trace })
-}
+})

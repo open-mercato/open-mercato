@@ -1,13 +1,57 @@
 import type { AwilixContainer } from 'awilix'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import { resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
+import { isExplicitlyEmptyOrganizationScope, resolveActiveOrganizationId } from '@open-mercato/shared/lib/auth/organizationScope'
 import { withScopedPayload, type ScopedContext } from '@open-mercato/shared/lib/api/scoped'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
 export const AVAILABILITY_POLICY_ORGANIZATION_REQUIRED_MESSAGE = {
   key: 'availability.policies.errors.organizationRequired',
   fallback: 'Select a specific organization in the header before creating a policy.',
+}
+
+const INVALID_ORGANIZATION_SELECTION = 'organization_selection_invalid'
+const ORGANIZATION_SCOPE_UNAVAILABLE = 'organization_scope_unavailable'
+
+async function resolveAvailabilityReadScope(container: AwilixContainer, auth: AuthContext, request: Request) {
+  const scope = await resolveOrganizationScopeForRequest({ container, auth, request }).catch(async (error: unknown) => {
+    reportTelemetryError(error, { module: 'availability', code: 'availability.organization_scope_resolution_failed' })
+    const { translate } = await resolveTranslations()
+    throw new CrudHttpError(503, {
+      error: translate('availability.errors.organizationScopeUnavailable', 'Organization access could not be verified. Try again.'),
+      code: ORGANIZATION_SCOPE_UNAVAILABLE,
+    })
+  })
+  if (!scope?.selectionRejected) return scope
+
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(422, {
+    error: translate(
+      'availability.errors.organizationSelectionInvalid',
+      'Your selected organization is no longer available. Please re-select an organization and try again.',
+    ),
+    code: INVALID_ORGANIZATION_SELECTION,
+  })
+}
+
+export function withAvailabilityReadScope(handler: (request: Request) => Promise<Response>) {
+  return async (request: Request): Promise<Response> => {
+    try {
+      return await handler(request)
+    } catch (error) {
+      if (!isCrudHttpError(error)) throw error
+      if (error.body.code === ORGANIZATION_SCOPE_UNAVAILABLE) {
+        return Response.json(error.body, { status: error.status, headers: { 'retry-after': '2' } })
+      }
+      if (error.body.code !== INVALID_ORGANIZATION_SELECTION) throw error
+      return Response.json(error.body, {
+        status: error.status,
+        headers: { 'set-cookie': 'om_selected_org=; Path=/; Max-Age=0; SameSite=Lax' },
+      })
+    }
+  }
 }
 
 // Policy writes go through `makeCrudRoute`, which scopes them to the organization
@@ -20,8 +64,13 @@ export async function resolveAvailabilityOrganizationId(
   auth: AuthContext,
   request: Request,
 ): Promise<string | null> {
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request }).catch(() => null)
-  return scope?.selectedId ?? resolveActiveOrganizationId(auth)
+  const scope = await resolveAvailabilityReadScope(container, auth, request)
+  if (isExplicitlyEmptyOrganizationScope(scope)) return null
+  if (scope?.selectedId) return scope.selectedId
+  const fallbackOrganizationId = resolveActiveOrganizationId(auth)
+  const approvedIds = scope?.filterIds ?? scope?.allowedIds
+  if (approvedIds && (!fallbackOrganizationId || !approvedIds.includes(fallbackOrganizationId))) return null
+  return fallbackOrganizationId
 }
 
 // The policy list reads the organization selected in the header, or under "All
@@ -32,7 +81,7 @@ export async function resolveAvailabilityListOrganizationIds(
   auth: AuthContext,
   request: Request,
 ): Promise<string[] | null> {
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request }).catch(() => null)
+  const scope = await resolveAvailabilityReadScope(container, auth, request)
   if (scope?.selectedId) return [scope.selectedId]
   if (scope?.tenantId) return scope.filterIds ?? null
   const fallbackOrganizationId = resolveActiveOrganizationId(auth)

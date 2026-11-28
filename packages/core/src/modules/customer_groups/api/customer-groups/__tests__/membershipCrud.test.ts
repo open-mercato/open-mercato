@@ -12,6 +12,7 @@ jest.mock('../../../events', () => ({
 }))
 
 import type { CrudCtx, CrudFactoryOptions } from '@open-mercato/shared/lib/crud/factory'
+import { MetadataStorage, type EventArgs } from '@mikro-orm/core'
 import {
   customerGroupMembershipCrud,
   actorUserIdFromContext,
@@ -102,6 +103,43 @@ beforeEach(() => {
 })
 
 describe('customer group membership CRUD route', () => {
+  it.each([
+    ['beforeCreate', [{ deleted_at: null }], true],
+    ['beforeUpdate', [{ deleted_at: new Date() }], false],
+  ] as const)('locks the group during the ORM %s write hook', async (event, rows, isLive) => {
+    const metadata = Object.values(MetadataStorage.getMetadata()).find((entry) => entry.className === CustomerGroupMembership.name)
+    expect(metadata?.hooks[event]).toContain('assertLiveGroupForAssignment')
+    const membership = Object.assign(new CustomerGroupMembership(), makeMembership())
+    const transaction = {}
+    const execute = jest.fn(async () => rows)
+    const context = {
+      em: { getConnection: () => ({ execute }), getTransactionContext: () => transaction },
+    } as unknown as EventArgs<CustomerGroupMembership>
+
+    const result = membership.assertLiveGroupForAssignment(context)
+    if (isLive) await expect(result).resolves.toBeUndefined()
+    else await expect(result).rejects.toMatchObject({ status: 400 })
+    expect(execute).toHaveBeenCalledWith(expect.stringContaining('for update'), [TENANT_ID, GROUP_ID], 'all', transaction)
+  })
+
+  it('locks both groups in one ordered query before locking the reassigned membership', async () => {
+    const membership = Object.assign(new CustomerGroupMembership(), makeMembership({ groupId: OTHER_GROUP_ID }))
+    const transaction = {}
+    const execute = jest.fn()
+      .mockResolvedValueOnce([{ deleted_at: null }, { deleted_at: null }])
+      .mockResolvedValueOnce([{ deleted_at: null, group_id: GROUP_ID, customer_id: CUSTOMER_ID }])
+    const context = {
+      em: { getConnection: () => ({ execute }), getTransactionContext: () => transaction },
+      changeSet: { originalEntity: makeMembership() },
+    } as unknown as EventArgs<CustomerGroupMembership>
+
+    await membership.assertLiveGroupForAssignment(context)
+
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute).toHaveBeenNthCalledWith(1, expect.stringContaining('order by id for update'), [TENANT_ID, GROUP_ID, OTHER_GROUP_ID], 'all', transaction)
+    expect(execute).toHaveBeenNthCalledWith(2, expect.stringContaining('from customer_group_memberships'), [TENANT_ID, MEMBERSHIP_ID], 'all', transaction)
+  })
+
   it('rejects a group that is not live in the caller tenant with a 400', async () => {
     const em = createFakeEm({ liveGroupIds: [] })
 
@@ -451,6 +489,23 @@ describe('customer group membership CRUD route', () => {
 
       expect(entity.customerId).toBe(otherCustomer)
       expect(entity.organizationId).toBe(CUSTOMER_ORG)
+    })
+
+    it('refuses an update when the loaded membership differs from the one that passed authorization', async () => {
+      const authorized = makeMembership({ organizationId: SELECTED_ORG })
+      const movedCustomer = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+      const reloaded = makeMembership({ customerId: movedCustomer, organizationId: CUSTOMER_ORG })
+      const em = createFakeEm({ membership: authorized, customerOrganizationId: SELECTED_ORG })
+      const ctx = selectedOrgCtx(em)
+      const input = { id: MEMBERSHIP_ID, notes: 'Updated note' }
+
+      await opts.hooks!.beforeUpdate!(input, ctx)
+      await expect(opts.update!.applyToEntity(reloaded, input, ctx)).rejects.toMatchObject({
+        status: 404,
+        body: { error: 'Customer group membership not found.' },
+      })
+      expect(reloaded.notes).toBeNull()
+      expect(em.flush).not.toHaveBeenCalled()
     })
 
     it('keeps the stored organization on an update that does not move the customer', async () => {

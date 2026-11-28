@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
+import { registerTelemetryErrorReporter } from '@open-mercato/shared/lib/telemetry/runtime'
 import type { ApiRouteManifestEntry, HttpMethod } from '@open-mercato/shared/modules/registry'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
@@ -283,6 +284,31 @@ describe('API Route Authorization', () => {
 
       expect(response.status).toBe(403)
       await expect(response.json()).resolves.toMatchObject({ error: 'Forbidden' })
+    })
+
+    it('returns a retryable 503 without invoking the protected route when organization scope cannot be resolved', async () => {
+      mockResolveAuthFromRequestDetailed.mockResolvedValue(authenticatedAuth(['admin']))
+      const error = new Error('[internal] organization scope unavailable')
+      jest.mocked(resolveFeatureCheckContext).mockRejectedValueOnce(error)
+      const reportError = jest.fn()
+      const unregister = registerTelemetryErrorReporter(reportError)
+      const request = new NextRequest('http://localhost:3001/api/example/test')
+
+      try {
+        const response = await GET(request, { params: Promise.resolve({ slug: ['example', 'test'] }) })
+
+        expect(response.status).toBe(503)
+        expect(response.headers.get('retry-after')).toBe('2')
+        expect(response.headers.has('set-cookie')).toBe(false)
+        await expect(response.json()).resolves.toMatchObject({ code: 'organization_scope_unavailable' })
+        expect(mockRbac.userHasAllFeatures).not.toHaveBeenCalled()
+        expect(reportError).toHaveBeenCalledWith(error, {
+          module: 'api',
+          code: 'api.organization_scope_resolution_failed',
+        })
+      } finally {
+        unregister()
+      }
     })
 
     it('denies a caller with no organization when feature narrowing approves no organization', async () => {

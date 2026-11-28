@@ -10,8 +10,9 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { tryResolve } from '../../lib/tryResolve'
 import { findCatalogTargetIssue } from '../../lib/catalogTarget'
-import { resolveAvailabilityOrganizationId } from '../../lib/organizationScope'
+import { resolveAvailabilityOrganizationId, withAvailabilityReadScope } from '../../lib/organizationScope'
 import type { PolicyResolutionService } from '../../lib/policyResolution'
+import { organizationScopeUnavailableError, organizationSelectionInvalidError } from '../openapi'
 
 /**
  * `POST /api/availability/check` — admin/debug reproduction of what a buyer saw,
@@ -54,12 +55,14 @@ export const openApi: OpenApiRouteDoc = {
         },
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 404, description: 'Product or variant not found', schema: errorSchema },
+        organizationSelectionInvalidError,
+        organizationScopeUnavailableError,
       ],
     },
   },
 }
 
-export async function POST(req: Request) {
+export const POST = withAvailabilityReadScope(async (req) => {
   const { translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth || !auth.tenantId) {
@@ -133,4 +136,4 @@ export async function POST(req: Request) {
     : null
 
   return NextResponse.json({ availability: item, policyTrace })
-}
+})
