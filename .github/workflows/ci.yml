@@ -843,7 +843,8 @@ jobs:
           elif ! git diff --quiet HEAD^1 HEAD -- .github/workflows/ci.yml; then
             yarn typecheck
           else
-            yarn turbo run typecheck --filter='[HEAD^1]...'
+            # Keep the root typecheck script's concurrency cap on the 4-vCPU runner.
+            yarn typecheck --filter='[HEAD^1]...'
           fi
         env:
           TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
