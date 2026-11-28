@@ -508,6 +508,31 @@ and `scope.userId`. A job missing any of them now fails before deleting anything
 without a tenant check. `POST /api/catalog/bulk-delete` already sends all three, so no action is
 needed if you only use the API.
 
+### Password-reset and magic-link lookup, token minting and delivery moved to a queue worker (#8889)
+
+`POST /api/customer_accounts/password/reset-request` and `POST /api/customer_accounts/magic-link/request`
+used to look up the account, mint the token and await email delivery inline, all only when the email
+matched an account — an unknown email returned immediately with no work done. That made the response
+time account-dependent: a slow or blocked email transport leaked whether an email was registered. Both
+routes now only validate the request and enqueue `{ email, tenantId, locale }` on a new queue
+(`customer-accounts-password-reset-delivery` / `customer-accounts-magic-link-delivery`), then answer
+`200 { ok: true }` immediately — identically whether the account exists or not. `locale` is resolved
+from the request's cookie/Accept-Language, identically for a known and an unknown account, so the
+worker renders the recovery email in the requester's language instead of always falling back to the
+default locale once delivery moves outside the HTTP request. The lookup, token mint and `sendEmail`
+call now run inside `workers/passwordResetDelivery.ts` / `workers/magicLinkDelivery.ts`; the raw token
+is minted only inside the worker and never serialized into the queue payload.
+
+**Action for operators:** these two queues process like any other `@open-mercato/queue` queue —
+automatically under the local (dev) strategy, or via a running worker process under `QUEUE_STRATEGY=async`
+(`yarn mercato customer_accounts worker customer-accounts-password-reset-delivery` and the magic-link
+equivalent, or `worker --all`). If no worker processes these queues in production, password-reset and
+magic-link emails are silently never sent even though the request still answers `200`.
+
+**Action for module authors:** none, unless your app enqueues directly on these queue names — the
+payload shape (`{ email: string; tenantId: string; locale: Locale }`) is new and additive; it does not
+replace any existing contract.
+
 ### Redoing an `auth.users.create` no longer restores the account's password
 
 Creating a user writes an audit entry, and that entry used to carry the credential twice: the
