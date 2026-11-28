@@ -1,4 +1,5 @@
 import { ActionLogService, SCHEMA_UUID_REGEX } from '../actionLogService'
+import { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
 import { uuid } from '@open-mercato/core/modules/audit_logs/data/validators'
 import {
   buildActionLogQueryHarness,
@@ -17,6 +18,26 @@ type FakeQueryBuilder = {
   orderBy: () => FakeQueryBuilder
   _state: { wheres: WhereCallback[] }
 }
+
+describe('ActionLogService.updateTransactionalContext', () => {
+  it('updates only the scoped managed row context through the owning flush path', async () => {
+    const correctScope = { id: 'log-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+    const managed = { ...correctScope, contextJson: { source: 'ui' }, commandPayload: { label: 'existing' } }
+    const findOne = jest.fn(async (_entity, where) =>
+      where.tenantId === correctScope.tenantId && where.organizationId === correctScope.organizationId ? managed : null)
+    const flush = jest.fn(async () => {
+      expect(managed).toMatchObject({ contextJson: { source: 'ui', extensions: {} }, commandPayload: { label: 'existing' } })
+    })
+    const em = { findOne, flush, isInTransaction: () => true } as unknown as ConstructorParameters<typeof ActionLogService>[0]
+    const actionLogs = new ActionLogService(em)
+    const context = { source: 'ui', extensions: {} }
+    await expect(actionLogs.updateTransactionalContext({ ...correctScope, tenantId: 'other-tenant', context }, em)).resolves.toBe(false)
+    expect(flush).not.toHaveBeenCalled()
+    await expect(actionLogs.updateTransactionalContext({ ...correctScope, context }, em)).resolves.toBe(true)
+    expect(findOne).toHaveBeenLastCalledWith(ActionLog, correctScope, undefined)
+    expect(flush).toHaveBeenCalledTimes(1)
+  })
+})
 
 function buildServiceForQueryInspection(): {
   service: ActionLogService

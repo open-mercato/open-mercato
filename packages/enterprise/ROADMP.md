@@ -15,10 +15,11 @@ New features roll out incrementally through Enterprise module updates. The estim
 
 ## Open Mercato Enterprise Maintenance and Deployment Toolkit
 
-| Feature | Estimated release | Tracking |
+| Feature | Availability or estimated release | Tracking |
 | --- | --- | --- |
-| **Safe encryption key rotation** with encrypted backup, restore, and verification. | Q4 2026 | [#8910](https://github.com/open-mercato/open-mercato/pull/8910), [#9333](https://github.com/open-mercato/open-mercato/pull/9333), [#9334](https://github.com/open-mercato/open-mercato/pull/9334), [#994](https://github.com/open-mercato/open-mercato/issues/994) |
-| **Data Exit Kit and Enterprise Database Backup and Restore** to export and recover database data with encrypted or unencrypted backups. | No date set | [#9333](https://github.com/open-mercato/open-mercato/pull/9333) |
+| **Enterprise Database Backup and Restore** with resumable PostgreSQL backups, archive verification, and isolated recovery. | Included | [#9333](https://github.com/open-mercato/open-mercato/pull/9333) |
+| **Protected Key Rotation and Data Verification** with automatic encrypted backup, environment-derived and Vault KV v2 keys, and persisted-data verification. | Included | [#9334](https://github.com/open-mercato/open-mercato/pull/9334) |
+| **Data Exit Kit** for portable data exports. | No date set | [Database backup foundation #9333](https://github.com/open-mercato/open-mercato/pull/9333) |
 | **Atomic maintenance mode** to pause writes during sensitive operations such as encryption key rotation. | Q4 2026 | [#10539](https://github.com/open-mercato/open-mercato/pull/10539) |
 | **Usage telemetry and monitoring** for on-premises license and billing verification, with a New Relic–style monitoring dashboard. | Q1 2027 for usage reporting. Q3 2027 for the dashboard. | [#2502](https://github.com/open-mercato/open-mercato/issues/2502) |
 | **Operational observability** with telemetry, proactive error monitoring, and health endpoints. | No date set | [#9347](https://github.com/open-mercato/open-mercato/issues/9347), [#583](https://github.com/open-mercato/open-mercato/issues/583), [#8925](https://github.com/open-mercato/open-mercato/issues/8925) |

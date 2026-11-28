@@ -39,6 +39,38 @@ async function hasManageAllFeature(context: InterceptorContext): Promise<boolean
   )
 }
 
+export async function scopeTimeEntryList(
+  query: Record<string, unknown> | undefined,
+  context: InterceptorContext,
+) {
+  if (await hasManageAllFeature(context)) {
+    return { ok: true }
+  }
+
+  const staffMember = await getStaffMemberByUserId(
+    context.em,
+    context.userId,
+    context.tenantId ?? null,
+    context.organizationId ?? null,
+  )
+
+  if (!staffMember) {
+    return {
+      ok: false,
+      statusCode: 403,
+      message: 'User is not a staff member.',
+    }
+  }
+
+  return {
+    ok: true,
+    query: {
+      ...(query ?? {}),
+      staffMemberId: staffMember.id,
+    },
+  }
+}
+
 export const interceptors: ApiInterceptor[] = [
   {
     id: 'staff.timesheets.self-scope-widget-data',
@@ -93,32 +125,7 @@ export const interceptors: ApiInterceptor[] = [
     methods: ['GET'],
     priority: 70,
     async before(request, context) {
-      if (await hasManageAllFeature(context)) {
-        return { ok: true }
-      }
-
-      const staffMember = await getStaffMemberByUserId(
-        context.em,
-        context.userId,
-        context.tenantId ?? null,
-        context.organizationId ?? null,
-      )
-
-      if (!staffMember) {
-        return {
-          ok: false,
-          statusCode: 403,
-          message: 'User is not a staff member.',
-        }
-      }
-
-      return {
-        ok: true,
-        query: {
-          ...(request.query ?? {}),
-          staffMemberId: staffMember.id,
-        },
-      }
+      return scopeTimeEntryList(request.query, context)
     },
   },
 ]

@@ -11,6 +11,8 @@ import {
 import { getTokenContext } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 const GALLERY_PATH = '/backend/design-system'
+const ACTIONS_DROPDOWN_PATH = `${GALLERY_PATH}?family=scaffolding&entry=actions-dropdown`
+const ICON_TRIGGER_PREVIEW = '#gallery-variant-actions-dropdown-icon-trigger'
 
 async function loginWithCredentials(page: Page, email: string, password: string): Promise<void> {
   const form = new URLSearchParams()
@@ -43,6 +45,55 @@ async function settledBackgroundColor(locator: Locator): Promise<string> {
 }
 
 test.describe('design_system gallery', () => {
+  test.describe('ActionsDropdown on a narrow touch viewport', () => {
+    test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, locale: 'pl-PL' })
+
+    test('keeps the Polish icon-trigger menu and focused action fully in view', async ({ page }, testInfo) => {
+      await login(page, 'admin')
+      await page.context().addCookies([{ name: 'locale', value: 'pl', url: new URL(page.url()).origin }])
+      await page.goto(ACTIONS_DROPDOWN_PATH)
+
+      const trigger = page.locator(ICON_TRIGGER_PREVIEW).getByRole('button', { name: 'Więcej działań', exact: true })
+      await trigger.tap()
+
+      const menu = page.getByRole('menu')
+      const firstAction = menu.getByRole('menuitem', { name: 'Duplikuj rekord', exact: true })
+      await expect(firstAction).toBeFocused()
+      const [anchor, panel] = await Promise.all([trigger.boundingBox(), menu.boundingBox()])
+      expect(anchor).toBeTruthy()
+      expect(panel).toBeTruthy()
+      expect(anchor!.x + anchor!.width).toBeLessThan(panel!.width)
+      expect(panel!.x).toBeGreaterThanOrEqual(0)
+      expect(panel!.x + panel!.width).toBeLessThanOrEqual(390)
+      await expect(firstAction).toBeInViewport({ ratio: 1 })
+      await testInfo.attach('Polish mobile ActionsDropdown', { body: await page.screenshot(), contentType: 'image/png' })
+    })
+  })
+
+  test('keeps a hover-open ActionsDropdown open on click and supports keyboard and outside dismissal', async ({ page }) => {
+    await login(page, 'admin')
+    await page.goto(ACTIONS_DROPDOWN_PATH)
+
+    const trigger = page.locator(ICON_TRIGGER_PREVIEW).getByRole('button', { name: 'More actions', exact: true })
+    const menu = page.getByRole('menu')
+    const actions = menu.getByRole('menuitem')
+    await trigger.hover()
+    await expect(menu).toBeVisible()
+    await expect(actions.first()).not.toBeFocused()
+    await trigger.click()
+    await expect(actions.first()).toBeFocused()
+    await page.keyboard.press('ArrowDown')
+    await expect(actions.nth(1)).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(menu).toBeHidden()
+    await expect(trigger).toBeFocused()
+
+    await trigger.press('Enter')
+    await expect(menu).toBeVisible()
+    await page.mouse.click(1, 1)
+    await expect(menu).toBeHidden()
+  })
+
   test('style agents previews locally, applies branding, persists on reload and restores defaults', async ({ page }) => {
     await login(page, 'admin')
     await page.goto(`${GALLERY_PATH}?view=style-agents`)

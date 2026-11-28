@@ -10,12 +10,15 @@
  */
 import {
 
+  applyFormSectionOverrides,
   applyModuleOverridesFromEnabledModules,
+  composeFormSectionOverrides,
   composeInjectionWidgetOverrides,
   composeSubscriberOverrides,
   registerModuleOverrideApplier,
   resetModuleContractOverridesForTests,
   resetModuleOverrideAppliersForTests,
+  type FormSectionOverridesMap,
   type ModuleEntryWithOverrides,
   type ModuleOverrideEntry,
 } from '../overrides'
@@ -37,6 +40,63 @@ const loggerWarn = createLogger('shared').warn as jest.Mock
 beforeEach(() => {
   resetModuleOverrideAppliersForTests()
   resetModuleContractOverridesForTests()
+})
+
+describe('forms.sections overrides', () => {
+  const details = 'example.todo/default/update/details'
+  const notes = 'example.todo/default/update/notes'
+  const contributionOverrides: FormSectionOverridesMap = {
+    [details]: { operation: 'hide', contributionId: 'extension.hide-details' },
+    [notes]: { operation: 'add', contributionId: 'extension.add-notes' },
+  }
+
+  it('merges contributed, modules.ts and programmatic tiers in order, preserving null', () => {
+    applyFormSectionOverrides({ [details]: null })
+    applyModuleOverridesFromEnabledModules([
+      {
+        id: 'first',
+        overrides: {
+          forms: {
+            sections: {
+              [details]: { operation: 'replace', contributionId: 'extension.replace-details' },
+              [notes]: { operation: 'hide', contributionId: 'extension.hide-notes' },
+            },
+          },
+        },
+      },
+      { id: 'second', overrides: { forms: { sections: { [notes]: null } } } },
+    ])
+
+    expect(composeFormSectionOverrides(contributionOverrides)).toEqual({
+      [details]: null,
+      [notes]: null,
+    })
+    expect(contributionOverrides[details]?.operation).toBe('hide')
+    expect(contributionOverrides[notes]?.operation).toBe('add')
+
+    const replacement = { operation: 'replace', contributionId: 'app.replace-details' } as const
+    applyFormSectionOverrides({ [details]: replacement })
+    expect(composeFormSectionOverrides(contributionOverrides)).toEqual({
+      [details]: replacement,
+      [notes]: null,
+    })
+  })
+
+  it('dispatches only when forms is included in the selected domains', () => {
+    const modules: ModuleEntryWithOverrides[] = [
+      { id: 'example', overrides: { forms: { sections: { [details]: null } } } },
+    ]
+
+    applyModuleOverridesFromEnabledModules(modules, { domains: ['widgets'] })
+    expect(composeFormSectionOverrides(contributionOverrides)).toEqual(contributionOverrides)
+    expect(composeFormSectionOverrides()).toEqual({})
+
+    applyModuleOverridesFromEnabledModules(modules, { domains: ['forms'] })
+    expect(composeFormSectionOverrides(contributionOverrides)).toEqual({
+      ...contributionOverrides,
+      [details]: null,
+    })
+  })
 })
 
 describe('applyModuleOverridesFromEnabledModules', () => {

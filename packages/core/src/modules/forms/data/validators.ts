@@ -77,6 +77,10 @@ export const submissionStartInputSchema = z.object({
 
 export type SubmissionStartInput = z.infer<typeof submissionStartInputSchema>
 
+export const submissionsBySubjectQuerySchema = z.object({
+  resume_form_id: z.uuid().optional(),
+})
+
 /**
  * Body for `PATCH /api/form-submissions/:id` — autosave.
  *

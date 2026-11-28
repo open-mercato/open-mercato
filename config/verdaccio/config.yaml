@@ -8,7 +8,7 @@ web:
 auth:
   htpasswd:
     file: /verdaccio/storage/htpasswd
-    max_users: 100
+    max_users: -1
 
 uplinks:
   npmjs:
@@ -18,16 +18,14 @@ uplinks:
 packages:
   '@open-mercato/*':
     access: $all
-    publish: $all
-    unpublish: $all
+    publish: mercato-publisher
+    unpublish: mercato-publisher
     # No proxy - these are local packages only
-    # Allow anonymous publish for local development
 
   'create-mercato-app':
     access: $all
-    publish: $all
-    unpublish: $all
-    # Allow anonymous publish for local development
+    publish: mercato-publisher
+    unpublish: mercato-publisher
 
   '@*/*':
     access: $all

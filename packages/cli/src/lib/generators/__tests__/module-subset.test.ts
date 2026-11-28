@@ -426,7 +426,7 @@ describe('generateModuleRegistry with module subsets', () => {
             methods: [
               "GET"
             ],
-            load: async () => import("@open-mercato/core/modules/orders/api/orders/route")
+            load: async (): ReturnType<ApiRouteManifestEntry['load']> => import("@open-mercato/core/modules/orders/api/orders/route")
           }
         ];
 
