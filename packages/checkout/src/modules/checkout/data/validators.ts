@@ -298,7 +298,7 @@ export const publicPasswordVerifySchema = z.object({
   password: z.string().min(1, { message: 'checkout.validation.common.required' }),
 })
 
-export const publicSubmitSchema = z.object({
+export const publicSubmitEnvelopeSchema = z.object({
   customerData: z.record(z.string(), z.unknown()),
   acceptedLegalConsents: z.object({
     terms: z.boolean().optional(),
@@ -306,6 +306,17 @@ export const publicSubmitSchema = z.object({
   }).default({}),
   amount: moneyInputSchema(z.coerce.number().finite().nonnegative()).optional(),
   selectedPriceItemId: optionalTrimmedString,
+})
+
+export const publicSubmitSchema = publicSubmitEnvelopeSchema.extend({
+  customerData: z.object({
+    firstName: z.string().trim().max(100, 'checkout.payPage.validation.nameTooLong').nullish(),
+    lastName: z.string().trim().max(100, 'checkout.payPage.validation.nameTooLong').nullish(),
+    email: z.preprocess(
+      normalizeBlankString,
+      z.email('checkout.payPage.validation.invalidEmail').optional().nullable(),
+    ),
+  }).catchall(z.unknown()),
 })
 
 export type CustomerFieldDefinitionInput = z.infer<typeof customerFieldDefinitionSchema>

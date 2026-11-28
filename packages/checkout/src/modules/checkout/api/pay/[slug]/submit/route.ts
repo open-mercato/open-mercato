@@ -9,7 +9,7 @@ import type { PaymentGatewayClientSession } from '@open-mercato/shared/modules/p
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { GatewayTransaction } from '@open-mercato/core/modules/payment_gateways/data/entities'
 import { CheckoutLink, CheckoutTransaction } from '../../../../data/entities'
-import { publicSubmitSchema } from '../../../../data/validators'
+import { publicSubmitEnvelopeSchema, publicSubmitSchema } from '../../../../data/validators'
 import { handleCheckoutRouteError, requireCheckoutPasswordSession } from '../../../helpers'
 import { emitCheckoutEvent } from '../../../../events'
 import {
@@ -340,7 +340,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
     }
 
     const rawBody = await readJsonSafe<unknown>(req, {})
-    const body = withExactAmounts(publicSubmitSchema.parse(rawBody), rawBody, ['amount'] as const)
+    const body = withExactAmounts(publicSubmitEnvelopeSchema.parse(rawBody), rawBody, ['amount'] as const)
     const em = container.resolve('em')
     const commandBus = container.resolve('commandBus') as CommandBus
     const paymentGatewayService = container.resolve('paymentGatewayService') as PaymentGatewayService
@@ -379,20 +379,30 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         fieldErrors: legalConsentErrors,
       })
     }
-    const collectedCustomerData = link.collectCustomerDetails === false ? {} : body.customerData
     const customerFields = Array.isArray(link.customerFieldsSchema)
       ? link.customerFieldsSchema as CheckoutCustomerFieldRequirement[]
       : []
-    if (link.collectCustomerDetails !== false) {
-      const customerFieldErrors = validateCheckoutCustomerData(customerFields, collectedCustomerData)
-      if (Object.keys(customerFieldErrors).length > 0) {
-        throw new CrudHttpError(422, {
-          error: 'checkout.payPage.validation.fixErrors',
-          fieldErrors: customerFieldErrors,
-        })
-      }
+    const declaredKeys = new Set(customerFields.map((field) => field.key))
+    const filteredCustomerData = link.collectCustomerDetails === false
+      ? {}
+      : Object.fromEntries(Object.entries(body.customerData).filter(([key]) => declaredKeys.has(key)))
+    const validatedCustomerData = publicSubmitSchema.shape.customerData.safeParse(filteredCustomerData)
+    const customerFieldErrors = link.collectCustomerDetails === false
+      ? {}
+      : validateCheckoutCustomerData(customerFields, filteredCustomerData)
+    if (!validatedCustomerData.success || Object.keys(customerFieldErrors).length > 0) {
+      const schemaFieldErrors = validatedCustomerData.success
+        ? {}
+        : Object.fromEntries(validatedCustomerData.error.issues.map((issue) => [
+          `customerData.${issue.path.join('.')}`, issue.message,
+        ]))
+      throw new CrudHttpError(422, {
+        error: 'checkout.payPage.validation.fixErrors',
+        fieldErrors: { ...schemaFieldErrors, ...customerFieldErrors },
+      })
     }
-    const resolvedAmount = resolveSubmittedAmount(link, body)
+    const collectedCustomerData = validatedCustomerData.data
+    const resolvedAmount = resolveSubmittedAmount(link, { ...body, customerData: collectedCustomerData })
     const existingTransaction = await findOneWithDecryption(em, CheckoutTransaction, {
       linkId: link.id,
       idempotencyKey,

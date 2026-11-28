@@ -181,6 +181,30 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
       expect(mockCommandExecute).toHaveBeenCalledWith('checkout.transaction.create', expect.anything())
       expect(mockCreatePaymentSession).toHaveBeenCalledWith(expect.objectContaining({ currencyCode, amountExact: storedAmount }))
     })
+
+    it('preserves exact amounts while ignoring undeclared invalid payer fields', async () => {
+      mockCurrencyDecimalPlaces.mockResolvedValue(18)
+      const amount = '1.123456789012345678'
+      const transaction = createTransaction({ currencyCode: 'ETH', amount })
+      ;(findOneWithDecryption as jest.Mock)
+        .mockResolvedValueOnce({ ...createLink(), customAmountCurrencyCode: 'ETH', collectCustomerDetails: true, customerFieldsSchema: [{ key: 'custom' }] })
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(transaction)
+        .mockResolvedValueOnce({ ...transaction, gatewayTransactionId: GATEWAY_TRANSACTION_ID })
+      mockCommandExecute.mockResolvedValue({ result: { id: TRANSACTION_ID } })
+
+      const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'Idempotency-Key': 'exact-filtered-key-123456', origin: 'https://merchant.example' },
+        body: JSON.stringify({ customerData: { email: 'invalid', custom: 'kept' }, amount }),
+      }), { params: { slug: 'donate' } })
+
+      expect(response.status).toBe(201)
+      expect(mockCommandExecute).toHaveBeenCalledWith('checkout.transaction.create', expect.objectContaining({
+        input: expect.objectContaining({ customerData: { custom: 'kept' } }),
+      }))
+      expect(mockCreatePaymentSession).toHaveBeenCalledWith(expect.objectContaining({ amountExact: amount }))
+    })
   })
 
   it('uses the stored transaction amount when replaying an idempotency key before gateway session creation', async () => {
@@ -224,7 +248,9 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
 
   it('forwards the collected payer email and name to the gateway session metadata', async () => {
     ;(findOneWithDecryption as jest.Mock)
-      .mockResolvedValueOnce({ ...createLink(), collectCustomerDetails: true })
+      .mockResolvedValueOnce({ ...createLink(), collectCustomerDetails: true, customerFieldsSchema: [
+        { key: 'email' }, { key: 'firstName' }, { key: 'lastName' },
+      ] })
       .mockResolvedValueOnce(createTransaction())
       .mockResolvedValueOnce(createTransaction())
       .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
@@ -257,6 +283,99 @@ describe('POST /api/checkout/pay/[slug]/submit', () => {
         },
       }),
     )
+  })
+
+  it('drops undeclared customer fields before persistence and gateway metadata', async () => {
+    ;(findOneWithDecryption as jest.Mock)
+      .mockResolvedValueOnce({ ...createLink(), collectCustomerDetails: true, customerFieldsSchema: [{ key: 'custom' }] })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(createTransaction())
+      .mockResolvedValueOnce(createTransaction({ gatewayTransactionId: GATEWAY_TRANSACTION_ID }))
+    mockCommandExecute.mockResolvedValueOnce({ result: { id: TRANSACTION_ID } })
+    const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'filtered-key-123456', origin: 'https://merchant.example' },
+      body: JSON.stringify({ customerData: {
+        email: 'invalid', firstName: 'Injected'.repeat(20), lastName: 'Name', phone: '+123456789', custom: 'kept', unexpected: true,
+      }, amount: 1 }),
+    }), { params: { slug: 'donate' } })
+    expect(response.status).toBe(201)
+    expect(mockCommandExecute).toHaveBeenCalledWith('checkout.transaction.create', expect.objectContaining({
+      input: expect.objectContaining({ customerData: { custom: 'kept' }, firstName: null, lastName: null, email: null, phone: null }),
+    }))
+    expect(mockCreatePaymentSession).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: { checkoutLinkId: LINK_ID, checkoutSlug: 'donate' },
+    }))
+  })
+
+  it('returns all declared field errors with 422 before creating a transaction or gateway session', async () => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce({
+      ...createLink(), collectCustomerDetails: true, customerFieldsSchema: [
+        { key: 'email' }, { key: 'phone' }, { key: 'firstName' },
+      ],
+    })
+    const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'invalid-email-123456', origin: 'https://merchant.example' },
+      body: JSON.stringify({ customerData: { email: 'invalid', phone: 'invalid', firstName: 'A'.repeat(101) }, amount: 1 }),
+    }), { params: { slug: 'donate' } })
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      fieldErrors: {
+        'customerData.email': 'checkout.payPage.validation.invalidEmail',
+        'customerData.phone': 'checkout.payPage.validation.invalidPhone',
+        'customerData.firstName': 'checkout.payPage.validation.nameTooLong',
+      },
+    }))
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { email: { toString: null }, phone: 'invalid' },
+    { email: 'invalid', phone: { toString: null } },
+  ])('returns combined 422 errors for structured customer values: %p', async (customerData) => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce({
+      ...createLink(), collectCustomerDetails: true, customerFieldsSchema: [
+        { key: 'email' }, { key: 'phone' }, { key: 'firstName' }, { key: 'lastName' },
+      ],
+    })
+    const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'structured-email-123456', origin: 'https://merchant.example' },
+      body: JSON.stringify({ customerData: { ...customerData, firstName: 'Jan', lastName: 'Kowalski' }, amount: 1 }),
+    }), { params: { slug: 'donate' } })
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      fieldErrors: {
+        'customerData.email': 'checkout.payPage.validation.invalidEmail',
+        'customerData.phone': 'checkout.payPage.validation.invalidPhone',
+      },
+    }))
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(mockCreatePaymentSession).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { company: [] }, { company: {} }, { company: { toString: null } },
+  ])('rejects unsupported required custom field values: %p', async ({ company }) => {
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce({
+      ...createLink(), collectCustomerDetails: true,
+      customerFieldsSchema: [{ key: 'company', kind: 'text', required: true }],
+    })
+    const response = await POST(new Request('https://merchant.example/api/checkout/pay/donate/submit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'Idempotency-Key': 'required-company-123456', origin: 'https://merchant.example' },
+      body: JSON.stringify({ customerData: { company }, amount: 1 }),
+    }), { params: { slug: 'donate' } })
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toEqual(expect.objectContaining({
+      fieldErrors: { 'customerData.company': 'checkout.payPage.validation.requiredField' },
+    }))
+    expect(mockCommandExecute).not.toHaveBeenCalled()
+    expect(mockCreatePaymentSession).not.toHaveBeenCalled()
   })
 
   it('omits payer metadata when the link does not collect customer details', async () => {
