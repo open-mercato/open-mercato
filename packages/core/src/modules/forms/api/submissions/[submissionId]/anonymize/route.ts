@@ -19,6 +19,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { AnonymizeService, AnonymizeServiceError, isAnonymizeServiceError } from '../../../../services/anonymize-service'
 import {
+  resolveAccessAuditActorId,
   FormsAccessAuditLogger,
   type AccessAuditLogger,
 } from '../../../../services/access-audit-logger'
@@ -87,7 +88,7 @@ export async function POST(
     await auditor.log(em, {
       organizationId: auth.orgId,
       submissionId,
-      accessedBy: auth.sub,
+      accessedBy: resolveAccessAuditActorId(auth),
       accessPurpose: 'anonymize',
       ip: req.headers.get('x-forwarded-for') ?? null,
       ua: req.headers.get('user-agent') ?? null,

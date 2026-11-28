@@ -19,7 +19,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { FormSubmission } from '../../../../data/entities'
-import { type AccessAuditLogger } from '../../../../services/access-audit-logger'
+import { resolveAccessAuditActorId, type AccessAuditLogger } from '../../../../services/access-audit-logger'
 import {
   PdfSnapshotService,
   PdfSnapshotServiceError,
@@ -84,7 +84,7 @@ export async function GET(
   await auditor.log(em, {
     organizationId: auth.orgId,
     submissionId,
-    accessedBy: auth.sub,
+    accessedBy: resolveAccessAuditActorId(auth),
     accessPurpose: 'export',
     ip: req.headers.get('x-forwarded-for') ?? null,
     ua: req.headers.get('user-agent') ?? null,

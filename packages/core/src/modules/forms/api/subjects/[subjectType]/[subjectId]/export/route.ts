@@ -23,6 +23,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { buildJsonExportDisposition } from '../../../../../lib/export-filename'
 import { ExportService } from '../../../../../services/export-service'
 import {
+  resolveAccessAuditActorId,
   FormsAccessAuditLogger,
   type AccessAuditLogger,
 } from '../../../../../services/access-audit-logger'
@@ -89,7 +90,7 @@ export async function GET(
       await auditor.log(em, {
         organizationId: auth.orgId,
         submissionId,
-        accessedBy: auth.sub,
+        accessedBy: resolveAccessAuditActorId(auth),
         accessPurpose: 'export',
         ip: req.headers.get('x-forwarded-for') ?? null,
         ua: req.headers.get('user-agent') ?? null,
