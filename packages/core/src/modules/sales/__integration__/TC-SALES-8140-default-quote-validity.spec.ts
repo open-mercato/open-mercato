@@ -1,8 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test as base, type APIRequestContext, type Page } from '@playwright/test'
+import {
+  createOrganizationFixture, createRoleFixture, createUserFixture,
+  deleteOrganizationIfExists, deleteRoleIfExists, deleteUserIfExists, setRoleAclFeatures,
+} from '@open-mercato/core/helpers/integration/authFixtures'
+import { expectOperation, redoOk, skipIfUndoTestsDisabled, undoByToken, undoOk } from '@open-mercato/core/helpers/integration/undoHarness'
+import { Migration20261104143948_sales } from '../migrations/Migration20261104143948_sales'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { login } from '@open-mercato/core/helpers/integration/auth'
-import { getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { deleteGeneralEntityIfExists, expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 import { createOrganizationInDb, deleteOrganizationInDb, withClient } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { seedSystemEmailChannel, deleteChannelIfExists } from '@open-mercato/core/helpers/integration/communicationChannelsFixtures'
@@ -113,6 +119,161 @@ test('isolates organizations and safely handles concurrent first writes', async 
     if (organizationId) await withClient((client) => client.query('delete from sales_settings where tenant_id = $1 and organization_id = $2', [tenantId, organizationId]))
     await deleteOrganizationInDb(organizationId)
   }
+})
+
+test('checks permissions and rejects unauthorized organization and tenant selections', async ({ request }) => {
+  test.slow()
+  const admin = await getAuthToken(request, 'admin')
+  const superadmin = await getAuthToken(request, 'superadmin')
+  const { tenantId, organizationId } = getTokenScope(admin)
+  const stamp = randomUUID()
+  const roles: string[] = []
+  const users: string[] = []
+  const organizations: Array<{ id: string; tenantId: string }> = []
+  let foreignTenantId: string | null = null
+  const data = { defaultQuoteValidityDays: 45 }
+
+  async function createActor(features: string[]) {
+    const roleId = await createRoleFixture(request, admin, { name: `Quote validity role ${randomUUID()}`, tenantId })
+    roles.push(roleId)
+    await setRoleAclFeatures(request, admin, { roleId, features, organizations: [organizationId] })
+    const email = `qa-quote-${randomUUID()}@example.test`
+    const password = `Qa-${randomUUID()}-Aa1!`
+    users.push(await createUserFixture(request, admin, { email, password, organizationId, roles: [roleId] }))
+    return getAuthToken(request, email, password)
+  }
+
+  try {
+    for (const method of ['GET', 'PUT']) {
+      const response = await apiRequest(request, method, settingsPath, { token: '', ...(method === 'PUT' ? { data } : {}) })
+      expect(response.status()).toBe(401)
+    }
+    const denied = await createActor(['sales.settings.view'])
+    expect((await apiRequest(request, 'GET', settingsPath, { token: denied })).status()).toBe(403)
+    const quoteManager = await createActor(['sales.quotes.manage'])
+    expect((await apiRequest(request, 'GET', settingsPath, { token: quoteManager })).status()).toBe(200)
+    expect((await apiRequest(request, 'PUT', settingsPath, { token: quoteManager, data })).status()).toBe(403)
+
+    const settingsManager = await createActor(['sales.settings.manage'])
+    expect((await apiRequest(request, 'GET', settingsPath, { token: settingsManager })).status()).toBe(200)
+    const tenant = await apiRequest(request, 'POST', '/api/directory/tenants', {
+      token: superadmin, data: { name: `Quote validity tenant ${stamp}` },
+    })
+    expect(tenant.status()).toBe(201)
+    foreignTenantId = expectId((await readJsonSafe<{ id: string }>(tenant))?.id, 'Tenant fixture has an id')
+    for (const targetTenant of [tenantId, foreignTenantId]) {
+      const targetOrg = await createOrganizationFixture(request, superadmin, {
+        name: `Quote validity organization ${targetTenant} ${stamp}`, tenantId: targetTenant,
+      })
+      organizations.push({ id: targetOrg, tenantId: targetTenant })
+      const headers = { Cookie: `om_selected_org=${targetOrg}; om_selected_tenant=${targetTenant}` }
+      await withClient((client) => client.query(
+        'insert into sales_settings (id, tenant_id, organization_id, order_number_format, quote_number_format, default_quote_validity_days, updated_at, created_at) values ($1, $2, $3, $4, $5, $6, now(), now()) on conflict (organization_id, tenant_id) do update set default_quote_validity_days = excluded.default_quote_validity_days',
+        [randomUUID(), targetTenant, targetOrg, 'ORDER-{seq:5}', 'QUOTE-{seq:5}', 21],
+      ))
+      expect((await apiRequest(request, 'GET', settingsPath, { token: settingsManager, headers })).status()).toBe(403)
+      const deniedWrite = await apiRequest(request, 'PUT', settingsPath, {
+        token: settingsManager, headers, data: { ...data, tenantId: targetTenant, organizationId: targetOrg },
+      })
+      expect(deniedWrite.status()).toBe(403)
+      expect((await withClient((client) => client.query(
+        'select default_quote_validity_days from sales_settings where tenant_id = $1 and organization_id = $2',
+        [targetTenant, targetOrg],
+      ))).rows).toEqual([{ default_quote_validity_days: 21 }])
+    }
+  } finally {
+    for (const userId of users) await deleteUserIfExists(request, admin, userId)
+    for (const roleId of roles) await deleteRoleIfExists(request, admin, roleId)
+    for (const organization of organizations) {
+      await withClient((client) => client.query(
+        'delete from sales_settings where tenant_id = $1 and organization_id = $2',
+        [organization.tenantId, organization.id],
+      ))
+      await deleteOrganizationIfExists(request, superadmin, organization.id)
+    }
+    await deleteGeneralEntityIfExists(request, superadmin, '/api/directory/tenants', foreignTenantId)
+  }
+})
+
+test('restores quote validity through command undo and redo without overwriting other settings', async ({ request, validity }) => {
+  skipIfUndoTestsDisabled()
+  const { tenantId, organizationId } = getTokenScope(validity.token)
+  const numberingAndEditing = async () => (await withClient((client) => client.query(
+    'select order_number_format, quote_number_format, order_customer_editable_statuses, order_address_editable_statuses from sales_settings where tenant_id = $1 and organization_id = $2',
+    [tenantId, organizationId],
+  ))).rows
+
+  const before = await numberingAndEditing()
+  expect(before).toHaveLength(1)
+  const update = await apiRequest(request, 'PUT', settingsPath, {
+    token: validity.token, data: { defaultQuoteValidityDays: 45 },
+  })
+  expect(update.status()).toBe(200)
+  const operation = expectOperation(update, 'quote validity save')
+  expect((await readSettings(request, validity.token)).defaultQuoteValidityDays).toBe(45)
+
+  const logId = await undoOk(request, validity.token, operation.undoToken, 'quote validity')
+  expect((await readSettings(request, validity.token)).defaultQuoteValidityDays).toBe(30)
+  await redoOk(request, validity.token, logId, 'quote validity')
+  expect((await readSettings(request, validity.token)).defaultQuoteValidityDays).toBe(45)
+  expect(await numberingAndEditing()).toEqual(before)
+
+  const later = await apiRequest(request, 'PUT', settingsPath, {
+    token: validity.token, data: { defaultQuoteValidityDays: 60 },
+  })
+  expect(later.status()).toBe(200)
+  const stale = await apiRequest(request, 'PUT', settingsPath, {
+    token: validity.token, data: { defaultQuoteValidityDays: 55 },
+  })
+  const staleOperation = expectOperation(stale, 'intermediate quote validity save')
+  const newer = await apiRequest(request, 'PUT', settingsPath, {
+    token: validity.token, data: { defaultQuoteValidityDays: 65 },
+  })
+  expect(newer.status()).toBe(200)
+  expect((await undoByToken(request, validity.token, staleOperation.undoToken)).status()).toBe(409)
+  expect((await readSettings(request, validity.token)).defaultQuoteValidityDays).toBe(65)
+  expect(await numberingAndEditing()).toEqual(before)
+})
+
+test('the migration round-trips without changing numbering and editing settings', async () => {
+  await withClient(async (client) => {
+    const schema = `quote_validity_${randomUUID().replace(/-/g, '')}`
+    const previousPath = (await client.query<{ search_path: string }>('show search_path')).rows[0].search_path
+    const migration = new Migration20261104143948_sales(
+      {} as ConstructorParameters<typeof Migration20261104143948_sales>[0],
+      {} as ConstructorParameters<typeof Migration20261104143948_sales>[1],
+    )
+    const migrate = async (direction: 'up' | 'down') => {
+      migration.reset()
+      await migration[direction]()
+      for (const sql of migration.getQueries()) await client.query(String(sql))
+    }
+
+    try {
+      await client.query(`create schema "${schema}"`)
+      await client.query("select set_config('search_path', $1, false)", [schema])
+      await client.query('create table sales_settings (id uuid primary key, order_number_format text not null, quote_number_format text not null, order_customer_editable_statuses jsonb, order_address_editable_statuses jsonb)')
+      await client.query('insert into sales_settings values ($1, $2, $3, $4, $5)', [
+        randomUUID(), 'CUSTOM-ORDER-{seq:7}', 'CUSTOM-QUOTE-{seq:7}', '["draft"]', '["confirmed"]',
+      ])
+      const original = (await client.query('select * from sales_settings')).rows
+      await migrate('up')
+      expect((await client.query('select * from sales_settings')).rows).toEqual(
+        original.map((row) => ({ ...row, default_quote_validity_days: 14 })),
+      )
+      await client.query('update sales_settings set default_quote_validity_days = 36')
+      expect((await client.query('select default_quote_validity_days from sales_settings')).rows).toEqual([{ default_quote_validity_days: 36 }])
+      await migrate('down')
+      expect((await client.query('select * from sales_settings')).rows).toEqual(original)
+      await migrate('up')
+      expect((await client.query('select * from sales_settings')).rows).toEqual(
+        original.map((row) => ({ ...row, default_quote_validity_days: 14 })),
+      )
+    } finally {
+      await client.query("select set_config('search_path', $1, false)", [previousPath])
+      await client.query(`drop schema if exists "${schema}" cascade`)
+    }
+  })
 })
 
 for (const explicitDays of [undefined, 7]) {

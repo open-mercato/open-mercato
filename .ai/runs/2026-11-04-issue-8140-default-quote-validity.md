@@ -51,3 +51,5 @@ PR: #8689
 - Native55fb rerun:7of8 feature cases passed. Remaining future-date fixture used unsupported PUT field; trace GET showed validUntil:null. Corrected fixture creation to supported POST validUntil plus recipient, and added stored-date readback before both dialog cases. Product code/default5 expectation/cancel assertions unchanged; native rerun required. Successful config45/default30 screenshots visually inspected and durable evidence preserved outside git.
 
 - Nativec6ff rerun:6of8 feature cases passed; other CI jobs passed. The future-date precondition compared equivalent ISO/PostgreSQL timestamp strings; fixture readback now canonicalizes dates. Manual fill returned successfully but trace DOM and submitted value both remained30; switched to explicit select-all/key7 and asserted7 before Ctrl+Enter. Preserved request7/persisted7/cancel/date assertions and default runner limits. Product sources unchanged; fresh native execution required.
+
+- Review follow-up adds scoped quote validity replay, a PostgreSQL migration round trip and real actor/tenant permission coverage. Independent review, exact-head hosted execution and human QA remain pending.

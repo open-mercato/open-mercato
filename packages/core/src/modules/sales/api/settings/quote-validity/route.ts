@@ -8,6 +8,7 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -92,7 +93,7 @@ export async function PUT(req: Request) {
     if (!guardResult.ok) return guardResult.response
     const guardedInput = quoteValiditySettingsSchema.parse({ ...input, ...guardResult.modifiedPayload })
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute<QuoteValiditySettingsSaveInput, { defaultQuoteValidityDays: number; updatedAt: string }>(
+    const { result, logEntry } = await commandBus.execute<QuoteValiditySettingsSaveInput, { defaultQuoteValidityDays: number; updatedAt: string }>(
       'sales.settings.quote_validity.save', {
         input: {
           ...guardedInput, ...scope,
@@ -100,7 +101,23 @@ export async function PUT(req: Request) {
       },
     )
     await guardResult.runAfterSuccess()
-    return NextResponse.json({ defaultQuoteValidityDays: result.defaultQuoteValidityDays, updatedAt: result.updatedAt })
+    const response = NextResponse.json({ defaultQuoteValidityDays: result.defaultQuoteValidityDays, updatedAt: result.updatedAt })
+    if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
+      response.headers.set('x-om-operation', serializeOperationMetadata({
+        id: logEntry.id,
+        undoToken: logEntry.undoToken,
+        commandId: logEntry.commandId,
+        actionLabel: logEntry.actionLabel ?? null,
+        resourceKind: logEntry.resourceKind ?? null,
+        resourceId: logEntry.resourceId ?? null,
+        executedAt: logEntry.createdAt instanceof Date
+          ? logEntry.createdAt.toISOString()
+          : typeof logEntry.createdAt === 'string'
+            ? logEntry.createdAt
+            : result.updatedAt,
+      }))
+    }
+    return response
   } catch (error) {
     return handleError(error, getCommandInterceptorHttpRejection(error))
   }
