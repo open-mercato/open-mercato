@@ -10,11 +10,11 @@ import { createCustomersCrudOpenApi, createPagedListResponseSchema } from '../..
 import { resolveCustomerInteractionFeatureFlags } from '../../../lib/interactionFeatureFlags'
 import { resolveCustomersRequestContext } from '../../../lib/interactionRequestContext'
 import {
-  filterTodoRows,
   listCanonicalTodoRows,
   listLegacyTodoRows,
   normalizeTodoSearch,
   paginateTodoRows,
+  searchMergedTodoRows,
   sortTodoRows,
 } from '../../../lib/todoCompatibility'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -92,6 +92,21 @@ export async function GET(request: Request): Promise<Response> {
       })
     }
 
+    if (search) {
+      const result = await searchMergedTodoRows(
+        em, container, queryEngine, auth, selectedOrganizationId, organizationIds,
+        {
+          entityId: query.entityId,
+          exportAll,
+          isUnrestricted,
+          page: query.page,
+          pageSize: query.pageSize,
+          search,
+        },
+      )
+      return NextResponse.json(result)
+    }
+
     const legacyWindow = exportAll
       ? null
       : Math.min(
@@ -121,8 +136,7 @@ export async function GET(request: Request): Promise<Response> {
       ...legacyRows.filter((row) => !canonicalRows.bridgeIds.has(row.todoId)),
       ...canonicalRows.items,
     ]
-    const filteredRows = filterTodoRows(sortTodoRows(mergedRows), search)
-    const paged = paginateTodoRows(filteredRows, query.page, query.pageSize, exportAll)
+    const paged = paginateTodoRows(sortTodoRows(mergedRows), query.page, query.pageSize, exportAll)
 
     return NextResponse.json({
       items: paged.items,

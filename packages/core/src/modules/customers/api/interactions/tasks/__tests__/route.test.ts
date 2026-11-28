@@ -111,6 +111,11 @@ function matchesWhere(record: Record<string, unknown>, where: Record<string, unk
         matchesWhere(record, clause),
       )
     }
+    if (key === '$and') {
+      return (condition as Array<Record<string, unknown>>).every((clause) =>
+        matchesWhere(record, clause),
+      )
+    }
     const value = record[key]
     if (condition !== null && typeof condition === 'object' && !(condition instanceof Date)) {
       const operators = condition as Record<string, unknown>
@@ -119,6 +124,14 @@ function matchesWhere(record: Record<string, unknown>, where: Record<string, unk
         const needle = String(operators.$ilike).replace(/%/g, '').toLowerCase()
         return typeof value === 'string' && value.toLowerCase().includes(needle)
       }
+      if (value instanceof Date) {
+        const gte = operators.$gte
+        const lt = operators.$lt
+        return (!(gte instanceof Date) || value >= gte) && (!(lt instanceof Date) || value < lt)
+      }
+      if (typeof value === 'string' && typeof operators.$lt === 'string') {
+        return value < operators.$lt
+      }
       return false
     }
     return value === condition
@@ -126,7 +139,7 @@ function matchesWhere(record: Record<string, unknown>, where: Record<string, unk
 }
 
 function createFakeEntityManager(store: FakeStore) {
-  const select = (entity: unknown, where: Record<string, unknown>) => {
+  const select = (entity: unknown, where: Record<string, unknown>, orderBy?: unknown) => {
     const rows: Array<Record<string, unknown>> =
       entity === CustomerInteraction
         ? (store.interactions as unknown as Array<Record<string, unknown>>)
@@ -136,13 +149,15 @@ function createFakeEntityManager(store: FakeStore) {
       .sort((left, right) => {
         const leftTime = (left.createdAt as Date).getTime()
         const rightTime = (right.createdAt as Date).getTime()
-        return rightTime - leftTime
+        return rightTime - leftTime || (Array.isArray(orderBy)
+          ? String(right.id).localeCompare(String(left.id))
+          : 0)
       })
   }
 
   const find = jest.fn(
     async (entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => {
-      const matched = select(entity, where)
+      const matched = select(entity, where, options?.orderBy)
       const limit = typeof options?.limit === 'number' ? options.limit : undefined
       return limit === undefined ? matched : matched.slice(0, limit)
     },
@@ -158,18 +173,25 @@ function createFakeEntityManager(store: FakeStore) {
     },
   )
 
-  return { find, findAndCount }
+  return { find, findAndCount, fork: () => ({ find, findAndCount }) }
 }
 
 function createQueryEngine(store: FakeStore) {
+  const linksByTodoId = new Map(store.links.map((link) => [link.todoId, link]))
   return {
-    query: jest.fn(async () => ({
-      items: store.links.map((link) => ({
-        id: link.todoId,
-        title: `Legacy ${link.todoId.slice(-4)}`,
-        is_done: false,
-        organization_id: link.organizationId,
-      })),
+    query: jest.fn(async (_source: string, options: {
+      filters: { id: { $in: string[] } }
+      page: { pageSize: number }
+    }) => ({
+      items: options.filters.id.$in
+        .slice(0, options.page.pageSize)
+        .flatMap((id) => linksByTodoId.get(id) ?? [])
+        .map((link) => ({
+          id: link.todoId,
+          title: `Legacy ${link.todoId.slice(-4)}`,
+          is_done: false,
+          organization_id: link.organizationId,
+        })),
     })),
   }
 }
@@ -509,6 +531,67 @@ describe('GET /api/customers/interactions/tasks', () => {
     expect(second.body.items.map((item) => item.todoTitle)).toEqual([
       'Invoice follow-up three',
     ])
+  })
+
+  it('counts and pages matches beyond the compatibility fetch cap in both sources', async () => {
+    const recent = new Date('2026-08-06T10:00:00.000Z')
+    const oldest = new Date('2026-07-01T10:00:00.000Z')
+    const legacyId = 'cccccccc-0000-0000-0000-000000000001'
+    const canonicalId = 'aaaaaaaa-0000-0000-0000-000000000001'
+    const nextCanonicalId = 'aaaaaaaa-0000-0000-0000-000000000002'
+    const deletedBridgeId = 'bbbbbbbb-0000-0000-0000-000000000000'
+    const otherTenantTodoId = 'eeeeeeee-0000-0000-0000-000000000000'
+    const fillers = Array.from({ length: 2001 }, (_, index) =>
+      (index + 1).toString(16).padStart(12, '0'),
+    )
+    const store: FakeStore = {
+      interactions: [
+        ...fillers.map((suffix) => makeInteraction({
+          id: `11111111-0000-0000-0000-${suffix}`,
+          createdAt: recent,
+        })),
+        ...fillers.slice(-100).map((suffix) => makeInteraction({
+          id: `33333333-0000-0000-0000-${suffix}`,
+          deletedAt: recent,
+          createdAt: oldest,
+        })),
+        makeInteraction({ id: canonicalId, title: 'Canonical 0000', createdAt: oldest }),
+        makeInteraction({ id: nextCanonicalId, title: 'Second canonical 0000', createdAt: oldest }),
+        makeInteraction({ id: deletedBridgeId, deletedAt: recent, createdAt: oldest }),
+        makeInteraction({ id: otherTenantTodoId, tenantId: OTHER_TENANT, title: 'Other tenant 0000' }),
+      ],
+      links: [
+        ...fillers.map((suffix) => makeTodoLink({
+          id: `22222222-0000-0000-0000-${suffix}`,
+          todoId: `33333333-0000-0000-0000-${suffix}`,
+          createdAt: recent,
+        })),
+        makeTodoLink({ id: legacyId, todoId: otherTenantTodoId, createdAt: oldest }),
+        makeTodoLink({ id: 'cccccccc-0000-0000-0000-000000000002', todoId: deletedBridgeId, createdAt: recent }),
+        makeTodoLink({
+          id: 'cccccccc-0000-0000-0000-000000000003',
+          todoId: 'ffffffff-0000-0000-0000-000000000000',
+          organizationId: OTHER_ORG,
+        }),
+      ],
+    }
+    const { queryEngine } = primeRequestContext(store)
+    setUnified(false)
+
+    const first = await callRoute(`?entityId=${PERSON}&pageSize=2&search=0000`)
+    const second = await callRoute(`?entityId=${PERSON}&page=2&pageSize=2&search=0000`)
+    const pastEnd = await callRoute(`?entityId=${PERSON}&page=3&pageSize=2&search=0000`)
+    const exported = await callRoute(`?entityId=${PERSON}&all=true&search=0000`)
+
+    expect(first.status).toBe(200)
+    expect(first.body).toMatchObject({ total: 3, page: 1, pageSize: 2, totalPages: 2 })
+    expect(first.body.items.map(({ id }) => id)).toEqual([legacyId, nextCanonicalId])
+    expect(second.body).toMatchObject({ total: 3, page: 2, pageSize: 2, totalPages: 2 })
+    expect(second.body.items.map(({ id }) => id)).toEqual([canonicalId])
+    expect(pastEnd.body).toMatchObject({ total: 3, items: [] })
+    expect(exported.body).toMatchObject({ total: 3, page: 1, pageSize: 3, totalPages: 1 })
+    expect(exported.body.items.map(({ id }) => id)).toEqual([legacyId, nextCanonicalId, canonicalId])
+    expect(queryEngine.query.mock.calls.every(([, options]) => options.page.pageSize <= 100)).toBe(true)
   })
 
   it('returns the whole corrected set for all=true exports', async () => {

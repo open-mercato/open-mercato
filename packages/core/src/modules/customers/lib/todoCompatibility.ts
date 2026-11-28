@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { raw } from '@mikro-orm/core'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import type { EntityId } from '@open-mercato/shared/modules/entities'
 import { isValidEntityIdShape } from '@open-mercato/shared/lib/query/engine'
@@ -122,6 +123,33 @@ function isCollapsedRestrictedOrganizationScope(
 
 export type ListTodosPagination = { page: number; pageSize: number }
 
+type TodoSearchCursor = Pick<CustomerTodoRow, 'createdAt' | 'id'>
+type TodoSearchBatch = { items: CustomerTodoRow[]; next: TodoSearchCursor | null }
+
+const TODO_SEARCH_BATCH_SIZE = 100
+
+function todoSearchBatchOptions() {
+  return {
+    limit: TODO_SEARCH_BATCH_SIZE,
+    orderBy: [
+      { [raw((alias) => `date_trunc('milliseconds', ${alias}.created_at)`)]: 'desc' as const },
+      { id: 'desc' as const },
+    ],
+  }
+}
+
+function todoSearchBatchFilter(after: TodoSearchCursor) {
+  const createdAt = new Date(after.createdAt)
+  const nextMillisecond = new Date(createdAt.getTime() + 1)
+  return {
+    createdAt: { $lt: nextMillisecond },
+    $or: [
+      { createdAt: { $lt: createdAt } },
+      { id: { $lt: after.id } },
+    ],
+  }
+}
+
 function resolveLegacyTodoSource(source: string | null | undefined): string {
   return typeof source === 'string' && source.trim().length > 0
     ? source
@@ -182,14 +210,12 @@ export function normalizeTodoSearch(value: string | undefined): string | null {
 }
 
 export function sortTodoRows(rows: CustomerTodoRow[]): CustomerTodoRow[] {
-  return [...rows].sort((left, right) => {
-    const leftTime = new Date(left.createdAt).getTime()
-    const rightTime = new Date(right.createdAt).getTime()
-    if (leftTime === rightTime) {
-      return right.id.localeCompare(left.id)
-    }
-    return rightTime - leftTime
-  })
+  return [...rows].sort(compareTodoRows)
+}
+
+function compareTodoRows(left: CustomerTodoRow, right: CustomerTodoRow): number {
+  const timeDifference = new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  return timeDifference === 0 ? right.id.localeCompare(left.id) : timeDifference
 }
 
 export function filterTodoRows(rows: CustomerTodoRow[], search: string | null): CustomerTodoRow[] {
@@ -230,6 +256,80 @@ export function paginateTodoRows(
     page,
     pageSize,
     totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  }
+}
+
+async function* scanTodoSearchMatches(
+  search: string,
+  fetchBatch: (after: TodoSearchCursor | null) => Promise<TodoSearchBatch>,
+): AsyncGenerator<CustomerTodoRow, void> {
+  let after: TodoSearchCursor | null = null
+  do {
+    const { items, next } = await fetchBatch(after)
+    yield* filterTodoRows(items, search)
+    after = next
+  } while (after)
+}
+
+export async function searchMergedTodoRows(
+  em: EntityManager,
+  container: CustomersContainerLike,
+  queryEngine: QueryEngine,
+  auth: CustomersAuthLike & { tenantId: string },
+  selectedOrganizationId: string | null,
+  organizationIds: string[] | null,
+  options: ListTodosPagination & {
+    search: string
+    entityId?: string
+    exportAll: boolean
+    isUnrestricted: boolean
+  },
+): Promise<ReturnType<typeof paginateTodoRows>> {
+  const { entityId, exportAll, isUnrestricted, page, pageSize, search } = options
+  if (isCollapsedRestrictedOrganizationScope(organizationIds, isUnrestricted)) {
+    return paginateTodoRows([], page, pageSize, exportAll)
+  }
+  const legacyMatches = scanTodoSearchMatches(search, (after) =>
+    listLegacyTodoSearchBatch(em, queryEngine, auth.tenantId, organizationIds, entityId, after),
+  )
+  const canonicalMatches = scanTodoSearchMatches(search, async (after) => {
+    const batchEm = em.fork({ keepTransactionContext: true })
+    const { items } = await listCanonicalTodoRows(
+      batchEm, container, auth, selectedOrganizationId, organizationIds,
+      { entityId, isUnrestricted, searchBatch: { after } },
+    )
+    const lastRow = items[TODO_SEARCH_BATCH_SIZE - 1]
+    const next = lastRow ? { createdAt: lastRow.createdAt, id: lastRow.id } : null
+    return { items, next }
+  })
+
+  const items: CustomerTodoRow[] = []
+  const offset = (page - 1) * pageSize
+  const start = Math.trunc(offset)
+  const end = Math.trunc(offset + pageSize)
+  let total = 0
+  function recordMatch(row: CustomerTodoRow) {
+    if (exportAll || (total >= start && total < end)) items.push(row)
+    total += 1
+  }
+
+  let [legacy, canonical] = await Promise.all([legacyMatches.next(), canonicalMatches.next()])
+  while (!legacy.done || !canonical.done) {
+    if (!legacy.done && (canonical.done || compareTodoRows(legacy.value, canonical.value) <= 0)) {
+      recordMatch(legacy.value)
+      legacy = await legacyMatches.next()
+    } else if (!canonical.done) {
+      recordMatch(canonical.value)
+      canonical = await canonicalMatches.next()
+    }
+  }
+
+  return {
+    items,
+    total,
+    page: exportAll ? 1 : page,
+    pageSize: exportAll ? total : pageSize,
+    totalPages: exportAll ? 1 : Math.max(1, Math.ceil(total / pageSize)),
   }
 }
 
@@ -436,14 +536,6 @@ export async function listLegacyTodoRows(
   if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
     return []
   }
-  const where: Record<string, unknown> = { tenantId }
-  if (organizationIds && organizationIds.length > 0) {
-    where.organizationId = { $in: organizationIds }
-  }
-  if (entityId) {
-    where.entity = entityId
-  }
-
   const findOptions: Record<string, unknown> = {
     populate: ['entity'],
     orderBy: { createdAt: 'desc' },
@@ -451,8 +543,59 @@ export async function listLegacyTodoRows(
   if (typeof options?.limit === 'number' && Number.isFinite(options.limit) && options.limit > 0) {
     findOptions.limit = options.limit
   }
+  const scope = todoListScope(tenantId, organizationIds, entityId)
+  const links = await em.find(CustomerTodoLink, scope, findOptions as any)
+  return hydrateLegacyTodoRows(queryEngine, links, tenantId, organizationIds)
+}
 
-  const links = await em.find(CustomerTodoLink, where, findOptions as any)
+function todoListScope(
+  tenantId: string | null,
+  organizationIds: string[] | null,
+  entityId: string | undefined,
+) {
+  return {
+    tenantId,
+    ...(organizationIds?.length ? { organizationId: { $in: organizationIds } } : {}),
+    ...(entityId ? { entity: entityId } : {}),
+  }
+}
+
+async function listLegacyTodoSearchBatch(
+  em: EntityManager,
+  queryEngine: QueryEngine,
+  tenantId: string,
+  organizationIds: string[] | null,
+  entityId: string | undefined,
+  after: TodoSearchCursor | null,
+): Promise<TodoSearchBatch> {
+  const scope = todoListScope(tenantId, organizationIds, entityId)
+  const where = after ? { ...scope, ...todoSearchBatchFilter(after) } : scope
+  const links = await em.find(CustomerTodoLink, where, {
+    ...todoSearchBatchOptions(),
+    populate: ['entity'],
+    disableIdentityMap: true,
+  })
+  if (links.length === 0) return { items: [], next: null }
+
+  const bridges = await em.find(CustomerInteraction, {
+    ...scope,
+    interactionType: 'task',
+    id: { $in: [...new Set(links.map(({ todoId }) => todoId))] },
+  }, { fields: ['id'], disableIdentityMap: true })
+  const bridgeIds = new Set(bridges.map(({ id }) => id))
+  const unbridged = links.filter(({ todoId }) => !bridgeIds.has(todoId))
+  const items = await hydrateLegacyTodoRows(queryEngine, unbridged, tenantId, organizationIds)
+  const lastLink = links[TODO_SEARCH_BATCH_SIZE - 1]
+  const next = lastLink ? { id: lastLink.id, createdAt: lastLink.createdAt.toISOString() } : null
+  return { items, next }
+}
+
+async function hydrateLegacyTodoRows(
+  queryEngine: QueryEngine,
+  links: CustomerTodoLink[],
+  tenantId: string,
+  organizationIds: string[] | null,
+): Promise<CustomerTodoRow[]> {
   const details = await resolveLegacyTodoDetails(
     queryEngine,
     links,
@@ -483,23 +626,18 @@ export async function listCanonicalTodoRows(
     searchText?: string | null
     limit?: number | null
     isUnrestricted?: boolean
+    searchBatch?: { after: TodoSearchCursor | null }
   },
 ): Promise<CanonicalTodoListResult> {
   if (isCollapsedRestrictedOrganizationScope(organizationIds, options?.isUnrestricted)) {
     return emptyCanonicalTodoList()
   }
   const where: Record<string, unknown> = {
-    tenantId: auth.tenantId,
+    ...todoListScope(auth.tenantId, organizationIds, options?.entityId),
     interactionType: 'task',
   }
   if (!options?.includeDeleted) {
     where.deletedAt = null
-  }
-  if (organizationIds && organizationIds.length > 0) {
-    where.organizationId = { $in: organizationIds }
-  }
-  if (options?.entityId) {
-    where.entity = options.entityId
   }
   if (options?.source) {
     where.source = Array.isArray(options.source) ? { $in: options.source } : options.source
@@ -527,6 +665,10 @@ export async function listCanonicalTodoRows(
     options.limit > 0
   ) {
     findOptions.limit = options.limit
+  }
+  if (options?.searchBatch) {
+    if (options.searchBatch.after) where.$and = [todoSearchBatchFilter(options.searchBatch.after)]
+    Object.assign(findOptions, todoSearchBatchOptions())
   }
 
   let interactions: CustomerInteraction[]
