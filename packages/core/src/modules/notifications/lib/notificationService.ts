@@ -907,7 +907,10 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       }
 
       if (since) {
-        filters.createdAt = { $gt: new Date(since) }
+        // Inclusive bound: a strict `$gt` can miss a notification that shares the last-seen
+        // `createdAt` (millisecond precision, not unique). Callers that re-poll with the
+        // newest `createdAt` they have seen as `since` must de-duplicate by `id` on their side.
+        filters.createdAt = { $gte: new Date(since) }
       }
 
       const [notifications, unreadCount] = await Promise.all([
@@ -927,7 +930,13 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
       ])
 
       const recent = notifications.map(toNotificationDto)
-      const hasNew = since ? recent.length > 0 : false
+      // The inclusive bound above re-returns the exact last-seen notification on every poll
+      // that has nothing newer, so `hasNew` must require a `createdAt` strictly after `since`
+      // rather than just a non-empty result.
+      const sinceMs = since ? new Date(since).getTime() : null
+      const hasNew = sinceMs != null
+        ? notifications.some((notification) => notification.createdAt.getTime() > sinceMs)
+        : false
 
       return {
         unreadCount,

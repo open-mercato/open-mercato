@@ -99,6 +99,21 @@ describe('GET /api/notifications organization scope', () => {
     })
   })
 
+  it('includes a notification that shares the since cursor timestamp (inclusive bound)', async () => {
+    const since = '2026-07-22T12:00:00.000Z'
+    const response = await GET(
+      new Request(`https://example.test/api/notifications?pageSize=25&since=${encodeURIComponent(since)}`),
+    )
+
+    expect(response.status).toBe(200)
+    expect(find).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      createdAt: { $gte: new Date(since) },
+    }), expect.anything())
+    expect(count).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({
+      createdAt: { $gte: new Date(since) },
+    }))
+  })
+
   it('lists all tenant notifications for unrestricted all-organizations scope', async () => {
     resolveNotificationContextMock.mockResolvedValue({
       ctx: { container },
