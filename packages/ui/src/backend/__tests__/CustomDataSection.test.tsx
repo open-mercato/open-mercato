@@ -48,6 +48,42 @@ describe('CustomDataSection relation display', () => {
     jest.restoreAllMocks()
   })
 
+  it('localizes the detail label and edit help while keeping untranslated fields intact', async () => {
+    const entityId = 'customers:customer_person_profile'
+    const fields: CrudField[] = [
+      { id: 'cf_birth_date', type: 'date', label: 'Birth date', description: 'Used for birthdays.', displayFormat: 'yyyy-MM-dd' },
+      { id: 'cf_notes', type: 'text', label: 'My notes' },
+    ]
+    const definitions: CustomFieldDefDto[] = [
+      { entityId, key: 'birth_date', kind: 'date' },
+      { entityId, key: 'notes', kind: 'text' },
+    ]
+    const prefix = `entities.customFieldText.${entityId}.birth_date`
+
+    renderWithProviders(
+      <CustomDataSection
+        entityIds={['customers:customer_entity', entityId]}
+        values={{ cf_birth_date: '2000-06-15', cf_notes: 'Keep this value' }}
+        onSubmit={jest.fn()}
+        title="Custom fields"
+        loadFields={async () => ({ fields, definitions })}
+        labels={{ loading: 'Loading', emptyValue: 'Empty', noFields: 'No fields', saveShortcut: 'Save', edit: 'Edit' }}
+      />,
+      {
+        locale: 'pl',
+        dict: { [`${prefix}.label`]: 'Data urodzenia', [`${prefix}.description`]: 'Używana w kampaniach urodzinowych.' },
+      },
+    )
+
+    expect(await screen.findByText('Data urodzenia')).toBeInTheDocument()
+    expect(screen.getByText('My notes')).toBeInTheDocument()
+    expect(screen.getByText('Keep this value')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(await screen.findByText('Używana w kampaniach urodzinowych.')).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Data urodzenia' })).toHaveTextContent('2000-06-15')
+  })
+
   it('resolves relation UUIDs into linked labels in read-only mode', async () => {
     ;(window as WindowWithOriginalFetch).__omOriginalFetch = jest.fn(async (input: RequestInfo | URL) => {
       const url = String(input)

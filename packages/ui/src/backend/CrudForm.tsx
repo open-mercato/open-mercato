@@ -31,6 +31,7 @@ import {
   SelectValue,
 } from '../primitives/select'
 import { flash } from './FlashMessages'
+import { HelpTip } from './HelpTip'
 import { FormHeader } from './forms/FormHeader'
 import { FormFooter } from './forms/FormFooter'
 import { Button } from '../primitives/button'
@@ -239,6 +240,15 @@ export type CrudFieldBase = {
   labelKey?: string
   placeholder?: string
   description?: React.ReactNode // inline field-level help
+  /**
+   * Longer explanation behind a "?" next to the label, for a field whose name does not give away
+   * what it does. Both strings must arrive translated.
+   *
+   * Distinct from `description`, which stays a short always-visible hint under the control — a field
+   * can carry both. Moving existing `description` text behind the "?" would change the look of every
+   * form already using it, so this is additive instead.
+   */
+  help?: { title: string; body: React.ReactNode }
   required?: boolean
   /**
    * Simple conditional visibility for base fields.
@@ -5020,6 +5030,17 @@ const FieldControl = React.memo(function FieldControlImpl({
     field.type === 'combobox' ||
     (field.type === 'select' && !builtin?.multiple)
 
+  const fieldLabel = (
+    <label
+      id={labelId}
+      htmlFor={hasSingleControl ? controlId : undefined}
+      className="block text-sm font-medium"
+    >
+      {label}
+      {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
+    </label>
+  )
+
   return (
     <div
       className={rootClassName}
@@ -5032,16 +5053,14 @@ const FieldControl = React.memo(function FieldControlImpl({
           }
         : undefined}
     >
-      {field.type !== 'checkbox' && label.trim().length > 0 ? (
-        <label
-          id={labelId}
-          htmlFor={hasSingleControl ? controlId : undefined}
-          className="block text-sm font-medium"
-        >
-          {label}
-          {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
-        </label>
-      ) : null}
+      {field.type !== 'checkbox' && label.trim().length > 0
+        ? field.help
+          ? <div className="flex items-center gap-1">
+              {fieldLabel}
+              <HelpTip title={field.help.title} body={field.help.body} />
+            </div>
+          : fieldLabel
+        : null}
       {field.type === 'text' && (
         <TextInput
           id={controlId}
@@ -5227,16 +5246,19 @@ const FieldControl = React.memo(function FieldControlImpl({
         />
       )}
       {field.type === 'checkbox' && (
-        <label htmlFor={controlId} className="inline-flex items-center gap-2 cursor-pointer">
-          <Checkbox
-            id={controlId}
-            checked={value === true}
-            onCheckedChange={(next) => setValue(field.id, next === true)}
-            data-crud-focus-target=""
-            disabled={disabled}
-          />
-          <span className="text-sm">{label}</span>
-        </label>
+        <div className="flex items-center gap-1">
+          <label htmlFor={controlId} className="inline-flex items-center gap-2 cursor-pointer">
+            <Checkbox
+              id={controlId}
+              checked={value === true}
+              onCheckedChange={(next) => setValue(field.id, next === true)}
+              data-crud-focus-target=""
+              disabled={disabled}
+            />
+            <span className="text-sm">{label}</span>
+          </label>
+          {field.help ? <HelpTip title={field.help.title} body={field.help.body} /> : null}
+        </div>
       )}
       {field.type === 'select' && !builtin?.multiple && (
         <Select
@@ -5388,6 +5410,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.field.type === next.field.type &&
   prev.field.label === next.field.label && prev.field.labelKey === next.field.labelKey &&
   prev.field.description === next.field.description &&
+  prev.field.help === next.field.help &&
   (prev.field.type !== 'password' || (next.field.type === 'password' && prev.field.autoComplete === next.field.autoComplete)) &&
   prev.field.required === next.field.required &&
   prev.field.readOnly === next.field.readOnly &&

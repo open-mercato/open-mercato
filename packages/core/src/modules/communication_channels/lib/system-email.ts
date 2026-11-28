@@ -297,6 +297,13 @@ export async function sendSystemEmail(
       from: resolveOutboundFromAddress(payload, credentials),
       replyTo: payload.replyTo,
       attachments: payload.attachments,
+      /**
+       * Passed through for the adapter to honour if it can.
+       *
+       * `channelMetadata` is the bag each adapter reads the keys it understands from, so this needs no change
+       * to the Hub's own contract — an adapter with nowhere to put a header simply ignores it.
+       */
+      headers: payload.headers,
     },
   })
 

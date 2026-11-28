@@ -10,7 +10,7 @@ import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import type { CrudField } from '@open-mercato/ui/backend/CrudForm'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { fetchCustomFieldFormFieldsWithDefinitions } from '@open-mercato/ui/backend/utils/customFieldForms'
-import type { CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
+import { filterCustomFieldDefs, type CustomFieldDefDto } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import {
   DictionaryValue,
   type DictionaryMap,
@@ -28,6 +28,7 @@ import {
 } from '@open-mercato/ui/backend/utils/customFieldRelationDisplay'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { MarkdownPreview } from '../markdown'
 import { useRegisteredComponent } from '../injection/useRegisteredComponent'
@@ -268,6 +269,7 @@ function CustomDataSectionImpl({
   definitionHref: explicitDefinitionHref,
 }: CustomDataSectionProps) {
   const queryClient = useQueryClient()
+  const t = useT()
   const defaultScopeVersion = useOrganizationScopeVersion()
   const scopeVersion = scopeVersionProp ?? defaultScopeVersion
   const resolvedScopeVersion = React.useMemo(
@@ -318,11 +320,28 @@ function CustomDataSectionImpl({
       return loader(resolvedEntityIds)
     },
   })
-  const fields = React.useMemo(() => customFieldFormsQuery.data?.fields ?? [], [customFieldFormsQuery.data])
   const definitions = React.useMemo(
     () => customFieldFormsQuery.data?.definitions ?? [],
     [customFieldFormsQuery.data],
   )
+  const fields = React.useMemo(() => {
+    const definitionsByFieldId = new Map<string, CustomFieldDefDto>()
+    for (const definition of filterCustomFieldDefs(definitions, 'form')) {
+      const fieldId = `cf_${definition.key}`.toLowerCase()
+      if (!definitionsByFieldId.has(fieldId)) definitionsByFieldId.set(fieldId, definition)
+    }
+    return (customFieldFormsQuery.data?.fields ?? []).map((field) => {
+      const definition = definitionsByFieldId.get(field.id.toLowerCase())
+      if (!definition?.entityId) return field
+      const key = `entities.customFieldText.${definition.entityId}.${definition.key}`
+      const label = t(`${key}.label`, field.label)
+      const description = typeof field.description === 'string'
+        ? t(`${key}.description`, field.description)
+        : field.description
+      if (label === field.label && description === field.description) return field
+      return { ...field, label, description }
+    })
+  }, [customFieldFormsQuery.data, definitions, t])
   const formInitialValues = React.useMemo(() => {
     const next: Record<string, unknown> = { ...(values ?? {}) }
     fields.forEach((field) => {

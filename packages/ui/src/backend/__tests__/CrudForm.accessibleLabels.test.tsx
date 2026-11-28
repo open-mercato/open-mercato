@@ -29,6 +29,50 @@ const dict = {
 }
 
 describe('CrudForm accessible field labels (#5360)', () => {
+  it('distinguishes two translated field help buttons beside their labels without activating the controls', () => {
+    const fields: CrudField[] = [
+      {
+        id: 'name',
+        label: 'Nazwa kampanii',
+        type: 'text',
+        help: { title: 'Nazwa kampanii', body: 'Nazwa widoczna dla zespołu.' },
+      },
+      {
+        id: 'active',
+        label: 'Aktywna',
+        type: 'checkbox',
+        help: { title: 'Aktywna', body: 'Czy kampania jest aktywna.' },
+      },
+    ]
+    const { getByLabelText, getByRole, getByText } = renderWithProviders(
+      <CrudForm title="Kampania" fields={fields} initialValues={{ name: '', active: false }} onSubmit={() => {}} />,
+      { locale: 'pl', dict: { ...dict, 'ui.helpTip.ariaLabel': 'Co to jest?' } },
+    )
+
+    const nameInput = getByLabelText('Nazwa kampanii')
+    const activeCheckbox = getByLabelText('Aktywna')
+    const nameHelp = getByRole('button', { name: 'Co to jest?: Nazwa kampanii' })
+    const activeHelp = getByRole('button', { name: 'Co to jest?: Aktywna' })
+
+    for (const [control, help] of [[nameInput, nameHelp], [activeCheckbox, activeHelp]]) {
+      const label = document.querySelector(`label[for="${control.id}"]`)
+      expect(help.closest('label')).toBeNull()
+      expect(help.parentElement).toBe(label?.parentElement)
+      expect(help.parentElement).toHaveClass('flex', 'items-center')
+    }
+
+    fireEvent.click(nameHelp)
+    expect(getByRole('dialog', { name: 'Nazwa kampanii' })).toBeTruthy()
+    expect(getByText('Nazwa widoczna dla zespołu.')).toBeTruthy()
+    expect(document.activeElement).not.toBe(nameInput)
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Escape' })
+
+    fireEvent.click(activeHelp)
+    expect(getByRole('dialog', { name: 'Aktywna' })).toBeTruthy()
+    expect(getByText('Czy kampania jest aktywna.')).toBeTruthy()
+    expect(activeCheckbox).toHaveAttribute('aria-checked', 'false')
+  })
+
   it('associates a text field label with its input via htmlFor/id', () => {
     const fields: CrudField[] = [{ id: 'displayName', label: 'Display name', type: 'text' }]
     const { getByLabelText } = renderWithProviders(
@@ -42,6 +86,7 @@ describe('CrudForm accessible field labels (#5360)', () => {
 
     const label = document.querySelector(`label[for="${input.id}"]`) as HTMLLabelElement
     expect(label).not.toBeNull()
+    expect(label.parentElement?.querySelector('input')).toBe(input)
     fireEvent.click(label)
     expect(document.activeElement).toBe(input)
   })
