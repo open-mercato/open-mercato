@@ -32,7 +32,7 @@ const referenceId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const foreignId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
 function setup(reference: Record<string, unknown> | null) {
-  const order = { id: orderId, tenantId, organizationId, grandTotalGrossAmount: '100', paidTotalAmount: '0', refundedTotalAmount: '0' }
+  const order = { id: orderId, tenantId, organizationId, grandTotalGrossAmount: '100', paidTotalAmount: '0', refundedTotalAmount: '0', updatedAt: new Date() }
   const record = { id: recordId, tenantId, organizationId, order, status: 'pending', statusEntryId: null, shippingMethodId: null, paymentMethod: null }
   const findOne = jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
     if (entity === SalesOrder) return order

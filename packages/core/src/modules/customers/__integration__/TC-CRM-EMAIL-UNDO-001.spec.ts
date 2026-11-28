@@ -271,7 +271,7 @@ test.describe('TC-CRM-EMAIL-UNDO-001: delete → undo restores interactions exac
       })
       expect(aclResp.ok(), 'PUT role ACL should succeed').toBeTruthy()
 
-      const password = 'Valid1!Pass'
+      const password = 'QaValid1!Pass'
       const userAEmail = `qa-crm-email-undo-a-${stamp}@acme.com`
       userAId = await createUserFixture(request, adminToken, {
         email: userAEmail,
@@ -389,7 +389,7 @@ test.describe('TC-CRM-EMAIL-UNDO-001: delete → undo restores interactions exac
         data: { roleId, features: ['customers.companies.view', 'customers.interactions.view'] },
       })
       expect(aclResp.ok(), 'PUT role ACL should succeed').toBeTruthy()
-      const password = 'Valid1!Pass'
+      const password = 'QaValid1!Pass'
       const userAEmail = `qa-crm-email-undo-co-a-${stamp}@acme.com`
       userAId = await createUserFixture(request, adminToken, {
         email: userAEmail,

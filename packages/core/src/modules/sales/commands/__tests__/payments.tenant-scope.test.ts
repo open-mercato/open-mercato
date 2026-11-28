@@ -144,6 +144,7 @@ function buildEmCapturingFindOne(captures: FindOneCall[], opts: { validOrderIds?
       persist,
       remove,
       create,
+      nativeUpdate: jest.fn().mockResolvedValue(1),
     }
     return cb(tx)
   })

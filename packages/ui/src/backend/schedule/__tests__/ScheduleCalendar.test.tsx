@@ -21,11 +21,11 @@ const items: ScheduleItem[] = [
   { id: 'night', kind: 'availability', title: 'Night shift', startsAt: new Date(2026, 5, 11, 23), endsAt: new Date(2026, 5, 12, 1) },
 ]
 
-function renderCalendar() {
+function renderCalendar(scheduleItems = items) {
   const onRangeChange = jest.fn()
   const onItemClick = jest.fn()
   render(<I18nProvider locale="pl" dict={{ 'schedule.calendar.allDay': 'Cały dzień' }}>
-    <ScheduleCalendar items={items} view="week" range={selectedRange} onRangeChange={onRangeChange} onViewChange={jest.fn()} onItemClick={onItemClick} />
+    <ScheduleCalendar items={scheduleItems} view="week" range={selectedRange} onRangeChange={onRangeChange} onViewChange={jest.fn()} onItemClick={onItemClick} />
   </I18nProvider>)
   return { onRangeChange, onItemClick }
 }
@@ -36,6 +36,11 @@ describe('ScheduleCalendar', () => {
     expect(calendarProps.events?.map(({ id, allDay }) => ({ id, allDay }))).toEqual([
       { id: 'closed', allDay: true }, { id: 'meeting', allDay: false }, { id: 'night', allDay: false },
     ])
+  })
+
+  it('uses an occurrence’s explicit all-day setting over the local time heuristic', () => {
+    renderCalendar([{ ...items[0], allDay: false }, { ...items[1], allDay: true }])
+    expect(calendarProps.events?.map(({ allDay }) => allDay)).toEqual([false, true])
   })
 
   it('opens at working hours without hiding the rest of the day', () => {

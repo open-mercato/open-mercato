@@ -3,7 +3,7 @@
  */
 import * as React from 'react'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { CompanyDetailTabs } from '../CompanyDetailTabs'
+import { CompanyDetailTabs, resolveLegacyTab } from '../CompanyDetailTabs'
 
 let mockGrantedFeatures: string[] = []
 
@@ -41,6 +41,19 @@ function tabOrder() {
 }
 
 describe('CompanyDetailTabs', () => {
+  it('selects the built-in Addresses tab for an addresses deep link', () => {
+    mockGrantedFeatures = ['customers.*']
+    const onTabChange = jest.fn()
+    render(
+      <CompanyDetailTabs activeTab={resolveLegacyTab('addresses')} onTabChange={onTabChange}>
+        <div>content</div>
+      </CompanyDetailTabs>,
+    )
+
+    expect(screen.getByRole('tab', { name: 'Addresses' })).toHaveAttribute('aria-selected', 'true')
+    expect(onTabChange).not.toHaveBeenCalled()
+  })
+
   it('preserves a pending injected selection and native defaults while sorting deduplicated tabs', () => {
     const onTabChange = jest.fn()
     const { rerender } = render(

@@ -7,7 +7,6 @@ export const metadata: ModuleInfo = {
   description: 'Assets and resources with scheduling policies.',
   author: 'Open Mercato Team',
   license: 'MIT',
-  requires: ['planner'],
   ejectable: true,
 }
 

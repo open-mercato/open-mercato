@@ -371,6 +371,23 @@ describe('messages /api/messages POST', () => {
     expect(checkExternalEmailBudgetMock).not.toHaveBeenCalled()
   })
 
+  it('returns the committed message and thread with HTTP 201 when mailbox delivery is unconfirmed', async () => {
+    const threadId = '9d4c1e5b-3a7f-4c28-b6d1-8e2f0a7c5b13'
+    delegateComposeToSenderMock.mockResolvedValueOnce({ ok: true, messageId, threadId, deliveryEnqueueStatus: 'unconfirmed' })
+
+    const response = await POST(new Request('http://localhost', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'default', visibility: 'public', externalEmail: 'client@example.com',
+        subject: 'Quote', body: 'Body', senderChannelId: '22222222-2222-4222-8222-222222222222',
+      }),
+    }))
+
+    expect(response.status).toBe(201)
+    expect(await response.json()).toEqual({ id: messageId, threadId, deliveryEnqueueStatus: 'unconfirmed' })
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
   it('threads a delegated mailbox send onto the conversation thread the server resolved', async () => {
     const conversationId = '0f3c2a9e-6f0e-4d0a-9a5c-2f8c6d1b7e41'
     const senderChannelId = '22222222-2222-4222-8222-222222222222'

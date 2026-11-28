@@ -176,7 +176,7 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   const oauthClientCredentials = await resolveOAuthClientCredentials(credentialsService, provider, {
     tenantId: statePayload.tenantId,
     organizationId: statePayload.organizationId ?? null,
-  })
+  }, { requireComplete: true })
   if (!oauthClientCredentials) {
     return redirectWithFlash(req, returnUrl, {
       type: 'error',
@@ -280,13 +280,12 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     }
   }
 
-  const displayName =
-    exchange.displayName ?? exchange.externalIdentifier ?? `${provider} channel`
+  const externalIdentifier = exchange.externalIdentifier ?? null
+  const displayName = exchange.displayName ?? externalIdentifier ?? `${provider} channel`
   // Fail-safe: if credentials persistence failed (no `credentialsRef` available),
   // create the channel in `requires_reauth` so workers don't poll a channel that
   // has no usable credentials. The user can re-run the OAuth flow to recover
   // (see review R2-H4 / F6, 2026-05-26).
-  const credentialsAvailable = credentialsRefId !== null
   let channel
   try {
     channel = await createConnectedChannelRow({
@@ -294,10 +293,11 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
       adapter,
       providerKey: provider,
       displayName,
-      externalIdentifier: exchange.externalIdentifier ?? null,
+      externalIdentifier,
       credentialsRefId,
       userId: auth.sub as string,
       scope: { tenantId: statePayload.tenantId, organizationId: statePayload.organizationId ?? null },
+      adoptUnidentifiedChannel: Boolean(externalIdentifier),
     })
   } catch (err) {
     // Same mailbox already connected via another provider — don't create a second
@@ -313,6 +313,10 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
     throw err
   }
 
+  if (credentialsRefId === null) {
+    return redirectWithFlash(req, returnUrl, { type: 'error', code: 'credentials_persist_failed', provider })
+  }
+
   // Spec C § Phase C5 — best-effort push registration for OAuth providers
   // that support it (Gmail). Same shape as the credential-connect
   // path: failures persist as `pushStatus='failed'` on channelState and DO
@@ -321,7 +325,6 @@ export async function GET(req: Request, context: RouteContext): Promise<Response
   const adapterSupportsPush =
     typeof adapter.registerPush === 'function' && typeof adapter.unregisterPush === 'function'
   if (
-    credentialsAvailable &&
     adapterSupportsPush &&
     statePayload.organizationId &&
     provider === 'gmail'

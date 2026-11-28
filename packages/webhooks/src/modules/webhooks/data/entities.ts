@@ -1,3 +1,4 @@
+import { quote } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import type { WebhookHandlerResult, WebhookIngestionStatus } from '@open-mercato/shared/lib/webhooks'
 
@@ -161,7 +162,7 @@ export class WebhookDeliveryEntity {
 @Unique({
   name: 'webhook_inbound_receipts_endpoint_message_unique',
   properties: ['endpointId', 'messageId', 'tenantId', 'organizationId'],
-  expression: 'alter table "webhook_inbound_receipts" add constraint "webhook_inbound_receipts_endpoint_message_unique" unique nulls not distinct ("endpoint_id", "message_id", "tenant_id", "organization_id")',
+  expression: (columns, table, constraintName) => quote`alter table ${table} add constraint ${constraintName} unique nulls not distinct (${columns.endpointId}, ${columns.messageId}, ${columns.tenantId}, ${columns.organizationId})`,
 })
 @Index({ properties: ['providerKey', 'createdAt'] })
 export class WebhookInboundReceiptEntity {
@@ -179,6 +180,24 @@ export class WebhookInboundReceiptEntity {
 
   @Property({ name: 'event_type', type: 'text', nullable: true })
   eventType?: string | null
+
+  @Property({ name: 'ingestion_id', type: 'uuid', nullable: true })
+  ingestionId?: string | null
+
+  @Property({ name: 'dispatch_queued', type: 'boolean', default: true })
+  dispatchQueued: boolean = true
+
+  @Property({ name: 'received_event_published', type: 'boolean', default: true })
+  receivedEventPublished: boolean = true
+
+  @Property({ name: 'delivery_claim_token', type: 'uuid', nullable: true })
+  deliveryClaimToken?: string | null
+
+  @Property({ name: 'delivery_claim_stage', type: 'text', nullable: true })
+  deliveryClaimStage?: 'dispatch' | 'received_event' | null
+
+  @Property({ name: 'delivery_claim_expires_at', type: Date, nullable: true })
+  deliveryClaimExpiresAt?: Date | null
 
   @Property({ name: 'organization_id', type: 'uuid', nullable: true })
   organizationId?: string | null

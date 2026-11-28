@@ -445,7 +445,7 @@ export async function createSecondTenantActor(
   const roleId = await createRoleFixture(request, superadminToken, { name: `QA ECOM Role B ${stamp}`, tenantId });
   await setRoleAclFeatures(request, superadminToken, { roleId, features, organizations: [organizationId] });
   const email = `qa-ecom-${stamp}@test.invalid`;
-  const password = 'Valid1!Pass';
+  const password = 'QaValid1!Pass';
   const userId = await createUserFixture(request, superadminToken, {
     email,
     password,
@@ -528,7 +528,7 @@ export async function createScopedActor(
       organizations: [input.organizationId],
     });
     const email = `qa-ecom-${input.label}-${input.stamp}@test.invalid`.toLowerCase();
-    const password = 'Valid1!Pass';
+    const password = 'QaValid1!Pass';
     const userId = await createUserFixture(request, superadminToken, {
       email,
       password,

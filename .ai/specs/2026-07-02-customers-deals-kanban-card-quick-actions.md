@@ -387,3 +387,7 @@ None.
 - **Commands**: Passed
 - **Risks**: Passed
 - **Verdict**: Approved
+
+### 2026-11-13 — #7796 follow-up
+- Deal-card menu uses the standard 32px IconButton target while retaining the existing 14px glyph, menu actions and keyboard behavior.
+- Coverage: rendered DealCardMenu regression and self-contained TC-CRM-KANBAN-MENU-TARGET-001 browser scenario at desktop/mobile widths. No API or data changes.

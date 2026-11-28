@@ -159,6 +159,9 @@ services:
       OM_INIT_ADMIN_PASSWORD: ${OM_INIT_ADMIN_PASSWORD:-}
       OM_INIT_EMPLOYEE_EMAIL: ${OM_INIT_EMPLOYEE_EMAIL:-}
       OM_INIT_EMPLOYEE_PASSWORD: ${OM_INIT_EMPLOYEE_PASSWORD:-}
+      OM_INIT_PORTAL_DEMO_PASSWORD: ${OM_INIT_PORTAL_DEMO_PASSWORD:-}
+      OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
+      OPENCODE_PASSWORD: ${OPENCODE_PASSWORD:-}
       OPEN_MERCATO_DOCKER_REGISTRY_HOST: ${OPEN_MERCATO_DOCKER_REGISTRY_HOST:-host.docker.internal}
     depends_on:
       encryption-preflight:
@@ -258,10 +261,7 @@ services:
     # Invoked through `sh` so the mount does not depend on a preserved exec bit.
     entrypoint: ["/bin/sh", "/home/opencode/entrypoint.sh"]
     restart: unless-stopped
-    # Deliberately NOT published to the host: OpenCode ships no authentication
-    # of its own (OPENCODE_PASSWORD is unset by default), so anyone who can
-    # reach 4096 can drive the runtime. The app reaches it over the compose
-    # network. Publish it only on a trusted machine, and set OPENCODE_PASSWORD.
+    # The authenticated OpenCode server is reachable only on the Compose network.
     expose:
       - "4096"
     environment:
@@ -269,7 +269,7 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      OPENCODE_PASSWORD: ${OPENCODE_PASSWORD:-}
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_PASSWORD:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
@@ -299,7 +299,7 @@ services:
     # Visibility only (compose ps / smoke tests): the entrypoint owns the
     # wait-for-MCP-and-key sequencing.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "--max-time", "5", "http://127.0.0.1:4096/global/health"]
+      test: ["CMD-SHELL", 'curl -fsS --max-time 5 -u "opencode:$$OPENCODE_SERVER_PASSWORD" http://127.0.0.1:4096/global/health']
       interval: 30s
       timeout: 6s
       retries: 20
@@ -370,6 +370,7 @@ services:
       # point of view. mcp:serve-http defaults to binding 127.0.0.1 (issue #2659); this
       # opts into 0.0.0.0 explicitly. The network is internal and the port is not published.
       MCP_HTTP_HOST: "0.0.0.0"
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
       MCP_WAIT_FOR_APP_TIMEOUT: ${MCP_WAIT_FOR_APP_TIMEOUT:-1800}
       MCP_DEBUG: ${MCP_DEBUG:-false}

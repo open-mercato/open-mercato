@@ -43,9 +43,11 @@ export function useDealPipeline({
             () => updateCrud('customers/deals', { id: currentDealId, pipelineStageId: nextStageId }),
           ),
           { id: currentDealId, pipelineStageId: nextStageId, operation: 'updateDealStage' },
+          async () => {
+            flash(t('customers.deals.detail.stageUpdateSuccess', 'Deal stage updated.'), 'success')
+            await onStageChanged()
+          },
         )
-        flash(t('customers.deals.detail.stageUpdateSuccess', 'Deal stage updated.'), 'success')
-        await onStageChanged()
       } catch (err) {
         // A concurrent edit / pessimistic lock 409 routes to the unified conflict
         // bar or merge dialog (S3); surface any other error as a flash.

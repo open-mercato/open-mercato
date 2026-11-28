@@ -39,6 +39,13 @@ function createPool(options: {
 }
 
 describe('pgvector extension availability', () => {
+  it('refuses to resize a shared vector table from the runtime driver', async () => {
+    const calls: QueryCall[] = []
+    const driver = createPgVectorDriver({ pool: createPool({ calls }), dimension: 1536 })
+    await expect(driver.recreateWithDimension!(768)).rejects.toThrow('operator-managed migration')
+    expect(calls.every(({ text }) => !/DROP TABLE/.test(text))).toBe(true)
+  })
+
   it('reports the driver unhealthy when the extension cannot be installed', async () => {
     const calls: QueryCall[] = []
     const driver = createPgVectorDriver({ pool: createPool({ calls }) })

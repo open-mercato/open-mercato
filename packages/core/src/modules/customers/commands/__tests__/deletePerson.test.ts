@@ -37,6 +37,7 @@ import {
   CustomerDealPersonLink,
   CustomerEntity,
   CustomerLabelAssignment,
+  CustomerPersonCompanyRole,
 } from '../../data/entities'
 
 const ORG_ID = 'org-p-1'
@@ -192,6 +193,29 @@ describe('customers.people.delete — dependent guard', () => {
     expect(result).toEqual({
       entityId: PERSON_ID,
       labelAssignments: [{ id: 'la-1', labelId: 'label-1', userId: 'user-2', createdAt }],
+    })
+  })
+
+  it('removes company roles before deleting a person and captures the removed rows', async () => {
+    const entity = makePersonEntity()
+    const em = makeEm(entity, 0)
+    const handler = commandRegistry.get('customers.people.delete') as CommandHandler
+    const createdAt = new Date('2026-01-01T00:00:00.000Z')
+    const role = { id: 'role-1', personEntity: entity, companyEntity: { id: 'company-1' }, roleValue: 'buyer', createdAt }
+    mockFindWithDecryption.mockImplementation((async (_em: unknown, ctor: unknown) =>
+      ctor === CustomerPersonCompanyRole ? [role] : []) as unknown as () => Promise<never[]>)
+
+    const result = await handler.execute({ body: { id: PERSON_ID } }, makeCtx(em))
+
+    expect(em.nativeDelete).toHaveBeenCalledWith(CustomerPersonCompanyRole, {
+      id: { $in: [role.id] },
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+    })
+    expect(result).toMatchObject({
+      dependencies: {
+        roles: [{ id: role.id, personId: PERSON_ID, companyId: 'company-1', roleValue: 'buyer', createdAt }],
+      },
     })
   })
 })
