@@ -1,0 +1,275 @@
+{
+  "runId": "014bfe73-df96-402f-8ebb-f4d5b1e75977",
+  "mode": "pr",
+  "target": {
+    "prNumber": 11005,
+    "title": "fix(sales): enforce order address policy on customer changes (#7903)",
+    "branch": "fix/issue-7903-customer-change-address-policy",
+    "headSha": "8cf69e50000b5d75b772c1bd9d65386f59ad6db4"
+  },
+  "verdict": "FAIL",
+  "environment": {
+    "baseUrl": "http://127.0.0.1:39643",
+    "role": "admin plus own narrow role and own second actor",
+    "startedByThisRepo": true,
+    "browserProvider": "playwright"
+  },
+  "scenario": [
+    {
+      "step": 1,
+      "priority": "P1",
+      "action": "Sales configuration UI: customer editable, addresses locked",
+      "expected": "Save null customer policy and [] address policy",
+      "observed": "Settings PUT200 returned exact policy",
+      "result": "PASS",
+      "screenshot": "step-02-address-policy-restricted.png"
+    },
+    {
+      "step": 2,
+      "priority": "P1",
+      "action": "Order Addresses tab at desktop",
+      "expected": "Show restriction and disable address submit",
+      "observed": "Restriction visible; Update addresses disabled",
+      "result": "PASS",
+      "screenshot": "step-04-locked-addresses.png"
+    },
+    {
+      "step": 3,
+      "priority": "P1",
+      "action": "UI: cancel real customer change",
+      "expected": "No persistence",
+      "observed": "Complete GET record unchanged after cancel",
+      "result": "PASS"
+    },
+    {
+      "step": 4,
+      "priority": "P1",
+      "action": "UI: confirm and retry restricted customer change",
+      "expected": "400 refusal, clear feedback, preserve all fields",
+      "observed": "Both attempts400; complete GET record unchanged; clear inline error and toast",
+      "result": "PASS",
+      "screenshot": "step-06-customer-change-refused.png"
+    },
+    {
+      "step": 5,
+      "priority": "P1",
+      "action": "UI: Escape then same-customer recovery",
+      "expected": "Same-customer save succeeds and preserves snapshots",
+      "observed": "Escape reopened selection;200; snapshots retained after10seconds",
+      "result": "PASS",
+      "screenshot": "step-07-same-customer-recovery.png"
+    },
+    {
+      "step": 6,
+      "priority": "P1",
+      "action": "API: change, detach and repeat with locked addresses",
+      "expected": "All400; order entirely unchanged",
+      "observed": "All400; full GET response equals baseline; comment did not persist",
+      "result": "PASS"
+    },
+    {
+      "step": 7,
+      "priority": "P1",
+      "action": "API: uppercase same-customer save",
+      "expected": "200 and both saved snapshots unchanged",
+      "observed": "200; canonical customer UUID and both snapshots retained",
+      "result": "PASS"
+    },
+    {
+      "step": 8,
+      "priority": "P1",
+      "action": "API: address-free order and quote changes",
+      "expected": "Changes remain allowed",
+      "observed": "Both200; new customer persisted; quote snapshots cleared",
+      "result": "PASS"
+    },
+    {
+      "step": 9,
+      "priority": "P1",
+      "action": "API: narrow tenant-bound role direct write",
+      "expected": "403",
+      "observed": "Own role/user created; direct order mutation403",
+      "result": "PASS"
+    },
+    {
+      "step": 10,
+      "priority": "P1",
+      "action": "API: second actor saves, first actor sends stale version",
+      "expected": "200 then409 without lost update",
+      "observed": "Own distinct second user200; stale first actor409; second comment retained, stale customer reference not persisted",
+      "result": "PASS"
+    },
+    {
+      "step": 11,
+      "priority": "P1",
+      "action": "UI: allow addresses then confirm actual customer change",
+      "expected": "200; old snapshots cleared; no unrelated field changes",
+      "observed": "200; new customer and null snapshots persisted. Whole-record comparison changed only customer, customer snapshot, address snapshots and updatedAt",
+      "result": "PASS",
+      "screenshot": "step-10-allowed-customer-change.png"
+    },
+    {
+      "step": 12,
+      "priority": "P1",
+      "action": "English and Polish order detail at390px",
+      "expected": "Localized core labels and readable order detail",
+      "observed": "Polish order/customer/action labels rendered; English detail exercised",
+      "result": "PASS",
+      "screenshot": "step-09-polish-mobile-order.png"
+    },
+    {
+      "step": 13,
+      "priority": "P1",
+      "action": "Settled English locked-address screen at390px",
+      "expected": "Document fits viewport; address fields remain within390px",
+      "observed": "Document/body416px; alert400px extends to416px and address form exceeds viewport. Allowed-state control has document390px and no overflowing elements",
+      "result": "FAIL",
+      "screenshot": "step-12-mobile-addresses-restricted-settled.png"
+    },
+    {
+      "step": 14,
+      "priority": "P1",
+      "action": "Complex keyboard/double-submit/long-content/full state matrix",
+      "expected": "Exercise remaining boundaries",
+      "observed": "Ctrl+Enter retry did not yield expected dialog in driver; not diagnosed. Double-click submit, long-content stress, Polish refusal, no-permission UI, forced error/loading and undo/audit remain unverified",
+      "result": "not exercised"
+    }
+  ],
+  "hasUiTest": false,
+  "notes": [
+    "QA FAIL is a mobile layout observation on an unchanged UI surface, not evidence that the changed command caused it. Backend address-policy behavior passed.",
+    "Reviewed full PR conversation, inline comments (none), linked issue7903 and historical PR7900. Existing images in11005 were CI badges, not screenshot evidence.",
+    "Review-first satisfied: CHANGES_REQUESTED at tested head concerns pre-existing Forms CI assertion; no source fixes or review/QA waiver attempted.",
+    "No integration/E2E test changed in this PR. Existing adjacent locked-address test mocks the UI settings response and does not cover this server policy.",
+    "API-only checks: detach/casing, empty order, quote, permissions and stale second actor. These do not establish the corresponding full browser flows.",
+    "Not exercised: stored address IDs individually at runtime (unit coverage exists), contact replacement, cross-tenant second organization, unrelated worker/subscriber side effects, notification delivery, undo/audit, all whole-record lifecycle reversals.",
+    "Amounts/decimal-comma input and money reversal checks inapplicable: no amount mutation in this command change/scenario. Zero-priced placeholder fixtures; no financial behavior inferred.",
+    "No new user-facing copy or shared UI helper changed. .uxproof not present; contract conformance check inapplicable.",
+    "Initial driver failures were corrected for navigation/hydration and explicit API bearer authentication; those failures are not claimed as product defects. Keyboard retry remains unresolved.",
+    "Runner local; repository CLI initialized disposable DB and built production app. Cold initialize58s, appbuild239s, readiness14s; warm prepare reused instance.",
+    "Dependency installation completed with optional native warnings (make unavailable); runtime/readiness and observed checks succeeded.",
+    "8 own fixtures deleted with HTTP200. Own environment stopped; generated tracked email capture log restored; original branch restored and source clean. Final lock-release details are recorded in completion.json."
+  ],
+  "screenshots": [
+    "step-01-sales-settings-default.png",
+    "step-02-address-policy-restricted.png",
+    "step-03-order-customer.png",
+    "step-04-locked-addresses.png",
+    "step-05-customer-picker.png",
+    "step-06-customer-change-refused.png",
+    "step-07-same-customer-recovery.png",
+    "step-08-mobile-addresses.png",
+    "step-09-polish-mobile-order.png",
+    "step-10-allowed-customer-change.png",
+    "step-11-mobile-addresses-allowed.png",
+    "step-12-mobile-addresses-restricted-settled.png"
+  ],
+  "commands": [
+    {
+      "command": "yarn install --immutable",
+      "exitCode": 0,
+      "result": "Completed with warnings; optional native builds better-sqlite3/cpu-features lack make"
+    },
+    {
+      "command": "yarn jest --config packages/core/jest.config.cjs --runInBand packages/core/src/modules/sales/commands/__tests__/documents.update-customer-unchanged.test.ts",
+      "exitCode": 0,
+      "result": "1 suite, 33 tests passed"
+    },
+    {
+      "command": "yarn jest --config packages/core/jest.config.cjs --runInBand packages/core/src/modules/sales/commands/__tests__",
+      "exitCode": 0,
+      "result": "64 suites, 714 tests passed"
+    },
+    {
+      "command": "yarn playwright --version; Chromium local data URL doctor",
+      "exitCode": 0,
+      "result": "Playwright1.61.1; Chromium launched and rendered Browser doctor"
+    },
+    {
+      "command": "sh .ai/scripts/test-env-up.sh --force-rebuild",
+      "exitCode": 0,
+      "result": "Cold isolated production boot successful"
+    },
+    {
+      "command": "sh .ai/scripts/test-env-up.sh",
+      "exitCode": 0,
+      "result": "Warm reuse successful; same isolated URL"
+    },
+    {
+      "command": "API/UI authored scenario scripts",
+      "result": "Core behavior assertions passed; settled mobile measurementFAIL; keyboard driver gap disclosed"
+    },
+    {
+      "command": "sh .ai/scripts/test-env-down.sh (including scoped cleanup retry)",
+      "exitCode": 0,
+      "result": "All8fixtures deleted200; own app/DB/Ryuk removed; clean branch restored"
+    }
+  ],
+  "findings": [
+    {
+      "severity": "P2",
+      "path": "packages/core/src/modules/sales/components/documents/AddressesSection.tsx",
+      "line": 1105,
+      "summary": "Locked-address alert expands a390px page to416px; disabled action repeats a long unwrapped label",
+      "introducedByPr": false,
+      "evidence": [
+        "mobile-geometry.json",
+        "mobile-geometry-allowed.json",
+        "step-12-mobile-addresses-restricted-settled.png"
+      ]
+    }
+  ],
+  "cleanup": {
+    "restoredBranch": "cez/014bfe73",
+    "restoredHead": "beb07a9e963b705410cd051a065c53feed91244a",
+    "testedHead": "8cf69e50000b5d75b772c1bd9d65386f59ad6db4",
+    "trackedStatus": "",
+    "appPort39643Listening": false,
+    "ownedContainersRemaining": "",
+    "fixtureCleanup": [
+      {
+        "url": "/api/auth/users",
+        "id": "ef758a60-8662-46b9-95c9-208456520181",
+        "status": 200
+      },
+      {
+        "url": "/api/auth/users",
+        "id": "4b6f122d-131a-41fa-9761-fbba89fe9963",
+        "status": 200
+      },
+      {
+        "url": "/api/auth/roles",
+        "id": "e3023cd7-96d6-4b39-a271-de6153820e8e",
+        "status": 200
+      },
+      {
+        "url": "/api/sales/orders",
+        "id": "4f578473-de24-4a1e-bc40-d08a6a035ca3",
+        "status": 200
+      },
+      {
+        "url": "/api/sales/quotes",
+        "id": "8d2cb26b-fbb3-48d5-a352-a087ce82aecc",
+        "status": 200
+      },
+      {
+        "url": "/api/sales/orders",
+        "id": "f5a21beb-a32a-4f33-a8e6-f53259a9cc51",
+        "status": 200
+      },
+      {
+        "url": "/api/customers/companies",
+        "id": "6d0f6d11-764f-42e9-8553-0569e93fdc3e",
+        "status": 200
+      },
+      {
+        "url": "/api/customers/companies",
+        "id": "b66a64bb-deb5-46e8-8ad6-b4b3ed214f09",
+        "status": 200
+      }
+    ],
+    "runtimeStateRemoved": true,
+    "runtimeLockRemoved": true,
+    "browserAuthStateRemoved": true
+  }
+}
