@@ -764,3 +764,7 @@ STABLE superadmin reset and invite email uses the instance provider. Tenant fall
 ## 2026-11-27 — Staff and organization boundaries (#10503, #10543)
 
 STABLE APIs §7 require organization grants and return `403` for explicitly empty scope. Grant scope and handle `403`. `PUT /api/auth/profile` requires current-password proof for email changes. Send proof and reauthenticate. ADDITIVE-ONLY schema §8 uses owner-unique partition codes. Rehome incompatible references. Bridging prior behavior retains unscoped access or unverified changes. [Migration and specs](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-27 — Dynamic promotion code pool limit (#10699)
+
+STABLE promotion-code API: dynamic pools are capped at 100,000 codes, and generation commits in bounded batches. Keeping unbounded pool sizes and one-transaction generation preserves resource-exhaustion risk, so there is no compatibility bridge. Existing generated codes remain valid; reduce an oversized pool to at most 100,000 and trigger generation again to resume it. [Migration](UPGRADE_NOTES.md#dynamic-promotion-code-pools-are-limited-to-100000-codes-10699) · [Spec](.ai/specs/2026-11-27-promotion-code-pool-generation-limit.md). Named maintainer acknowledgement for the security exception is pending.
