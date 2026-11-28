@@ -223,16 +223,19 @@ describe('tpayAdapterV1', () => {
   })
 
   describe('getStatus', () => {
-    it('maps the transaction status and paid amount', async () => {
+    it.each([
+      { providerStatus: 'correct', amountPaid: 123.45, amountReceived: 123.45 },
+      { providerStatus: 'paid', amountPaid: '130.00', amountReceived: 130 },
+    ])('captures a $providerStatus transaction with $amountPaid paid', async ({ providerStatus, amountPaid, amountReceived }) => {
       fetchMock
         .mockResolvedValueOnce(jsonResponse({ access_token: TOKEN }))
         .mockResolvedValueOnce(
           jsonResponse({
             transactionId: 'ta_abc123',
-            status: 'correct',
+            status: providerStatus,
             amount: '123.45',
             currency: 'PLN',
-            payments: { amountPaid: 123.45 },
+            payments: { amountPaid },
           }),
         )
       const result = await tpayAdapterV1.getStatus({
@@ -243,10 +246,50 @@ describe('tpayAdapterV1', () => {
       expect(result).toEqual({
         status: 'captured',
         amount: 123.45,
-        amountReceived: 123.45,
+        amountReceived,
         currencyCode: 'PLN',
-        providerData: { providerStatus: 'correct' },
+        providerData: { providerStatus },
       })
+    })
+
+    it.each([
+      { reason: 'omitted payments', providerStatus: 'paid', amounts: { payments: undefined }, amountReceived: 0 },
+      { reason: 'omitted amountPaid', providerStatus: 'correct', amounts: { payments: {} }, amountReceived: 0 },
+      {
+        reason: 'omitted amount',
+        providerStatus: 'paid',
+        amounts: { amount: undefined, payments: { amountPaid: 123.45 } },
+        amountReceived: 123.45,
+      },
+      {
+        reason: 'zero amount',
+        providerStatus: 'correct',
+        amounts: { amount: 0, payments: { amountPaid: 123.45 } },
+        amountReceived: 123.45,
+      },
+      {
+        reason: 'paid amount that rounds to zero grosz',
+        providerStatus: 'correct',
+        amounts: { payments: { amountPaid: '0.001' } },
+        amountReceived: 0.001,
+      },
+    ])('keeps a settled transaction with $reason pending', async ({ providerStatus, amounts, amountReceived }) => {
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ access_token: TOKEN }))
+        .mockResolvedValueOnce(
+          jsonResponse({
+            transactionId: 'ta_pending',
+            status: providerStatus,
+            amount: 123.45,
+            currency: 'PLN',
+            ...amounts,
+          }),
+        )
+      const result = await tpayAdapterV1.getStatus({
+        sessionId: 'ta_pending',
+        credentials: { clientId: 'client-id', clientSecret: CLIENT_SECRET, environment: 'sandbox' },
+      })
+      expect(result).toMatchObject({ status: 'pending', amountReceived, providerData: { providerStatus } })
     })
 
     it('keeps an underpaid settled transaction pending', async () => {
