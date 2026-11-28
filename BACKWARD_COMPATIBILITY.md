@@ -450,7 +450,7 @@ Deleting a user who had customised their sidebar failed on the `user_sidebar_pre
 
 ## Passkey MFA Verification Payload (2026-08-14)
 
-Issue #3852 removed the non-cryptographic passkey verification shape from `PasskeyProvider` in the enterprise `security` module. This is a **deliberate breaking change to a STABLE contract surface (category 7, API request shapes)** that ships under the [Emergency Security Exception](#emergency-security-exception) rather than the ordinary deprecation protocol.
+#3852 removed the non-cryptographic `PasskeyProvider` verification shape from enterprise security. This STABLE category 7 break uses the [Emergency Security Exception](#emergency-security-exception).
 
 **Classification.** This public `MfaProviderInterface.verifySchema` union shape was client-validatable and covered by an enterprise legacy-compatibility test. Its removal is a STABLE break authorized by the security exception.
 
@@ -472,7 +472,7 @@ Issue #3852 removed the non-cryptographic passkey verification shape from `Passk
 |Failure mode|A payload that fails the schema, and an assertion the verifier throws on, return `false` instead of throwing — so they answer the documented `401` and count toward the challenge attempt limit instead of logging a `500` that skipped lockout|✓ Strictly safer (no verdict flips from negative to positive)|
 |API route URLs, HTTP methods, response schemas, database schema, event IDs, ACL features, DI names, CLI commands|No change|✓ n/a|
 
-**Why the deprecation protocol does not apply.** The protocol exists to give downstream authors a bridge release. Here the request shape being removed *is* the vulnerability: both values it compared are disclosed by the server, so a bridge would keep the passkey second factor bypassable for a minor version in both login MFA and sudo step-up. A security fix that leaves the hole open is not a fix.
+**Why the deprecation protocol does not apply.** The server discloses both fields compared by the removed request shape. A bridge would keep login MFA and sudo step-up bypassable for another minor release.
 
 **Migration path.** Send `startAuthentication()` output as `payload.response`. The first-party `PasskeyChallengeVerify` component already does, so shipped UIs are unaffected. Credentials enrolled through the setup path's client-supplied `publicKey` shortcut are **not** reliably rendered unusable by this change — depending on what the client supplied, such a row holds either a key nobody can sign with or a keypair the enroller controls, and the second kind produces assertions this change accepts. That shortcut is a separate open surface (#5296); operator-facing remediation is in [`UPGRADE_NOTES.md`](UPGRADE_NOTES.md).
 
@@ -720,6 +720,12 @@ STABLE API limits sorts, deleted rows, labels and global reads. 2026-11-24: rela
 ## 2026-11-19 — Entity translation authorization (#9139)
 
 STABLE translation API and localization require target permissions and registered text fields. A bridge retains the leak. [Migration](UPGRADE_NOTES.md#entity-translation-authorization-and-field-registration-9139). [Piotr Karwatka (@pkarw) waived steps 1–3 on 2026-11-20](https://github.com/open-mercato/open-mercato/pull/9970#issuecomment-7042760775).
+
+## MFA audit (2026-11-15, #9144)
+
+STABLE `security.mfa.method.remove`: bridging retains seed disclosure and factor restoration.
+Steps 1–3 waiver awaits named human approval. Clients re-enroll; operators purge
+history and rotate factors: [migration](UPGRADE_NOTES.md#mfa-removal-audit-history-9144).
 
 ## SSO authority (2026-11-15, #9014)
 
