@@ -13,6 +13,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { buildJsonExportDisposition } from '../../../../lib/export-filename'
 import { ExportService, ExportServiceError, isExportServiceError } from '../../../../services/export-service'
 import {
   FormsAccessAuditLogger,
@@ -72,7 +73,7 @@ export async function GET(
       status: 200,
       headers: {
         'content-type': 'application/json; charset=utf-8',
-        'content-disposition': `attachment; filename="${filename}"`,
+        'content-disposition': buildJsonExportDisposition(filename),
       },
     })
   } catch (error) {

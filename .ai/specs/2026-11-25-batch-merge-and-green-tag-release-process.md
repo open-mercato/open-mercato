@@ -159,7 +159,7 @@ flowchart LR
 
 | Step | Who | What it does | Status |
 |---|---|---|---|
-| 1. Triage | Skill (part of `om-auto-review-pr`, or a small `om-ci-triage`) | Reads the diff and PR text, adds `ci-targeted` or `ci-full` and any `ci-area:*` labels only when needed, and posts one line why, with a `CI-Triage-Head: <sha>` marker. It never posts a status itself; the `ci-triage` check run comes from a workflow ([Phase 3](#phase-3-ci-triage-skill-in-shadow-mode)). It already infers `risk-*` labels today | new |
+| 1. Triage | Skill `om-triage-pr` (open-mercato/skills#211); `om-review-pr` raises routing labels triage missed | Reads the diff and PR text and sets the routing labels: category and priority only when missing; risk, the QA lane, `ci-targeted` or `ci-full` and any `ci-area:*` labels only when needed, raise-only. Posts one comment why, with a `CI-Triage-Head: <sha>` marker. It never posts a status itself; the `ci-triage` check run comes from a workflow ([Phase 3](#phase-3-ci-triage-skill-in-shadow-mode)) | new |
 | 2. Adjust | Human: reviewer or author | Adds a higher level or another area. Removing a label a human set needs a human | new |
 | 3. Re-triage | Skill, on every push | Looks at the new diff; may raise the level or add areas, never lower | new |
 | Floor | CI | Shared-package diff (`FULL_SUITE_PATTERN`) means at least `ci-full`; `risk-high`, `security`, `backport …` mean at least `ci-targeted`; a PR not yet triaged (no `ci-triage`) cannot merge | `FULL_SUITE_PATTERN`, `ci-full` exist; rest new |
@@ -247,7 +247,7 @@ CI sees from the changed paths that no code changed and picks a docs lane itself
 
 ### QA lanes
 
-Rules from QA, source of truth `.ai/docs/pr-workflow.md` → "QA meta labels and the merge gate" (draft PR #10712), implemented in skills by open-mercato/skills#210. QA triage (`om-auto-review-pr`, rules in `.ai/agentic.config.json` → `humanQaPolicy`) puts every PR in one lane, judging the change, not the author. Fix forward works for bugs, not for a change that is wrong in itself, so only that waits for a tester.
+Rules from QA, source of truth `.ai/docs/pr-workflow.md` → "QA meta labels and the merge gate" (draft PR #10712), implemented in skills by open-mercato/skills#210 and #211. QA triage (`om-auto-review-pr` today, `om-triage-pr` from skills #211 with the same rules; rules in `.ai/agentic.config.json` → `humanQaPolicy`) puts every PR in one lane, judging the change, not the author. Fix forward works for bugs, not for a change that is wrong in itself, so only that waits for a tester.
 
 | Lane | When | Effect |
 |---|---|---|
@@ -313,7 +313,7 @@ Rules from QA, source of truth `.ai/docs/pr-workflow.md` → "Daily batch QA" (d
 2. **Deploy and start.** `qa-deploy.yml` deploys the batch branch to a QA slot. `om-qa-batch --start` assigns the tester and adds `qa-in-progress` to the batch PR. While it is on, the batch is not refreshed with newer `main` commits; an untouched batch may be refreshed.
 3. **What blocks the batch:** a user cannot finish a main task. A main screen does not load or a main path returns a server error; signing in, saving or creating a basic record fails; data is lost, saved wrong or shown to another organization or tenant; a migration fails or the app does not start. Cosmetics, translations and small UX issues never block.
 4. **Reporting.** Blocker: issue with `bug` + `daily-qa` + `qa-blocker`, plus a comment on the batch PR mentioning the stabilizer; open `qa-blocker` issues are listed at the start of the next batch. After a passing retest of the fix, QA (or the stabilizer) closes the `qa-blocker` issue by hand; `Fixes #N` on the batch PR is traceability only, since it closes nothing until the batch merges. Anything else: issue with `bug` + `daily-qa`.
-5. **Verdict.** On the batch PR: `qa-approved` = stable for the tested head; `qa-failed` = unstable (at least one open blocker), frozen until the retest. The verdict comment carries `QA verdict: STABLE|UNSTABLE`, `QA head: <sha>` and the range. A new head needs a new verdict; retests cover only the fixed area. `om-qa-batch` refuses `stable` while a blocker is open, and a bot identity cannot give a verdict. QA judges quality; the stabilizer owns the branch, tags `green/<date>` and merges back.
+5. **Verdict.** On the batch PR: `qa-approved` = stable for the tested head; `qa-failed` = unstable (at least one open blocker), frozen until the retest. The verdict comment carries `QA verdict: STABLE|UNSTABLE`, `QA head: <sha>` and the range. A new head needs a new verdict, except the merge-back conflict resolution after the green tag ([Merge-back conflicts](#merge-back-conflicts)); retests cover only the fixed area. `om-qa-batch` refuses `stable` while a blocker is open, and a bot identity cannot give a verdict. It trusts verdicts and checklists only from `qaBatch.testers` plus the current user; with an empty list one tester's write action treats another's verdict as untrusted and withdraws a valid `qa-approved`, so teams with more than one tester set `qaBatch.testers`. QA judges quality; the stabilizer owns the branch, tags `green/<date>` and merges back.
 6. **Daily report.** The same verdict, with blockers when unstable, as a short message on the team's QA channel. Replaces the weekly QA pass.
 
 **A day with no tester:** no new batch is cut while one is open. The open batch grows with `main` until a tester claims it with `qa-in-progress`; open blockers stay listed. It delays the green tag, not the merges.
@@ -362,7 +362,8 @@ gitGraph
 
 - **Tag first**, before touching the conflict. Releases and bisects use the tag, so they never see the conflict fix.
 - **The stabilizer merges `main` into the batch** (GitHub's "Update branch") and resolves it, with the author of the conflicting PR if needed.
-- **CI re-runs the full suite on the batch PR.** The batch PR's head is a `stabilize/` branch, so `FORCE_FULL_SUITE` applies to every push to it, including the conflict resolution. This is deliberate: one more 45–70 minute run on the day's batch, at most a few times a week. QA is not repeated unless the resolution touches an area QA checked; the green tag stays on the commit QA approved.
+- **CI re-runs the full suite on the batch PR.** The batch PR's head is a `stabilize/` branch, so `FORCE_FULL_SUITE` applies to every push to it, including the conflict resolution. This is deliberate: one more 45–70 minute run on the day's batch, at most a few times a week.
+- **The verdict stays on the tagged commit.** The stable verdict covers its `QA head:`, which the green tag pins; the batch is not re-tested before the merge back. The merge back is pinned to the resolved head once the full suite is green on it. `om-qa-batch` reports `qa-approved` on the moved head as stale, so the stabilizer merges without it. The `main` PRs the conflict fix merged into the batch are not covered by this verdict: the next batch's range starts at the previous green tag, so they are tested in the next batch.
 - **If it would take long**, cherry-pick only the stabilization commits into a PR to `main` and close the batch PR. The tag is unaffected.
 - **Fewer conflicts by design:** one open batch at a time, merged back the day it goes green, small stabilization PRs.
 
@@ -388,6 +389,7 @@ flowchart LR
 - **Default wait for the green batch**, so the line gets the corrected version if the fix needed a follow-up. Urgent fixes skip the wait (owner's call) or use path B.
 - **Follow-ups** to the fix get the same backport label; if the team drops the fix, close the backport PR.
 - **Patch releases batch fixes:** several backports can land before one QA pass and one `release.yml` run.
+- **QA labels on backports.** `backport.yml` copies `needs-qa` / `skip-qa` but not `needs-human-qa` or `qa-approved`: the original PR passed the human-QA gate on `main`, and the release QA pass on the line covers every backport. The release waits for that pass to be green. A backport whose cherry-pick conflict was resolved by hand is no longer the code the tester saw, so the reviewer adds `needs-human-qa` by hand and the `qa-approved` merge gate applies.
 
 **B. Urgent hotfix (security, outage): release line first, then `main`**
 
@@ -647,11 +649,11 @@ Phases 0–6 plus optional follow-ups. The order is deliberate:
 **Owner.** Skills repo (with repo-local overrides in `.ai/skills/` where the rules are repo-specific); maintainers for the workflow in step 3.
 **Size.** 1–2 weeks build, 1–2 weeks shadow.
 
-**Entry criteria.** Phase 2 merged (labels exist and drive CI). Skills #210 merged.
+**Entry criteria.** Phase 2 merged (labels exist and drive CI). Skills #210 and #211 merged.
 
 **Steps.**
-1. **CI triage rules.** Add the CI level rules (when to set `ci-targeted` / `ci-full`, area mapping from `.github/ci-scope.json`) to `.ai/agentic.config.json` next to `humanQaPolicy`, so one triage pass sets both QA lane and CI level. Touches: `.ai/agentic.config.json`.
-2. **Triage skill.** Either extend `om-auto-review-pr` with a triage step, or add `om-ci-triage` (see [Decisions](#decisions)). It runs on PR open, ready-for-review and each push; it can only raise the level; it posts one comment with its reasoning and a `CI-Triage-Head: <sha>` marker. It never posts a commit status. Touches: skills repo; `.ai/skills/tiers.json` if new.
+1. **CI triage rules.** The CI level rules (levels, area mapping, level-implying labels, docs-only paths) stay in `.github/ci-scope.json`, the file CI reads. `.ai/agentic.config.json` gets a `prTriage` key next to `humanQaPolicy`: `ciScopeFile: ".github/ci-scope.json"` (always read from the PR's base branch), `areaLabelPrefix: "ci-area:"`, and `acceptanceLabel` (Phase 5). One triage pass then sets both QA lane and CI level from one source. Touches: `.ai/agentic.config.json`.
+2. **Triage skill.** `om-triage-pr` (open-mercato/skills#211; see [Decisions](#decisions)) sets the routing labels: category and priority only when missing; risk, the QA lane, the CI level and areas raise-only. `om-review-pr` (same PR) makes the merge decision and raises routing labels triage missed. Triage runs on PR open, ready-for-review and each push; it posts one comment with its reasoning and a `CI-Triage-Head: <sha>` marker. It never posts a commit status. Touches: skills repo; `.ai/skills/tiers.json`.
 3. **`ci-triage` check run from a named workflow.** New `.github/workflows/ci-triage.yml` on `pull_request_target` (`opened`, `synchronize`, `reopened`, `ready_for_review`, `labeled`, `unlabeled`) and `issue_comment`, base-branch code only, no PR checkout. Its job `ci-triage` produces a GitHub Actions check run: success when a triage marker for the head SHA exists from an allowed identity. No skill, token or person posts a `ci-triage` status: a plain commit status can be set by anyone with `statuses: write`, so the ruleset must require the check from the GitHub Actions app (Phase 4 step 3). A PR that adds another workflow with a job named `ci-triage` is a `.github/workflows/` change that needs a maintainer review once code-owner review is enforced (Phase 2 step 2). Touches: new workflow.
 4. **QA checklist.** Done by `om-qa-batch` (skills #210). Only confirm it reads the batch range from the previous `green/*` tag once tags exist.
 5. **Shadow run.** For 1–2 weeks, compare triage calls with what each batch actually broke. Track "missed" (batch failure caused by a PR triage left at fast gate) and "over" (PRs raised without need).
@@ -808,12 +810,13 @@ None. No HTTP API changes. The contract surfaces are CI check names, labels and 
 - **QA lanes (from QA, 2026-11-26):** only `needs-human-qa` without `qa-approved` blocks a merge; `needs-qa` is automatic QA and does not block; `qa-batch-check`, `daily-qa`, `qa-blocker`; the batch PR uses existing labels; retire `weekly-qa` and `ready-for-qa`.
 - **Draft PRs get no CI (2026-11-26).** `ci.yml` and `mutation-tests.yml` skip their work on drafts and re-run on `ready_for_review`. `audit-scope` reads the draft state live; on a draft the required `test` check fails instead of skipping, so skipped draft results can never leave every required check green after the PR is marked ready. No ruleset change. The enterprise guard keeps running on drafts.
 - **PRs #10434 and #10457** are closed as superseded by this spec.
+- **Triage skills (2026-11-27, open-mercato/skills#211):** a separate `om-triage-pr` sets the routing labels (category and priority only when missing; risk, QA lane, CI level and areas raise-only, without asking on later pushes) and `om-review-pr` makes the merge decision. CI rules stay in `.github/ci-scope.json`; the skills find it through `prTriage.ciScopeFile` in `.ai/agentic.config.json`.
+- **Merge-back conflict and the verdict (2026-11-27, open-mercato/skills#210):** the stable verdict stays on the green-tagged commit; the batch is not re-tested after a conflict fix, and the `main` PRs it brings in are tested in the next batch, whose range starts at the previous green tag.
 
 ### Open
 
 Blocks Phases 2–4:
 - Area grouping for `ci-area:*` (sketch in [CI labels and the scope file](#ci-labels-and-the-scope-file)), and whether to improve automatic module detection later.
-- Triage: extend `om-auto-review-pr` or add `om-ci-triage`; may it raise the level on later pushes without asking.
 - Triage miss threshold for leaving shadow mode.
 - Labels that imply `ci-targeted` (proposed: `risk-high`, `security`, `backport …`).
 
@@ -822,7 +825,7 @@ QA, reconstructed from skills #210 and PR #10712; QA (Alina) still has to confir
 2. `qa-in-progress` + assignee as the "testing, do not refresh" signal on the batch PR.
 3. Merge order: skills #210 before PR #10712 (the current loader rejects `whenUnsure: "batch"`).
 4. Cut-over: re-triage of about 219 open `needs-qa` PRs and cleanup of 111 old-rule `needs-human-qa` PRs before the gate moves, with merges paused.
-5. Release-line QA: backports copy only `needs-qa`/`skip-qa` and rely on the release QA pass.
+5. Release-line QA: backports copy only `needs-qa`/`skip-qa` and rely on the release QA pass, which must be green before the release; a hand-resolved cherry-pick conflict gets `needs-human-qa` from the reviewer ([Backporting](#backporting)).
 
 Other:
 - **Merge back: squash or merge commit.** The `main` ruleset allows squash only. Proposed: keep squash; `green/<date>` tags keep tested commits reachable and release cuts use the tag. Alternative: admin enables merge commits on `main` for batch PRs only by convention.
@@ -866,6 +869,7 @@ Other:
 
 ## Changelog
 
+- 2026-11-27: Aligned with open-mercato/skills#210 and #211: triage is `om-triage-pr` plus `om-review-pr` (open question closed); CI rules stay in `.github/ci-scope.json`, referenced by `prTriage.ciScopeFile`; `qaBatch.testers` documented; the merge-back conflict rule now says the verdict stays on the green-tagged commit and the PRs the fix brings in are tested in the next batch (fixes the contradiction with "a new head needs a new verdict"); backports do not copy `needs-human-qa`, a release waits for the green release QA pass, a hand-resolved backport conflict gets `needs-human-qa`.
 - 2026-11-26: Phase 6 review fixes: a green-tag cut rerun accepts only a direct child changing `CHANGELOG.md` alone (added/modified, never renamed/deleted) with the expected contents, including when no entries need carrying; regression tests reject code-changing children and mismatched notes, and cover version mismatch before writes.
 
 - 2026-11-26: Phase 6 steps 1–4 and 6 implemented: `release-cut.yml` takes an optional `green_tag` input (empty still cuts at `main`'s tip — no default to the newest tag until green tags exist), `release-line.mts cut --at <green tag>` validates the tag (name, existence, version, in the history of a merged `stabilize/` PR — its head, or an earlier commit when `main` was merged into the batch after tagging — via `GET /commits/{sha}/pulls` and `GET /compare`) and creates the line there, `splitUnreleased` hands the line only the `# Unreleased` entries for PRs the tag contains (carried as a `docs(changelog)` commit on top of the tag; entries naming no PR stay on `main` and are logged), plus tests and the `CONTRIBUTING.md` release-cut docs. Step 5 (release QA checklist) is left to QA.
