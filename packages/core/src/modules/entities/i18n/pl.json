@@ -110,6 +110,7 @@
   "entities.customFields.editor.ruleNumberPlaceholder": "Liczba",
   "entities.customFields.editor.rulePatternPlaceholder": "Wzorzec (np. ^[a-z]+$)",
   "entities.customFields.editor.ruleRequiredMessage": "To pole jest wymagane",
+  "entities.customFields.editor.ruleValuePlaceholder": "Wartość",
   "entities.customFields.editor.saveGroup": "Zapisz grupę",
   "entities.customFields.editor.savingOrder": "Zapisywanie kolejności…",
   "entities.customFields.editor.singleFieldsetPerEntity": "Jeden zestaw pól na encję",

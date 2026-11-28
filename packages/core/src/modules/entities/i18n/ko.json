@@ -110,6 +110,7 @@
   "entities.customFields.editor.ruleNumberPlaceholder": "숫자",
   "entities.customFields.editor.rulePatternPlaceholder": "패턴(예: ^[a-z]+$)",
   "entities.customFields.editor.ruleRequiredMessage": "이 필드는 필수입니다",
+  "entities.customFields.editor.ruleValuePlaceholder": "값",
   "entities.customFields.editor.saveGroup": "그룹 저장",
   "entities.customFields.editor.savingOrder": "주문 저장 중…",
   "entities.customFields.editor.singleFieldsetPerEntity": "엔터티당 단일 필드 세트",
