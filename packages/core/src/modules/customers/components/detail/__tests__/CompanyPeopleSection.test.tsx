@@ -3,13 +3,19 @@
  */
 import * as React from 'react'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { format } from 'date-fns/format'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
+import * as calendarTimezone from '../../../lib/calendar/timezone'
 import { CompanyPeopleSection, type CompanyPersonSummary } from '../CompanyPeopleSection'
+import { EndEmploymentDialog } from '../EndEmploymentDialog'
 
 const pushMock = jest.fn()
 const flashMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const readApiResultOrThrowMock = jest.fn()
+const mockScopedHeaders = jest.fn()
+let mockGrantedFeatures: string[] = []
+let mockCalendarTimezone: string | undefined
 
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
@@ -22,6 +28,29 @@ jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
   readApiResultOrThrow: (...args: unknown[]) => readApiResultOrThrowMock(...args),
+  withScopedApiRequestHeaders: (headers: Record<string, string>, operation: () => Promise<unknown>) => {
+    mockScopedHeaders(headers)
+    return operation()
+  },
+}))
+
+jest.mock('@open-mercato/ui/backend/BackendChromeProvider', () => ({
+  ...jest.requireActual('@open-mercato/ui/backend/BackendChromeProvider'),
+  useBackendChrome: () => ({ payload: { grantedFeatures: mockGrantedFeatures } }),
+}))
+
+jest.mock('../../../lib/calendar/timezone', () => {
+  const actual = jest.requireActual<typeof calendarTimezone>('../../../lib/calendar/timezone')
+  return {
+    ...actual,
+    defaultCalendarTimezone: () => mockCalendarTimezone ?? actual.defaultCalendarTimezone(),
+  }
+})
+
+jest.mock('@open-mercato/ui/primitives/date-picker', () => ({
+  DatePicker: ({ 'aria-label': label, onChange, maxDate }: { 'aria-label': string; onChange: (date: Date) => void; maxDate?: Date }) => (
+    <button type="button" data-max-date={maxDate && format(maxDate, 'yyyy-MM-dd')} onClick={() => onChange(new Date(2024, 1, 29))}>{label}</button>
+  ),
 }))
 
 jest.mock('../RolesSection', () => ({
@@ -76,6 +105,7 @@ describe('CompanyPeopleSection', () => {
     const searchItems = options?.searchItems ?? []
     readApiResultOrThrowMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/customers/companies/company-123/people')) {
+        if (url.includes('employmentStatus=ended')) return { items: [], page: 1, total: 0, totalPages: 1 }
         return {
           items: linkedPeople,
           page: 1,
@@ -95,6 +125,8 @@ describe('CompanyPeopleSection', () => {
     flashMock.mockReset()
     apiCallOrThrowMock.mockReset()
     readApiResultOrThrowMock.mockReset()
+    mockScopedHeaders.mockReset()
+    mockGrantedFeatures = []
     mockCompanyPeopleApi()
   })
 
@@ -129,7 +161,7 @@ describe('CompanyPeopleSection', () => {
   function peopleUrls() {
     return readApiResultOrThrowMock.mock.calls
       .map(([url]) => String(url))
-      .filter((url) => url.startsWith('/api/customers/companies/company-123/people'))
+      .filter((url) => url.startsWith('/api/customers/companies/company-123/people') && !url.includes('employmentStatus=ended'))
   }
 
   describe('column collapse with the container width', () => {
@@ -273,14 +305,12 @@ describe('CompanyPeopleSection', () => {
 
     const linkedHeader = await screen.findByRole('button', { name: 'Linked' })
     expect(linkedHeader.closest('th')).toHaveAttribute('aria-sort', 'none')
-    expect(readApiResultOrThrowMock.mock.calls.map(([url]) => String(url)).join()).not.toContain('sort=recent')
+    expect(peopleUrls().join()).not.toContain('sort=recent')
 
     fireEvent.click(linkedHeader)
 
     await waitFor(() => {
-      const peopleUrls = readApiResultOrThrowMock.mock.calls.map(([url]) => String(url))
-      expect(peopleUrls.at(-1)).toContain('/api/customers/companies/company-123/people')
-      expect(peopleUrls.at(-1)).toContain('sort=recent')
+      expect(peopleUrls().at(-1)).toContain('sort=recent')
     })
     const sortedHeader = await screen.findByRole('button', { name: 'Linked' })
     await waitFor(() => expect(sortedHeader.closest('th')).toHaveAttribute('aria-sort', 'descending'))
@@ -854,11 +884,179 @@ describe('CompanyPeopleSection', () => {
     expect(screen.queryByRole('button', { name: /search and sort/i })).not.toBeInTheDocument()
   })
 
+  it('ends the selected version and refreshes current people and employment history', async () => {
+    mockGrantedFeatures = ['customers.people.manage', 'customers.people.view']
+    const person = { id: 'person-1', displayName: 'Ada Lovelace', updatedAt: '2025-02-20T12:34:56.000Z' }
+    const onDataRefresh = jest.fn()
+    let ended = false
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      const items = url.includes('employmentStatus=ended')
+        ? ended ? [{ ...person, employmentEndedOn: '2024-02-29' }] : []
+        : ended ? [] : [person]
+      return { items, page: 1, total: items.length, totalPages: 1 }
+    })
+    apiCallOrThrowMock.mockImplementation(async () => {
+      ended = true
+      return { ok: true }
+    })
+
+    function FilteredCompanyPeople() {
+      const [activePeopleCount, setActivePeopleCount] = React.useState(1)
+      return <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={[person]}
+        activePeopleCount={activePeopleCount}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+        onDataRefresh={() => { onDataRefresh(); setActivePeopleCount(0) }}
+      />
+    }
+    renderWithProviders(<FilteredCompanyPeople />)
+    await screen.findByRole('link', { name: person.displayName })
+    fireEvent.change(screen.getByPlaceholderText('Search by name, role, email...'), { target: { value: 'Ada' } })
+    await waitFor(() => expect(peopleUrls().at(-1)).toContain('search=Ada'), { timeout: 3000 })
+    await openRowActions(person.displayName)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'End employment' }))
+    const dialog = within(screen.getByTestId('dialog-content'))
+    expect(dialog.getByText(/last day Ada Lovelace worked/)).toBeInTheDocument()
+    fireEvent.click(dialog.getByRole('button', { name: 'Departure date' }))
+    fireEvent.click(dialog.getByRole('button', { name: 'End employment' }))
+
+    const history = within(await screen.findByRole('region', { name: 'Former employees' }))
+    expect(history.getByRole('link', { name: person.displayName })).toHaveAttribute('href', '/backend/customers/people-v2/person-1')
+    expect(history.getByText('Feb 29, 2024')).toHaveAttribute('datetime', '2024-02-29')
+    expect(screen.getAllByRole('link', { name: person.displayName })).toHaveLength(1)
+    expect(screen.getByText('No linked people yet.')).toBeInTheDocument()
+    expect(screen.queryByTestId('dialog-content')).not.toBeInTheDocument()
+    expect(mockScopedHeaders).toHaveBeenCalledWith({ 'x-om-ext-optimistic-lock-expected-updated-at': person.updatedAt })
+    expect(apiCallOrThrowMock).toHaveBeenCalledWith(
+      '/api/customers/people/person-1/companies/company-123/end',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ endedOn: '2024-02-29', timezone: calendarTimezone.defaultCalendarTimezone() }),
+      }),
+      expect.anything(),
+    )
+    expect(onDataRefresh).toHaveBeenCalled()
+  })
+
+  describe('employment date picker calendar day', () => {
+    afterEach(() => {
+      mockCalendarTimezone = undefined
+      jest.useRealTimers()
+    })
+
+    it.each([
+      { now: '2026-11-24T23:30:00Z', timezone: 'Europe/Warsaw', expected: '2026-11-25' },
+      { now: '2026-11-25T00:30:00Z', timezone: 'America/New_York', expected: '2026-11-24' },
+    ])('caps departures at $expected in $timezone at $now', ({ now, timezone, expected }) => {
+      jest.useFakeTimers({ now: new Date(now) })
+      mockCalendarTimezone = timezone
+      renderWithProviders(
+        <EndEmploymentDialog
+          companyId="company-123"
+          personId="person-1"
+          personName="Ada Lovelace"
+          updatedAt="2026-11-20T12:34:56.000Z"
+          onClose={jest.fn()}
+          onEnded={jest.fn()}
+        />,
+      )
+
+      expect(screen.getByRole('button', { name: 'Departure date' })).toHaveAttribute('data-max-date', expected)
+    })
+  })
+
+  it.each([
+    { features: ['customers.people.view'], updatedAt: '2025-02-20T12:34:56.000Z' },
+    { features: ['customers.people.manage'], updatedAt: null },
+  ])('requires both manage access and a version for the end action ($features, $updatedAt)', async ({ features, updatedAt }) => {
+    mockGrantedFeatures = features
+    renderSectionWithPeople([{ id: 'person-1', displayName: 'Ada Lovelace', updatedAt }])
+
+    await openRowActions('Ada Lovelace')
+    expect(screen.getByRole('menuitem', { name: 'Open person' })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: 'End employment' })).not.toBeInTheDocument()
+  })
+
+  it('retries the former employee request and omits an empty history', async () => {
+    mockGrantedFeatures = ['customers.people.view']
+    let attempts = 0
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      if (url.includes('employmentStatus=ended') && attempts++ === 0) throw new Error('[internal] history read failed')
+      return { items: [], page: 1, total: 0, totalPages: 1 }
+    })
+    renderWithProviders(
+      <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={[]}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+      />,
+    )
+
+    const history = within(await screen.findByRole('region', { name: 'Former employees' }))
+    expect(history.getByRole('alert')).toHaveTextContent('Failed to load former employees.')
+    fireEvent.click(history.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => {
+      expect(attempts).toBe(2)
+      expect(screen.queryByRole('region', { name: 'Former employees' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('skips employment history for a viewer with only company access', async () => {
+    mockGrantedFeatures = ['customers.companies.view']
+    renderSectionWithPeople([{ id: 'person-1', displayName: 'Ada Lovelace' }])
+
+    await screen.findByRole('link', { name: 'Ada Lovelace' })
+    expect(readApiResultOrThrowMock).not.toHaveBeenCalledWith(expect.stringContaining('employmentStatus=ended'), expect.anything(), expect.anything())
+    expect(screen.queryByRole('region', { name: 'Former employees' })).not.toBeInTheDocument()
+  })
+
+  it('moves the final active person into history after a remote departure', async () => {
+    mockGrantedFeatures = ['customers.people.view']
+    const person = { id: 'person-1', displayName: 'Ada Lovelace' }
+    let ended = false
+    readApiResultOrThrowMock.mockImplementation(async (url: string) => {
+      const items = url.includes('employmentStatus=ended')
+        ? ended ? [{ ...person, employmentEndedOn: '2024-02-29' }] : []
+        : ended ? [] : [person]
+      return { items, page: 1, total: items.length, totalPages: 1 }
+    })
+    renderWithProviders(
+      <CompanyPeopleSection
+        companyId="company-123"
+        initialPeople={[person]}
+        addActionLabel="Add person"
+        emptyLabel="No linked people yet."
+        emptyState={emptyState}
+      />,
+    )
+    expect(await screen.findByRole('link', { name: person.displayName })).toBeInTheDocument()
+    ended = true
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent('om:event', {
+        detail: {
+          id: 'customers.person_company_link.updated',
+          payload: { companyEntityId: 'company-123', personEntityId: person.id },
+        },
+      }))
+    })
+
+    expect(await screen.findByText('No linked people yet.')).toBeInTheDocument()
+    const history = within(await screen.findByRole('region', { name: 'Former employees' }))
+    expect(history.getByRole('link', { name: person.displayName })).toBeInTheDocument()
+  })
+
   // Live refresh for a detach performed in ANOTHER session. A link-backed detach broadcasts
   // `customers.person_company_link.deleted`; a legacy profile-only one has no link row and
   // broadcasts `customers.person.company_assignment.detached` instead (#5114). This tab must
   // reload on both, or it keeps listing someone who is already gone.
   describe.each([
+    ['customers.person_company_link.created'],
+    ['customers.person_company_link.updated'],
     ['customers.person_company_link.deleted'],
     ['customers.person.company_assignment.detached'],
   ])('%s', (eventId) => {

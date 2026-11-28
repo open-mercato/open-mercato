@@ -6,7 +6,7 @@ import type { SortingState } from '@tanstack/react-table'
 import type { LegacyColumnDef as ColumnDef } from '@tanstack/react-table/legacy'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { EmptyState } from '@open-mercato/ui/backend/EmptyState'
-import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
@@ -51,6 +51,7 @@ export type LinkedPersonSummary = {
   temperature?: string | null
   source?: string | null
   linkedAt?: string | null
+  updatedAt?: string | null
 }
 
 export type LinkedPeopleSortMode = 'name-asc' | 'name-desc' | 'recent'
@@ -80,6 +81,8 @@ export type LinkedPeopleSectionProps<
   }) => Promise<LinkedPeoplePage>
   /** Owns messaging and optimistic-lock handling for the unlink write. */
   onUnlink: (personId: string) => Promise<void>
+  additionalRowActions?: (person: LinkedPersonSummary) => RowActionItem[]
+  linkedPeopleTotal?: number
   linkAdapter: LinkEntityAdapter<TDetails, TLinkSettings>
   /** Controlled link-dialog state; falls back to internal state when omitted. */
   linkDialogOpen?: boolean
@@ -240,6 +243,8 @@ export function LinkedPeopleSection<
   fallbackPeople,
   loadPage,
   onUnlink,
+  additionalRowActions,
+  linkedPeopleTotal,
   linkAdapter,
   linkDialogOpen: controlledLinkDialogOpen,
   onLinkDialogOpenChange,
@@ -293,11 +298,12 @@ export function LinkedPeopleSection<
   const [visiblePeople, setVisiblePeople] = React.useState<LinkedPersonSummary[]>([])
   const [listPage, setListPage] = React.useState(1)
   const [listTotalPages, setListTotalPages] = React.useState(1)
-  const [listTotalCount, setListTotalCount] = React.useState(knownPeople.length)
+  const [listTotalCount, setListTotalCount] = React.useState<number | null>(null)
   const [listResultCount, setListResultCount] = React.useState(0)
   const [tableContainer, setTableContainer] = React.useState<HTMLDivElement | null>(null)
   const containerBreakpoint = useContainerBreakpoint(tableContainer)
   const [listLoading, setListLoading] = React.useState(true)
+  const listRequest = React.useRef(0)
   const [starredIds, setStarredIds] = React.useState<Set<string>>(
     () => readVersionedIdSet(`om:starred-people:${scopeId}`, STARRED_PEOPLE_STORAGE_VERSION),
   )
@@ -317,13 +323,12 @@ export function LinkedPeopleSection<
 
   const starredPeople = React.useMemo(() => ({ starredIds, toggleStar }), [starredIds, toggleStar])
 
-  const displayedPeople = React.useMemo(
-    () => (visiblePeople.length > 0 ? visiblePeople : knownPeople),
-    [knownPeople, visiblePeople],
-  )
-  const totalLinkedPeople = listTotalCount > 0 ? listTotalCount : displayedPeople.length
+  const displayedPeople = visiblePeople.length > 0 || listTotalCount === 0 ? visiblePeople : knownPeople
+  const totalLinkedPeople = (searchQuery.trim() ? linkedPeopleTotal : undefined)
+    ?? listTotalCount ?? displayedPeople.length
 
   const loadVisiblePeople = React.useCallback(async () => {
+    const request = ++listRequest.current
     setListLoading(true)
     try {
       const payload = await loadPage({
@@ -332,28 +337,31 @@ export function LinkedPeopleSection<
         sort: sortMode,
         search: searchQuery.trim(),
       })
-      const nextTotalCount = typeof payload.total === 'number' ? payload.total : 0
-      setVisiblePeople(Array.isArray(payload.items) ? payload.items : [])
+      if (request !== listRequest.current) return
+      const nextPeople = Array.isArray(payload.items) ? payload.items : []
+      const nextTotalCount = typeof payload.total === 'number' ? payload.total : nextPeople.length || null
+      setVisiblePeople(nextPeople)
       setListPage(typeof payload.page === 'number' ? payload.page : listPage)
-      setListResultCount(nextTotalCount)
-      setListTotalCount((current) =>
-        searchQuery.trim().length > 0 ? Math.max(current, nextTotalCount) : nextTotalCount,
-      )
+      setListResultCount(nextTotalCount ?? 0)
+      if (searchQuery.trim().length === 0) setListTotalCount(nextTotalCount)
+      else if (nextTotalCount) setListTotalCount((current) => Math.max(current ?? 0, nextTotalCount))
       setListTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : 1)
     } catch {
+      if (request !== listRequest.current) return
       setVisiblePeople([])
       setListResultCount(0)
       if (searchQuery.trim().length === 0) {
-        setListTotalCount(0)
+        setListTotalCount(null)
       }
       setListTotalPages(1)
     } finally {
-      setListLoading(false)
+      if (request === listRequest.current) setListLoading(false)
     }
   }, [listPage, loadPage, searchQuery, sortMode])
 
   React.useEffect(() => {
     void loadVisiblePeople()
+    return () => { listRequest.current += 1 }
   }, [loadVisiblePeople, refreshKey])
 
   React.useEffect(() => {
@@ -607,7 +615,10 @@ export function LinkedPeopleSection<
                   showQueryTime={false}
                   emptyState={emptyLabel}
                   rowActions={(person) => (
-                    <RowActions items={buildPersonRowActionItems(person, translate, handleRemove)} />
+                    <RowActions items={[
+                      ...buildPersonRowActionItems(person, translate, handleRemove),
+                      ...(additionalRowActions?.(person) ?? []),
+                    ]} />
                   )}
                   pagination={
                     listTotalPages > 1

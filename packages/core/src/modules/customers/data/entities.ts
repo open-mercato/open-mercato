@@ -1,4 +1,4 @@
-import { Collection, OptionalProps } from '@mikro-orm/core'
+import { Collection, DateType, OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, ManyToOne, OneToMany, OneToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { ExactDecimalType } from '@open-mercato/shared/lib/db/exactDecimalType'
 import type { DictionaryEntrySortMode } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
@@ -216,7 +216,7 @@ export class CustomerPersonProfile {
     `create unique index "customer_person_company_links_active_unique" on "customer_person_company_links" ("person_entity_id", "company_entity_id") where "deleted_at" is null`,
 })
 export class CustomerPersonCompanyLink {
-  [OptionalProps]?: 'isPrimary' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'isPrimary' | 'employmentStatus' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -229,6 +229,12 @@ export class CustomerPersonCompanyLink {
 
   @Property({ name: 'is_primary', type: 'boolean', default: false })
   isPrimary: boolean = false
+
+  @Property({ name: 'employment_status', type: 'text', default: 'active' })
+  employmentStatus: 'active' | 'ended' = 'active'
+
+  @Property({ name: 'employment_ended_on', type: DateType, nullable: true })
+  employmentEndedOn?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

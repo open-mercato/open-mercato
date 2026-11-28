@@ -71,7 +71,7 @@ import {
 } from './shared'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
-import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, conflict, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   loadCustomFieldSnapshot,
@@ -86,8 +86,10 @@ import {
   summarizePersonCompanies,
   syncLegacyPrimaryCompanyLink,
 } from '../lib/personCompanies'
+import { filterActivePersonCompanyLinks } from '../lib/personCompanyLinkTable'
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
+const EMPLOYMENT_CHANGED = 'customers.errors.person_company_employment_changed'
 
 type PersonAddressSnapshot = {
   id: string
@@ -210,6 +212,14 @@ type PersonSnapshot = {
     companyId: string
     displayName: string
     isPrimary: boolean
+  }>
+  companyEmploymentLinks?: Array<{
+    id: string
+    companyId: string
+    employmentStatus: CustomerPersonCompanyLink['employmentStatus']
+    employmentEndedOn: string
+    createdAt: string
+    updatedAt: string
   }>
   tagIds: string[]
   addresses: PersonAddressSnapshot[]
@@ -458,7 +468,7 @@ async function loadPersonSnapshot(
     scope,
   )
   if (!profile) return null
-  const companyLinks = await loadPersonCompanyLinks(em, entity)
+  const companyLinks = await loadPersonCompanyLinks(em, entity, { includeEnded: true })
   const tagIds = await loadEntityTagIds(em, entity)
   const addresses = await findWithDecryption(
     em,
@@ -545,8 +555,105 @@ async function loadPersonSnapshot(
     })),
   )
   const snapshot = serializePersonSnapshot(entity, profile, tagIds, addresses, comments, deals, activities, todoLinks, interactionSnapshots, custom)
-  snapshot.companies = summarizePersonCompanies(profile, companyLinks)
-  return snapshot
+  return { ...snapshot, ...capturePersonCompanyAssignments(profile, companyLinks) }
+}
+
+function capturePersonCompanyAssignments(
+  profile: CustomerPersonProfile,
+  companyLinks: CustomerPersonCompanyLink[],
+): Pick<PersonSnapshot, 'companies' | 'companyEmploymentLinks'> {
+  const companies = summarizePersonCompanies(profile, filterActivePersonCompanyLinks(companyLinks))
+  const employmentLinks = companyLinks.flatMap((link) => {
+    if (!link.employmentEndedOn) return []
+    return [{
+      id: link.id,
+      companyId: typeof link.company === 'string' ? link.company : link.company.id,
+      employmentStatus: link.employmentStatus,
+      employmentEndedOn: link.employmentEndedOn,
+      createdAt: link.createdAt.toISOString(),
+      updatedAt: link.updatedAt.toISOString(),
+    }]
+  })
+  return { companies, companyEmploymentLinks: employmentLinks.length ? employmentLinks : undefined }
+}
+
+async function restoreEndedPersonCompanyLinks(
+  em: EntityManager,
+  person: CustomerEntity,
+  snapshots: PersonSnapshot['companyEmploymentLinks'],
+): Promise<void> {
+  const ended = snapshots?.filter((link) => link.employmentStatus === 'ended') ?? []
+  if (ended.length === 0) return
+  const scope = { tenantId: person.tenantId, organizationId: person.organizationId }
+  const companies = await findWithDecryption(
+    em,
+    CustomerEntity,
+    { id: { $in: ended.map((link) => link.companyId) }, kind: 'company', deletedAt: null, ...scope },
+    undefined,
+    scope,
+  )
+  const companiesById = new Map(companies.map((company) => [company.id, company]))
+  for (const link of ended) {
+    const company = companiesById.get(link.companyId)
+    if (!company) continue
+    em.persist(em.create(CustomerPersonCompanyLink, {
+      id: link.id,
+      person,
+      company,
+      ...scope,
+      isPrimary: false,
+      employmentStatus: 'ended',
+      employmentEndedOn: link.employmentEndedOn,
+      createdAt: new Date(link.createdAt),
+    }))
+  }
+}
+
+function resolvePersonCompanyUpdate(before: PersonSnapshot, after: PersonSnapshot | null | undefined, input: unknown) {
+  const commandInput = input && typeof input === 'object' && '__redoInput' in input ? input.__redoInput : input
+  const originalInput = commandInput && typeof commandInput === 'object' && 'id' in commandInput ? commandInput : undefined
+  const requestedCompanyId = originalInput && 'companyEntityId' in originalInput ? originalInput.companyEntityId : undefined
+  if (originalInput && requestedCompanyId === undefined) return null
+
+  const beforeId = before.profile.companyEntityId ?? null
+  const savedCompanyId = after?.profile?.companyEntityId
+  if (beforeId === savedCompanyId) return null
+  const afterId = requestedCompanyId === undefined ? savedCompanyId : requestedCompanyId
+  if ((afterId !== null && typeof afterId !== 'string') || afterId === beforeId) return null
+  return { beforeId, afterId }
+}
+
+type PersonCompanyReplay = {
+  previousCompanyId?: string | null
+  reactivation?: NonNullable<PersonSnapshot['companyEmploymentLinks']>[number]
+  undoneAt?: number
+}
+
+async function guardPersonCompanyReplay(
+  em: EntityManager,
+  person: CustomerEntity,
+  companyIds: (string | null | undefined)[],
+  replay?: PersonCompanyReplay,
+): Promise<void> {
+  const affectedIds = companyIds.filter((id): id is string => typeof id === 'string')
+  if (!affectedIds.length) return
+  const scope = { tenantId: person.tenantId, organizationId: person.organizationId }
+  const lockedPerson = await findOneWithDecryption(em, CustomerEntity, {
+    ...scope, id: person.id, kind: 'person', deletedAt: null,
+  }, { lockMode: LockMode.PESSIMISTIC_WRITE }, scope)
+  if (!lockedPerson) throw conflict(EMPLOYMENT_CHANGED)
+
+  const endedLinks = await findWithDecryption(em, CustomerPersonCompanyLink, {
+    ...scope, person, company: { $in: affectedIds }, deletedAt: null, employmentStatus: 'ended',
+  }, { refresh: true }, scope)
+  for (const link of endedLinks) {
+    const priorEnd = replay?.reactivation
+    const undoneAt = replay?.undoneAt
+    if (!priorEnd || link.id !== priorEnd.id || link.employmentEndedOn !== priorEnd.employmentEndedOn
+      || undoneAt === undefined || !(link.updatedAt.getTime() <= undoneAt)) {
+      throw conflict(EMPLOYMENT_CHANGED)
+    }
+  }
 }
 
 async function resolveCompanyReference(
@@ -1027,7 +1134,7 @@ const updatePersonCommand = {
   async execute(
     rawInput: PersonUpdateInput,
     ctx: CommandRuntimeContext,
-    ignoreMissingTags = false,
+    replay?: PersonCompanyReplay,
   ): Promise<{ entityId: string; updatedAt: Date }> {
     const { parsed, custom } = parseWithCustomFields(personUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -1067,7 +1174,10 @@ const updatePersonCommand = {
 
     const createdDictionaryKinds = new Set<string>()
     await withAtomicFlush(em, [
-      () => {
+      async () => {
+        if (replay && parsed.companyEntityId !== undefined) {
+          await guardPersonCompanyReplay(em, record, [replay.previousCompanyId, parsed.companyEntityId], replay)
+        }
         if (parsed.description !== undefined) record.description = normalizeOptionalString(parsed.description)
         if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
         if (parsed.primaryEmail !== undefined) record.primaryEmail = normalizeEmail(parsed.primaryEmail)
@@ -1159,7 +1269,7 @@ const updatePersonCommand = {
           await syncLegacyPrimaryCompanyLink(em, record, profile, parsed.companyEntityId)
         }
       },
-      () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: ignoreMissingTags }),
+      () => syncEntityTags(em, record, parsed.tags, { ignoreMissing: replay !== undefined }),
       () => setCustomFieldsForPerson(ctx, record.id, profile.id, record.organizationId, record.tenantId, custom, em),
     ], { transaction: true })
 
@@ -1213,10 +1323,11 @@ const updatePersonCommand = {
       },
     }
   },
-  undo: async ({ logEntry, ctx }) => {
+  undo: async ({ input, logEntry, ctx }) => {
     const payload = extractUndoPayload<PersonUndoPayload>(logEntry, CUSTOMER_ENTITY_UNDO_DATE_OPTIONS)
     const before = payload?.before
     if (!before) return
+    const companyChange = resolvePersonCompanyUpdate(before, payload.after, input ?? logEntry.commandPayload)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await redactRestoredNextInteractionName(em, before.entity)
     const entity = await findOneWithDecryption(em, CustomerEntity, { id: before.entity.id, tenantId: before.entity.tenantId, organizationId: before.entity.organizationId }, undefined, {
@@ -1267,12 +1378,30 @@ const updatePersonCommand = {
           em.persist(newProfile)
         },
         () => syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, before.profile.companyEntityId),
+        () => restoreEndedPersonCompanyLinks(em, newEntity, before.companyEmploymentLinks),
         () => syncEntityTags(em, newEntity, before.tagIds, { ignoreMissing: true }),
       ], { transaction: true })
     } else {
       await withAtomicFlush(em, [
-        () => lockPersonRow(em, entity),
-        () => {
+        async () => {
+          if (companyChange) {
+            await guardPersonCompanyReplay(em, entity, [companyChange.beforeId, companyChange.afterId])
+            const reactivated = payload.after?.companyEmploymentLinks?.find((link) =>
+              link.employmentStatus === 'active' && link.companyId === companyChange.afterId
+              && before.companyEmploymentLinks?.some((previous) => previous.id === link.id && previous.employmentStatus === 'ended'),
+            )
+            if (reactivated) {
+              const scope = { tenantId: entity.tenantId, organizationId: entity.organizationId }
+              const link = await findOneWithDecryption(em, CustomerPersonCompanyLink, {
+                id: reactivated.id, person: entity, ...scope, deletedAt: null, employmentStatus: 'active',
+              }, { refresh: true }, scope)
+              if (link?.updatedAt.toISOString() !== reactivated.updatedAt) throw conflict(EMPLOYMENT_CHANGED)
+              link.employmentStatus = 'ended'
+              link.isPrimary = false
+            }
+          } else {
+            await lockPersonRow(em, entity)
+          }
           entity.displayName = before.entity.displayName
           entity.description = before.entity.description
           entity.ownerUserId = before.entity.ownerUserId
@@ -1307,7 +1436,7 @@ const updatePersonCommand = {
             profile.timezone = before.profile.timezone
             profile.linkedInUrl = before.profile.linkedInUrl
             profile.twitterUrl = before.profile.twitterUrl
-            await syncLegacyPrimaryCompanyLink(em, entity, profile, before.profile.companyEntityId)
+            if (companyChange) await syncLegacyPrimaryCompanyLink(em, entity, profile, companyChange.beforeId)
           }
         },
         () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
@@ -1342,14 +1471,35 @@ const updatePersonCommand = {
       await setCustomFieldsForPerson(ctx, before.entity.id, before.profile.id, before.entity.organizationId, before.entity.tenantId, resetValues)
     }
   },
-  redo({ input, ctx }): Promise<{ entityId: string }> {
-    return updatePersonCommand.execute(input, ctx, true)
+  redo({ input, ctx, logEntry }): Promise<{ entityId: string }> {
+    const payload = extractUndoPayload<PersonUndoPayload>(logEntry)
+    const before = payload?.before
+    const companyChange = before ? resolvePersonCompanyUpdate(before, payload.after, input) : null
+    const redoInput = before && !companyChange ? { ...input, companyEntityId: undefined } : input
+    const reactivation = companyChange ? before?.companyEmploymentLinks?.find((link) =>
+      link.companyId === companyChange.afterId && link.employmentStatus === 'ended'
+      && payload?.after?.companyEmploymentLinks?.some((later) => later.id === link.id && later.employmentStatus === 'active'),
+    ) : undefined
+    return updatePersonCommand.execute(redoInput, ctx, {
+      previousCompanyId: companyChange?.beforeId,
+      reactivation,
+      undoneAt: logEntry.updatedAt === undefined ? undefined : new Date(logEntry.updatedAt).getTime(),
+    })
   },
 } satisfies CommandHandler<PersonUpdateInput, { entityId: string }>
 
+type PersonDeleteCompanyAssignments = ReturnType<typeof capturePersonCompanyAssignments> & {
+  companyEntityId: string | null
+}
+
 const deletePersonCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
-  { entityId: string; labelAssignments?: LabelAssignmentRestoreSnapshot[]; dependencies?: CustomerDeleteDependenciesSnapshot }
+  {
+    entityId: string
+    labelAssignments?: LabelAssignmentRestoreSnapshot[]
+    dependencies?: CustomerDeleteDependenciesSnapshot
+    companyAssignments?: PersonDeleteCompanyAssignments
+  }
 > =
   {
     id: 'customers.people.delete',
@@ -1385,6 +1535,7 @@ const deletePersonCommand: CommandHandler<
       let record!: CustomerEntity
       const profileHolder: { value: CustomerPersonProfile | null } = { value: null }
       const labelAssignmentsHolder: { value: LabelAssignmentRestoreSnapshot[] } = { value: [] }
+      let companyAssignments: PersonDeleteCompanyAssignments | undefined
       let dependencies: CustomerDeleteDependenciesSnapshot | undefined
 
       await withAtomicFlush(em, [
@@ -1410,10 +1561,17 @@ const deletePersonCommand: CommandHandler<
             throw buildPersonHasDependentsError(translate, { dealLinks })
           }
 
-          const profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: record, tenantId: record.tenantId, organizationId: record.organizationId }, undefined, {
+          const profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: record, tenantId: record.tenantId, organizationId: record.organizationId }, { populate: ['company'], refresh: true }, {
             tenantId: record.tenantId,
             organizationId: record.organizationId,
           })
+          if (profile) {
+            const links = await loadPersonCompanyLinks(em, record, { includeEnded: true, refresh: true })
+            companyAssignments = {
+              ...capturePersonCompanyAssignments(profile, links),
+              companyEntityId: typeof profile.company === 'string' ? profile.company : profile.company?.id ?? null,
+            }
+          }
           profileHolder.value = profile
           labelAssignmentsHolder.value = await removeEntityLabelAssignments(em, record)
           dependencies = await removeCustomerDeleteDependencies(em, record)
@@ -1512,11 +1670,23 @@ const deletePersonCommand: CommandHandler<
       await emitQueryIndexDeleteEvents(ctx, indexDeletes)
       await emitQueryIndexDeleteEvents(ctx, labelAssignmentIndexEntries(record, labelAssignments))
       await emitQueryIndexUpsertEvents(ctx, dealUpserts)
-      return { entityId: record.id, labelAssignments, ...(dependencies && { dependencies }) }
+      return {
+        entityId: record.id,
+        labelAssignments,
+        ...(companyAssignments ? { companyAssignments } : {}),
+        ...(dependencies ? { dependencies } : {}),
+      }
     },
     buildLog: async ({ result, snapshots }) => {
-      const before = snapshots.before as PersonSnapshot | undefined
-      if (!before) return null
+      const prepared = snapshots.before as PersonSnapshot | undefined
+      if (!prepared) return null
+      const companyAssignments = result?.companyAssignments
+      const before = companyAssignments ? {
+        ...prepared,
+        companies: companyAssignments.companies,
+        companyEmploymentLinks: companyAssignments.companyEmploymentLinks,
+        profile: { ...prepared.profile, companyEntityId: companyAssignments.companyEntityId },
+      } : prepared
       const { translate } = await resolveTranslations()
       const snapshotBefore = { ...before }
       delete snapshotBefore.emailConversationShares
@@ -1665,6 +1835,7 @@ const deletePersonCommand: CommandHandler<
 
       await em.flush()
       await em.nativeDelete(CustomerPersonCompanyLink, { person: entity })
+      const datedLinksById = new Map(before.companyEmploymentLinks?.map((link) => [link.id, link]))
       for (const companyLink of before.companies ?? []) {
         const company = await resolveCompanyReference(
           em,
@@ -1673,6 +1844,7 @@ const deletePersonCommand: CommandHandler<
           before.entity.tenantId,
         )
         if (!company) continue
+        const employment = companyLink.linkId ? datedLinksById.get(companyLink.linkId) : undefined
         const restoredLink = em.create(CustomerPersonCompanyLink, {
           id: companyLink.linkId ?? undefined,
           organizationId: before.entity.organizationId,
@@ -1680,13 +1852,19 @@ const deletePersonCommand: CommandHandler<
           person: entity,
           company,
           isPrimary: companyLink.isPrimary,
+          ...(employment ? {
+            employmentEndedOn: employment.employmentEndedOn,
+            createdAt: new Date(employment.createdAt),
+          } : {}),
         })
         em.persist(restoredLink)
         if (companyLink.isPrimary) {
           profile.company = company
         }
       }
+      await em.flush()
       await withAtomicFlush(em, [
+        () => restoreEndedPersonCompanyLinks(em, entity, before.companyEmploymentLinks),
         () => syncEntityTags(em, entity, before.tagIds, { ignoreMissing: true }),
       ])
       const restoredLabelAssignments = await restoreEntityLabelAssignments(em, entity, payload?.labelAssignments)

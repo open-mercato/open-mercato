@@ -4,7 +4,7 @@ import { withDecimalCaps } from '@open-mercato/shared/lib/decimal'
 import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import { calendarEventTypeBehaviorSchema } from '../calendar-event-types'
-import { calendarDayStartInstant, calendarWallTimeToInstant, isCalendarTimezone } from '../lib/calendar/timezone'
+import { calendarDayStartInstant, calendarInstantToWallTime, calendarWallTimeToInstant, isCalendarTimezone } from '../lib/calendar/timezone'
 
 const uuid = () => z.string().uuid()
 
@@ -879,6 +879,26 @@ export const personCompanyLinkUpdateSchema = scopedSchema.extend({
   linkId: uuid(),
   isPrimary: z.boolean(),
 })
+
+const employmentEndFields = {
+  endedOn: z.iso.date().refine((date) => date >= '0001-01-01'),
+  timezone: calendarTimezoneSchema.optional(),
+}
+
+function isPastOrCurrentEmploymentDate({ endedOn, timezone = 'UTC' }: { endedOn: string; timezone?: string }): boolean {
+  return !isCalendarTimezone(timezone) || endedOn <= calendarInstantToWallTime(new Date(), timezone).date
+}
+
+export const personCompanyEmploymentEndSchema = z.object(employmentEndFields)
+  .refine(isPastOrCurrentEmploymentDate, { path: ['endedOn'] })
+
+export const personCompanyEmploymentEndCommandSchema = scopedSchema.extend({
+  ...employmentEndFields,
+  personEntityId: uuid(),
+  companyEntityId: uuid(),
+}).refine(isPastOrCurrentEmploymentDate, { path: ['endedOn'] })
+
+export type PersonCompanyEmploymentEndInput = z.infer<typeof personCompanyEmploymentEndCommandSchema>
 
 // Two shapes are accepted, because a person can belong to a company in two ways:
 // through a `customer_person_company_links` row (`linkId`), or through a legacy

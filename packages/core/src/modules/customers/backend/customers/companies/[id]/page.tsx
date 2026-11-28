@@ -94,6 +94,7 @@ type CompanyOverview = {
   deals: DealSummary[]
   todos: TodoLinkSummary[]
   people: CompanyPersonSummary[]
+  counts?: { people?: number }
   viewer?: {
     userId: string | null
     name?: string | null
@@ -949,6 +950,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                   <CompanyPeopleSection
                     companyId={companyId}
                     initialPeople={data.people ?? []}
+                    activePeopleCount={data.counts?.people}
                     addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
                     emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}
                     emptyState={{
@@ -957,6 +959,7 @@ export default function CustomerCompanyDetailPage({ params }: { params?: { id?: 
                     }}
                     onActionChange={handleSectionActionChange}
                     onLoadingChange={handlePeopleLoadingChange}
+                    onDataRefresh={loadData}
                     translator={detailTranslator}
                     runGuardedMutation={runMutationWithContext}
                     onPeopleChange={(next) => {

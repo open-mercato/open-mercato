@@ -6,11 +6,17 @@ import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/u
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
+import { useLiveRefetch } from '@open-mercato/ui/backend/injection/useLiveRefetch'
+import { useBackendChrome } from '@open-mercato/ui/backend/BackendChromeProvider'
+import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
+import { hasFeature } from '@open-mercato/shared/security/features'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import type { SectionAction, TabEmptyStateConfig, Translator } from './types'
 import { CreatePersonDialog } from './CreatePersonDialog'
 import { coerceDisplayName } from '../../lib/displayName'
 import { DecisionMakersFooter } from './DecisionMakersFooter'
+import { EndEmploymentDialog } from './EndEmploymentDialog'
+import { FormerEmployeesSection } from './FormerEmployeesSection'
 import { RolesSection } from './RolesSection'
 import {
   LinkedPeopleSection,
@@ -28,10 +34,13 @@ type GuardedMutationRunner = <T>(
 
 export type CompanyPersonSummary = LinkedPersonSummary
 
+type EmploymentEndTarget = Pick<CompanyPersonSummary, 'id' | 'displayName'> & { updatedAt: string }
+
 export type CompanyPeopleSectionProps = {
   companyId: string
   companyName?: string
   initialPeople: CompanyPersonSummary[]
+  activePeopleCount?: number
   addActionLabel: string
   emptyLabel: string
   emptyState: TabEmptyStateConfig
@@ -159,6 +168,7 @@ export function CompanyPeopleSection({
   companyId,
   companyName,
   initialPeople,
+  activePeopleCount,
   addActionLabel,
   emptyLabel,
   emptyState,
@@ -175,15 +185,26 @@ export function CompanyPeopleSection({
     [tHook],
   )
   const translate: Translator = translator ?? fallbackTranslator
+  const { payload: chrome } = useBackendChrome()
+  const canEndEmployment = hasFeature(chrome?.grantedFeatures ?? [], 'customers.people.manage')
+  const canViewEmploymentHistory = hasFeature(chrome?.grantedFeatures ?? [], 'customers.people.view')
   const [people, setPeople] = React.useState<CompanyPersonSummary[]>(initialPeople)
   const [createDialogOpen, setCreateDialogOpen] = React.useState(false)
   const [linkDialogOpen, setLinkDialogOpen] = React.useState(false)
   const [refreshKey, setRefreshKey] = React.useState(0)
+  const [historyRefreshKey, setHistoryRefreshKey] = React.useState(0)
+  const [endTarget, setEndTarget] = React.useState<EmploymentEndTarget | null>(null)
   const pendingPeopleChangeRef = React.useRef(false)
 
   const requestRefresh = React.useCallback(() => {
     setRefreshKey((current) => current + 1)
   }, [])
+
+  const refreshPeopleAndHistory = React.useCallback(() => {
+    requestRefresh()
+    setHistoryRefreshKey((current) => current + 1)
+    void onDataRefresh?.()
+  }, [onDataRefresh, requestRefresh])
 
   const runWriteMutation = React.useCallback(
     async <T,>(
@@ -248,18 +269,18 @@ export function CompanyPeopleSection({
     [companyId, translate],
   )
 
-  const reloadOnCompanyDetach = React.useCallback((event: AppEventPayload) => {
+  const isCompanyLinkEvent = React.useCallback((event: AppEventPayload) => {
     const payload = event.payload as { companyEntityId?: string | null } | null | undefined
-    if (payload && payload.companyEntityId === companyId) {
-      requestRefresh()
-    }
-  }, [companyId, requestRefresh])
+    return payload?.companyEntityId === companyId
+  }, [companyId])
 
-  useAppEvent('customers.person_company_link.deleted', reloadOnCompanyDetach, [reloadOnCompanyDetach])
+  useLiveRefetch('customers.person_company_link.*', refreshPeopleAndHistory, { filter: isCompanyLinkEvent })
   // Legacy profile-only assignments have no link row, so their detach broadcasts this sibling
   // event instead of `customers.person_company_link.deleted` (#5114). Without it, other viewers
   // of the same company keep listing a person who is already gone.
-  useAppEvent('customers.person.company_assignment.detached', reloadOnCompanyDetach, [reloadOnCompanyDetach])
+  useAppEvent('customers.person.company_assignment.detached', (event) => {
+    if (isCompanyLinkEvent(event)) refreshPeopleAndHistory()
+  })
 
   const applyPeopleChange = React.useCallback(
     (updater: (current: CompanyPersonSummary[]) => CompanyPersonSummary[]) => {
@@ -324,6 +345,8 @@ export function CompanyPeopleSection({
         if (optimisticPeople.length > 0) {
           applyPeopleChange((current) => mergeCompanyPeople([...current, ...optimisticPeople]))
         }
+        setHistoryRefreshKey((current) => current + 1)
+        void onDataRefresh?.()
         flash(
           addedIds.length === 1
             ? translate(
@@ -338,6 +361,8 @@ export function CompanyPeopleSection({
           'success',
         )
       } catch (err) {
+        requestRefresh()
+        setHistoryRefreshKey((current) => current + 1)
         try {
           await onDataRefresh?.()
         } catch {
@@ -354,7 +379,7 @@ export function CompanyPeopleSection({
         throw err
       }
     },
-    [applyPeopleChange, companyId, onDataRefresh, runWriteMutation, translate],
+    [applyPeopleChange, companyId, onDataRefresh, requestRefresh, runWriteMutation, translate],
   )
 
   const personLinkAdapter = React.useMemo(
@@ -463,6 +488,7 @@ export function CompanyPeopleSection({
           ),
           'success',
         )
+        void onDataRefresh?.()
       } catch (err) {
         const message =
           err instanceof Error
@@ -474,8 +500,25 @@ export function CompanyPeopleSection({
         flash(message, 'error')
       }
     },
-    [companyId, runWriteMutation, translate],
+    [companyId, onDataRefresh, runWriteMutation, translate],
   )
+
+  const additionalRowActions = React.useCallback((person: LinkedPersonSummary): RowActionItem[] => {
+    const { id, displayName, updatedAt } = person
+    if (!canEndEmployment || !updatedAt) return []
+    return [{
+      id: 'end-employment',
+      label: translate('customers.companies.detail.employment.end', 'End employment'),
+      onSelect: () => setEndTarget({ id, displayName, updatedAt }),
+    }]
+  }, [canEndEmployment, translate])
+
+  const handleEmploymentEnded = (personId: string) => {
+    setEndTarget((current) => current?.id === personId ? null : current)
+    setPeople((current) => current.filter((person) => person.id !== personId))
+    refreshPeopleAndHistory()
+    flash(translate('customers.companies.detail.employment.endSuccess', 'Employment ended.'), 'success')
+  }
 
   return (
     <>
@@ -484,6 +527,8 @@ export function CompanyPeopleSection({
         fallbackPeople={people}
         loadPage={loadPage}
         onUnlink={handleRemove}
+        additionalRowActions={additionalRowActions}
+        linkedPeopleTotal={activePeopleCount}
         linkAdapter={personLinkAdapter}
         linkDialogOpen={linkDialogOpen}
         onLinkDialogOpenChange={setLinkDialogOpen}
@@ -528,6 +573,21 @@ export function CompanyPeopleSection({
           />
         )}
       />
+
+      {canViewEmploymentHistory ? (
+        <FormerEmployeesSection key={companyId} companyId={companyId} refreshKey={historyRefreshKey} translate={translate} />
+      ) : null}
+
+      {canEndEmployment && endTarget ? (
+        <EndEmploymentDialog
+          companyId={companyId}
+          personId={endTarget.id}
+          personName={endTarget.displayName}
+          updatedAt={endTarget.updatedAt}
+          onClose={() => setEndTarget(null)}
+          onEnded={() => handleEmploymentEnded(endTarget.id)}
+        />
+      ) : null}
 
       <CreatePersonDialog
         open={createDialogOpen}

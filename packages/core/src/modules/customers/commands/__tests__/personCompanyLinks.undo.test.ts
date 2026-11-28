@@ -22,7 +22,8 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 import '@open-mercato/core/modules/customers/commands'
 import { LockMode } from '@mikro-orm/core'
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { CommandHandler, CommandRuntimeContext, CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
+import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import {
   CustomerEntity,
   CustomerPersonCompanyLink,
@@ -41,7 +42,12 @@ const LINK_A_ID = '66666666-6666-4666-8666-666666666666'
 const LINK_B_ID = '77777777-7777-4777-8777-777777777777'
 const LINK_C_ID = '99999999-9999-4999-8999-999999999999'
 
-type LinkRow = { isPrimary: boolean; deletedAt: Date | null }
+type LinkRow = {
+  isPrimary: boolean
+  deletedAt: Date | null
+  employmentStatus?: 'active' | 'ended'
+  employmentEndedOn?: string | null
+}
 type ProfileRow = { companyId: string | null }
 
 type Fixtures = {
@@ -75,6 +81,8 @@ function makeLink(id: string, person: CustomerEntity, company: CustomerEntity, s
     company,
     isPrimary: state.isPrimary,
     deletedAt: state.deletedAt,
+    employmentStatus: state.employmentStatus ?? 'active',
+    employmentEndedOn: state.employmentEndedOn ?? null,
     createdAt: new Date('2026-06-01T00:00:00Z'),
     updatedAt: new Date('2026-06-01T00:00:00Z'),
   } as unknown as CustomerPersonCompanyLink
@@ -89,8 +97,9 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
 
   const linkRows = new Map<string, LinkRow>()
   const links = linkStates.map((state) => {
-    linkRows.set(state.id, { isPrimary: state.isPrimary, deletedAt: state.deletedAt })
-    return makeLink(state.id, person, companies.get(state.companyId)!, state)
+    const { id, companyId, ...fields } = state
+    linkRows.set(id, fields)
+    return makeLink(id, person, companies.get(companyId)!, fields)
   })
 
   const profileRow: ProfileRow = { companyId: profileCompanyId }
@@ -100,6 +109,7 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
     tenantId: TENANT_ID,
     entity: person,
     company: profileCompanyId ? companies.get(profileCompanyId) ?? null : null,
+    updatedAt: new Date('2026-06-01T00:00:00Z'),
   } as unknown as CustomerPersonProfile
 
   const linkSnapshots = new Map<string, LinkRow>()
@@ -109,6 +119,8 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
     linkSnapshots.set(link.id, {
       isPrimary: Boolean(link.isPrimary),
       deletedAt: link.deletedAt ?? null,
+      employmentStatus: link.employmentStatus,
+      employmentEndedOn: link.employmentEndedOn ?? null,
     })
   }
   const snapshotProfile = () => {
@@ -132,11 +144,16 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
     const [, ctor, rawWhere] = args as [unknown, unknown, Record<string, unknown>]
     if (ctor === CustomerPersonCompanyLink) {
       const found = links.find((link) => {
-        if (rawWhere.id) return link.id === rawWhere.id
+        if (typeof rawWhere.id === 'string' && link.id !== rawWhere.id) return false
+        const idFilter = rawWhere.id as { $in?: string[] } | undefined
+        if (idFilter?.$in && !idFilter.$in.includes(link.id)) return false
         const companyId = typeof link.company === 'string' ? link.company : link.company.id
         const company = rawWhere.company as CustomerEntity | string | undefined
         if (company && companyId !== (typeof company === 'string' ? company : company.id)) return false
-        if (rawWhere.deletedAt && linkRows.get(link.id)?.deletedAt == null) return false
+        const row = linkRows.get(link.id)
+        if (rawWhere.deletedAt === null && row?.deletedAt != null) return false
+        if (rawWhere.deletedAt && row?.deletedAt == null) return false
+        if (rawWhere.employmentStatus && rawWhere.employmentStatus !== (row?.employmentStatus ?? 'active')) return false
         return true
       }) ?? null
       if (found) rebaseline(found)
@@ -158,9 +175,14 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
   })
 
   mockFindWithDecryption.mockImplementation(async (...args: unknown[]) => {
-    const [, ctor] = args as [unknown, unknown]
+    const [, ctor, where] = args as [unknown, unknown, Record<string, unknown>]
     if (ctor !== CustomerPersonCompanyLink) return []
-    const active = links.filter((link) => linkRows.get(link.id)?.deletedAt == null)
+    const active = links.filter((link) => {
+      const row = linkRows.get(link.id)
+      const idFilter = where.id as { $in?: string[] } | undefined
+      return row?.deletedAt == null && (!where.employmentStatus || where.employmentStatus === (row?.employmentStatus ?? 'active'))
+        && (!idFilter?.$in || idFilter.$in.includes(link.id))
+    })
     active.sort((left, right) => Number(linkRows.get(right.id)?.isPrimary) - Number(linkRows.get(left.id)?.isPrimary))
     active.forEach(rebaseline)
     return active
@@ -207,6 +229,7 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
         if ('isPrimary' in where && row.isPrimary !== where.isPrimary) continue
         if ('isPrimary' in data) {
           row.isPrimary = Boolean(data.isPrimary)
+          if (data.updatedAt instanceof Date) link.updatedAt = data.updatedAt
           affected += 1
         }
       }
@@ -217,13 +240,23 @@ function makeFixtures(linkStates: Array<{ id: string; companyId: string } & Link
         const snapshot = linkSnapshots.get(link.id)!
         const row = linkRows.get(link.id)!
         const currentDeletedAt = link.deletedAt ?? null
+        const currentEndedOn = link.employmentEndedOn ?? null
+        if (Boolean(link.isPrimary) !== snapshot.isPrimary || currentDeletedAt !== snapshot.deletedAt
+          || link.employmentStatus !== snapshot.employmentStatus || currentEndedOn !== snapshot.employmentEndedOn) {
+          link.updatedAt = new Date(link.updatedAt.getTime() + 1)
+        }
         if (Boolean(link.isPrimary) !== snapshot.isPrimary) row.isPrimary = Boolean(link.isPrimary)
         if (currentDeletedAt !== snapshot.deletedAt) row.deletedAt = currentDeletedAt
+        if (link.employmentStatus !== snapshot.employmentStatus) row.employmentStatus = link.employmentStatus
+        if (currentEndedOn !== snapshot.employmentEndedOn) row.employmentEndedOn = currentEndedOn
         snapshotLink(link)
       }
       const company = profile.company
       const currentCompanyId = company && typeof company !== 'string' ? company.id : null
-      if (currentCompanyId !== profileSnapshot.companyId) profileRow.companyId = currentCompanyId
+      if (currentCompanyId !== profileSnapshot.companyId) {
+        profileRow.companyId = currentCompanyId
+        profile.updatedAt = new Date(profile.updatedAt.getTime() + 1)
+      }
       snapshotProfile()
     }),
   }
@@ -705,14 +738,12 @@ describe('customers.personCompanyLinks — one primary link per person under con
 
   function onPersonRowLock(fixtures: Fixtures, onLock: () => void): jest.Mock {
     const lockCalls = jest.fn()
-    const baseImplementation = mockFindOneWithDecryption.getMockImplementation()!
-    mockFindOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
-      const [, ctor, , options] = args as [unknown, unknown, unknown, { lockMode?: LockMode } | undefined]
-      if (ctor === CustomerEntity && options?.lockMode === LockMode.PESSIMISTIC_WRITE) {
-        lockCalls(fixtures.em.nativeUpdate.mock.calls.length)
-        onLock()
-      }
-      return baseImplementation(...args)
+    const lockQuery = fixtures.em.getKysely()
+    const execute = lockQuery.executeTakeFirst.getMockImplementation()
+    lockQuery.executeTakeFirst.mockImplementation(async () => {
+      lockCalls(fixtures.em.nativeUpdate.mock.calls.length)
+      onLock()
+      return execute()
     })
     return lockCalls
   }
@@ -769,12 +800,7 @@ describe('customers.personCompanyLinks — one primary link per person under con
       ],
       COMPANY_A_ID,
     )
-    const baseImplementation = mockFindOneWithDecryption.getMockImplementation()!
-    mockFindOneWithDecryption.mockImplementation(async (...args: unknown[]) => {
-      const [, ctor, , options] = args as [unknown, unknown, unknown, { lockMode?: LockMode } | undefined]
-      if (ctor === CustomerEntity && options?.lockMode === LockMode.PESSIMISTIC_WRITE) return null
-      return baseImplementation(...args)
-    })
+    fixtures.em.getKysely().executeTakeFirst.mockResolvedValue(undefined)
     const handler = commandRegistry.get('customers.personCompanyLinks.update') as CommandHandler
 
     await expect(
@@ -1016,5 +1042,159 @@ describe('customers.personCompanyLinks.delete — profile-only assignment (#5114
     } as any)
 
     expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+})
+
+describe('customers.personCompanyLinks.endEmployment', () => {
+  const input = {
+    personEntityId: PERSON_ID,
+    companyEntityId: COMPANY_A_ID,
+    tenantId: TENANT_ID,
+    organizationId: ORG_ID,
+    endedOn: '2024-02-29',
+  }
+  const end = commandRegistry.get('customers.personCompanyLinks.endEmployment') as CommandHandler
+  const create = commandRegistry.get('customers.personCompanyLinks.create') as CommandHandler
+
+  async function endAndLog(fixtures: Fixtures) {
+    const ctx = makeCtx(fixtures.em)
+    const result = await end.execute(input, ctx)
+    const log = await end.buildLog!({ input, ctx, result, snapshots: {} })
+    return { ctx, logEntry: log as unknown as CommandUndoLogEntry }
+  }
+
+  async function createAndLog(ctx: CommandRuntimeContext, createInput: typeof input & { isPrimary?: boolean }) {
+    const result = await create.execute(createInput, ctx)
+    const after = await create.captureAfter!(createInput, result, ctx)
+    const log = await create.buildLog!({ input: createInput, ctx, result, snapshots: { after } })
+    return log as unknown as CommandUndoLogEntry
+  }
+
+  it('keeps the link, promotes an active fallback, and restores both on undo', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+      { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { ctx, logEntry } = await endAndLog(fixtures)
+
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({
+      employmentStatus: 'ended', employmentEndedOn: input.endedOn, isPrimary: false, deletedAt: null,
+    })
+    expect(fixtures.linkRows.get(LINK_B_ID)?.isPrimary).toBe(true)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+
+    await end.undo!({ input, ctx, logEntry })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ employmentStatus: 'active', isPrimary: true, employmentEndedOn: null })
+    expect(fixtures.linkRows.get(LINK_B_ID)?.isPrimary).toBe(false)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+  })
+
+  it('reuses a legacy assignment’s materialized link on redo', async () => {
+    const fixtures = makeFixtures([], COMPANY_A_ID)
+    const { ctx, logEntry } = await endAndLog(fixtures)
+    const linkId = logEntry.resourceId!
+
+    expect(fixtures.linkRows.get(linkId)?.employmentStatus).toBe('ended')
+    expect(fixtures.profileRow.companyId).toBeNull()
+
+    await end.undo!({ input, ctx, logEntry })
+    expect(fixtures.linkRows.get(linkId)?.deletedAt).toBeInstanceOf(Date)
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_A_ID)
+
+    await expect(end.redo!({ input, ctx, logEntry })).resolves.toMatchObject({ linkId })
+    expect(fixtures.linkRows.size).toBe(1)
+    expect(fixtures.linkRows.get(linkId)).toMatchObject({ deletedAt: null, employmentStatus: 'ended' })
+  })
+
+  it('reactivates the same row with its last date and rejects a stale end undo', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { ctx, logEntry } = await endAndLog(fixtures)
+
+    await expect(create.execute(input, ctx)).resolves.toMatchObject({ linkId: LINK_A_ID, created: false })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({
+      employmentStatus: 'active', employmentEndedOn: input.endedOn, isPrimary: true,
+    })
+    await expect(end.undo!({ input, ctx, logEntry })).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('rejects a stale link version without changing history', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const ctx = makeCtx(fixtures.em)
+    ctx.request = new Request('http://localhost', { headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: '2025-01-01T00:00:00Z' } })
+
+    await expect(end.execute(input, ctx)).rejects.toMatchObject({ status: 409, body: { code: 'optimistic_lock_conflict' } })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toEqual({ deletedAt: null, isPrimary: true })
+  })
+
+  it('rejects undo of an older reactivation after a later departure and rejoin', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { ctx } = await endAndLog(fixtures)
+    const logEntry = await createAndLog(ctx, input)
+    const nextDeparture = { ...input, endedOn: '2025-04-01' }
+    await end.execute(nextDeparture, ctx)
+    await create.execute(input, ctx)
+
+    await expect(create.undo!({ input, ctx, logEntry })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ employmentStatus: 'active', employmentEndedOn: nextDeparture.endedOn })
+  })
+
+  it('does not restore a prior primary association that ended after reactivation', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+      { id: LINK_B_ID, companyId: COMPANY_B_ID, isPrimary: false, deletedAt: null, employmentStatus: 'ended', employmentEndedOn: '2024-01-15' },
+    ], COMPANY_A_ID)
+    const ctx = makeCtx(fixtures.em)
+    const reactivate = { ...input, companyEntityId: COMPANY_B_ID, isPrimary: true }
+    const logEntry = await createAndLog(ctx, reactivate)
+    await end.execute(input, ctx)
+
+    await expect(create.undo!({ input: reactivate, ctx, logEntry })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ employmentStatus: 'ended', isPrimary: false })
+    expect(fixtures.profileRow.companyId).toBe(COMPANY_B_ID)
+  })
+
+  it('rejects old redo after the association gained a newer departure date', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { ctx, logEntry } = await endAndLog(fixtures)
+    await end.undo!({ input, ctx, logEntry })
+    const nextDeparture = { ...input, endedOn: '2025-04-01' }
+    await end.execute(nextDeparture, ctx)
+    await create.execute(input, ctx)
+
+    await expect(end.redo!({ input, ctx, logEntry })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ employmentStatus: 'active', employmentEndedOn: nextDeparture.endedOn })
+  })
+
+  it('rejects an old redo even when a later employment cycle used the same date', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null, employmentEndedOn: input.endedOn },
+    ], COMPANY_A_ID)
+    const { ctx, logEntry } = await endAndLog(fixtures)
+    await end.undo!({ input, ctx, logEntry })
+    const undoneLog = { ...logEntry, updatedAt: fixtures.links[0].updatedAt }
+    await end.execute(input, ctx)
+    await create.execute(input, ctx)
+
+    await expect(end.redo!({ input, ctx, logEntry: undoneLog })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ employmentStatus: 'active', employmentEndedOn: input.endedOn })
+  })
+
+  it('preserves the departure when undoing a link from a legacy create log', async () => {
+    const fixtures = makeFixtures([
+      { id: LINK_A_ID, companyId: COMPANY_A_ID, isPrimary: true, deletedAt: null },
+    ], COMPANY_A_ID)
+    const { ctx } = await endAndLog(fixtures)
+    const oldLog = { payload: { undo: { after: makeLinkSnapshot(LINK_A_ID, COMPANY_A_ID, true) } } } as CommandUndoLogEntry
+
+    await expect(create.undo!({ input, ctx, logEntry: oldLog })).rejects.toMatchObject({ status: 409 })
+    expect(fixtures.linkRows.get(LINK_A_ID)).toMatchObject({ deletedAt: null, employmentStatus: 'ended' })
   })
 })

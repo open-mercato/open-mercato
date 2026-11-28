@@ -51,6 +51,7 @@ import {
   type CompanyOverview,
 } from '../../../../components/formConfig'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { reportTelemetryError } from '@open-mercato/shared/lib/telemetry/runtime'
 
 const logger = createLogger('customers')
 
@@ -68,6 +69,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   const [data, setData] = React.useState<CompanyOverview | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [refreshStatus, setRefreshStatus] = React.useState<'idle' | 'failed' | 'retrying'>('idle')
   const [isNotFound, setIsNotFound] = React.useState(false)
 
   // Tab state
@@ -135,50 +137,77 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     ? companyDisplayName
     : t('customers.companies.list.deleteFallbackName', 'this company')
 
-  // Data loading
-  const initialLoadDoneRef = React.useRef(false)
+  const loadRequestRef = React.useRef(0)
+  const loadedCompanyIdRef = React.useRef<string | null>(null)
+  const activeCompanyIdRef = React.useRef(id)
+  activeCompanyIdRef.current = id
   const loadData = React.useCallback(async () => {
+    if (activeCompanyIdRef.current !== id) return
+    const requestId = ++loadRequestRef.current
     if (!id) {
+      loadedCompanyIdRef.current = null
+      setData(null)
+      setRefreshStatus('idle')
       setIsNotFound(true)
       setIsLoading(false)
       return
     }
-    if (!initialLoadDoneRef.current) {
+    const isCurrentRequest = () => requestId === loadRequestRef.current && id === activeCompanyIdRef.current
+    const isInitialLoad = loadedCompanyIdRef.current !== id
+    if (isInitialLoad) {
       setIsLoading(true)
+      setError(null)
+      setRefreshStatus('idle')
+      setIsNotFound(false)
+    } else {
+      setRefreshStatus((current) => current === 'failed' ? 'retrying' : current)
     }
-    setError(null)
-    setIsNotFound(false)
     try {
       const payload = await readApiResultOrThrow<CompanyOverview>(
         `/api/customers/companies/${encodeURIComponent(id)}`,
         undefined,
         { errorMessage: t('customers.companies.detail.error.load', 'Failed to load company.') },
       )
-      setData(payload as CompanyOverview)
+      if (!isCurrentRequest()) return
+      loadedCompanyIdRef.current = id
+      setData(payload)
+      setRefreshStatus('idle')
     } catch (err) {
-      if (isDetailNotFoundStatus((err as { status?: number }).status)) {
+      if (!isCurrentRequest()) return
+      if (isDetailNotFoundStatus((err as { status?: number } | null)?.status)) {
+        loadedCompanyIdRef.current = null
+        setData(null)
+        setRefreshStatus('idle')
         setIsNotFound(true)
-      } else {
+      } else if (isInitialLoad) {
         const message = err instanceof Error ? err.message : t('customers.companies.detail.error.load', 'Failed to load company.')
+        loadedCompanyIdRef.current = null
+        setData(null)
         setError(message)
+      } else {
+        setRefreshStatus('failed')
+        reportTelemetryError(err, {
+          module: 'customers',
+          code: 'customers.company_overview_refresh_failed',
+          attributes: { companyId: id },
+        })
       }
-      if (!initialLoadDoneRef.current) setData(null)
     } finally {
-      setIsLoading(false)
-      initialLoadDoneRef.current = true
+      if (isCurrentRequest()) setIsLoading(false)
     }
   }, [id, t])
 
   React.useEffect(() => {
     loadData().catch((err) => logger.warn('loadData failed', { component: 'companies-v2', err }))
+    return () => { loadRequestRef.current += 1 }
   }, [loadData])
 
   React.useEffect(() => {
     setDealCount(data?.counts?.deals ?? 0)
   }, [data?.counts?.deals])
 
-  const reloadAfterActivityChange = React.useCallback(() => {
-    loadData().catch((err) => logger.warn('reload after activity failed', { component: 'companies-v2', err }))
+  const refreshCompany = React.useCallback(() => {
+    loadData().catch((err) => logger.warn('Company overview refresh failed', { component: 'companies-v2', err }))
   }, [loadData])
 
   // Injection context for UMES
@@ -218,7 +247,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     scope: { entityId: currentCompanyId ?? id ?? '' },
     runMutationWithContext,
     logContext: 'customers.companies-v2',
-    onAfterChange: reloadAfterActivityChange,
+    onAfterChange: refreshCompany,
   })
 
   const isActivityTabActive = activeTab === 'activity-log'
@@ -476,8 +505,19 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             onDelete={handleDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'companies-v2', err })) }}
+            onDataReload={refreshCompany}
           />
+
+          {refreshStatus !== 'idle' ? (
+            <ErrorMessage
+              label={t('customers.companies.detail.error.refresh', 'Could not refresh company details. The displayed information may be out of date.')}
+              action={(
+                <Button type="button" variant="outline" size="sm" onClick={refreshCompany} disabled={refreshStatus === 'retrying'}>
+                  {t('customers.companies.detail.error.retry', 'Retry')}
+                </Button>
+              )}
+            />
+          ) : null}
 
           {/* KPI bar — always visible above zones */}
           <CompanyKpiBar data={data} canViewDeals={typeof data.kpis?.activeDealsCount === 'number'} />
@@ -530,6 +570,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                     companyId={companyId}
                     companyName={companyDisplayName}
                     initialPeople={[]}
+                    activePeopleCount={data.counts?.people}
                     addActionLabel={t('customers.companies.detail.people.add', 'Add person')}
                     emptyLabel={t('customers.companies.detail.people.empty', 'No people linked to this company yet.')}
                     emptyState={{
@@ -537,19 +578,9 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                       actionLabel: t('customers.companies.detail.emptyState.people.action', 'Create person'),
                     }}
                     onActionChange={handleSectionActionChange}
+                    onDataRefresh={loadData}
                     translator={detailTranslator}
                     runGuardedMutation={runMutationWithContext}
-                    onPeopleChange={(next) => {
-                      setData((prev) => {
-                        if (!prev) return prev
-                        const nextCount = next.length
-                        return {
-                          ...prev,
-                          people: next,
-                          counts: prev.counts ? { ...prev.counts, people: nextCount } : prev.counts,
-                        }
-                      })
-                    }}
                   />
                 )}
 
