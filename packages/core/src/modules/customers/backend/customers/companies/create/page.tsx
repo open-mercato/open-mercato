@@ -19,7 +19,9 @@ import {
   createCompanyFormSchema,
   type CompanyFormValues,
 } from '../../../../components/formConfig'
+import { resolveReturnTo } from '../../../../lib/returnTo'
 
+const LIST_HREF = '/backend/customers/companies'
 const COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID = crudFormExtensionSpotId('customers.customer_entity')
 
 export default function CreateCompanyPage() {
@@ -31,7 +33,8 @@ export default function CreateCompanyPage() {
   const formSchema = React.useMemo(() => createCompanyFormSchema(), [])
   const fields = React.useMemo(() => createCompanyFormFields(t), [t])
   const groups = React.useMemo(() => createCompanyFormGroups(t), [t])
-  const returnTo = searchParams.get('returnTo')
+  const requestedReturnTo = searchParams.get('returnTo')
+  const returnTo = requestedReturnTo === null ? null : resolveReturnTo(requestedReturnTo) ?? LIST_HREF
 
   return (
     <Page>
@@ -39,7 +42,7 @@ export default function CreateCompanyPage() {
         <CrudForm<CompanyFormValues>
           title={t('customers.companies.create.title')}
           titleHeadingLevel={1}
-          backHref={returnTo ?? '/backend/customers/companies'}
+          backHref={returnTo ?? LIST_HREF}
           fields={fields}
           groups={groups}
           initialValues={{ addresses: [] as CompanyFormValues['addresses'] }}
@@ -47,7 +50,7 @@ export default function CreateCompanyPage() {
           legacyInjectionSpotId={COMPANY_CREATE_LEGACY_INJECTION_SPOT_ID}
           entityIds={[E.customers.customer_entity, E.customers.customer_company_profile]}
           submitLabel={t('customers.companies.form.submit')}
-          cancelHref={returnTo ?? '/backend/customers/companies'}
+          cancelHref={returnTo ?? LIST_HREF}
           schema={formSchema}
           onSubmit={async (values) => {
             const addresses = Array.isArray(values.addresses) ? values.addresses : []
@@ -125,9 +128,17 @@ export default function CreateCompanyPage() {
             }
 
             flash(t('customers.companies.form.success'), 'success')
+<<<<<<< HEAD
             if (returnTo) router.push(returnTo)
             else if (newId) router.push(`/backend/customers/companies-v2/${newId}`)
             else router.push('/backend/customers/companies')
+=======
+            return newId ? { resourceId: newId } : undefined
+          }}
+          successRedirect={(_values, result) => {
+            const newId = result?.resourceId
+            return returnTo ?? (newId ? `/backend/customers/companies-v2/${newId}` : LIST_HREF)
+>>>>>>> 497643e13b (fix(customers): validate return paths on create pages (#9120) (#10583))
           }}
         />
       </PageBody>
