@@ -605,39 +605,41 @@ export default function WmsPutawayQueuePage() {
               </Select>
             </div>
 
-            <DataTable
-              embedded
-              columns={columns}
-              data={tasksQuery.data.items}
-              isLoading={tasksQuery.isLoading}
-              entityId={E.wms.putaway_task}
-              sortable
-              manualSorting
-              sorting={sorting}
-              onSortingChange={(next) => {
-                setSorting(next)
-                setPage(1)
-              }}
-              rowActions={rowActions}
-              pagination={{
-                page,
-                pageSize: 50,
-                total: tasksQuery.data.total,
-                totalPages: tasksQuery.data.totalPages,
-                totalIsCapped: tasksQuery.data?.totalIsCapped === true,
-                onPageChange: setPage,
-              }}
-              perspective={{ tableId: extensionPoints.hosts.putawayTasksTable.tableId }}
-              emptyState={
-                <EmptyState
-                  title={t('wms.backend.putaway.empty.title', 'No putaway tasks')}
-                  description={t(
-                    'wms.backend.putaway.empty.description',
-                    'Tasks appear after ASN lines are received with QC pass.',
-                  )}
-                />
-              }
-            />
+            <div className="min-w-0 overflow-x-auto" data-testid="putaway-tasks-table-scroll">
+              <DataTable
+                embedded
+                columns={columns}
+                data={tasksQuery.data.items}
+                isLoading={tasksQuery.isLoading}
+                entityId={E.wms.putaway_task}
+                sortable
+                manualSorting
+                sorting={sorting}
+                onSortingChange={(next) => {
+                  setSorting(next)
+                  setPage(1)
+                }}
+                rowActions={rowActions}
+                pagination={{
+                  page,
+                  pageSize: 50,
+                  total: tasksQuery.data.total,
+                  totalPages: tasksQuery.data.totalPages,
+                  totalIsCapped: tasksQuery.data?.totalIsCapped === true,
+                  onPageChange: setPage,
+                }}
+                perspective={{ tableId: extensionPoints.hosts.putawayTasksTable.tableId }}
+                emptyState={
+                  <EmptyState
+                    title={t('wms.backend.putaway.empty.title', 'No putaway tasks')}
+                    description={t(
+                      'wms.backend.putaway.empty.description',
+                      'Tasks appear after ASN lines are received with QC pass.',
+                    )}
+                  />
+                }
+              />
+            </div>
           </section>
         ) : null}
       </PageBody>
