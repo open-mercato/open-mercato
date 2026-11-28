@@ -6,6 +6,7 @@ import type { EncryptedFieldRule, EncryptionMapRecord } from './tenantDataEncryp
 export type ResolvedEncryptionPolicy = {
   map: EncryptionMapRecord | null
   fields: EncryptedFieldRule[]
+  organizationFields?: EncryptedFieldRule[]
 }
 
 type PolicyMemo = {

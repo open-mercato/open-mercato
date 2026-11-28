@@ -397,7 +397,7 @@ export class TenantDataEncryptionService {
     const organizationRules = mergeEncryptedFieldRules(
       organizationRows.map((record) => normalizeEncryptedFieldRules(readEncryptedFieldsJson(record))),
     )
-    return { map, fields: mergeEncryptedFieldRules([mapRules, organizationRules]) }
+    return { map, fields: mapRules, organizationFields: organizationRules }
   }
 
   private pickMostSpecificMap(key: MapCacheKey, records: Record<string, unknown>[]): EncryptionMapRecord | null {
@@ -476,10 +476,11 @@ export class TenantDataEncryptionService {
       { memoizeNonTransactionalEntityManager: em !== undefined },
     ).then((policy) => {
       const map = this.applySystemDefault(policy.map, key.entityId)
-      const declared = this.systemDefaultMaps.get(key.entityId)
-      if (!declared) return policy
-      const defaultFields = normalizeEncryptedFieldRules(declared.fields)
-      return { map, fields: mergeEncryptedFieldRules([defaultFields, policy.fields]) }
+      const mapFields = map === policy.map ? policy.fields : normalizeEncryptedFieldRules(map?.fields)
+      const fields = policy.organizationFields
+        ? mergeEncryptedFieldRules([mapFields, policy.organizationFields])
+        : mapFields
+      return { map, fields }
     })
   }
 

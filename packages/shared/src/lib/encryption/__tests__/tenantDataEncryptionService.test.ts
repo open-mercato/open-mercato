@@ -1091,6 +1091,27 @@ describe('TenantDataEncryptionService request-scoped policy memo (#8990)', () =>
     expect(execute).toHaveBeenCalledTimes(1)
   })
 
+  it('preserves a system default without a lookup hash when the stored map declares one', async () => {
+    const entityId = 'test:request_memo_default_hash'
+    const { execute, table } = makeService(entityId)
+    table.rows[0].fields_json = [{ field: 'secret', hashField: 'stored_hash' }]
+    table.rows.push({
+      ...table.rows[0],
+      organization_id: organizationId,
+      fields_json: [{ field: 'organization_secret', hashField: 'organization_hash' }],
+    })
+    const service = new TenantDataEncryptionService({ execute } as never, {
+      kms: { getTenantDek: jest.fn(async () => null), createTenantDek: jest.fn(async () => null), isHealthy: () => true },
+      defaultEncryptionMaps: [{ entityId, keyScope: 'system', fields: [{ field: 'secret' }] }],
+    })
+
+    await runInOwnedRequestScope(async () => {
+      await expect(service.getLookupHashRules(entityId, tenantId, null))
+        .resolves.toEqual([{ field: 'organization_secret', hashField: 'organization_hash' }])
+      await expect(service.getLookupHashRules(entityId, tenantId, 'other-organization')).resolves.toEqual([])
+    })
+  })
+
   it('re-reads after a map write is forgotten or a map is invalidated within the request', async () => {
     const entityId = 'test:request_memo_invalidation'
     const { service, execute, table, newEntityManager } = makeService(entityId)
