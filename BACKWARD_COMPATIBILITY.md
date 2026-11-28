@@ -727,10 +727,7 @@ STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/to
 
 ## Portal APIs (2026-11-15, #9162)
 
-STABLE HTTP: disabled portals deny customer auth/APIs (403); a bridge preserves the
-bypass. Enable the portal for API access; clients handle 403.
-[Migration/spec](UPGRADE_NOTES.md#portal-api-access-9162).
-Named human waiver of steps 1–3 pending.
+STABLE HTTP. Disabled portals return 403. A bridge keeps the bypass. [Migration](UPGRADE_NOTES.md#9162).
 
 ## 2026-11-22 — Attachment assignment label authorization (#10336)
 

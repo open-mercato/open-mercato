@@ -487,6 +487,8 @@ relied on `sync_akeneo` to force `sales` (and its `customers` chain) on. No API,
 or configuration change. See
 [module dependencies](apps/docs/docs/architecture/module-dependencies.mdx).
 
+<a id="9162"></a>
+
 ## Portal API access (#9162)
 
 **Clients:** a tenant with `portal_enabled=false` now receives 403 from customer
@@ -503,6 +505,9 @@ deleted. Previously issued tokens remain unused when blocked by the new check an
 work after re-enabling until their original expiry. A compatibility bridge would
 preserve the disabled-portal bypass; see the
 [spec's Migration & Backward Compatibility](.ai/specs/implemented/SPEC-060-2026-03-04-customer-identity-portal-auth.md#migration--backward-compatibility).
+
+A named human maintainer must still acknowledge the emergency waiver of
+deprecation steps 1–3.
 
 ## Deal detail header inputs and `CollapsibleGroup.fieldCount` deprecated (#8552)
 
