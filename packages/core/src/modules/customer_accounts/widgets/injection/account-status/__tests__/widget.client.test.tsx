@@ -360,25 +360,36 @@ describe('customer_accounts AccountStatusWidget invite form', () => {
     return render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
   }
 
-  it.each(['customer_accounts.invite', 'customer_accounts.*', '*'])('shows Cancel for the effective grant %s', (feature) => {
+  it.each(['customer_accounts.invite', 'customer_accounts.*', '*'])('shows invitation actions for the effective grant %s', (feature) => {
     mockGrantedFeatures = [feature]
     renderPendingInvitation()
     expect(screen.getByRole('button', { name: 'Cancel invitation' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Resend invitation' })).toBeInTheDocument()
   })
 
-  it.each([{ features: [] }, { features: ['customer_accounts.view'] }, { features: ['customer_accounts.invite.other'] }])('keeps pending details but hides Cancel without invite permission: $features', ({ features }) => {
+  it.each([{ features: [] }, { features: ['customer_accounts.view'] }, { features: ['customer_accounts.invite.other'] }])('keeps pending details but hides actions without invite permission: $features', ({ features }) => {
     mockGrantedFeatures = features
     renderPendingInvitation()
     expect(screen.getByText('Invitation pending')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Cancel invitation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Resend invitation' })).not.toBeInTheDocument()
     expect(mockRunMutation).not.toHaveBeenCalled()
   })
 
-  it('keeps pending details but hides Cancel until effective capabilities are ready', () => {
+  it('keeps pending details but hides actions until effective capabilities are ready', () => {
     mockChromeReady = false
     renderPendingInvitation()
     expect(screen.getByText('Invitation pending')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Cancel invitation' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Resend invitation' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the empty state read-only without invite permission', () => {
+    mockGrantedFeatures = ['customer_accounts.view']
+    render(<AccountStatusWidget context={{ recordId: 'person-entity-1' }} />)
+
+    expect(screen.getByText('No portal account linked')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Invite to Portal' })).not.toBeInTheDocument()
   })
 
   it('names the recipient in cancellation confirmation and dismisses with Escape without a mutation', async () => {

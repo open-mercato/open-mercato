@@ -105,6 +105,7 @@ The design stays within one module, scopes all writes to tenant and organization
 
 ## Changelog
 
+- 2026-11-22: For #5849, the CRM card only uses the email fallback for an unlinked invitation or one linked to the current person. The staff invite endpoint returns 409 when the pending invitation it would reuse belongs to a different CRM person in the same tenant and organization. Existing links, tokens and metadata are preserved on conflict.
 - 2026-11-03: Guarded email compensation with a refreshed scoped pending-token lock, including immutable token attribution from both invitation callers. Extended CRM failure/retry and view/wildcard integration coverage plus real route, command-log persistence, event delivery, and event/reporting failure cases.
 - 2026-10-29: Clarified authenticated organization scope, resend/cancel atomicity, the implemented non-undoable command and audit path, canonical guard entity key, invite-feature visibility, lifecycle-event metadata, and regression coverage after review.
 - 2026-10-29: Specified staff cancellation for issue #7275, neutral terminal responses, coordinated acceptance, and verification requirements.
