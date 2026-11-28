@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { CustomerDeal, CustomerDealPersonLink, CustomerDealCompanyLink } from '../../data/entities'
 import { dealCreateSchema, dealUpdateSchema } from '../../data/validators'
@@ -23,7 +23,8 @@ import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encrypti
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import type { FilterGroup, FilterRule } from '@open-mercato/shared/lib/query/advanced-filter-tree'
-import { fetchStuckDealIds } from '../../lib/stuckDeals'
+import { fetchScopedStuckDealIds } from '../../lib/stuckDeals'
+import { resolveDealsOrganizationIds } from '../../lib/dealsOrganizationScope'
 import { expandDealStatusAliases } from '../../lib/dealStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { withExactAmounts } from '@open-mercato/shared/lib/decimal'
@@ -144,18 +145,18 @@ function parseDateInput(value: unknown): Date | null {
  */
 async function fetchDealIdsMatchingAssociations(
   em: EntityManager,
-  organizationId: string,
+  organizationIds: string[],
   tenantId: string,
   personIds: string[],
   companyIds: string[],
 ): Promise<string[]> {
   if (!personIds.length && !companyIds.length) return []
   const where: string[] = [
-    'organization_id = ?',
+    'organization_id = ANY(?::uuid[])',
     'tenant_id = ?',
     'deleted_at IS NULL',
   ]
-  const values: Array<string | number> = [organizationId, tenantId]
+  const values: Array<string | number> = [`{${organizationIds.join(',')}}`, tenantId]
   if (personIds.length) {
     const placeholders = personIds.map(() => '?').join(',')
     where.push(
@@ -179,39 +180,22 @@ async function fetchDealIdsMatchingAssociations(
 
 async function fetchNeedAttentionDealIds(
   em: EntityManager,
-  organizationId: string,
+  organizationIds: string[],
   tenantId: string,
 ): Promise<string[]> {
-  const connection = em.getConnection()
-  const overdueRows = await connection.execute<Array<{ id: string }>>(
+  const stuckIds = await fetchScopedStuckDealIds(em, organizationIds, tenantId)
+  const statusPlaceholders = OPEN_DEAL_STATUSES.map(() => '?').join(',')
+  const rows = await em.getConnection().execute<Array<{ id: string }>>(
     `SELECT id FROM customer_deals
-      WHERE organization_id = ?
+      WHERE organization_id = ANY(?::uuid[])
         AND tenant_id = ?
         AND deleted_at IS NULL
-        AND status = 'open'
-        AND expected_close_at IS NOT NULL
-        AND expected_close_at < CURRENT_DATE`,
-    [organizationId, tenantId],
+        AND ((status = 'open' AND expected_close_at < CURRENT_DATE)
+          OR (status IN (${statusPlaceholders}) AND id = ANY(?::uuid[])))`,
+    [`{${organizationIds.join(',')}}`, tenantId, ...OPEN_DEAL_STATUSES, `{${stuckIds.join(',')}}`],
   )
 
-  const attentionIds = new Set(overdueRows.map((row) => row.id))
-  const stuckIds = await fetchStuckDealIds(em, organizationId, tenantId)
-  if (stuckIds.length > 0) {
-    const idPlaceholders = stuckIds.map(() => '?').join(',')
-    const statusPlaceholders = OPEN_DEAL_STATUSES.map(() => '?').join(',')
-    const openStuckRows = await connection.execute<Array<{ id: string }>>(
-      `SELECT id FROM customer_deals
-        WHERE organization_id = ?
-          AND tenant_id = ?
-          AND deleted_at IS NULL
-          AND status IN (${statusPlaceholders})
-          AND id IN (${idPlaceholders})`,
-      [organizationId, tenantId, ...OPEN_DEAL_STATUSES, ...stuckIds],
-    )
-    for (const row of openStuckRows) attentionIds.add(row.id)
-  }
-
-  return Array.from(attentionIds)
+  return rows.map(({ id }) => id)
 }
 
 function normalizeCurrencyList(value: unknown): string[] {
@@ -259,7 +243,11 @@ function normalizeUuidList(values: Array<unknown>): string[] {
   return Array.from(set)
 }
 
-export async function buildDealListFilters(query: DealListQuery, ctx?: import('@open-mercato/shared/lib/crud/factory').CrudCtx) {
+export async function buildDealListFilters(
+  query: DealListQuery,
+  ctx?: CrudCtx,
+  { inlineAdvancedFilter = false } = {},
+) {
   const advancedFilterTree = consumeAdvancedFilterState(query)
   if (advancedFilterTree) {
     // Expand status aliases in the advanced-filter tree so List (tree path) and
@@ -408,29 +396,6 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     filters.expected_close_at = existingRange
   }
 
-  if (query.isStuck && !query.needsAttention && ctx) {
-    const tenantId = ctx.auth?.tenantId
-    // CrudCtx.auth carries `orgId` (not `organizationId`). The previous code referenced
-    // `organizationId` which is always `undefined`, so the typeof check below silently
-    // skipped the entire isStuck branch — `?isStuck=true` was a no-op on this endpoint.
-    const organizationId = ctx.auth?.orgId
-    if (typeof tenantId === 'string' && typeof organizationId === 'string') {
-      const em = ctx.container.resolve<EntityManager>('em')
-      const stuckIds = await fetchStuckDealIds(em, organizationId, tenantId)
-      intersectIds(stuckIds)
-    }
-  }
-
-  if (query.needsAttention && ctx) {
-    const tenantId = ctx.auth?.tenantId
-    const organizationId = ctx.auth?.orgId
-    if (typeof tenantId === 'string' && typeof organizationId === 'string') {
-      const em = ctx.container.resolve<EntityManager>('em')
-      const attentionIds = await fetchNeedAttentionDealIds(em, organizationId, tenantId)
-      intersectIds(attentionIds)
-    }
-  }
-
   // Pre-pagination association filter. Must run on the FULL dataset (before pagination),
   // otherwise matching deals on later pages disappear and `total` would be wrong. Read the
   // raw URL too so legacy `?personEntityId=` / `?companyEntityId=` keep working alongside the
@@ -446,27 +411,28 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
   }
   const selectedPersonIds = normalizeUuidList(personCandidates)
   const selectedCompanyIds = normalizeUuidList(companyCandidates)
-  if ((selectedPersonIds.length > 0 || selectedCompanyIds.length > 0) && ctx) {
-    const tenantId = ctx.auth?.tenantId
-    // `ctx.auth` exposes `orgId` (see AuthContext in @open-mercato/shared/lib/auth/server).
-    // Read it under the correct key — the previous code's `organizationId` would always be
-    // `undefined`, silently disabling association filtering on the deals list endpoint.
-    const organizationId = ctx.auth?.orgId
-    if (typeof tenantId === 'string' && typeof organizationId === 'string') {
-      const em = ctx.container.resolve<EntityManager>('em')
-      const matchedIds = await fetchDealIdsMatchingAssociations(
-        em,
-        organizationId,
-        tenantId,
-        selectedPersonIds,
-        selectedCompanyIds,
-      )
-      // intersectIds with empty array → no rows; collapses the page to zero, total stays correct.
-      intersectIds(matchedIds)
+  const hasAssociations = selectedPersonIds.length > 0 || selectedCompanyIds.length > 0
+  const auth = ctx?.auth
+  if (ctx && auth?.tenantId && (query.needsAttention || query.isStuck || hasAssociations)) {
+    const em = ctx.container.resolve<EntityManager>('em')
+    const organizationIds = ctx.organizationIds ?? (ctx.organizationScope?.filterIds === null
+      ? await resolveDealsOrganizationIds({ em, scope: ctx.organizationScope, auth, tenantId: auth.tenantId })
+      : auth.orgId ? [auth.orgId] : [])
+
+    if (query.needsAttention) {
+      intersectIds(await fetchNeedAttentionDealIds(em, organizationIds, auth.tenantId))
+    } else if (query.isStuck) {
+      intersectIds(await fetchScopedStuckDealIds(em, organizationIds, auth.tenantId))
+    }
+
+    if (hasAssociations) {
+      intersectIds(await fetchDealIdsMatchingAssociations(
+        em, organizationIds, auth.tenantId, selectedPersonIds, selectedCompanyIds,
+      ))
     }
   }
 
-  if (ctx && advancedFilterTree) {
+  if (ctx && advancedFilterTree && !inlineAdvancedFilter) {
     const advancedFilters = mergeAdvancedFilterTree({ ...filters }, advancedFilterTree)
     const matchedIds = await findMatchingEntityIdsWithQueryEngine({
       ctx,
@@ -482,7 +448,7 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     applyEntityIdRestriction(filters, restrictedIds)
   }
 
-  return filters
+  return inlineAdvancedFilter ? mergeAdvancedFilterTree(filters, advancedFilterTree) : filters
 }
 
 const DEAL_MONEY_FIELDS = ['valueAmount'] as const
