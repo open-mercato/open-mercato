@@ -21,7 +21,7 @@
     "enabled": true,
     "pipeline": ["review", "changes-requested", "qa", "qa-failed", "merge-queue", "blocked", "do-not-merge"],
     "category": ["bug", "feature", "refactor", "security", "dependencies", "enterprise", "documentation"],
-    "meta": ["needs-qa", "needs-human-qa", "qa-batch-check", "qa-in-progress", "skip-qa", "qa-approved", "qa-self-verified", "in-progress", "ci-monitoring", "screenshots", "claim-reset", "automerge-signal-1-cr", "automerge-signal-2-qa", "automerge-signal-3-ci", "automerge-signal-3-passes-local-ci-checks", "automerge-blocked"],
+    "meta": ["needs-qa", "needs-human-qa", "qa-batch-check", "qa-in-progress", "skip-qa", "qa-approved", "qa-self-verified", "needs-triage", "human-triage-accepted", "triaged", "in-progress", "ci-monitoring", "screenshots", "claim-reset", "automerge-signal-1-cr", "automerge-signal-2-qa", "automerge-signal-3-ci", "automerge-signal-3-passes-local-ci-checks", "automerge-blocked"],
     "priority": ["priority-low", "priority-medium", "priority-high", "priority-extreme"],
     "risk": ["risk-low", "risk-medium", "risk-high"]
   },
@@ -60,7 +60,15 @@
   "prTriage": {
     "ciScopeFile": ".github/ci-scope.json",
     "areaLabelPrefix": "ci-area:",
-    "acceptanceLabel": "needs-triage"
+    "acceptanceLabel": "needs-triage",
+    "acceptedLabel": "human-triage-accepted",
+    "triagedLabel": "triaged",
+    "coreTeamFile": ".github/core-team.json",
+    "trustedBots": [
+      "open-mercato-maintenance[bot]",
+      "open-mercato-assistant[bot]",
+      "dependabot[bot]"
+    ]
   },
   "ci": { "maxWaitMinutes": 40 },
   "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },

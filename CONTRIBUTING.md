@@ -98,6 +98,7 @@ This ensures design decisions are documented and the codebase remains well-under
 - Ensure the branch merges cleanly and CI is green before requesting review.
 - Reference related issues or discussions; add screenshots or recordings for UI tweaks.
 - Tag maintainers early if you need design or architectural guidance.
+- External PRs (authors not listed in `.github/core-team.json`) are automatically labelled `needs-triage` when opened, reopened, or marked ready for review. Review starts once current-head triage (`triaged`) is complete and a maintainer records acceptance with `human-triage-accepted` (see [`.ai/docs/pr-workflow.md`](.ai/docs/pr-workflow.md)).
 
 ### Stabilization CI
 

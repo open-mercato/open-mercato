@@ -1,0 +1,579 @@
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import test from 'node:test'
+import {
+  HUMAN_TRIAGE_ACCEPTED_LABEL,
+  NEEDS_TRIAGE_LABEL,
+  TRIAGED_LABEL,
+  decide,
+  formatUnauthorizedAcceptanceComment,
+  parseCoreTeamLogins,
+  parseTrustedBots,
+  run,
+  type TriageContext,
+  type TriageCore,
+  type TriageGithub,
+  type TriagePullRequest,
+} from '../ci/pr-triage-labels.mts'
+
+const WORKFLOW_PATH = new URL('../../.github/workflows/pr-triage-labels.yml', import.meta.url)
+const CORE_TEAM_PATH = new URL('../../.github/core-team.json', import.meta.url)
+const AGENTIC_CONFIG_PATH = new URL('../../.ai/agentic.config.json', import.meta.url)
+
+const REPO = { owner: 'open-mercato', repo: 'open-mercato' }
+const CORE_TEAM = new Set(['pkarw', 'kapsik89', 'matgren', 'tkarwatka'])
+const TRUSTED_BOTS = new Set([
+  'open-mercato-maintenance[bot]',
+  'open-mercato-assistant[bot]',
+  'dependabot[bot]',
+])
+
+function makePr(overrides: Partial<TriagePullRequest> = {}): TriagePullRequest {
+  return {
+    number: 42,
+    draft: false,
+    user: { login: 'external-dev', type: 'User' },
+    head: { ref: 'feat/something', repo: { full_name: 'external-dev/open-mercato' } },
+    ...overrides,
+  }
+}
+
+type ApiCall = { method: string; params: Record<string, unknown> }
+
+function fakeGithub(labels: string[], { removeStatus }: { removeStatus?: number } = {}) {
+  const calls: ApiCall[] = []
+  const github: TriageGithub = {
+    rest: {
+      issues: {
+        listLabelsOnIssue: async (params) => {
+          calls.push({ method: 'listLabelsOnIssue', params })
+          return { data: labels.map((name) => ({ name })) }
+        },
+        addLabels: async (params) => {
+          calls.push({ method: 'addLabels', params })
+          return {}
+        },
+        removeLabel: async (params) => {
+          calls.push({ method: 'removeLabel', params })
+          if (removeStatus) throw Object.assign(new Error('api error'), { status: removeStatus })
+          return {}
+        },
+        createComment: async (params) => {
+          calls.push({ method: 'createComment', params })
+          return {}
+        },
+      },
+    },
+  }
+  return { github, calls }
+}
+
+function fakeCore() {
+  const logs: string[] = []
+  const core: TriageCore = { info: (msg) => logs.push(msg) }
+  return { core, logs }
+}
+
+test('parseCoreTeamLogins normalizes .github/core-team.json logins to lowercase', () => {
+  const logins = parseCoreTeamLogins(readFileSync(CORE_TEAM_PATH, 'utf8'))
+  assert.ok(logins.has('kapsik89'))
+  assert.ok(logins.has('mstaniaszek1998'))
+  assert.ok(logins.has('matgren'))
+  assert.ok(logins.has('tkarwatka'))
+  assert.equal(logins.has('ahksammich'), false)
+})
+
+test('external PR on opened, reopened, ready_for_review gets needs-triage unless already accepted', () => {
+  for (const action of ['opened', 'reopened', 'ready_for_review']) {
+    const decision = decide({
+      action,
+      pullRequest: makePr(),
+      labels: ['bug'],
+      coreTeam: CORE_TEAM,
+      repo: REPO,
+    })
+    assert.equal(decision.kind, 'add-label', action)
+    if (decision.kind === 'add-label') {
+      assert.equal(decision.label, NEEDS_TRIAGE_LABEL)
+    }
+
+    const alreadyAccepted = decide({
+      action,
+      pullRequest: makePr(),
+      labels: [HUMAN_TRIAGE_ACCEPTED_LABEL],
+      coreTeam: CORE_TEAM,
+      repo: REPO,
+    })
+    assert.equal(alreadyAccepted.kind, 'noop', `${action} with human-triage-accepted`)
+  }
+})
+
+test('core-team PR skips needs-triage case-insensitively', () => {
+  const decision = decide({
+    action: 'opened',
+    pullRequest: makePr({ user: { login: 'Kapsik89', type: 'User' } }),
+    labels: [],
+    coreTeam: CORE_TEAM,
+    repo: REPO,
+  })
+  assert.equal(decision.kind, 'noop')
+})
+
+test('draft PRs and same-repo stabilize/ branches are skipped, while fork stabilize/ branches are not', () => {
+  const draft = decide({
+    action: 'opened',
+    pullRequest: makePr({ draft: true }),
+    labels: [],
+    coreTeam: CORE_TEAM,
+    repo: REPO,
+  })
+  assert.equal(draft.kind, 'skip')
+
+  const sameRepoStabilize = decide({
+    action: 'opened',
+    pullRequest: makePr({
+      head: { ref: 'stabilize/qa-2026-11-28', repo: { full_name: 'open-mercato/open-mercato' } },
+    }),
+    labels: [],
+    coreTeam: CORE_TEAM,
+    repo: REPO,
+  })
+  assert.equal(sameRepoStabilize.kind, 'skip')
+
+  const forkStabilize = decide({
+    action: 'opened',
+    pullRequest: makePr({
+      head: { ref: 'stabilize/spoofed', repo: { full_name: 'external-dev/open-mercato' } },
+    }),
+    labels: [],
+    coreTeam: CORE_TEAM,
+    repo: REPO,
+  })
+  assert.equal(forkStabilize.kind, 'add-label')
+})
+
+test('synchronize removes triaged when present and is a noop otherwise', () => {
+  const withTriaged = decide({
+    action: 'synchronize',
+    pullRequest: makePr({ user: { login: 'pkarw', type: 'User' } }),
+    labels: ['review', TRIAGED_LABEL],
+    coreTeam: CORE_TEAM,
+    repo: REPO,
+  })
+  assert.equal(withTriaged.kind, 'remove-label')
+  if (withTriaged.kind === 'remove-label') {
+    assert.equal(withTriaged.label, TRIAGED_LABEL)
+  }
+
+  const withoutTriaged = decide({
+    action: 'synchronize',
+    pullRequest: makePr(),
+    labels: ['review'],
+    coreTeam: CORE_TEAM,
+    repo: REPO,
+  })
+  assert.equal(withoutTriaged.kind, 'noop')
+})
+
+test('labeled human-triage-accepted by a core-team human removes needs-triage', () => {
+  const decision = decide({
+    action: 'labeled',
+    pullRequest: makePr(),
+    labelName: HUMAN_TRIAGE_ACCEPTED_LABEL,
+    sender: { login: 'Kapsik89', type: 'User' },
+    labels: [NEEDS_TRIAGE_LABEL, HUMAN_TRIAGE_ACCEPTED_LABEL],
+    coreTeam: CORE_TEAM,
+    repo: REPO,
+  })
+  assert.equal(decision.kind, 'remove-label')
+  if (decision.kind === 'remove-label') {
+    assert.equal(decision.label, NEEDS_TRIAGE_LABEL)
+  }
+})
+
+test('labeled human-triage-accepted by a non-core user or bot removes human-triage-accepted and comments', () => {
+  for (const sender of [
+    { login: 'external-triager', type: 'User' },
+    { login: 'open-mercato-assistant[bot]', type: 'Bot' },
+    { login: 'pkarw', type: 'Bot' },
+  ]) {
+    const decision = decide({
+      action: 'labeled',
+      pullRequest: makePr(),
+      labelName: HUMAN_TRIAGE_ACCEPTED_LABEL,
+      sender,
+      labels: [NEEDS_TRIAGE_LABEL, HUMAN_TRIAGE_ACCEPTED_LABEL],
+      coreTeam: CORE_TEAM,
+      repo: REPO,
+    })
+    assert.equal(decision.kind, 'reject-accepted', sender.login)
+    if (decision.kind === 'reject-accepted') {
+      assert.equal(decision.label, HUMAN_TRIAGE_ACCEPTED_LABEL)
+      assert.equal(decision.actor, sender.login)
+    }
+  }
+})
+
+test('run executes addLabels, removeLabel, and unauthorized-acceptance rejection with comment', async () => {
+  // 1. External PR opened -> adds needs-triage
+  {
+    const { github, calls } = fakeGithub([])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: { action: 'opened', pull_request: makePr() },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM })
+    assert.equal(decision.kind, 'add-label')
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'addLabels'],
+    )
+    assert.deepEqual(calls[1].params, {
+      owner: REPO.owner,
+      repo: REPO.repo,
+      issue_number: 42,
+      labels: [NEEDS_TRIAGE_LABEL],
+    })
+  }
+
+  // 2. Synchronize -> removes triaged
+  {
+    const { github, calls } = fakeGithub([TRIAGED_LABEL])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: { action: 'synchronize', pull_request: makePr() },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM })
+    assert.equal(decision.kind, 'remove-label')
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'removeLabel'],
+    )
+    assert.deepEqual(calls[1].params, {
+      owner: REPO.owner,
+      repo: REPO.repo,
+      issue_number: 42,
+      name: TRIAGED_LABEL,
+    })
+  }
+
+  // 3. Unauthorized human-triage-accepted -> removes label and comments
+  {
+    const { github, calls } = fakeGithub([NEEDS_TRIAGE_LABEL, HUMAN_TRIAGE_ACCEPTED_LABEL])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'labeled',
+        label: { name: HUMAN_TRIAGE_ACCEPTED_LABEL },
+        pull_request: makePr(),
+        sender: { login: 'open-mercato-maintenance[bot]', type: 'Bot' },
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM })
+    assert.equal(decision.kind, 'reject-accepted')
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'removeLabel', 'createComment'],
+    )
+    assert.equal(calls[2].params.body, formatUnauthorizedAcceptanceComment('open-mercato-maintenance[bot]'))
+  }
+
+  // 4. Unauthorized human-triage-accepted already removed concurrently (404) -> skips comment
+  {
+    const { github, calls } = fakeGithub([HUMAN_TRIAGE_ACCEPTED_LABEL], { removeStatus: 404 })
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'labeled',
+        label: { name: HUMAN_TRIAGE_ACCEPTED_LABEL },
+        pull_request: makePr(),
+        sender: { login: 'some-bot[bot]', type: 'Bot' },
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM })
+    assert.equal(decision.kind, 'noop')
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'removeLabel'],
+    )
+  }
+
+  // 5. Valid human-triage-accepted by a non-bot core-team login -> removes needs-triage without commenting (ready and draft)
+  for (const draft of [false, true]) {
+    const { github, calls } = fakeGithub([NEEDS_TRIAGE_LABEL, HUMAN_TRIAGE_ACCEPTED_LABEL])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'labeled',
+        label: { name: HUMAN_TRIAGE_ACCEPTED_LABEL },
+        pull_request: makePr({ draft }),
+        sender: { login: 'Kapsik89', type: 'User' },
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'remove-label', `draft=${draft}`)
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'removeLabel'],
+    )
+    assert.deepEqual(calls[1].params, {
+      owner: REPO.owner,
+      repo: REPO.repo,
+      issue_number: 42,
+      name: NEEDS_TRIAGE_LABEL,
+    })
+  }
+})
+
+test('parseCoreTeamLogins error paths: malformed JSON, missing or invalid logins', () => {
+  assert.throws(() => parseCoreTeamLogins('{not json'), SyntaxError)
+  assert.throws(() => parseCoreTeamLogins('{}'), /logins array/)
+  assert.throws(() => parseCoreTeamLogins('{"logins": "pkarw"}'), /logins array/)
+  assert.throws(() => parseCoreTeamLogins('{"logins": ["pkarw", ""]}'), /non-empty strings/)
+  assert.throws(() => parseCoreTeamLogins('{"logins": [123]}'), /non-empty strings/)
+})
+
+test('parseTrustedBots normalizes prTriage.trustedBots from .ai/agentic.config.json', () => {
+  const bots = parseTrustedBots(readFileSync(AGENTIC_CONFIG_PATH, 'utf8'))
+  assert.ok(bots.has('open-mercato-maintenance[bot]'))
+  assert.ok(bots.has('open-mercato-assistant[bot]'))
+  assert.ok(bots.has('dependabot[bot]'))
+})
+
+test('parseTrustedBots fallback and error paths: undefined falls back to empty, malformed throws', () => {
+  assert.deepEqual([...parseTrustedBots('{}')], [])
+  assert.deepEqual([...parseTrustedBots('{"prTriage": {}}')], [])
+  assert.deepEqual([...parseTrustedBots('{"prTriage": {"trustedBots": []}}')], [])
+  assert.throws(() => parseTrustedBots('{bad json'), SyntaxError)
+  assert.throws(() => parseTrustedBots('{"prTriage": {"trustedBots": "bot"}}'), /must be an array/)
+  assert.throws(() => parseTrustedBots('{"prTriage": {"trustedBots": ["  "]}}'), /non-empty strings/)
+  assert.throws(() => parseTrustedBots('{"prTriage": {"trustedBots": [null]}}'), /non-empty strings/)
+})
+
+test('draft PRs: unauthorized human-triage-accepted is removed on drafts, ready_for_review adds needs-triage, synchronize removes triaged', async () => {
+  // 1. Bot / non-core adds human-triage-accepted on a draft -> removed and commented
+  for (const sender of [
+    { login: 'open-mercato-assistant[bot]', type: 'Bot' },
+    { login: 'external-triager', type: 'User' },
+  ]) {
+    const { github, calls } = fakeGithub([HUMAN_TRIAGE_ACCEPTED_LABEL])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'labeled',
+        label: { name: HUMAN_TRIAGE_ACCEPTED_LABEL },
+        pull_request: makePr({ draft: true }),
+        sender,
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'reject-accepted', sender.login)
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'removeLabel', 'createComment'],
+    )
+    assert.equal(calls[1].params.name, HUMAN_TRIAGE_ACCEPTED_LABEL)
+  }
+
+  // 2. Same PR leaves draft (ready_for_review) without human-triage-accepted -> adds needs-triage
+  {
+    const { github, calls } = fakeGithub([])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'ready_for_review',
+        pull_request: makePr({ draft: false }),
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'add-label')
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'addLabels'],
+    )
+    assert.deepEqual(calls[1].params.labels, [NEEDS_TRIAGE_LABEL])
+  }
+
+  // 3. Push (synchronize) to a triaged draft -> removes triaged
+  {
+    const { github, calls } = fakeGithub([TRIAGED_LABEL])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'synchronize',
+        pull_request: makePr({ draft: true }),
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'remove-label')
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'removeLabel'],
+    )
+    assert.equal(calls[1].params.name, TRIAGED_LABEL)
+  }
+
+  // 4. Draft opened / reopened is still skipped
+  for (const action of ['opened', 'reopened']) {
+    const { github, calls } = fakeGithub([])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: { action, pull_request: makePr({ draft: true }) },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'skip', action)
+    assert.deepEqual(calls, [])
+  }
+})
+
+test('trusted bots skip needs-triage case-insensitively, still lose triaged on synchronize, and cannot accept PRs', async () => {
+  for (const action of ['opened', 'reopened', 'ready_for_review']) {
+    const decision = decide({
+      action,
+      pullRequest: makePr({ user: { login: 'Open-Mercato-Maintenance[bot]', type: 'Bot' } }),
+      labels: [],
+      coreTeam: CORE_TEAM,
+      trustedBots: TRUSTED_BOTS,
+      repo: REPO,
+    })
+    assert.equal(decision.kind, 'noop', action)
+  }
+
+  // run() skips API calls when a trusted bot opens a PR
+  {
+    const { github, calls } = fakeGithub([])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'opened',
+        pull_request: makePr({ user: { login: 'dependabot[bot]', type: 'Bot' } }),
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'noop')
+    assert.deepEqual(calls, [])
+  }
+
+  // Trusted bots still need fresh triage on synchronize
+  const syncDecision = decide({
+    action: 'synchronize',
+    pullRequest: makePr({ user: { login: 'open-mercato-assistant[bot]', type: 'Bot' } }),
+    labels: [TRIAGED_LABEL],
+    coreTeam: CORE_TEAM,
+    trustedBots: TRUSTED_BOTS,
+    repo: REPO,
+  })
+  assert.equal(syncDecision.kind, 'remove-label')
+  if (syncDecision.kind === 'remove-label') {
+    assert.equal(syncDecision.label, TRIAGED_LABEL)
+  }
+
+  // Trusted bots NEVER count as human acceptors
+  const acceptDecision = decide({
+    action: 'labeled',
+    pullRequest: makePr(),
+    labelName: HUMAN_TRIAGE_ACCEPTED_LABEL,
+    sender: { login: 'open-mercato-maintenance[bot]', type: 'Bot' },
+    labels: [NEEDS_TRIAGE_LABEL, HUMAN_TRIAGE_ACCEPTED_LABEL],
+    coreTeam: CORE_TEAM,
+    trustedBots: TRUSTED_BOTS,
+    repo: REPO,
+  })
+  assert.equal(acceptDecision.kind, 'reject-accepted')
+})
+
+function stripYamlComments(raw: string): string[] {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.replace(/(^|\s)#.*$/, ''))
+    .filter((line) => line.trim().length > 0)
+}
+
+function extractIndentedBlock(lines: string[], headerPattern: RegExp): string[] {
+  const startIdx = lines.findIndex((line) => headerPattern.test(line))
+  assert.notEqual(startIdx, -1, `Missing YAML block matching ${headerPattern}`)
+  const baseIndent = lines[startIdx].match(/^(\s*)/)?.[1].length ?? 0
+  const block: string[] = []
+  for (let i = startIdx + 1; i < lines.length; i += 1) {
+    const indent = lines[i].match(/^(\s*)/)?.[1].length ?? 0
+    if (indent <= baseIndent) break
+    block.push(lines[i])
+  }
+  return block
+}
+
+test('workflow security properties: pull_request_target, exact permissions allowlist, sparse-checkout paths, no PR code execution', () => {
+  const raw = readFileSync(WORKFLOW_PATH, 'utf8')
+  const lines = stripYamlComments(raw)
+  const uncommented = lines.join('\n')
+
+  // 1. Trigger type: only pull_request_target with exact types
+  const onBlock = extractIndentedBlock(lines, /^on:\s*$/)
+  const triggerKeys = onBlock
+    .filter((line) => /^\s{2}[a-z_]+:\s*$/.test(line))
+    .map((line) => line.trim().replace(/:$/, ''))
+  assert.deepEqual(triggerKeys, ['pull_request_target'])
+  const typesLine = onBlock.find((line) => /^\s+types:\s*\[/.test(line))
+  assert.ok(typesLine, 'pull_request_target must declare types')
+  const types = (typesLine.match(/\[([^\]]+)\]/)?.[1] ?? '')
+    .split(',')
+    .map((s) => s.trim())
+  assert.deepEqual(types, ['opened', 'reopened', 'ready_for_review', 'synchronize', 'labeled'])
+
+  // 2. No concurrency block
+  assert.equal(lines.some((line) => /^\s*concurrency:/.test(line)), false)
+
+  // 3. Exact permissions allowlist at workflow level, and no job-level permissions override
+  const permissionsLines = lines.filter((line) => /^\s*permissions:/.test(line))
+  assert.equal(permissionsLines.length, 1, 'permissions must be declared once at top level')
+  const permBlock = extractIndentedBlock(lines, /^permissions:\s*$/)
+  const permissions: Record<string, string> = {}
+  for (const line of permBlock) {
+    const match = line.trim().match(/^([a-z-]+):\s*([a-z-]+)$/)
+    assert.ok(match, `Unexpected permissions entry: ${line}`)
+    permissions[match[1]] = match[2]
+  }
+  assert.deepEqual(permissions, {
+    contents: 'read',
+    issues: 'write',
+    'pull-requests': 'write',
+  })
+
+  // 4. Single checkout pinned to default branch, credential-free, exact sparse-checkout paths, no shell steps
+  const checkoutSteps = lines.filter((line) => /^\s*uses:\s*actions\/checkout@/.test(line))
+  assert.equal(checkoutSteps.length, 1)
+  assert.equal(lines.some((line) => /^\s*run:/.test(line)), false, 'no shell run steps allowed')
+  assert.equal(uncommented.includes('pull_request.head.sha'), false)
+
+  const sparsePaths = extractIndentedBlock(lines, /^\s+sparse-checkout:\s*\|$/).map((line) => line.trim())
+  assert.deepEqual(sparsePaths, [
+    '.github/core-team.json',
+    '.ai/agentic.config.json',
+    'scripts/ci/pr-triage-labels.mts',
+  ])
+  assert.match(uncommented, /^\s+ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}$/m)
+  assert.match(uncommented, /^\s+persist-credentials:\s*false$/m)
+  assert.match(uncommented, /^\s+sparse-checkout-cone-mode:\s*false$/m)
+  assert.match(uncommented, /^\s+fetch-depth:\s*1$/m)
+
+  // 5. Job condition: skips same-repo stabilize/ branches; skips drafts only for non-labeled/non-synchronize
+  const ifBlock = extractIndentedBlock(lines, /^\s+if:\s*>-$/).map((line) => line.trim()).join(' ')
+  assert.match(ifBlock, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
+  assert.match(ifBlock, /startsWith\(github\.event\.pull_request\.head\.ref,\s*'stabilize\/'\)/)
+  assert.match(ifBlock, /!github\.event\.pull_request\.draft \|\| github\.event\.action == 'labeled' \|\| github\.event\.action == 'synchronize'/)
+
+  // 6. No ${{ interpolation inside the github-script body
+  const scriptLines = extractIndentedBlock(lines, /^\s+script:\s*\|$/)
+  assert.ok(scriptLines.length > 0, 'workflow must have a github-script block')
+  assert.equal(scriptLines.join('\n').includes('${{'), false, 'script block must not interpolate GitHub expressions')
+})

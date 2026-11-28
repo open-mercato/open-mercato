@@ -1,0 +1,62 @@
+name: PR triage labels
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, synchronize, labeled]
+
+# Maintains the PR review-gate triage and external-acceptance labels:
+# - Adds `needs-triage` on external PRs (author not in `.github/core-team.json`
+#   and not in `.ai/agentic.config.json` → `prTriage.trustedBots`) when opened,
+#   reopened, or marked ready for review, unless `human-triage-accepted` is already present.
+# - Removes `triaged` on every new push (`synchronize`) so triage re-runs on the new head.
+# - On `human-triage-accepted`: removes `needs-triage` when applied by a human in
+#   `.github/core-team.json`; otherwise removes `human-triage-accepted` and comments why
+#   (trusted bots never count as human acceptors).
+#
+# Security: pull_request_target runs in the base repository context so fork PRs can
+# be labeled. The only checkout is a sparse, credential-free copy of `.github/core-team.json`,
+# `.ai/agentic.config.json` and `scripts/ci/pr-triage-labels.mts` pinned to the default
+# branch, so no PR head and no contributor-supplied code ever reaches this job. No event
+# field is interpolated into the script; everything is read from `context.payload`.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  triage-labels:
+    if: >-
+      ${{
+        !(github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'stabilize/')) &&
+        (!github.event.pull_request.draft || github.event.action == 'labeled' || github.event.action == 'synchronize') &&
+        (github.event.action != 'labeled' || github.event.label.name == 'human-triage-accepted')
+      }}
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out core-team registry, agentic config, and triage label script
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            .github/core-team.json
+            .ai/agentic.config.json
+            scripts/ci/pr-triage-labels.mts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Manage PR triage labels
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = await import('node:fs');
+            const { parseCoreTeamLogins, parseTrustedBots, run } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/pr-triage-labels.mts`);
+            const coreTeam = parseCoreTeamLogins(
+              fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/core-team.json`, 'utf8'),
+            );
+            const trustedBots = parseTrustedBots(
+              fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.ai/agentic.config.json`, 'utf8'),
+            );
+            await run({ github, context, core, coreTeam, trustedBots });
