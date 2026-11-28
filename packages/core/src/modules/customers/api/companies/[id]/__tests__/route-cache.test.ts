@@ -44,10 +44,15 @@ const mockEm = {
   })),
 }
 
+const mockBaseCurrencyService = {
+  resolveBaseCurrency: jest.fn(async () => ({ status: 'missing' })),
+}
+
 const mockContainer = {
   resolve: jest.fn((token: string) => {
     if (token === 'em') return mockEm
     if (token === 'rbacService') return { getGrantedFeatures: mockGetGrantedFeatures }
+    if (token === 'baseCurrencyService') return mockBaseCurrencyService
     return null
   }),
 }
@@ -151,6 +156,8 @@ describe('GET /api/customers/companies/[id] — detail cache (#3664)', () => {
     mockEm.count.mockReset()
     mockEm.count.mockResolvedValue(0)
     mockContainer.resolve.mockClear()
+    mockBaseCurrencyService.resolveBaseCurrency.mockReset()
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'missing' })
 
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'user-1',
@@ -309,8 +316,87 @@ describe('GET /api/customers/companies/[id] — detail cache (#3664)', () => {
     expect(mockFindWithDecryption).not.toHaveBeenCalled()
     expect(mockCache.set).not.toHaveBeenCalled()
   })
-})
 
+  // #8242 review: the base-currency fallback must not be baked into the cached payload,
+  // otherwise a changed organization base currency stays stale for the cache TTL.
+  it('re-resolves the base-currency fallback on every read instead of caching it', async () => {
+    cacheEnabled = true
+    const stored = new Map<string, unknown>()
+    mockCache.get.mockImplementation(async (key: string) => stored.get(key))
+    mockCache.set.mockImplementation(async (key: string, payload: unknown) => stored.set(key, payload))
+    mockFindOneWithDecryption.mockReset().mockResolvedValueOnce(buildCompany()).mockResolvedValue(null)
+    mockBaseCurrencyService.resolveBaseCurrency
+      .mockResolvedValueOnce({ status: 'resolved', code: 'USD' })
+      .mockResolvedValueOnce({ status: 'resolved', code: 'GBP' })
+    const { GET } = await import('../route')
+
+    const miss = await GET(makeRequest(), { params: { id: COMPANY_ID } })
+    expect(miss.status).toBe(200)
+    expect((await miss.json()).kpis.dealCurrency).toBe('USD')
+    const storedPayload = mockCache.set.mock.calls[0][1] as { kpis: { dealCurrency: string | null } }
+    expect(storedPayload.kpis.dealCurrency).toBeNull()
+
+    mockFindOneWithDecryption.mockResolvedValueOnce(buildCompany())
+    const hit = await GET(makeRequest(), { params: { id: COMPANY_ID } })
+    expect(hit.status).toBe(200)
+    expect(mockCache.set).toHaveBeenCalledTimes(1)
+    expect((await hit.json()).kpis.dealCurrency).toBe('GBP')
+    expect(storedPayload.kpis.dealCurrency).toBeNull()
+    expect(mockBaseCurrencyService.resolveBaseCurrency).toHaveBeenCalledTimes(2)
+  })
+
+  it('serves a cached deal currency without consulting the base currency', async () => {
+    cacheEnabled = true
+    const cachedPayload = {
+      interactionMode: 'legacy',
+      company: { id: COMPANY_ID, displayName: 'Cached Co' },
+      kpis: { activeDealsCount: 1, activeDealsValue: 500, dealCurrency: 'EUR' },
+    }
+    mockCache.get.mockResolvedValue(cachedPayload)
+    mockFindOneWithDecryption.mockResolvedValueOnce(buildCompany())
+    const { GET } = await import('../route')
+
+    const response = await GET(makeRequest(), { params: { id: COMPANY_ID } })
+
+    expect(response.status).toBe(200)
+    expect((await response.json()).kpis.dealCurrency).toBe('EUR')
+    expect(mockBaseCurrencyService.resolveBaseCurrency).not.toHaveBeenCalled()
+  })
+
+  it('applies the base-currency fallback to a cached won total with one lookup', async () => {
+    cacheEnabled = true
+    const cachedPayload = {
+      interactionMode: 'legacy',
+      company: { id: COMPANY_ID, displayName: 'Cached Co' },
+      kpis: { activeDealsCount: 0, activeDealsValue: null, dealCurrency: null, ltvValue: 900, ltvCurrency: null },
+    }
+    mockCache.get.mockResolvedValue(cachedPayload)
+    mockFindOneWithDecryption.mockResolvedValueOnce(buildCompany())
+    mockBaseCurrencyService.resolveBaseCurrency.mockResolvedValue({ status: 'resolved', code: 'USD' })
+    const { GET } = await import('../route')
+
+    const response = await GET(makeRequest(), { params: { id: COMPANY_ID } })
+    const kpis = (await response.json()).kpis
+
+    expect(kpis.dealCurrency).toBe('USD')
+    expect(kpis.ltvCurrency).toBe('USD')
+    expect(mockBaseCurrencyService.resolveBaseCurrency).toHaveBeenCalledTimes(1)
+    expect(cachedPayload.kpis.ltvCurrency).toBeNull()
+  })
+
+  it('does not add a currency to a cached payload whose deal KPIs are hidden', async () => {
+    cacheEnabled = true
+    const cachedPayload = { interactionMode: 'legacy', company: { id: COMPANY_ID, displayName: 'Cached Co' }, kpis: {} }
+    mockCache.get.mockResolvedValue(cachedPayload)
+    mockFindOneWithDecryption.mockResolvedValueOnce(buildCompany())
+    const { GET } = await import('../route')
+
+    const response = await GET(makeRequest(), { params: { id: COMPANY_ID } })
+
+    expect((await response.json()).kpis).toEqual({})
+    expect(mockBaseCurrencyService.resolveBaseCurrency).not.toHaveBeenCalled()
+  })
+})
 
 describe('company detail contributed namespaces on base cache reads', () => {
   afterEach(() => registerResponseEnrichers([]))

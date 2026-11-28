@@ -139,3 +139,66 @@ describe('CompanyKpiBar — deal status vocabulary (#4667)', () => {
     expect(within(tile(LTV)).getByText(/^4000\s+zł$/)).toBeInTheDocument()
   })
 })
+
+// Regression for issue #8242: a company with no deals showed "PLN 0" whatever the tenant's
+// currency, because the bar fell back to a hard-coded PLN when no currency was known.
+describe('CompanyKpiBar — deal currency fallback (#8242)', () => {
+  it('formats the active total in the currency the API reports when there are no deals', () => {
+    const data = buildOverview([])
+    data.kpis = {
+      activeDealsCount: 0,
+      activeDealsValue: null,
+      dealCurrency: 'USD',
+      activityCount: 0,
+      activityTrend: null,
+      ltvValue: null,
+      completedDealsCount: 0,
+      clientTenureYears: null,
+    }
+    renderWithProviders(<CompanyKpiBar data={data} />, { locale: EN })
+
+    expect(within(tile(ACTIVE_DEALS)).getByText('$0')).toBeInTheDocument()
+  })
+
+  it('does not invent a currency when none is known', () => {
+    renderBar([])
+
+    expect(within(tile(ACTIVE_DEALS)).getByText('0')).toBeInTheDocument()
+    expect(within(tile(ACTIVE_DEALS)).queryByText(/PLN/)).not.toBeInTheDocument()
+  })
+})
+
+// #8242 re-review: the LTV tile formats the won-deal total, so it must not borrow the active
+// deals currency — a GBP win next to an EUR open deal was relabelled EUR without conversion.
+describe('CompanyKpiBar — separate active and won currencies (#8242)', () => {
+  it('formats each tile in its own currency from the API', () => {
+    const data = buildOverview([])
+    data.kpis = {
+      activeDealsCount: 2,
+      activeDealsValue: 1200,
+      dealCurrency: 'EUR',
+      activityCount: 0,
+      activityTrend: null,
+      ltvValue: 4000,
+      ltvCurrency: 'GBP',
+      completedDealsCount: 1,
+      clientTenureYears: null,
+    }
+    renderWithProviders(<CompanyKpiBar data={data} />, { locale: EN })
+
+    expect(within(tile(ACTIVE_DEALS)).getByText('€1,200')).toBeInTheDocument()
+    expect(within(tile(LTV)).getByText('£4,000')).toBeInTheDocument()
+  })
+
+  it('derives the won-total currency from won deals when the API sends no KPIs', () => {
+    renderBar([
+      { ...CLOSED_WON_DEAL, valueCurrency: 'GBP' },
+      { ...OPEN_DEAL, id: 'deal-open-no-currency', valueCurrency: null },
+      { ...OPEN_DEAL, id: 'deal-open-eur', valueCurrency: 'EUR' },
+    ])
+
+    expect(within(tile(ACTIVE_DEALS)).getByText('€2,000')).toBeInTheDocument()
+    expect(within(tile(LTV)).getByText('£4,000')).toBeInTheDocument()
+  })
+})
+

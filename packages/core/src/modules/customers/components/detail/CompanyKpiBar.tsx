@@ -27,6 +27,14 @@ function sumActiveDeals(deals: DealSummary[]): number {
     }, 0)
 }
 
+function firstDealCurrency(deals: DealSummary[]): string | null {
+  for (const deal of deals) {
+    const code = typeof deal.valueCurrency === 'string' ? deal.valueCurrency.trim() : ''
+    if (code) return code
+  }
+  return null
+}
+
 function getActiveDeals(deals: DealSummary[]): DealSummary[] {
   return deals.filter((d) => isOpenDealStatus(d.status))
 }
@@ -75,7 +83,10 @@ export function CompanyKpiBar({ data, canViewDeals = true }: CompanyKpiBarProps)
     () => data.kpis?.activeDealsValue ?? sumActiveDeals(data.deals),
     [data.deals, data.kpis?.activeDealsValue],
   )
-  const dealCurrency = data.kpis?.dealCurrency ?? activeDeals[0]?.valueCurrency ?? data.deals[0]?.valueCurrency ?? 'PLN'
+  const dealCurrency = data.kpis?.dealCurrency ?? firstDealCurrency(activeDeals) ?? firstDealCurrency(data.deals)
+  const ltvCurrency = data.kpis?.ltvCurrency !== undefined
+    ? data.kpis.ltvCurrency
+    : firstDealCurrency(data.deals.filter((d) => isWonDealStatus(d.status)))
   const activityTrend = React.useMemo(
     () => data.kpis?.activityTrend ?? computeActivityTrend(data.interactions),
     [data.interactions, data.kpis?.activityTrend],
@@ -144,7 +155,7 @@ export function CompanyKpiBar({ data, canViewDeals = true }: CompanyKpiBarProps)
       requiresDealsAccess: true,
       title: t('customers.companies.dashboard.kpi.ltv', 'CUSTOMER VALUE (LTV)'),
       value: ltvValue,
-      formatValue: ltvValue !== null ? (v: number) => formatCurrency(v, dealCurrency, locale) : undefined,
+      formatValue: ltvValue !== null ? (v: number) => formatCurrency(v, ltvCurrency, locale) : undefined,
       comparisonLabel: ltvValue !== null
         ? t('customers.companies.dashboard.kpi.wonDeals', 'won deals total')
         : t('customers.companies.dashboard.kpi.noWonDeals', 'No won deals'),
@@ -164,7 +175,7 @@ export function CompanyKpiBar({ data, canViewDeals = true }: CompanyKpiBarProps)
           ? `${data.kpis?.completedDealsCount ?? data.deals.filter((d) => isWonDealStatus(d.status)).length} ${t('customers.companies.dashboard.kpi.completedDeals', 'completed deals')}`
           : undefined,
     },
-  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis, canViewDeals])
+  ], [t, locale, activeDealsValue, dealTrend, dealCurrency, ltvCurrency, activeDeals.length, activityTrend, ltvValue, clientTenureYears, data.deals, data.interactions.length, data.kpis, canViewDeals])
 
   const availableTiles = kpiTiles.filter((tile) => canViewDeals || !tile.requiresDealsAccess)
   const visibleTiles = availableTiles.filter((tile) => !hiddenTiles.has(tile.id))

@@ -3,7 +3,7 @@ import { resolveCustomerDetailView } from '../../../lib/detailViewAccess'
 import { enrichCustomerDetailResponse } from '../../../lib/detailResponseEnrichment'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createRequestContainer, type AppContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { resolveSingleOrganizationIdOrDeny } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
@@ -57,6 +57,7 @@ import {
 } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { denyCustomerDetailReadAsNotFound } from '../../../lib/detailReadAccess'
+import { resolveOptionalBaseCurrencyCode } from '../../../lib/optionalBaseCurrency'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import {
   buildCollectionTags,
@@ -102,6 +103,39 @@ function buildCompanyDetailCacheTags(tenantId: string | null, organizationId: st
     }
   }
   return Array.from(tags)
+}
+
+function pickDealCurrency(deals: CustomerDeal[]): string | null {
+  for (const deal of deals) {
+    const code = typeof deal.valueCurrency === 'string' ? deal.valueCurrency.trim() : ''
+    if (code) return code
+  }
+  return null
+}
+
+async function applyBaseCurrencyFallback<T extends Record<string, unknown>>(
+  payload: T,
+  container: AppContainer,
+  tenantId: string | null,
+  organizationId: string | null,
+): Promise<T> {
+  const kpis = payload.kpis
+  if (!kpis || typeof kpis !== 'object' || Array.isArray(kpis)) return payload
+  const summary = kpis as { dealCurrency?: unknown; ltvCurrency?: unknown; ltvValue?: unknown }
+  const needsDealCurrency = 'dealCurrency' in summary && summary.dealCurrency === null
+  const needsLtvCurrency = 'ltvCurrency' in summary && summary.ltvCurrency === null && typeof summary.ltvValue === 'number'
+  if (!needsDealCurrency && !needsLtvCurrency) return payload
+  if (!tenantId || !organizationId) return payload
+  const baseCurrency = await resolveOptionalBaseCurrencyCode(container, tenantId, organizationId)
+  if (!baseCurrency) return payload
+  return {
+    ...payload,
+    kpis: {
+      ...kpis,
+      ...(needsDealCurrency ? { dealCurrency: baseCurrency } : {}),
+      ...(needsLtvCurrency ? { ltvCurrency: baseCurrency } : {}),
+    },
+  }
 }
 
 function buildCompanyDetailCacheKey(parts: {
@@ -219,6 +253,7 @@ type CompanyDetailKpiSummary = {
   activityCount: number
   activityTrend: { value: number; direction: 'up' | 'down' | 'unchanged' } | null
   ltvValue: number | null
+  ltvCurrency: string | null
   completedDealsCount: number
   clientTenureYears: number | null
 }
@@ -518,7 +553,10 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     : null
   if (cache && cacheKey) {
     const cached = await runWithCacheTenant(cacheTenantId, () => cache.get(cacheKey))
-    if (cached) return NextResponse.json(await enrichCustomerDetailResponse(cached as Record<string, unknown>, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
+    if (cached) {
+      const served = await applyBaseCurrencyFallback(cached as Record<string, unknown>, container, companyScope.tenantId, companyScope.organizationId)
+      return NextResponse.json(await enrichCustomerDetailResponse(served, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
+    }
   }
 
   const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
@@ -929,8 +967,9 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     ...(view.deals ? {
       activeDealsCount: activeDeals.length,
       activeDealsValue: activeDeals.length ? activeDealsValue : null,
-      dealCurrency: activeDeals[0]?.valueCurrency ?? deals[0]?.valueCurrency ?? null,
+      dealCurrency: pickDealCurrency(activeDeals) ?? pickDealCurrency(deals),
       ltvValue,
+      ltvCurrency: pickDealCurrency(wonDeals),
       completedDealsCount: wonDeals.length,
     } : {}),
     ...(view.activities ? { activityCount } : {}),
@@ -1177,7 +1216,8 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     }
   }
 
-  return NextResponse.json(await enrichCustomerDetailResponse(payload, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
+  const served = await applyBaseCurrencyFallback(payload, container, companyScope.tenantId, companyScope.organizationId)
+  return NextResponse.json(await enrichCustomerDetailResponse(served, 'company', { auth, container, em, tenantId: companyScope.tenantId, organizationId: companyScope.organizationId }))
 }
 
 const companyDetailQuerySchema = z.object({
