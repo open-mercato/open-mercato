@@ -140,7 +140,7 @@ Partial backup directories and restore journals carry a lock record `{runId, hos
 
 Acquisition, stale-owner replacement and owned removal are serialized by a private `lock.guard` file created with `O_EXCL`. Its diagnostic record names the run, host and PID; it is removed after the short filesystem transaction. A concurrent resume cannot delete another resume's newly acquired lock. Heartbeats continue on the original owned file handle. If a process dies during this short transaction, the guard remains closed: stop and positively verify all involved backup processes, inspect the recorded owner, then remove only the abandoned guard before retrying. Neither heartbeat age nor `--take-over-lock` removes this guard. An explicit takeover is not cancellation of a running process; the operator must stop the old process first.
 
-Regression coverage: `engine-lock.test.ts` forces two stale resumes to validate the same old inode, then orders deletion and recreation to reproduce successor removal. Exactly one resume must own the lock. Additional cases cover abandoned guard refusal, preservation of a replacement inode during release, and guard cleanup after ordinary acquisition/refusal.
+Regression coverage: `engine-lock.test.ts` pauses the first stale resume immediately before removing the old inode, then starts a second resume while the acquisition guard is held. The second must refuse with `BACKUP_LIVE_LOCK`, and exactly one resume must own the replacement lock. Additional cases cover abandoned guard refusal, preservation of a replacement inode during release, and guard cleanup after ordinary acquisition/refusal.
 
 ### Native execution, connections and safety (retained)
 
@@ -401,3 +401,5 @@ Verdict: **design review only; not approved for implementation** until Q2/Q3 sec
 
 ### 2026-11-21
 - Serialize backup lock acquisition, stale replacement and removal; add the forced concurrent-resume regression and preserve publication after a partial-directory rename. Document fail-closed abandoned-guard recovery. Protected custody/architecture decisions and personal recovery QA remain required.
+
+- 2026-11-28: Make the concurrent stale-resume regression deterministic by holding the first contender at stale inode removal before starting the second; retain exclusive-ownership and live-lock refusal assertions.

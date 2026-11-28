@@ -29,30 +29,10 @@ test('each always-blocking label added to a queued PR removes merge-queue', () =
   }
 })
 
-test('needs-human-qa added without qa-approved removes merge-queue', () => {
-  const decision = decide({ action: 'labeled', label: 'needs-human-qa', labels: ['merge-queue', 'needs-human-qa'] })
-  assert.deepEqual(decision, { remove: true, reason: '`needs-human-qa` without `qa-approved` was added' })
-})
-
-test('needs-human-qa added next to qa-approved keeps merge-queue', () => {
-  const decision = decide({
-    action: 'labeled',
-    label: 'needs-human-qa',
-    labels: ['merge-queue', 'needs-human-qa', 'qa-approved'],
-  })
-  assert.deepEqual(decision, { remove: false })
-})
-
-test('qa-approved removed while needs-human-qa is present removes merge-queue', () => {
-  const decision = decide({ action: 'unlabeled', label: 'qa-approved', labels: ['merge-queue', 'needs-human-qa'] })
-  assert.deepEqual(decision, {
-    remove: true,
-    reason: '`qa-approved` was removed while `needs-human-qa` is present',
-  })
-})
-
-test('qa-approved removed from a PR without needs-human-qa keeps merge-queue', () => {
-  assert.deepEqual(decide({ action: 'unlabeled', label: 'qa-approved', labels: ['merge-queue'] }), { remove: false })
+test('needs-human-qa or a missing qa-approved never removes merge-queue', () => {
+  assert.deepEqual(decide({ action: 'labeled', label: 'needs-human-qa', labels: ['merge-queue', 'needs-human-qa'] }), { remove: false })
+  assert.deepEqual(decide({ action: 'unlabeled', label: 'qa-approved', labels: ['merge-queue', 'needs-human-qa'] }), { remove: false })
+  assert.deepEqual(decide({ action: 'labeled', label: 'merge-queue', labels: ['merge-queue', 'needs-qa', 'needs-human-qa'] }), { remove: false })
 })
 
 test('merge-queue added while a blocker is present is taken off at once', () => {
@@ -63,7 +43,7 @@ test('merge-queue added while a blocker is present is taken off at once', () => 
   })
   assert.deepEqual(decision, {
     remove: true,
-    reason: 'the PR already carries a blocking label (`do-not-merge`, `needs-human-qa` without `qa-approved`)',
+    reason: 'the PR already carries a blocking label (`do-not-merge`)',
   })
 })
 
@@ -91,7 +71,8 @@ test('unrelated label events keep merge-queue even next to an existing blocker',
 test('blockingLabels lists only labels that break the merge-ready rule', () => {
   assert.deepEqual(blockingLabels(['needs-qa', 'review', 'qa-batch-check']), [])
   assert.deepEqual(blockingLabels(['needs-human-qa', 'qa-approved']), [])
-  assert.deepEqual(blockingLabels(['blocked', 'needs-human-qa', 'qa-failed']), ['qa-failed', 'blocked', 'needs-human-qa'])
+  assert.deepEqual(blockingLabels(['needs-human-qa']), [])
+  assert.deepEqual(blockingLabels(['blocked', 'needs-human-qa', 'qa-failed']), ['qa-failed', 'blocked'])
 })
 
 test('the comment is a single line naming merge-queue and the reason', () => {
@@ -375,7 +356,9 @@ test('the job also runs when merge-queue itself is removed, and tells the script
   assert.ok(allowList, 'the job filters on a label allow-list')
   const labels = JSON.parse(allowList[1]) as string[]
   assert.ok(labels.includes('merge-queue'))
-  for (const label of [...ALWAYS_BLOCKING_LABELS, 'needs-human-qa', 'qa-approved']) assert.ok(labels.includes(label), label)
+  for (const label of ALWAYS_BLOCKING_LABELS) assert.ok(labels.includes(label), label)
+  assert.equal(labels.includes('needs-human-qa'), false)
+  assert.equal(labels.includes('qa-approved'), false)
   const scriptStep = job.steps.find((step) => step.uses?.startsWith('actions/github-script@'))
   assert.ok(scriptStep)
   assert.equal(scriptStep.name, 'Check merge-queue against blocking labels')

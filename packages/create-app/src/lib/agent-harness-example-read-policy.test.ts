@@ -1326,7 +1326,7 @@ test('reachability: every shipped declaring case can afford the entire surface i
       const declaration = entry.context.exampleRoots[0]
       const files = evaluator.exampleReadAllowlist(entry, root)
       const bytes = files.reduce((total, relative) => total + fs.statSync(path.join(root, relative)).size, 0)
-      if (entry.id === 'OMH-221') {
+      if (['OMH-221', 'OMH-223'].includes(entry.id)) {
         context.diagnostic(`${entry.id}: ${bytes} example bytes / ${declaration.maxBytes} root cap`)
         assert.ok(declaration.maxBytes - bytes >= 164, `${entry.id}: ${bytes} example bytes need ${bytes + 164} with existing headroom`)
       }

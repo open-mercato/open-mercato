@@ -25,7 +25,7 @@
     "priority": ["priority-low", "priority-medium", "priority-high", "priority-extreme"],
     "risk": ["risk-low", "risk-medium", "risk-high"]
   },
-  "qaGate": true,
+  "qaGate": false,
   "qaGateLabel": "needs-human-qa",
   "qaReadyLabel": null,
   "humanQaPolicy": {
@@ -57,6 +57,7 @@
     "blockerLabel": "qa-blocker",
     "testers": []
   },
+  "prTriage": { "acceptanceLabel": "needs-triage" },
   "ci": { "maxWaitMinutes": 40 },
   "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },
   "automerge": {
