@@ -1,0 +1,12 @@
+{
+  "group": "5ceda0c9-1cba-4113-9ed2-469d3a8cb706",
+  "person": "146a15cc-81a7-4ef0-b261-5c9b65765781",
+  "membership": "e39ed0c0-6f16-4fe0-b837-e5404071ceed",
+  "softRefusal": {
+    "error": "This group has members in organizations you cannot access, so you cannot delete it."
+  },
+  "deleteStatus": 200,
+  "retiredMembership": true,
+  "repeatStatus": 404,
+  "reassignmentStatus": 400
+}
