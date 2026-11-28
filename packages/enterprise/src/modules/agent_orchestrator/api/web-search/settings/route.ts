@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   describeOptionsSchema,
   instantiateAdapter,
@@ -182,7 +183,7 @@ export async function PUT(req: Request) {
   // Secrets are never sent to the browser, so the client echoes a placeholder
   // back for any it did not change. Restore those from what is already stored,
   // or a save from the settings form would wipe every key it was not shown.
-  const current = await resolveWebSearchSettings(container, auth.tenantId)
+  const current = await resolveWebSearchSettings(container, auth.tenantId, process.env, { decryptSecrets: false })
   const registry = loadRegistry(container)
   const incomingOptions = (parsed.data.adapterOptions ?? {}) as Record<string, Record<string, unknown>>
   // Merged per adapter, not replaced, so saving one adapter's card cannot drop
@@ -209,16 +210,20 @@ export async function PUT(req: Request) {
     (await readStoredValue(service, auth.tenantId)) ?? {},
   )
 
-  // Encrypted at the last moment, so everything above works in plaintext and
-  // only the row is ciphertext. `encrypted: false` means no DEK was available —
-  // it is reported to the operator rather than swallowed, because an API key
-  // they believe is protected and is not is worse than one they know is bare.
-  const { adapterOptions: storedAdapterOptions, encrypted } = await encryptAdapterSecrets(
+  const { adapterOptions: storedAdapterOptions, encrypted, unreadableStoredSecret } = await encryptAdapterSecrets(
     container,
     auth.tenantId,
     adapterOptions,
     adapterSecretFields(container),
+    current.adapterOptions,
   )
+  if (unreadableStoredSecret) {
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      { error: translate('agent_orchestrator.settings.webSearch.unreadableStoredSecret') },
+      { status: 503 },
+    )
+  }
   if (!encrypted) {
     logger.warn(
       'Tenant data encryption is unavailable; web-search adapter credentials are stored in plaintext',
@@ -302,7 +307,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Invalid settings or missing tenant', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
         { status: 403, description: 'Missing agent_orchestrator.agents.manage', schema: z.object({ error: z.string() }) },
-        { status: 503, description: 'Config store unavailable', schema: z.object({ error: z.string() }) },
+        { status: 503, description: 'Config store unavailable or stored credential unreadable', schema: z.object({ error: z.string() }) },
       ],
     },
   },

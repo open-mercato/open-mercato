@@ -1285,6 +1285,7 @@
   "agent_orchestrator.settings.webSearch.timeoutHint": "Milisekundy, jakie może zająć ten adapter. Zostaw puste, aby użyć budżetu z polityki.",
   "agent_orchestrator.settings.webSearch.title": "Wyszukiwanie w sieci",
   "agent_orchestrator.settings.webSearch.tuning": "Strojenie",
+  "agent_orchestrator.settings.webSearch.unreadableStoredSecret": "Nie można odszyfrować zapisanego klucza adaptera wyszukiwania. Przywróć klucz szyfrowania dzierżawcy lub wymień klucz adaptera.",
   "agent_orchestrator.settings.webSearch.unsaved": "Niezapisane zmiany",
   "agent_orchestrator.settings.webSearch.unsavedHint": "Jeszcze niezapisane",
   "agent_orchestrator.settings.webSearch.weight": "Waga",

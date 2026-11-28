@@ -202,6 +202,7 @@ export async function resolveWebSearchSettings(
   container: AwilixContainer,
   tenantId: string | null,
   env: NodeJS.ProcessEnv = process.env,
+  { decryptSecrets = true }: { decryptSecrets?: boolean } = {},
 ): Promise<WebSearchSettings> {
   const base = resolveEnvSettings(env)
   const service = resolveModuleConfig(container)
@@ -234,12 +235,10 @@ export async function resolveWebSearchSettings(
   // consumer — the engine, the health probe, the preview, the settings form —
   // comes through here, so decrypting once at this seam is what keeps a second
   // reader from acquiring its own copy of the rule.
-  const adapterOptions = await decryptAdapterSecrets(
-    container,
-    tenantId,
-    (stored?.adapterOptions ?? {}) as Record<string, unknown>,
-    adapterSecretFields(container),
-  )
+  const storedAdapterOptions = (stored?.adapterOptions ?? {}) as Record<string, unknown>
+  const adapterOptions = decryptSecrets
+    ? await decryptAdapterSecrets(container, tenantId, storedAdapterOptions, adapterSecretFields(container))
+    : storedAdapterOptions
 
   return {
     policy,
