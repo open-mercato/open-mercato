@@ -26,6 +26,7 @@ import {
 import { loadPersonContext } from './context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { getCommandInterceptorHttpRejection } from '@open-mercato/shared/lib/commands/errors'
 
 const paramsSchema = z.object({
@@ -69,6 +70,9 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List linked companies for a person',
       responses: [{ status: 200, description: 'Linked company rows', schema: listResponseSchema }],
+      errors: [
+        { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
+      ],
     },
     POST: {
       summary: 'Link a company to a person',
@@ -82,7 +86,16 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
   const { translate } = await resolveTranslations()
   try {
     const { id } = paramsSchema.parse({ id: ctx.params?.id })
-    const { em, person, profile } = await loadPersonContext(req, id)
+    const { auth, container, em, person, profile } = await loadPersonContext(req, id)
+    const rbac = container.resolve<RbacService>('rbacService')
+    const canViewCompanies = await rbac.userHasAllFeatures(
+      auth.sub,
+      ['customers.companies.view'],
+      { tenantId: person.tenantId, organizationId: person.organizationId },
+    )
+    if (!canViewCompanies) {
+      throw new CrudHttpError(403, { error: translate('customers.errors.access_denied', 'Access denied') })
+    }
     const links = await loadPersonCompanyLinks(em, person)
     const items = summarizePersonCompanies(profile, links).map((entry) => ({
       id: entry.linkId ?? entry.companyId,

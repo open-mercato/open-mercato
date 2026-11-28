@@ -2204,6 +2204,7 @@ export type CompanyOverview = {
 }
 
 export type PersonOverview = {
+  canViewCompanies?: boolean
   person: {
     id: string
     displayName: string

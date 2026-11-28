@@ -60,7 +60,6 @@ import { isDetailNotFoundStatus } from '@open-mercato/core/modules/customers/lib
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
-const HIDDEN_INTERACTION_TABS = ['activities']
 
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -83,6 +82,12 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   const fields = React.useMemo(() => createPersonEditFields(t), [t])
 
   const [data, setData] = React.useState<PersonOverview | null>(null)
+  const canViewCompanies = data?.canViewCompanies === true
+  const hideActivities = Boolean(chrome) && !canViewInteractions
+  const hiddenTabIds = React.useMemo(() => [
+    ...(hideActivities ? ['activities'] : []),
+    ...(canViewCompanies ? [] : ['companies']),
+  ], [hideActivities, canViewCompanies])
   // Mirror the latest `data` into a ref so save handlers always read the current
   // optimistic-lock token (`person.updatedAt`) instead of the value captured in
   // their `useCallback` closure. Without this, a header-field save issued after a
@@ -525,7 +530,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             onDelete={handleFormDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onOpenCompaniesTab={() => handleTabChange('companies')}
+            onOpenCompaniesTab={canViewCompanies ? () => handleTabChange('companies') : undefined}
             onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'people-v2', err })) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
@@ -574,7 +579,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
                 isLoadingInjectedTabs={injectedTabsLoading}
-                hiddenTabIds={chrome && !canViewInteractions ? HIDDEN_INTERACTION_TABS : undefined}
+                hiddenTabIds={hiddenTabIds}
                 injectedTabs={injectedTabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon, priority: tab.priority }))}
                 activitiesCount={interactionCount}
                 dealsCount={dealCount}
@@ -641,7 +646,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
                     )
                   }
 
-                  if (activeTab === 'companies') {
+                  if (activeTab === 'companies' && canViewCompanies) {
                     return (
                       <PersonCompaniesSection
                         personId={personId}

@@ -303,6 +303,16 @@ describe('PersonDetailV2Page', () => {
     expect(crudFormPropsCapture.current?.groups).not.toContainEqual({ id: 'roles' })
   })
 
+  it('hides inaccessible tabs and skips the company panel for a direct companies link', async () => {
+    activeTabParam = 'companies'
+    mockGrantedFeatures = ['customers.people.view']
+    renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
+
+    await waitFor(() => expect(screen.getByText('form')).toBeInTheDocument())
+    expect(personDetailTabsPropsCapture.current?.hiddenTabIds).toEqual(['activities', 'companies'])
+    expect(screen.queryByText('companies')).not.toBeInTheDocument()
+  })
+
   it('sends no interactions request while a non-activity tab is open (#7494)', async () => {
     activeTabParam = 'addresses'
     renderWithProviders(<PersonDetailV2Page params={{ id: 'person-123' }} />)
