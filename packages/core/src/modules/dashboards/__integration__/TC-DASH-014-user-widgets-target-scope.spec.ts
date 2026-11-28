@@ -81,7 +81,7 @@ async function createActor(
 ): Promise<Actor> {
   const id = uniqueId(input.prefix)
   const email = `${id}@dashboards.example.com`
-  const password = 'Valid1!Pass'
+  const password = 'QaValid1!Pass'
   const actor: Actor = { roleIds: [], userId: null, token: '' }
   const grants = input.grants ?? [{ features: input.features ?? [], organizations: null }]
   const roleNames: string[] = []
