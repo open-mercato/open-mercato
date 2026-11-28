@@ -16,13 +16,25 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 }))
 
 import { LockMode } from '@mikro-orm/core'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import reassignConversationCommand, {
   COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID,
 } from '../reassign-conversation'
 
 const mockFindOne = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockFind = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
+
+beforeEach(() => {
+  mockFind.mockReset()
+})
+
+function mockLockedAssignment(mapping: object, conversation: object) {
+  mockFind
+    .mockResolvedValueOnce([mapping] as never)
+    .mockResolvedValueOnce([conversation] as never)
+    .mockResolvedValueOnce([mapping] as never)
+}
 
 describe('reassignConversationCommand metadata', () => {
   it('exports the canonical command id', () => {
@@ -132,10 +144,12 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
   })
 
   it('returns invalid_assignee when the target user is not a member of the tenant', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1' }
     mockFindOne
-      .mockResolvedValueOnce({ assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1' } as never)
+      .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce(sharedChannel as never)
       .mockResolvedValueOnce(null)
+    mockLockedAssignment(mapping, { id: 'conv-1', assignedUserId: null })
     const { ctx, em } = ctxWithEm()
     const result = await reassignConversationCommand.execute(
       { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
@@ -157,12 +171,12 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
   })
 
   it('reassigns when the target user belongs to the tenant and captures an undo snapshot', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT }
     mockFindOne
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce(sharedChannel as never)
       .mockResolvedValueOnce({ id: ASSIGNEE } as never)
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
-      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    mockLockedAssignment(mapping, { id: 'conv-1', assignedUserId: null })
     const { ctx, em } = ctxWithEm()
     const result = await reassignConversationCommand.execute(
       { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
@@ -183,24 +197,24 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
 
   it('takes the previous owner from the row locked inside the transaction', async () => {
     const LOCKED_OWNER = '77777777-7777-4777-8777-777777777777'
+    const mapping = { id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT }
     mockFindOne
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce(sharedChannel as never)
       .mockResolvedValueOnce({ id: ASSIGNEE } as never)
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: LOCKED_OWNER, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
-      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: LOCKED_OWNER } as never)
+    mockLockedAssignment({ ...mapping, assignedUserId: LOCKED_OWNER }, { id: 'conv-1', assignedUserId: LOCKED_OWNER })
     const { ctx, em } = ctxWithEm()
     const result = await reassignConversationCommand.execute(
       { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
       ctx,
     )
     expect(em.transactional).toHaveBeenCalledTimes(1)
-    expect(mockFindOne).toHaveBeenNthCalledWith(
-      4,
+    expect(mockFind).toHaveBeenNthCalledWith(
+      3,
       em,
       expect.anything(),
-      { id: 'mapping-1', tenantId: TENANT, organizationId: null },
-      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+      { messageThreadId: THREAD, channelId: 'channel-1', tenantId: TENANT, organizationId: null },
+      { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true, orderBy: { id: 'asc' } },
       expect.anything(),
     )
     expect(result).toMatchObject({
@@ -211,11 +225,11 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
   })
 
   it('returns noop when the locked row already holds the requested owner', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT }
     mockFindOne
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce(sharedChannel as never)
-      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: ASSIGNEE, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+    mockLockedAssignment({ ...mapping, assignedUserId: ASSIGNEE }, { id: 'conv-1', assignedUserId: ASSIGNEE })
     const { ctx, em } = ctxWithEm()
     const result = await reassignConversationCommand.execute(
       { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
@@ -229,8 +243,7 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
     mockFindOne
       .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
       .mockResolvedValueOnce(sharedChannel as never)
-      .mockResolvedValueOnce({ id: ASSIGNEE } as never)
-      .mockResolvedValueOnce(null as never)
+    mockFind.mockResolvedValueOnce([])
     const { ctx, em } = ctxWithEm()
     const result = await reassignConversationCommand.execute(
       { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } } as never,
@@ -238,6 +251,29 @@ describe('reassignConversationCommand execute (assignee tenant validation)', () 
     )
     expect(result).toMatchObject({ status: 'no_channel_link' })
     expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('repairs a second mapping even when the first mapping already has the requested owner', async () => {
+    const primaryMapping = { id: 'mapping-1', assignedUserId: ASSIGNEE, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT }
+    const secondMapping = { ...primaryMapping, id: 'mapping-2', externalConversationId: 'conv-2', assignedUserId: null }
+    const primaryConversation = { id: 'conv-1', assignedUserId: ASSIGNEE }
+    const secondConversation = { id: 'conv-2', assignedUserId: null }
+    mockFindOne.mockResolvedValueOnce(primaryMapping as never).mockResolvedValueOnce(sharedChannel as never)
+    mockFindOne.mockResolvedValueOnce({ id: ASSIGNEE } as never)
+    mockFind.mockResolvedValueOnce([primaryMapping, secondMapping] as never)
+    mockFind.mockResolvedValueOnce([primaryConversation, secondConversation] as never)
+    mockFind.mockResolvedValueOnce([primaryMapping, secondMapping] as never)
+
+    const { ctx, em } = ctxWithEm()
+    const result = await reassignConversationCommand.execute(
+      { threadId: THREAD, assignedUserId: ASSIGNEE, scope: { tenantId: TENANT, organizationId: null } },
+      ctx,
+    )
+
+    expect(result).toMatchObject({ status: 'reassigned', conversationId: primaryConversation.id })
+    expect(secondMapping.assignedUserId).toBe(ASSIGNEE)
+    expect(secondConversation.assignedUserId).toBe(ASSIGNEE)
+    expect(em.flush).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -309,8 +345,7 @@ describe('reassignConversationCommand execute (personal-mailbox privacy, #3832)'
       .mockResolvedValueOnce(mapping() as never)
       .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
       .mockResolvedValueOnce({ id: ASSIGNEE } as never)
-      .mockResolvedValueOnce(mapping() as never)
-      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    mockLockedAssignment(mapping(), { id: 'conv-1', assignedUserId: null })
     const { promise, em } = run({ userId: OWNER, features: ASSIGN })
     expect(await promise).toMatchObject({ status: 'reassigned', nextAssignedUserId: ASSIGNEE })
     expect(em.flush).toHaveBeenCalledTimes(1)
@@ -321,8 +356,7 @@ describe('reassignConversationCommand execute (personal-mailbox privacy, #3832)'
       .mockResolvedValueOnce(mapping() as never)
       .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER, deletedAt: new Date() } as never)
       .mockResolvedValueOnce({ id: ASSIGNEE } as never)
-      .mockResolvedValueOnce(mapping() as never)
-      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    mockLockedAssignment(mapping(), { id: 'conv-1', assignedUserId: null })
     const { promise } = run({ userId: OWNER })
     expect(await promise).toMatchObject({ status: 'reassigned' })
   })
@@ -332,8 +366,7 @@ describe('reassignConversationCommand execute (personal-mailbox privacy, #3832)'
       .mockResolvedValueOnce(mapping() as never)
       .mockResolvedValueOnce({ id: 'channel-1', userId: null } as never)
       .mockResolvedValueOnce({ id: ASSIGNEE } as never)
-      .mockResolvedValueOnce(mapping() as never)
-      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    mockLockedAssignment(mapping(), { id: 'conv-1', assignedUserId: null })
     const { promise, em, rbacService } = run({ userId: OTHER, features: ['communication_channels.*'] })
     expect(await promise).toMatchObject({ status: 'reassigned' })
     expect(em.flush).toHaveBeenCalledTimes(1)
@@ -432,12 +465,12 @@ describe('reassignConversationCommand redo (personal-mailbox privacy, #3832)', (
   })
 
   it('replays the reassignment when the mailbox owner redoes it', async () => {
+    const mapping = { id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT }
     mockFindOne
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
+      .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
       .mockResolvedValueOnce({ id: ASSIGNEE } as never)
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT } as never)
-      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null } as never)
+    mockLockedAssignment(mapping, { id: 'conv-1', assignedUserId: null })
     const { promise, em } = redo({ userId: OWNER })
     expect(await promise).toMatchObject({ status: 'reassigned', nextAssignedUserId: ASSIGNEE })
     expect(em.flush).toHaveBeenCalledTimes(1)
@@ -486,8 +519,8 @@ describe('reassignConversationCommand undo', () => {
     mockFindOne
       .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce(channel as never)
-      .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce(conversation as never)
+      .mockResolvedValueOnce(mapping as never)
     return { mapping, conversation }
   }
 
@@ -502,7 +535,7 @@ describe('reassignConversationCommand undo', () => {
       3,
       em,
       expect.anything(),
-      { id: 'mapping-1', tenantId: TENANT, organizationId: null },
+      { id: 'conv-1', channelId: 'channel-1', tenantId: TENANT, organizationId: null },
       { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
       expect.anything(),
     )
@@ -510,7 +543,7 @@ describe('reassignConversationCommand undo', () => {
       4,
       em,
       expect.anything(),
-      { id: 'conv-1', tenantId: TENANT, organizationId: null },
+      { id: 'mapping-1', channelId: 'channel-1', externalConversationId: 'conv-1', tenantId: TENANT, organizationId: null },
       { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
       expect.anything(),
     )
@@ -597,8 +630,8 @@ describe('reassignConversationCommand undo', () => {
     mockFindOne
       .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
-      .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce(mapping as never)
     const { promise, em } = undo({ userId: OWNER })
     await promise
     expect(em.flush).toHaveBeenCalledTimes(1)
@@ -610,8 +643,8 @@ describe('reassignConversationCommand undo', () => {
     mockFindOne
       .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER } as never)
-      .mockResolvedValueOnce(mapping as never)
       .mockResolvedValueOnce(null as never)
+      .mockResolvedValueOnce(mapping as never)
     const { promise, em } = undo({ userId: OWNER })
     await expect(promise).rejects.toMatchObject({ status: 409 })
     expect(em.flush).not.toHaveBeenCalled()

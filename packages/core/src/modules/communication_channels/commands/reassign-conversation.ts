@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/shared/lib/commands/undo'
-import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadMapping, CommunicationChannel, ExternalConversation } from '../data/entities'
 import { ChannelAccessDeniedError, assertCanManageChannel } from '../lib/access-control'
 import { emitCommunicationChannelsEvent } from '../events'
@@ -150,6 +150,20 @@ export type ReassignConversationResult =
   | { status: 'invalid_assignee'; reason: string }
   | { status: 'noop'; reason: string }
 
+const mailboxAssignmentSnapshotSchema = z.object({
+  channelId: z.string().uuid(),
+  messageThreadId: z.string().uuid(),
+  organizationId: z.string().uuid().nullable(),
+  assignments: z.array(z.object({
+    threadMappingId: z.string().uuid(),
+    conversationId: z.string().uuid(),
+    previousMappingAssignedUserId: z.string().uuid().nullable(),
+    previousConversationAssignedUserId: z.string().uuid().nullable(),
+  })).min(1),
+})
+
+type MailboxAssignmentSnapshot = z.infer<typeof mailboxAssignmentSnapshotSchema>
+
 export interface ReassignConversationUndoSnapshot {
   threadMappingId: string
   conversationId: string
@@ -158,6 +172,52 @@ export interface ReassignConversationUndoSnapshot {
   tenantId?: string
   previousAssignedUserId: string | null
   newAssignedUserId: string | null
+  mailbox?: MailboxAssignmentSnapshot
+}
+
+type AssignmentScope = ReassignConversationInput['scope'] & {
+  channelId: string
+  messageThreadId: string
+}
+
+const assignmentLock = { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true } as const
+
+/** Locks conversations before mappings, in the same order as provider reference adoption. */
+async function lockMailboxAssignments(em: EntityManager, scope: AssignmentScope, mappingIds?: string[]) {
+  const { tenantId, organizationId, channelId, messageThreadId } = scope
+  const dscope = { tenantId, organizationId }
+  const options = { ...assignmentLock, orderBy: { id: 'asc' } } as const
+  const mailboxFilter = { tenantId, organizationId, channelId }
+  const mappingFilter = { ...mailboxFilter, messageThreadId, ...(mappingIds && { id: { $in: mappingIds } }) }
+  const candidates = await findWithDecryption(
+    em,
+    ChannelThreadMapping,
+    mappingFilter,
+    { fields: ['id', 'externalConversationId'] },
+    dscope,
+  )
+  if (!candidates.length || (mappingIds && candidates.length !== mappingIds.length)) return null
+
+  const conversations = await findWithDecryption(
+    em,
+    ExternalConversation,
+    { ...mailboxFilter, id: { $in: candidates.map((mapping) => mapping.externalConversationId) } },
+    options,
+    dscope,
+  )
+  if (conversations.length !== candidates.length) return null
+
+  const mappings = await findWithDecryption(em, ChannelThreadMapping, mappingFilter, options, dscope)
+  if (mappings.length !== candidates.length) return null
+
+  const conversationsById = new Map(conversations.map((conversation) => [conversation.id, conversation]))
+  const assignments = []
+  for (const mapping of mappings) {
+    const conversation = conversationsById.get(mapping.externalConversationId)
+    if (!conversation) return null
+    assignments.push({ mapping, conversation })
+  }
+  return assignments
 }
 
 export const COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID =
@@ -166,16 +226,13 @@ export const COMMUNICATION_CHANNELS_REASSIGN_CONVERSATION_COMMAND_ID =
 /**
  * Reassign the owning user of a channel-linked conversation.
  *
- * Updates both `ChannelThreadMapping.assignedUserId` and the linked
- * `ExternalConversation.assignedUserId` so subscribers (notification handlers,
- * future dashboards) see a consistent owner. No external provider call —
- * reassignment is an internal-routing concern.
+ * Updates the thread mappings and linked conversations in the selected mailbox
+ * so incoming replies route to the same owner.
  *
  * Idempotent: when the new owner matches the existing one, returns `noop`.
  *
- * The command is undoable: the `before` snapshot captures the previous owner on
- * both rows so undo can restore them atomically. Undo refuses with a 409 when a
- * later reassignment has already replaced the owner this command set.
+ * The undo snapshot captures the previous owners of all affected rows. Undo
+ * refuses with 409 when a later reassignment has replaced any of those owners.
  */
 const reassignConversationCommand: CommandHandler<
   ReassignConversationInput,
@@ -201,11 +258,7 @@ const reassignConversationCommand: CommandHandler<
         tenantId: input.scope.tenantId,
         organizationId: input.scope.organizationId ?? null,
       },
-      // `message_thread_id` is non-unique (only `(external_conversation_id,
-      // tenant_id)` is unique). The 1:1 thread↔mapping invariant holds in v1,
-      // but order deterministically so a future many-conversations-per-thread
-      // merge can never resolve an arbitrary mapping here.
-      { orderBy: { createdAt: 'asc' } },
+      { orderBy: { createdAt: 'asc', id: 'asc' } },
       dscope,
     )
     if (!mapping) {
@@ -233,88 +286,73 @@ const reassignConversationCommand: CommandHandler<
       return { status: 'access_denied', reason: denialReason }
     }
 
-    if ((mapping.assignedUserId ?? null) === input.assignedUserId) {
-      return { status: 'noop', reason: 'assigned user unchanged' }
-    }
-
-    // Reject an assignee that is not a live user of this tenant — a UUID-shaped
-    // body alone must not create a cross-tenant / dangling owner reference.
-    if (input.assignedUserId) {
-      // Reference the `auth` user row by string entity name so this command does
-      // not import the auth module's entities (module independence); `as never`
-      // matches the codebase pattern for cross-module decrypted reads.
-      const assignee = await findOneWithDecryption(
-        em,
-        'User' as never,
-        { id: input.assignedUserId, tenantId: input.scope.tenantId, deletedAt: null } as never,
-        undefined,
-        dscope,
-      )
-      if (!assignee) {
-        return {
-          status: 'invalid_assignee',
-          reason: 'assigned user is not a member of this tenant',
-        }
-      }
-    }
-
     const applied = await em.transactional(async (tem) => {
-      const lockedMapping = await findOneWithDecryption(
-        tem,
-        ChannelThreadMapping,
-        {
-          id: mapping.id,
-          tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? null,
-        },
-        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-        dscope,
-      )
-      if (!lockedMapping) {
+      const mailboxScope = { ...dscope, channelId: mapping.channelId, messageThreadId: input.threadId }
+      const assignments = await lockMailboxAssignments(tem, mailboxScope)
+      const primary = assignments?.find((assignment) => assignment.mapping.id === mapping.id)
+      if (!assignments || !primary) {
         return {
           status: 'no_channel_link' as const,
-          reason: `no ChannelThreadMapping for thread ${input.threadId}`,
+          reason: `incomplete mailbox assignments for thread ${input.threadId}`,
         }
       }
-      const lockedPreviousAssignedUserId = lockedMapping.assignedUserId ?? null
-      if (lockedPreviousAssignedUserId === input.assignedUserId) {
+      const nextAssignedUserId = normalizeAssignedUserId(input.assignedUserId)
+      if (assignments.every(({ mapping, conversation }) =>
+        normalizeAssignedUserId(mapping.assignedUserId) === nextAssignedUserId &&
+        normalizeAssignedUserId(conversation.assignedUserId) === nextAssignedUserId,
+      )) {
         return { status: 'noop' as const, reason: 'assigned user unchanged' }
       }
-      const conversation = await findOneWithDecryption(
-        tem,
-        ExternalConversation,
-        {
-          id: lockedMapping.externalConversationId,
-          tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? null,
-        },
-        { refresh: true },
-        dscope,
-      )
-      if (!conversation) {
-        return {
-          status: 'no_channel_link' as const,
-          reason: `no ExternalConversation for thread ${input.threadId}`,
+      if (input.assignedUserId) {
+        const assignee = await findOneWithDecryption(
+          tem,
+          'User' as never,
+          { id: input.assignedUserId, tenantId: dscope.tenantId, deletedAt: null } as never,
+          undefined,
+          dscope,
+        )
+        if (!assignee) {
+          return {
+            status: 'invalid_assignee' as const,
+            reason: 'assigned user is not a member of this tenant',
+          }
         }
       }
 
-      lockedMapping.assignedUserId = input.assignedUserId
-      conversation.assignedUserId = input.assignedUserId
-      await tem.flush()
-      return {
-        status: 'applied' as const,
-        previousAssignedUserId: lockedPreviousAssignedUserId,
-        conversation,
+      const undo: ReassignConversationUndoSnapshot = {
+        threadMappingId: primary.mapping.id,
+        conversationId: primary.conversation.id,
+        tenantId: dscope.tenantId,
+        previousAssignedUserId: primary.mapping.assignedUserId ?? null,
+        newAssignedUserId: input.assignedUserId,
+        mailbox: {
+          channelId: mailboxScope.channelId,
+          messageThreadId: mailboxScope.messageThreadId,
+          organizationId: mailboxScope.organizationId,
+          assignments: assignments.map(({ mapping, conversation }) => ({
+            threadMappingId: mapping.id,
+            conversationId: conversation.id,
+            previousMappingAssignedUserId: mapping.assignedUserId ?? null,
+            previousConversationAssignedUserId: conversation.assignedUserId ?? null,
+          })),
+        },
       }
+      for (const { mapping, conversation } of assignments) {
+        mapping.assignedUserId = nextAssignedUserId
+        conversation.assignedUserId = nextAssignedUserId
+      }
+      await tem.flush()
+      return { status: 'applied' as const, undo }
     })
     if (applied.status !== 'applied') return applied
-    const { previousAssignedUserId, conversation } = applied
+    const { undo } = applied
+    const { previousAssignedUserId, conversationId } = undo
 
     try {
       await emitCommunicationChannelsEvent(
         'communication_channels.conversation.reassigned',
         {
-          conversationId: conversation.id,
+          conversationId,
           channelId: mapping.channelId,
           messageThreadId: input.threadId,
           previousAssignedUserId,
@@ -333,20 +371,12 @@ const reassignConversationCommand: CommandHandler<
       )
     }
 
-    const undo: ReassignConversationUndoSnapshot = {
-      threadMappingId: mapping.id,
-      conversationId: conversation.id,
-      tenantId: mapping.tenantId,
-      previousAssignedUserId,
-      newAssignedUserId: input.assignedUserId,
-    }
-
     return {
       status: 'reassigned',
       threadId: input.threadId,
       previousAssignedUserId,
       nextAssignedUserId: input.assignedUserId,
-      conversationId: conversation.id,
+      conversationId,
       undo,
     }
   },
@@ -381,12 +411,21 @@ const reassignConversationCommand: CommandHandler<
     // Never resolve by bare id (cross-tenant). New snapshots always carry
     // tenantId; refuse the undo if a legacy snapshot lacks it.
     if (!snapshot.tenantId) return
-    const dscope = { tenantId: snapshot.tenantId, organizationId: null }
+    const { tenantId, mailbox } = snapshot
+    const dscope = { tenantId, organizationId: mailbox?.organizationId ?? null }
 
     const mapping = await findOneWithDecryption(
       em,
       ChannelThreadMapping,
-      { id: snapshot.threadMappingId, tenantId: snapshot.tenantId },
+      {
+        id: snapshot.threadMappingId,
+        tenantId,
+        ...(mailbox && {
+          channelId: mailbox.channelId,
+          messageThreadId: mailbox.messageThreadId,
+          organizationId: mailbox.organizationId,
+        }),
+      },
       undefined,
       dscope,
     )
@@ -397,7 +436,7 @@ const reassignConversationCommand: CommandHandler<
       ? await findOneWithDecryption(
           em,
           CommunicationChannel,
-          { id: mapping.channelId, tenantId: snapshot.tenantId },
+          { id: mapping.channelId, tenantId },
           undefined,
           dscope,
         )
@@ -406,39 +445,74 @@ const reassignConversationCommand: CommandHandler<
       throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
     }
     const denialReason = await checkChannelAccess(ctx, channel, {
-      tenantId: snapshot.tenantId,
+      tenantId,
       organizationId: mapping.organizationId ?? null,
     })
     if (denialReason) {
       throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
     }
+    const expectedAssignedUserId = normalizeAssignedUserId(snapshot.newAssignedUserId)
     const superseded = await em.transactional(async (tem) => {
-      const lockedMapping = await findOneWithDecryption(
-        tem,
-        ChannelThreadMapping,
-        {
-          id: snapshot.threadMappingId,
-          tenantId: snapshot.tenantId,
-          organizationId: mapping.organizationId ?? null,
-        },
-        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
-        dscope,
-      )
-      if (!lockedMapping) {
-        throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+      if (mailbox) {
+        const previousByMappingId = new Map(mailbox.assignments.map((previous) => [previous.threadMappingId, previous]))
+        const assignments = await lockMailboxAssignments(
+          tem,
+          { tenantId, organizationId: mailbox.organizationId, channelId: mailbox.channelId, messageThreadId: mailbox.messageThreadId },
+          mailbox.assignments.map((previous) => previous.threadMappingId),
+        )
+        if (!assignments || !previousByMappingId.has(snapshot.threadMappingId)) {
+          throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+        }
+        const restore = []
+        for (const { mapping, conversation } of assignments) {
+          const previous = previousByMappingId.get(mapping.id)
+          if (!previous || previous.conversationId !== conversation.id) {
+            throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+          }
+          if (
+            normalizeAssignedUserId(mapping.assignedUserId) !== expectedAssignedUserId ||
+            normalizeAssignedUserId(conversation.assignedUserId) !== expectedAssignedUserId
+          ) {
+            return true
+          }
+          restore.push({ mapping, conversation, previous })
+        }
+        for (const { mapping, conversation, previous } of restore) {
+          mapping.assignedUserId = previous.previousMappingAssignedUserId
+          conversation.assignedUserId = previous.previousConversationAssignedUserId
+        }
+        await tem.flush()
+        return false
       }
+
       const conversation = await findOneWithDecryption(
         tem,
         ExternalConversation,
         {
           id: snapshot.conversationId,
-          tenantId: snapshot.tenantId,
+          channelId: mapping.channelId,
+          tenantId,
           organizationId: mapping.organizationId ?? null,
         },
-        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+        assignmentLock,
         dscope,
       )
-      const expectedAssignedUserId = normalizeAssignedUserId(snapshot.newAssignedUserId)
+      const lockedMapping = await findOneWithDecryption(
+        tem,
+        ChannelThreadMapping,
+        {
+          id: snapshot.threadMappingId,
+          channelId: mapping.channelId,
+          externalConversationId: snapshot.conversationId,
+          tenantId,
+          organizationId: mapping.organizationId ?? null,
+        },
+        assignmentLock,
+        dscope,
+      )
+      if (!lockedMapping) {
+        throw new CrudHttpError(404, { error: await resolveThreadNotFoundMessage() })
+      }
       if (
         normalizeAssignedUserId(lockedMapping.assignedUserId) !== expectedAssignedUserId ||
         (conversation != null && normalizeAssignedUserId(conversation.assignedUserId) !== expectedAssignedUserId)
@@ -473,6 +547,8 @@ export function extractUndoPayload(value: unknown): ReassignConversationUndoSnap
   if (!candidate || typeof candidate !== 'object') return null
   const obj = candidate as Record<string, unknown>
   if (typeof obj.threadMappingId !== 'string' || typeof obj.conversationId !== 'string') return null
+  const mailbox = mailboxAssignmentSnapshotSchema.optional().safeParse(obj.mailbox)
+  if (!mailbox.success) return null
   return {
     threadMappingId: obj.threadMappingId,
     conversationId: obj.conversationId,
@@ -480,6 +556,7 @@ export function extractUndoPayload(value: unknown): ReassignConversationUndoSnap
     previousAssignedUserId:
       typeof obj.previousAssignedUserId === 'string' ? obj.previousAssignedUserId : null,
     newAssignedUserId: typeof obj.newAssignedUserId === 'string' ? obj.newAssignedUserId : null,
+    ...(mailbox.data && { mailbox: mailbox.data }),
   }
 }
 

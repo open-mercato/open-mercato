@@ -4,7 +4,11 @@ import { MikroORM } from '@mikro-orm/core'
 import { PostgreSqlDriver, type EntityManager } from '@mikro-orm/postgresql'
 import type { StartedTestContainer } from 'testcontainers'
 import * as entities from '../../data/entities'
-import reassignConversationCommand from '../reassign-conversation'
+import { adoptProviderConversationRef, buildOutboundConversationRef } from '../../lib/outbound-conversation-ref'
+import reassignConversationCommand, {
+  type ReassignConversationInput,
+  type ReassignConversationResult,
+} from '../reassign-conversation'
 
 type Deferred = { promise: Promise<void>; resolve: () => void }
 
@@ -12,23 +16,35 @@ type Gate = { entity: string; fired: boolean; reached: Deferred; release: Deferr
 
 const mockGateState: { gate: Gate | null } = { gate: null }
 
-jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
-  findWithDecryption: jest.fn(),
-  findOneWithDecryption: jest.fn(
-    async (em: EntityManager, entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => {
-      if (entity === 'User') return { id: where.id }
-      const result = await em.findOne(entity as never, where as never, options as never)
-      const gate = mockGateState.gate
-      const name = typeof entity === 'function' ? entity.name : String(entity)
-      if (gate && !gate.fired && gate.entity === name) {
-        gate.fired = true
-        gate.reached.resolve()
-        await gate.release.promise
-      }
-      return result
-    },
-  ),
-}))
+jest.mock('@open-mercato/shared/lib/encryption/find', () => {
+  async function waitAtGate(entity: unknown) {
+    const gate = mockGateState.gate
+    const name = typeof entity === 'function' ? entity.name : String(entity)
+    if (gate && !gate.fired && gate.entity === name) {
+      gate.fired = true
+      gate.reached.resolve()
+      await gate.release.promise
+    }
+  }
+
+  return {
+    findWithDecryption: jest.fn(
+      async (em: EntityManager, entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => {
+        const result = await em.find(entity as never, where as never, options as never)
+        await waitAtGate(entity)
+        return result
+      },
+    ),
+    findOneWithDecryption: jest.fn(
+      async (em: EntityManager, entity: unknown, where: Record<string, unknown>, options?: Record<string, unknown>) => {
+        if (entity === 'User') return { id: where.id }
+        const result = await em.findOne(entity as never, where as never, options as never)
+        await waitAtGate(entity)
+        return result
+      },
+    ),
+  }
+})
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
@@ -57,13 +73,25 @@ const ACTOR = randomUUID()
 
 type TestOrm = MikroORM<PostgreSqlDriver, EntityManager<PostgreSqlDriver>>
 
-type Seed = { tenantId: string; mappingId: string; conversationId: string; threadId: string }
+type Seed = {
+  tenantId: string
+  organizationId: string | null
+  channelId: string
+  mappingId: string
+  conversationId: string
+  threadId: string
+}
+
+type SeedOptions = Partial<Pick<Seed, 'tenantId' | 'organizationId' | 'channelId' | 'threadId'>> & {
+  channelOwner?: string
+  conversationOwner?: string
+  conversationRef?: string
+  createdAt?: Date
+}
 
 type CommandError = { status?: number; body?: { code?: string } }
 
 type Outcome<T> = { ok: true; value: T } | { ok: false; error: CommandError }
-
-type ExecuteValue = { status: string; previousAssignedUserId?: string | null }
 
 function createDeferred(): Deferred {
   let resolve: () => void = () => undefined
@@ -112,46 +140,74 @@ describeWithPostgres('reassign-conversation undo against concurrent reassignment
     } as never
   }
 
-  async function seed(owner: string): Promise<Seed> {
+  async function seed(owner: string | null, options: SeedOptions = {}): Promise<Seed> {
     const em = rootEm()
-    const tenantId = randomUUID()
-    const channel = em.create(CommunicationChannel, {
-      providerKey: 'test',
-      channelType: 'email',
-      displayName: 'Shared',
-      userId: null,
-      tenantId,
-      organizationId: null,
-    } as never)
-    await em.flush()
+    const tenantId = options.tenantId ?? randomUUID()
+    const organizationId = options.organizationId ?? null
+    const threadId = options.threadId ?? randomUUID()
+    let channelId = options.channelId
+    if (!channelId) {
+      const channel = em.create(CommunicationChannel, {
+        providerKey: 'test',
+        channelType: 'email',
+        displayName: 'Test mailbox',
+        userId: options.channelOwner ?? null,
+        tenantId,
+        organizationId,
+      })
+      await em.flush()
+      channelId = channel.id
+    }
     const conversation = em.create(ExternalConversation, {
-      channelId: channel.id,
-      externalConversationId: randomUUID(),
-      assignedUserId: owner,
+      channelId,
+      externalConversationId: options.conversationRef ?? randomUUID(),
+      assignedUserId: options.conversationOwner ?? owner,
       tenantId,
-      organizationId: null,
-    } as never)
+      organizationId,
+    })
     await em.flush()
-    const threadId = randomUUID()
     const mapping = em.create(ChannelThreadMapping, {
       externalConversationId: conversation.id,
       messageThreadId: threadId,
-      channelId: channel.id,
+      channelId,
       providerKey: 'test',
-      externalThreadRef: randomUUID(),
+      externalThreadRef: options.conversationRef ?? randomUUID(),
       assignedUserId: owner,
       tenantId,
-      organizationId: null,
-    } as never)
+      organizationId,
+      createdAt: options.createdAt,
+    })
     await em.flush()
-    return { tenantId, mappingId: mapping.id, conversationId: conversation.id, threadId }
+    return { tenantId, organizationId, channelId, mappingId: mapping.id, conversationId: conversation.id, threadId }
   }
 
-  function reassign(target: Seed, assignedUserId: string): Promise<ExecuteValue> {
-    return reassignConversationCommand.execute(
-      { threadId: target.threadId, assignedUserId, scope: { tenantId: target.tenantId, organizationId: null } },
-      commandCtx(),
-    ) as Promise<ExecuteValue>
+  function reassignInput(target: Seed, assignedUserId: string | null): ReassignConversationInput {
+    return {
+      threadId: target.threadId,
+      assignedUserId,
+      scope: { tenantId: target.tenantId, organizationId: target.organizationId },
+    }
+  }
+
+  async function reassign(target: Seed, assignedUserId: string): Promise<ReassignConversationResult> {
+    return reassignConversationCommand.execute(reassignInput(target, assignedUserId), commandCtx())
+  }
+
+  async function undoRecordedReassignment(target: Seed, result: ReassignConversationResult): Promise<void> {
+    if (result.status !== 'reassigned') throw new Error('[internal] expected completed reassignment')
+    const input = reassignInput(target, result.nextAssignedUserId)
+    const ctx = commandCtx()
+    const metadata = await reassignConversationCommand.buildLog!({ input, result, ctx, snapshots: {} })
+    expect(metadata?.payload).toBeDefined()
+    await reassignConversationCommand.undo!({
+      input,
+      ctx,
+      logEntry: {
+        commandPayload: structuredClone(metadata?.payload),
+        tenantId: target.tenantId,
+        organizationId: target.organizationId,
+      },
+    })
   }
 
   function undoReassign(target: Seed, previousAssignedUserId: string, newAssignedUserId: string): Promise<void> {
@@ -185,7 +241,7 @@ describeWithPostgres('reassign-conversation undo against concurrent reassignment
     return { mapping: mapping.owner, conversation: conversation.owner }
   }
 
-  async function waitForLockWaiterOrSettled(promise: Promise<unknown>): Promise<void> {
+  async function waitForLockWaiterOrSettled(promise: Promise<unknown>): Promise<boolean> {
     let settled = false
     promise.then(() => { settled = true }, () => { settled = true })
     const deadline = Date.now() + WAITER_TIMEOUT_MS
@@ -193,9 +249,10 @@ describeWithPostgres('reassign-conversation undo against concurrent reassignment
       const rows = await rootEm().execute<Array<{ waiting: number }>>(
         "select count(*)::int as waiting from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock'",
       )
-      if (rows[0].waiting >= 1) return
+      if (rows[0].waiting >= 1) return true
       await new Promise((resolveWait) => setTimeout(resolveWait, WAITER_POLL_MS))
     }
+    return false
   }
 
   beforeAll(async () => {
@@ -228,6 +285,91 @@ describeWithPostgres('reassign-conversation undo against concurrent reassignment
     mockGateState.gate?.release.resolve()
     mockGateState.gate = null
   })
+
+  it('reassigns and restores only the selected mailbox mappings in scope', async () => {
+    const primary = await seed(USER_A, {
+      channelOwner: ACTOR,
+      organizationId: randomUUID(),
+      createdAt: new Date(0),
+    })
+    const sameThread = { tenantId: primary.tenantId, organizationId: primary.organizationId, threadId: primary.threadId }
+    const sameMailbox = { ...sameThread, channelId: primary.channelId }
+    const secondary = await seed(null, { ...sameMailbox, conversationOwner: USER_C })
+    const otherMailbox = await seed(USER_C, { ...sameThread, channelOwner: USER_C })
+    const otherOrganization = await seed(USER_C, { ...sameMailbox, organizationId: randomUUID() })
+    const otherTenant = await seed(USER_C, { ...sameMailbox, tenantId: randomUUID() })
+    const outOfScope = [otherMailbox, otherOrganization, otherTenant]
+
+    const result = await reassign(primary, USER_B)
+
+    expect(result).toMatchObject({ status: 'reassigned', conversationId: primary.conversationId })
+    expect(await owners(primary)).toEqual({ mapping: USER_B, conversation: USER_B })
+    expect(await owners(secondary)).toEqual({ mapping: USER_B, conversation: USER_B })
+    for (const target of outOfScope) {
+      expect(await owners(target)).toEqual({ mapping: USER_C, conversation: USER_C })
+    }
+
+    await undoRecordedReassignment(primary, result)
+
+    expect(await owners(primary)).toEqual({ mapping: USER_A, conversation: USER_A })
+    expect(await owners(secondary)).toEqual({ mapping: null, conversation: USER_C })
+    for (const target of outOfScope) {
+      expect(await owners(target)).toEqual({ mapping: USER_C, conversation: USER_C })
+    }
+  }, CASE_TIMEOUT_MS)
+
+  it('refuses the whole undo when only a secondary conversation has a newer owner', async () => {
+    const primary = await seed(USER_A, { createdAt: new Date(0) })
+    const secondary = await seed(USER_C, primary)
+    const result = await reassign(primary, USER_B)
+    expect(await owners(secondary)).toEqual({ mapping: USER_B, conversation: USER_B })
+    await rootEm().nativeUpdate(ExternalConversation, { id: secondary.conversationId }, { assignedUserId: USER_C })
+
+    const outcome = await settle(undoRecordedReassignment(primary, result))
+
+    expect(outcome).toMatchObject({ ok: false, error: { status: 409, body: { code: CONFLICT_CODE } } })
+    expect(await owners(primary)).toEqual({ mapping: USER_B, conversation: USER_B })
+    expect(await owners(secondary)).toEqual({ mapping: USER_B, conversation: USER_C })
+  }, CASE_TIMEOUT_MS)
+
+  it('adopts an outbound provider reference while a mailbox reassignment waits', async () => {
+    const threadId = randomUUID()
+    const primary = await seed(USER_A, {
+      threadId,
+      createdAt: new Date(0),
+      conversationRef: buildOutboundConversationRef(threadId),
+    })
+    const secondary = await seed(USER_A, primary)
+    const scope = { tenantId: primary.tenantId, organizationId: primary.organizationId }
+    const em = rootEm()
+    const mapping = await em.findOneOrFail(ChannelThreadMapping, { id: primary.mappingId, ...scope })
+    const providerConversationRef = `gmail-thread:${randomUUID()}`
+    const gate = armGate('ExternalConversation')
+    const adopting = settle(adoptProviderConversationRef(em, {
+      mapping,
+      scope,
+      providerConversationRef,
+      channelId: primary.channelId,
+    }))
+    const paused = await Promise.race([gate.reached.promise.then(() => true), adopting.then(() => false)])
+    expect(paused).toBe(true)
+
+    const reassigning = settle(reassign(primary, USER_B))
+    const waited = await waitForLockWaiterOrSettled(reassigning)
+    gate.release.resolve()
+
+    const [adoptOutcome, reassignOutcome] = await Promise.all([adopting, reassigning])
+    expect(waited).toBe(true)
+    expect(adoptOutcome).toEqual({ ok: true, value: 'adopted' })
+    expect(reassignOutcome).toMatchObject({ ok: true, value: { status: 'reassigned' } })
+    expect(await owners(primary)).toEqual({ mapping: USER_B, conversation: USER_B })
+    expect(await owners(secondary)).toEqual({ mapping: USER_B, conversation: USER_B })
+    const readEm = rootEm()
+    const storedMapping = await readEm.findOneOrFail(ChannelThreadMapping, { id: primary.mappingId, ...scope })
+    const storedConversation = await readEm.findOneOrFail(ExternalConversation, { id: primary.conversationId, ...scope })
+    expect(storedMapping.externalThreadRef).toBe(providerConversationRef)
+    expect(storedConversation.externalConversationId).toBe(providerConversationRef)
+  }, CASE_TIMEOUT_MS)
 
   it('refuses to undo A->B after a later B->C and keeps C', async () => {
     const target = await seed(USER_C)

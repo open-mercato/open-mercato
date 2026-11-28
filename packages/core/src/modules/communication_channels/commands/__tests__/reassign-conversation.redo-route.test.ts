@@ -1,6 +1,7 @@
 /** @jest-environment node */
 
 const mockFindOne = jest.fn()
+const mockFind = jest.fn()
 const mockGetAuth = jest.fn()
 const mockFlush = jest.fn(async () => undefined)
 const mockRbac = { userHasAllFeatures: jest.fn(), loadAcl: jest.fn() }
@@ -13,7 +14,7 @@ const mockEm: { flush: typeof mockFlush; transactional: jest.Mock } = {
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => mockFindOne(...args),
-  findWithDecryption: jest.fn(),
+  findWithDecryption: (...args: unknown[]) => mockFind(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -77,14 +78,16 @@ const undoneLog = {
 }
 
 function seedPersonalMailboxLookups(options: { granted: boolean }): void {
+  const mapping = { id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT }
   mockFindOne
-    .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT })
+    .mockResolvedValueOnce(mapping)
     .mockResolvedValueOnce({ id: 'channel-1', userId: OWNER })
   if (options.granted) {
-    mockFindOne
-      .mockResolvedValueOnce({ id: ASSIGNEE })
-      .mockResolvedValueOnce({ id: 'mapping-1', assignedUserId: null, externalConversationId: 'conv-1', channelId: 'channel-1', tenantId: TENANT })
-      .mockResolvedValueOnce({ id: 'conv-1', assignedUserId: null })
+    mockFindOne.mockResolvedValueOnce({ id: ASSIGNEE })
+    mockFind
+      .mockResolvedValueOnce([mapping])
+      .mockResolvedValueOnce([{ id: 'conv-1', assignedUserId: null }])
+      .mockResolvedValueOnce([mapping])
   }
 }
 
@@ -100,6 +103,7 @@ describe('audit_logs redo of a personal-mailbox reassignment (#3832)', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockFindOne.mockReset()
+    mockFind.mockReset()
     mockRbac.userHasAllFeatures.mockResolvedValue(true)
     mockLogs.findById.mockResolvedValue(undoneLog)
     mockLogs.latestUndoneForActor.mockResolvedValue(undoneLog)
