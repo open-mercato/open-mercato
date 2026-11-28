@@ -88,6 +88,31 @@ it('does not seed a personal layout during an API-key read', async () => {
   expect(em.persist).not.toHaveBeenCalled()
 })
 
+it('filters v2 views for the key without changing the bound user saved state', async () => {
+  const preferences = { dateRange: { preset: 'this_month', compare: 'previous_period' } }
+  const layout = { layoutJson: {
+    items: savedItems.map((item) => ({ ...item })),
+    presets: [{ id: 'saved-view', name: 'Saved view', items: savedItems.map((item) => ({ ...item })) }],
+    activePresetId: 'saved-view',
+    preferences,
+  } }
+  const savedLayout = structuredClone(layout)
+  em.findOne.mockResolvedValue(layout)
+
+  const response = await GET(request())
+
+  expect(response.status).toBe(200)
+  expect((await response.json()).layout).toEqual({
+    items: [expect.objectContaining({ widgetId: 'visible' })],
+    presets: [{ id: 'saved-view', name: 'Saved view', items: [expect.objectContaining({ widgetId: 'visible' })] }],
+    activePresetId: 'saved-view',
+    preferences,
+  })
+  expect(layout).toEqual(savedLayout)
+  expect(em.persist).not.toHaveBeenCalled()
+  expect(em.flush).not.toHaveBeenCalled()
+})
+
 it('withholds saved widget settings from a restricted key when the widget registry is unavailable', async () => {
   const layout = { layoutJson: [
     ...savedItems,
@@ -146,7 +171,7 @@ it.each(['PUT', 'PATCH'])('attributes an authorized %s to the key while updating
   if (method === 'PUT') {
     expect(allowedWidgets).toHaveBeenCalledWith(em, expect.objectContaining({ userId }), expect.anything())
     expect(rbac.getEffectiveFeatures).toHaveBeenCalledWith(actorId, { tenantId, organizationId })
-    expect(layout.layoutJson).toEqual([{ id: itemId, widgetId: 'visible', order: 0, priority: 0, size: 'md' }])
+    expect(layout.layoutJson).toEqual({ items: [{ id: itemId, widgetId: 'visible', order: 0, priority: 0, size: 'md' }] })
   } else {
     expect(layout.layoutJson).toEqual([{ ...savedItems[0], size: 'lg' }, savedItems[1]])
   }

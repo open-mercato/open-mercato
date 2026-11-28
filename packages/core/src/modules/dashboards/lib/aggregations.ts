@@ -368,7 +368,9 @@ export function buildAggregationQuery(options: BuildAggregationQueryOptions): Ag
       // NULLS LAST is stated explicitly (PostgreSQL defaults DESC to NULLS FIRST) so a group limit
       // keeps the highest-value buckets instead of the empty ones, and so the application-side
       // encrypted path can mirror the same ordering (#4622).
-      orderByClause = `ORDER BY value DESC NULLS LAST`
+      orderByClause = options.groupBy.granularity && registry.getFieldMapping(options.entityType, options.groupBy.field)?.type === 'timestamp'
+        ? 'ORDER BY group_key ASC'
+        : 'ORDER BY value DESC NULLS LAST'
 
       const calendarRange = Boolean(options.groupBy.granularity && options.dateRange?.field === options.groupBy.field)
       const limit = resolveWidgetGroupLimit(options.groupBy.limit, calendarRange)

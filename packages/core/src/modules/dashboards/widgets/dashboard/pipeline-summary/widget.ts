@@ -15,6 +15,7 @@ const widget: DashboardWidgetModule<PipelineSummarySettings> = {
     category: 'analytics',
     icon: 'git-branch',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: PipelineSummaryWidget,
   hydrateSettings,

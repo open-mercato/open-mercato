@@ -175,6 +175,30 @@ describe('WidgetDataService comparison fetching', () => {
   })
 })
 
+describe('WidgetDataService encrypted group guard', () => {
+  test('rejects grouping by an encrypted field before running any query', async () => {
+    const execute = jest.fn(async (): Promise<ExecuteResult> => [{ value: 1 }])
+    const em = { getConnection: () => ({ execute }) } as unknown as EntityManager
+    const registry = {
+      ...createRegistry(),
+      getFieldMapping: (_entityType: string, field: string) =>
+        field === 'displayName'
+          ? { dbColumn: 'display_name', type: 'text', encrypted: true }
+          : { dbColumn: 'id', type: 'uuid' },
+    } as unknown as AnalyticsRegistry
+    const service = new WidgetDataService({ em, scope: { tenantId: 'tenant-1' }, registry })
+
+    await expect(
+      service.fetchWidgetData({
+        entityType: 'customers:entities',
+        metric: { field: 'id', aggregate: 'count' },
+        groupBy: { field: 'displayName', resolveLabels: true },
+      }),
+    ).rejects.toThrow(/encrypted/i)
+    expect(execute).not.toHaveBeenCalled()
+  })
+})
+
 describe('WidgetDataService base currency resolution', () => {
   const request: WidgetDataRequest = {
     entityType: 'sales:orders',
