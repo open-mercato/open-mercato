@@ -30,6 +30,15 @@ function readJsonFile(filePath) {
 
 function isProcessAlive(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false
+  if (process.platform === 'linux') {
+    try {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8')
+      const state = stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
+      if (state === 'Z' || state === 'X') return false
+    } catch (error) {
+      if (error?.code === 'ENOENT') return false
+    }
+  }
   try {
     process.kill(pid, 0)
     return true

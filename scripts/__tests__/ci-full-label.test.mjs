@@ -116,7 +116,7 @@ test('ordinary shared-code changes still select all 15 integration shards', () =
 for (const [stepName, command] of [['Checking types', 'typecheck'], ['Test', 'test']]) {
   for (const [scenario, options, expected, warns = false] of [
     ['stabilization PR', { fullSuite: forcesFullSuite({ branch: 'stabilize/main-2026-11-05' }) }, command],
-    ['ordinary PR', {}, `turbo run ${command} --filter=[HEAD^1]...`],
+    ['ordinary PR', {}, `${stepName === 'Checking types' ? 'typecheck' : 'turbo run test'} --filter=[HEAD^1]...`],
     ['workflow change', { workflowChanged: true }, command],
     ['missing PR base commit', { baseMissing: true }, command, true],
     ['protected branch push', { eventName: 'push' }, command],

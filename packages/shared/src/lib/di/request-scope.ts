@@ -159,6 +159,27 @@ export async function runInOwnedRequestScope<T>(fn: () => T | Promise<T>): Promi
   })
 }
 
+const requestScopeSlots = new WeakMap<RequestDisposals, Map<symbol, unknown>>()
+
+/**
+ * Per-request state shared by every container, fork and service call of one owned request scope
+ * (an HTTP request, a page render or a worker job started with `runInOwnedRequestScope`), including
+ * nested `runWithRequestScopeContainer` stores. Returns `null` outside an owned scope — including a
+ * bare `runInRequestScope` — so callers fall back to their unscoped behaviour. The slot is released
+ * with the request; nothing here outlives it.
+ */
+export function getRequestScopeSlot<T>(slot: symbol, create: () => T): T | null {
+  const ownership = requestScopeStorage.getStore()?.disposals
+  if (!ownership) return null
+  let slots = requestScopeSlots.get(ownership)
+  if (!slots) {
+    slots = new Map()
+    requestScopeSlots.set(ownership, slots)
+  }
+  if (!slots.has(slot)) slots.set(slot, create())
+  return slots.get(slot) as T
+}
+
 export function getRequestScopeContainer(): RequestScopeContainer | null {
   const store = requestScopeStorage.getStore()
   return store?.owner ?? store?.container ?? null

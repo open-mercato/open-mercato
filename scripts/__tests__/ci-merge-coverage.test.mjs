@@ -133,9 +133,11 @@ test('CI workflow edits run full typecheck and unit gates', () => {
 })
 
 test('documentation and module PRs preserve affected-package validation', () => {
+  const rootPackage = JSON.parse(fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
+  assert.match(rootPackage.scripts.typecheck, /--concurrency=1/)
   for (const changedPath of ['README.md', 'packages/core/src/modules/customers/index.ts']) {
     assert.deepEqual(runValidationSteps({ changedPath }), [
-      'turbo run typecheck --filter=[HEAD^1]...',
+      'typecheck --filter=[HEAD^1]...',
       'turbo run test --filter=[HEAD^1]...',
     ])
   }
