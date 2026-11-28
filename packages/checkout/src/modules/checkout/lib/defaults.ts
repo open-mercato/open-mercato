@@ -29,3 +29,47 @@ export function getLocalizedDefaultCheckoutCustomerFields(t?: TranslateFn): Defa
       : field.placeholder,
   }))
 }
+
+// Every shipped locale's translation of `checkout.defaultCustomerFields.<key>.label`, so a label
+// snapshotted while a merchant used any supported locale is still recognized as the untouched
+// default. Kept in sync with i18n/*.json by defaults.test.ts.
+export const SHIPPED_DEFAULT_CHECKOUT_CUSTOMER_FIELD_LABELS: Record<string, readonly string[]> = {
+  firstName: ['First name', 'Imię', '이름'],
+  lastName: ['Last name', 'Nazwisko', '성'],
+  email: ['Email', 'E-mail', '이메일'],
+  phone: ['Phone', 'Telefon', '전화번호'],
+  companyName: ['Company name', 'Nazwa firmy', '회사명'],
+  companyId: ['Company ID', 'NIP / ID firmy', '사업자 등록번호'],
+  address: ['Address', 'Adres', '주소'],
+}
+
+export function isShippedDefaultCheckoutCustomerFieldLabel(key: string, label: string): boolean {
+  const defaultField = DEFAULT_CHECKOUT_CUSTOMER_FIELDS.find((candidate) => candidate.key === key)
+  if (!defaultField) return false
+  if (defaultField.label === label) return true
+  return SHIPPED_DEFAULT_CHECKOUT_CUSTOMER_FIELD_LABELS[key]?.includes(label) ?? false
+}
+
+// Stored field definitions snapshot a built-in field's label in whatever locale was active when
+// the link/template was created (or last edited), so the public pay page cannot tell "operator
+// customized this label" apart from "this is just the default text" without a comparison. A
+// stored label that still matches the default for its key in any shipped locale is treated as
+// untouched and re-rendered through the viewer's active locale; anything else is an explicit
+// customization and is preserved verbatim.
+export function localizeStoredCheckoutCustomerFieldLabel(key: string, label: string, t?: TranslateFn): string {
+  if (!t) return label
+  if (!isShippedDefaultCheckoutCustomerFieldLabel(key, label)) return label
+  const defaultField = DEFAULT_CHECKOUT_CUSTOMER_FIELDS.find((candidate) => candidate.key === key)
+  return t(`checkout.defaultCustomerFields.${key}.label`, defaultField?.label ?? label)
+}
+
+export function localizeStoredCheckoutCustomerFields<T extends { key: string; label: string }>(
+  fields: T[],
+  t?: TranslateFn,
+): T[] {
+  if (!t) return fields
+  return fields.map((field) => {
+    const label = localizeStoredCheckoutCustomerFieldLabel(field.key, field.label, t)
+    return label === field.label ? field : { ...field, label }
+  })
+}
