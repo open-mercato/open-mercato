@@ -635,6 +635,74 @@ describe('CRUD Factory', () => {
     })
   })
 
+  describe('v2 advanced filter trees on routes without their own merge', () => {
+    const v2Params = () => new URLSearchParams({
+      'filter[v]': '2',
+      'filter[root][combinator]': 'and',
+      'filter[root][children][0][type]': 'rule',
+      'filter[root][children][0][field]': 'title',
+      'filter[root][children][0][op]': 'is',
+      'filter[root][children][0][value]': 'A',
+    })
+
+    it('GET query engine path AND-combines the v2 tree with buildFilters', async () => {
+      const treeRoute = makeCrudRoute({
+        metadata: { GET: { requireAuth: true } },
+        orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+        indexer: { entityType: 'example.todo' },
+        list: {
+          schema: querySchema.passthrough(),
+          entityId: 'example.todo',
+          fields: ['id', 'title', 'member_id'],
+          buildFilters: () => ({ member_id: 'member-1' }),
+        },
+      })
+
+      const response = await treeRoute.GET(new Request(`http://x/api/example/todos?${v2Params()}`))
+
+      expect(response.status).toBe(200)
+      expect(queryEngine.query.mock.calls.at(-1)?.[1]?.filters).toEqual({
+        $and: [{ member_id: 'member-1' }, { title: { $eq: 'A' } }],
+      })
+    })
+
+    it('GET ORM fallback AND-combines the v2 tree with buildFilters', async () => {
+      const repository = em.getRepository(Todo)
+      const find = jest.fn(repository.find)
+      em.getMetadata.mockReturnValueOnce({
+        find: () => ({
+          properties: {
+            title: { fieldNames: ['title'] },
+            member: { fieldNames: ['member_id'] },
+          },
+        }),
+      })
+      const getRepository = jest.spyOn(em, 'getRepository').mockReturnValueOnce({ ...repository, find })
+      try {
+        const treeRoute = makeCrudRoute({
+          metadata: { GET: { requireAuth: true } },
+          orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId' },
+          list: {
+            schema: querySchema.passthrough(),
+            fields: ['id', 'title'],
+            buildFilters: () => ({ member_id: 'member-1' }),
+          },
+        })
+
+        const response = await treeRoute.GET(new Request(`http://x/api/example/todos?${v2Params()}`))
+
+        expect(response.status).toBe(200)
+        expect(find).toHaveBeenCalledWith(expect.objectContaining({
+          tenantId: defaultTenantId,
+          organizationId: defaultOrganizationId,
+          $and: [{ member: 'member-1' }, { title: { $eq: 'A' } }],
+        }))
+      } finally {
+        getRepository.mockRestore()
+      }
+    })
+  })
+
   describe('advanced filters preserve buildFilters security predicates (#9016)', () => {
     const nilId = '00000000-0000-0000-0000-000000000000'
     const rows = [
