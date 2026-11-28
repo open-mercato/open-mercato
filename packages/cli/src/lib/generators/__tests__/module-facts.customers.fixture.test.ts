@@ -72,6 +72,14 @@ describe('module-facts customers fixture (T1 anti-drift guard)', () => {
     expect(facts.diTokens).toEqual([])
   })
 
+  it('exposes the pipeline deal card as a bound component override target', () => {
+    expect(facts.extensionSurfaces?.hosts.find((host) => host.id === 'section:customers.deals.pipelineCard')).toMatchObject({
+      family: 'component-handle',
+      resolution: 'exact',
+      bound: true,
+    })
+  })
+
   it('omits API route auth and warns when no module registry is provided', () => {
     expect(facts.apiRoutes).toEqual([])
     expect(facts.warnings.some((warning) => warning.includes('module registry unavailable'))).toBe(true)
