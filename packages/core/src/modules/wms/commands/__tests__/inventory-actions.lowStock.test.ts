@@ -56,6 +56,7 @@ function createEm(variantRows: Array<{ product_id: string | null }>) {
     flush: jest.fn(async () => undefined),
     getReference: jest.fn((_entity: unknown, id: string) => ({ id })),
     getConnection: jest.fn(() => ({ execute })),
+    getTransactionContext: jest.fn(() => undefined),
     fork: jest.fn(),
     transactional: jest.fn(),
   }
@@ -176,6 +177,8 @@ describe('wms inventory low stock event profile resolution', () => {
     expect(execute).toHaveBeenCalledWith(
       expect.stringContaining('select product_id from catalog_product_variants'),
       [VARIANT_ID, ORG, TENANT],
+      'all',
+      undefined,
     )
     expect(lowStockEmissions()).toEqual([
       [
