@@ -22,8 +22,7 @@ import { createPaymentSession } from './helpers/fixtures'
  * `findTransaction`, and the transactions/[id] route's `findOneWithDecryption`). A user
  * from organization B therefore can never read or mutate organization A's transaction:
  *   - GET /transactions/[id] and GET /status → 404 (scoped lookup returns null)
- *   - POST /capture | /refund | /cancel      → 502 (service throws 'Transaction not found',
- *                                                    which the route maps to a gateway error)
+ *   - POST /capture | /refund | /cancel      → 404 (the scoped transaction is not found)
  * The owning user is unaffected and can still read and capture their own transaction.
  */
 const PASSWORD = 'Qa!2026Pgwys'
@@ -83,6 +82,10 @@ test.describe('TC-PGWY-016: Cross-organization isolation', () => {
       })
       expect(session.transactionId, 'org A user creates a transaction').toBeTruthy()
 
+      const beforeAsA = await apiRequest(request, 'GET', `/api/payment_gateways/transactions/${session.transactionId}`, { token: tokenA })
+      expect(beforeAsA.status()).toBe(200)
+      const beforeAsABody = await readJsonSafe(beforeAsA)
+
       const detailAsB = await apiRequest(request, 'GET', `/api/payment_gateways/transactions/${session.transactionId}`, { token: tokenB })
       expect(detailAsB.status(), 'cross-org transaction detail is not found').toBe(404)
 
@@ -95,7 +98,7 @@ test.describe('TC-PGWY-016: Cross-organization isolation', () => {
         token: tokenB,
         data: { transactionId: session.transactionId },
       })
-      expect(captureAsB.status(), 'cross-org capture cannot resolve the transaction').toBe(502)
+      expect(captureAsB.status(), 'cross-org capture cannot resolve the transaction').toBe(404)
       const captureAsBBody = await readJsonSafe<{ error?: string }>(captureAsB)
       expect(captureAsBBody?.error, 'capture reports transaction not found').toMatch(/not found/i)
 
@@ -103,13 +106,20 @@ test.describe('TC-PGWY-016: Cross-organization isolation', () => {
         token: tokenB,
         data: { transactionId: session.transactionId },
       })
-      expect(refundAsB.status(), 'cross-org refund cannot resolve the transaction').toBe(502)
+      expect(refundAsB.status(), 'cross-org refund cannot resolve the transaction').toBe(404)
 
       const cancelAsB = await apiRequest(request, 'POST', '/api/payment_gateways/cancel', {
         token: tokenB,
         data: { transactionId: session.transactionId },
       })
-      expect(cancelAsB.status(), 'cross-org cancel cannot resolve the transaction').toBe(502)
+      expect(cancelAsB.status(), 'cross-org cancel cannot resolve the transaction').toBe(404)
+
+      const unknownCancel = await apiRequest(request, 'POST', '/api/payment_gateways/cancel', {
+        token: tokenB,
+        data: { transactionId: randomUUID() },
+      })
+      expect(unknownCancel.status()).toBe(404)
+      expect(await readJsonSafe(unknownCancel)).toEqual(await readJsonSafe(cancelAsB))
 
       const listAsB = await apiRequest(request, 'GET', '/api/payment_gateways/transactions', { token: tokenB })
       expect(listAsB.status(), 'org B can list its own (empty) transactions').toBe(200)
@@ -118,6 +128,7 @@ test.describe('TC-PGWY-016: Cross-organization isolation', () => {
 
       const detailAsA = await apiRequest(request, 'GET', `/api/payment_gateways/transactions/${session.transactionId}`, { token: tokenA })
       expect(detailAsA.status(), 'owner can read its own transaction').toBe(200)
+      expect(await readJsonSafe(detailAsA), 'refused mutations leave the visible owner transaction unchanged').toEqual(beforeAsABody)
 
       const captureAsA = await apiRequest(request, 'POST', '/api/payment_gateways/capture', {
         token: tokenA,

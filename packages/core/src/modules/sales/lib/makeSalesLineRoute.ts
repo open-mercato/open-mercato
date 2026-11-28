@@ -29,6 +29,13 @@ interface SalesLineRouteConfig {
   parentFkColumn: string
   parentFkParam: string
   createSchema: z.ZodObject<z.ZodRawShape>
+  /**
+   * Optional partial-update schema for PUT. When given, a PUT that carries an
+   * `id` is validated against it (plus the parent id and `writeExtensionShape`),
+   * so existing lines can be patched; a PUT without `id` keeps the full
+   * `createSchema` contract. When omitted, PUT validates like POST.
+   */
+  updateSchema?: z.ZodObject<z.ZodRawShape>
   /** Extra fields accepted by the write payloads on top of `createSchema`. */
   writeExtensionShape?: z.ZodRawShape
   features: { view: string; manage: string }
@@ -113,6 +120,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     parentFkColumn,
     parentFkParam,
     createSchema,
+    updateSchema,
     writeExtensionShape,
     features,
     commandPrefix,
@@ -133,6 +141,27 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
     id: z.string().uuid().optional(),
     ...(writeExtensionShape ?? {}),
   })
+
+  const partialUpdateSchema = updateSchema
+    ? updateSchema.extend({
+        [parentFkParam]: z.string().uuid(),
+        ...(writeExtensionShape ?? {}),
+      })
+    : null
+
+  const parseUpdateBody = (body: Record<string, unknown>) =>
+    partialUpdateSchema && body.id !== undefined
+      ? partialUpdateSchema.parse(body)
+      : upsertSchema.parse(body)
+
+  // PUT accepts two shapes when partial updates are enabled: a complete line
+  // without `id` (upsert) or an `id`-bearing partial patch of an existing line.
+  const updateRequestSchema = partialUpdateSchema
+    ? z.union([
+        upsertSchema.omit({ id: true }).describe('Complete line without id (validated like create).'),
+        partialUpdateSchema.describe('Partial update of an existing line identified by id.'),
+      ])
+    : upsertSchema
 
   const deleteSchema = z.object({
     id: z.string().uuid(),
@@ -263,7 +292,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
         mapInput: async ({ raw, ctx }: { raw: unknown; ctx: CrudCtx }) => {
           const { translate } = await resolveTranslations()
           const scoped = withScopedPayload(resolveRawBody(raw) ?? {}, ctx, translate)
-          return { body: withExactLineInput(upsertSchema.parse(scoped), scoped) }
+          return { body: withExactLineInput(parseUpdateBody(scoped), scoped) }
         },
         response: ({ result }: { result: Record<string, unknown> | null }) => ({
           id: result?.lineId ?? null,
@@ -344,7 +373,7 @@ export function makeSalesLineRoute(config: SalesLineRouteConfig) {
       description: `Creates ${config.openApi.description}.`,
     },
     update: {
-      schema: upsertSchema,
+      schema: updateRequestSchema,
       responseSchema: upsertResponseSchema,
       description: `Updates ${config.openApi.description}.`,
     },
