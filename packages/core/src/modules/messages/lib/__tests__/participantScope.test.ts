@@ -1,4 +1,12 @@
-import { applyMessageParticipantScope } from '../participantScope'
+import {
+  DummyDriver,
+  Kysely,
+  PostgresAdapter,
+  PostgresIntrospector,
+  PostgresQueryCompiler,
+  sql,
+} from 'kysely'
+import { applyMessageParticipantScope, channelInboxWideningClause } from '../participantScope'
 
 // A minimal recording Kysely builder: it captures the join conditions and the
 // OR-expression terms the helper emits so the participant-scope predicate can be
@@ -66,5 +74,84 @@ describe('applyMessageParticipantScope (#4133)', () => {
         ['r.message_id', 'is not', null],
       ],
     })
+  })
+})
+
+function compileDb() {
+  return new Kysely<any>({
+    dialect: {
+      createAdapter: () => new PostgresAdapter(),
+      createDriver: () => new DummyDriver(),
+      createQueryCompiler: () => new PostgresQueryCompiler(),
+      createIntrospector: (instance: Kysely<any>) => new PostgresIntrospector(instance),
+    },
+  })
+}
+
+function compileScope(userId: string, predicate?: ((eb: any) => any) | null) {
+  const compiled = applyMessageParticipantScope(
+    compileDb().selectFrom('messages as m') as never,
+    userId,
+    predicate,
+  )
+    .select('m.id')
+    .compile()
+  return { sql: compiled.sql.replace(/\s+/g, ' '), parameters: compiled.parameters }
+}
+
+describe('applyMessageParticipantScope — channel-inbox widening (#6106)', () => {
+  const hubPredicate = () => sql`hub_predicate(m.id)`
+
+  it('keeps the participant-only rule when no predicate is given', () => {
+    const { sql: text } = compileScope('user-1')
+
+    expect(text).not.toContain('hub_predicate')
+    expect(text).not.toContain('"visibility"')
+    expect(text).not.toContain('"source_entity_type"')
+  })
+
+  it('keeps the participant-only rule for a null predicate', () => {
+    expect(compileScope('user-1', null).sql).not.toContain('hub_predicate')
+  })
+
+  it('adds the widening as a third OR branch next to sender and recipient', () => {
+    const { sql: text } = compileScope('user-1', hubPredicate)
+
+    expect(text).toMatch(/"m"\."sender_user_id" = \$\d+/)
+    expect(text).toContain('"r"."message_id" is not null')
+    expect(text).toMatch(/"r"\."message_id" is not null or \("m"\."visibility" = \$\d+ and/)
+    expect(text).toContain('hub_predicate(m.id)')
+  })
+
+  it('confines the widening to public external-conversation messages', () => {
+    const { parameters } = compileScope('user-1', hubPredicate)
+
+    expect(parameters).toContain('public')
+    expect(parameters).toContain('communication_channels.external_conversation')
+  })
+
+  it('widens only when the caller has no recipient row at all, deleted rows included', () => {
+    const { sql: text } = compileScope('user-1', hubPredicate)
+
+    const notExists = text.match(/not exists \(select 1 as "one" from "message_recipients" as "rx" where [^)]*\)/)
+    expect(notExists).not.toBeNull()
+    expect(notExists![0]).toContain('"rx"."message_id" = "m"."id"')
+    expect(notExists![0]).toContain('"rx"."recipient_user_id" = $')
+    // The join keeps its deleted_at filter; the NOT EXISTS must not — otherwise a
+    // message the caller deleted would reappear through the widened branch.
+    expect(notExists![0]).not.toContain('deleted_at')
+  })
+
+  it('exposes the same clause for the list route, the counter and the recipient helper', () => {
+    const compiled = compileDb()
+      .selectFrom('messages as m')
+      .select('m.id')
+      .where((eb) => channelInboxWideningClause(eb as never, 'user-9', hubPredicate))
+      .compile()
+
+    expect(compiled.sql).toContain('hub_predicate(m.id)')
+    expect(compiled.parameters).toEqual(
+      expect.arrayContaining(['public', 'communication_channels.external_conversation', 'user-9']),
+    )
   })
 })

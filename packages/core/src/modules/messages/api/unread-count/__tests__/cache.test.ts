@@ -1,23 +1,26 @@
 /** @jest-environment node */
 
+import { afterAll, beforeEach, describe, expect, it, jest } from '@jest/globals'
+
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const orgId = '22222222-2222-4222-8222-222222222222'
 const userId = '33333333-3333-4333-8333-333333333333'
 
-const executeTakeFirst = jest.fn()
+const executeTakeFirst = jest.fn<() => Promise<{ count: string }>>()
 
 const cache = {
-  get: jest.fn(),
-  set: jest.fn(),
-} as { get: jest.Mock; set: jest.Mock }
+  get: jest.fn<(key: string) => Promise<number | null>>(),
+  set: jest.fn<(key: string, value: number, opts: { ttl: number; tags: string[] }) => Promise<void>>(),
+}
 
 const em = {
   getKysely: () => {
-    const chain: any = {}
-    chain.innerJoin = jest.fn(() => chain)
-    chain.where = jest.fn(() => chain)
-    chain.select = jest.fn(() => chain)
-    chain.executeTakeFirst = executeTakeFirst
+    const chain = {
+      innerJoin: () => chain,
+      where: () => chain,
+      select: () => chain,
+      executeTakeFirst,
+    }
     return { selectFrom: () => chain }
   },
 }
@@ -32,11 +35,13 @@ const container = {
 
 const resolveMessageContextMock = jest.fn(async () => ({
   ctx: { container },
-  scope: { userId, tenantId, organizationId: orgId },
+  scope: { userId, tenantId, organizationId: orgId as string | null },
 }))
 
 jest.mock('@open-mercato/core/modules/messages/lib/routeHelpers', () => ({
-  resolveMessageContext: (...args: unknown[]) => resolveMessageContextMock(...args),
+  resolveMessageContext: () => resolveMessageContextMock(),
+  // Channel-inbox widening (#6106) off unless a test opts in.
+  canUseChannelThreadFallback: jest.fn(async () => false),
 }))
 
 jest.mock('@open-mercato/cache', () => ({
@@ -78,7 +83,7 @@ describe('GET /api/messages/unread-count caching', () => {
     expect(cache.get).toHaveBeenCalledTimes(1)
     expect(cache.set).toHaveBeenCalledTimes(1)
     const [key, value, opts] = cache.set.mock.calls[0]
-    expect(key).toBe(`messages:unread-count:u=${userId}:org=${orgId}`)
+    expect(key).toBe(`messages:unread-count:v2:u=${userId}:org=${orgId}`)
     expect(value).toBe(7)
     expect(opts.ttl).toBe(10_000)
     expect(opts.tags).toEqual([
@@ -113,7 +118,7 @@ describe('GET /api/messages/unread-count caching', () => {
 
     expect(res.status).toBe(200)
     const [key, , opts] = cache.set.mock.calls[0]
-    expect(key).toBe(`messages:unread-count:u=${userId}:org=null`)
+    expect(key).toBe(`messages:unread-count:v2:u=${userId}:org=null`)
     expect(opts.tags).toEqual([
       `crud:messages.message:tenant:${tenantId}:org:null:collection`,
     ])

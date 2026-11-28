@@ -5,6 +5,7 @@ import {
   applyMessageParticipantScope,
   type MessagesParticipantScopeDatabase,
 } from '../../messages/lib/participantScope'
+import { resolveChannelInboxPredicate } from '../../messages/lib/channelThreadWidening'
 import { sanitizeChannelHtml } from '../lib/sanitize-channel-html'
 import {
   CommunicationChannel,
@@ -103,10 +104,11 @@ function sanitizeEmailPayloadHtml(
 
 /**
  * Return the subset of `messageIds` the authenticated user may see channel data
- * for: messages they sent or are a non-deleted recipient of, scoped to the
- * caller's tenant/organization. Every enricher on `messages.message` gates its
- * output on this set so privacy does not depend on how the host route scopes its
- * rows (#3872, #3834). Fails closed (empty set) without an authenticated user.
+ * for: messages they sent or are a non-deleted recipient of, plus the channel-inbox
+ * messages the list route widens to (#6106), scoped to the caller's
+ * tenant/organization. Every enricher on `messages.message` gates its output on
+ * this set so privacy does not depend on how the host route scopes its rows
+ * (#3872, #3834). Fails closed (empty set) without an authenticated user.
  */
 async function loadParticipantMessageIds(
   em: EntityManager,
@@ -117,12 +119,20 @@ async function loadParticipantMessageIds(
   if (!userId || messageIds.length === 0) return new Set()
   const organizationId = ctx.organizationId ?? null
 
+  // Same widening as the inbox list route (#6106): every enricher that gates on this
+  // set follows the list exactly, so channel metadata and reactions are never shown
+  // for a message the list would not return, and vice versa. The predicate is SQL
+  // (no lookup runs here beyond the `messages.view` RBAC gate).
+  const channelInboxPredicate = isInboxContainer(ctx.container)
+    ? await resolveChannelInboxPredicate(ctx.container, { userId, tenantId: ctx.tenantId, organizationId })
+    : null
+
   const db = em.getKysely<MessagesParticipantScopeDatabase>()
-  let participantQuery = applyMessageParticipantScope(db.selectFrom('messages as m'), userId)
+  let participantQuery = applyMessageParticipantScope(db.selectFrom('messages as m'), userId, channelInboxPredicate)
     .select('m.id')
     .distinct()
     .where('m.id', 'in', messageIds)
-    .where('m.tenant_id', '=', ctx.tenantId as string)
+    .where('m.tenant_id', '=', ctx.tenantId)
     .where('m.deleted_at', 'is', null)
 
   participantQuery = organizationId !== null
@@ -131,6 +141,13 @@ async function loadParticipantMessageIds(
 
   const participantRows = await participantQuery.execute()
   return new Set(participantRows.map((row) => row.id))
+}
+
+function isInboxContainer(container: unknown): container is Parameters<typeof resolveChannelInboxPredicate>[0] {
+  return typeof container === 'object'
+    && container !== null
+    && 'resolve' in container
+    && typeof container.resolve === 'function'
 }
 
 // ── _channel + _channelPayload + _channelContact ──────────────────────────────
