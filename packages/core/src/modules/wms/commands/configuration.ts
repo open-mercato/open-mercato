@@ -632,12 +632,7 @@ async function rejectInactivePrimaryWarehouse(ctx: CommandRuntimeContext): Promi
   throw new CrudHttpError(422, { error: message, fieldErrors: { isPrimary: message } })
 }
 
-// Callers must hold a PESSIMISTIC_WRITE lock on `warehouse`'s row (see
-// `loadWarehouse(..., { lock: true })`) before calling this, inside the same
-// transaction that then sets `deletedAt`. Otherwise a concurrent receive/adjust/
-// move/reserve/cycle-count — which take the same lock via `requireWarehouse` in
-// inventory-actions.ts — can commit new stock between this check and the archive
-// write, leaving live inventory in an archived warehouse.
+/** Callers must hold a PESSIMISTIC_WRITE lock on `warehouse`'s row (`loadWarehouse(..., { lock: true })`) before calling this, inside the same transaction that then sets `deletedAt` — otherwise a concurrent inventory command taking the same lock via `requireWarehouse` in inventory-actions.ts can commit new stock between this check and the archive write. */
 async function assertWarehouseHasNoStock(em: EntityManager, ctx: CommandRuntimeContext, warehouse: Warehouse): Promise<void> {
   const stockedBalance = await findOneWithDecryption(
     em,
