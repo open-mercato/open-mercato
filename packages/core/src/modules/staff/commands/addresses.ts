@@ -103,12 +103,7 @@ const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { 
     const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(
-      em,
-      parsed.entityId,
-      scope,
-      'Team member not found',
-    )
+    const member = await requireTeamMember(em, parsed.entityId, scope)
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -203,7 +198,6 @@ const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { 
       em,
       after.memberId,
       explicitStaffCommandScope(after.tenantId, after.organizationId),
-      'Team member not found',
     )
     let address = await em.findOne(StaffTeamMemberAddress, scopedStaffSnapshotWhere(after.id, snapshotScope))
     if (!address) {
@@ -292,7 +286,7 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
     ensureOrganizationScope(ctx, address.organizationId)
 
     if (parsed.entityId !== undefined) {
-      const member = await requireTeamMember(em, parsed.entityId, scope, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.entityId, scope)
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       address.member = member
@@ -398,7 +392,6 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
       em,
       before.memberId,
       explicitStaffCommandScope(before.tenantId, before.organizationId),
-      'Team member not found',
     )
 
     if (!address) {
@@ -532,7 +525,6 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
         em,
         before.memberId,
         explicitStaffCommandScope(before.tenantId, before.organizationId),
-        'Team member not found',
       )
       let address = await em.findOne(StaffTeamMemberAddress, scopedStaffSnapshotWhere(before.id, snapshotScope))
       if (!address) {

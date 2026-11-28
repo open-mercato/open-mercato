@@ -84,7 +84,7 @@ function createCtx() {
   }
 }
 
-async function loadCommand(id: (typeof COMMAND_IDS)[number]): Promise<RegisteredCommand> {
+async function loadCommand(id: string): Promise<RegisteredCommand> {
   jest.resetModules()
   const { commandRegistry } = await import('@open-mercato/shared/lib/commands')
   commandRegistry.clear()
@@ -125,5 +125,38 @@ describe('leave-request command errors are translated', () => {
 
     expect(error.status).toBe(400)
     expect(error.body).toEqual({ error: 'staff.leaveRequests.errors.alreadyFinalized' })
+  })
+
+  it('create returns the translated not-found error for a missing team member', async () => {
+    const command = await loadCommand('staff.leave-requests.create')
+
+    const error = await captureError(() =>
+      command.execute(
+        {
+          tenantId: TENANT_ID,
+          organizationId: ORG_ID,
+          memberId: MEMBER_ID,
+          timezone: 'UTC',
+          startDate: '2026-01-10',
+          endDate: '2026-01-11',
+        },
+        createCtx(),
+      ),
+    )
+
+    expect(error.status).toBe(404)
+    expect(error.body).toEqual({ error: 'staff.teamMembers.form.errors.notFound' })
+  })
+
+  it('update returns the translated not-found error when the new team member is missing', async () => {
+    mockFindOneWithDecryption.mockResolvedValue(makeLeaveRequest('pending'))
+    const command = await loadCommand('staff.leave-requests.update')
+
+    const error = await captureError(() =>
+      command.execute({ id: LEAVE_REQUEST_ID, memberId: MEMBER_ID }, createCtx()),
+    )
+
+    expect(error.status).toBe(404)
+    expect(error.body).toEqual({ error: 'staff.teamMembers.form.errors.notFound' })
   })
 })

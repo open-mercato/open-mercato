@@ -135,12 +135,7 @@ const createActivityCommand: CommandHandler<
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(
-      em,
-      parsed.entityId,
-      scope,
-      'Team member not found',
-    )
+    const member = await requireTeamMember(em, parsed.entityId, scope)
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -228,7 +223,6 @@ const createActivityCommand: CommandHandler<
       em,
       after.activity.memberId,
       explicitStaffCommandScope(after.activity.tenantId, after.activity.organizationId),
-      'Team member not found',
     )
     let activity = await em.findOne(StaffTeamMemberActivity, scopedStaffSnapshotWhere(after.activity.id, snapshotScope))
     if (!activity) {
@@ -301,7 +295,7 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
     ensureOrganizationScope(ctx, activity.organizationId)
 
     if (parsed.entityId !== undefined) {
-      const member = await requireTeamMember(em, parsed.entityId, scope, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.entityId, scope)
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       activity.member = member
@@ -393,7 +387,6 @@ const updateActivityCommand: CommandHandler<StaffTeamMemberActivityUpdateInput, 
       em,
       before.activity.memberId,
       explicitStaffCommandScope(before.activity.tenantId, before.activity.organizationId),
-      'Team member not found',
     )
 
     if (!activity) {
@@ -522,7 +515,6 @@ const deleteActivityCommand: CommandHandler<{ body?: Record<string, unknown>; qu
         em,
         before.activity.memberId,
         explicitStaffCommandScope(before.activity.tenantId, before.activity.organizationId),
-        'Team member not found',
       )
       let activity = await em.findOne(StaffTeamMemberActivity, scopedStaffSnapshotWhere(before.activity.id, snapshotScope))
       if (!activity) {

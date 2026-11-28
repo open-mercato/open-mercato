@@ -1,5 +1,6 @@
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
@@ -117,14 +118,17 @@ export async function requireTeamMember(
   em: EntityManager,
   memberId: string,
   scope: StaffCommandScope,
-  message = 'Team member not found',
+  message?: string,
 ): Promise<StaffTeamMember> {
   const member = await em.findOne(
     StaffTeamMember,
     applyScopeToWhere<StaffTeamMember>({ id: memberId, deletedAt: null }, scope),
   )
-  if (!member) throw new CrudHttpError(404, { error: message })
-  return member
+  if (member) return member
+  const { translate } = await resolveTranslations()
+  throw new CrudHttpError(404, {
+    error: message ?? translate('staff.teamMembers.form.errors.notFound', 'Team member not found.'),
+  })
 }
 
 /**

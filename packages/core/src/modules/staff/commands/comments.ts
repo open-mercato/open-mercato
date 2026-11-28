@@ -79,12 +79,7 @@ const createCommentCommand: CommandHandler<
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(
-      em,
-      parsed.entityId,
-      scope,
-      'Team member not found',
-    )
+    const member = await requireTeamMember(em, parsed.entityId, scope)
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -176,7 +171,6 @@ const createCommentCommand: CommandHandler<
         em,
         snapshot.memberId,
         explicitStaffCommandScope(snapshot.tenantId, snapshot.organizationId),
-        'Team member not found',
       )
       return { member }
     },
@@ -205,7 +199,7 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
     ensureOrganizationScope(ctx, comment.organizationId)
 
     if (parsed.entityId !== undefined) {
-      const member = await requireTeamMember(em, parsed.entityId, scope, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.entityId, scope)
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       comment.member = member
@@ -280,7 +274,6 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
       em,
       before.memberId,
       explicitStaffCommandScope(before.tenantId, before.organizationId),
-      'Team member not found',
     )
 
     if (!comment) {
@@ -390,7 +383,6 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
         em,
         before.memberId,
         explicitStaffCommandScope(before.tenantId, before.organizationId),
-        'Team member not found',
       )
       let comment = await em.findOne(StaffTeamMemberComment, scopedStaffSnapshotWhere(before.id, snapshotScope))
       if (!comment) {
