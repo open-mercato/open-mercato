@@ -12,6 +12,10 @@ Use the currencies module for multi-currency support, exchange rates, and curren
 6. **MUST NOT filter rate fetching by `isActive`** — that flag decides whether a currency can be
    picked for something new, not whether it still needs a live rate. Rates are fetched for every
    currency in scope that is not soft-deleted. See `services/README.md` → "Which Currencies Get Rates"
+7. **MUST resolve the base currency inside a transaction through `baseCurrencyServiceFactory(tem)`** — the
+   `baseCurrencyService` key is bound to the request `em` fork, which does not share a transactional `tem`'s
+   connection. Under a transaction the lookup runs in a savepoint, so a failed lookup returns `unavailable`
+   without aborting the caller's transaction
 
 ## Ask First
 

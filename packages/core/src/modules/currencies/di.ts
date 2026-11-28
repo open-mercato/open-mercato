@@ -1,8 +1,7 @@
 import { defineProcessDiRegistrar } from '@open-mercato/shared/lib/di/process-registrar'
 import { asFunction } from 'awilix'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
-import type { EntityManager } from '@mikro-orm/core'
-import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { RateFetchingService } from './services/rateFetchingService'
 import { ExchangeRateService } from './services/exchangeRateService'
 import { NBPProvider } from './services/providers/nbp'
@@ -38,8 +37,11 @@ export function register(container: AppContainer) {
     baseCurrencyService: {
       resolve: (c) => new BaseCurrencyService(c.resolve<EntityManager>('em')),
     },
+    baseCurrencyServiceFactory: {
+      resolve: () => (em: EntityManager) => new BaseCurrencyService(em),
+    },
     currencyPrecisionService: asFunction(
-      ({ em }: { em: PostgreSqlEntityManager }) => new CurrencyPrecisionService(em),
+      ({ em }: { em: EntityManager }) => new CurrencyPrecisionService(em),
     )
       .scoped()
       .proxy(),

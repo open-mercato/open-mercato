@@ -1,18 +1,25 @@
 /**
  * @jest-environment node
  */
-import type { EntityManager } from '@mikro-orm/core'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { BaseCurrencyService } from '../baseCurrencyService'
 
-function createService(rowsOrError: Array<Record<string, unknown>> | Error) {
+function createService(
+  rowsOrError: Array<Record<string, unknown>> | Error,
+  options: { inTransaction?: boolean } = {},
+) {
   const execute = jest.fn(async () => {
     if (rowsOrError instanceof Error) throw rowsOrError
     return rowsOrError
   })
-  const em = {
-    getConnection: () => ({ execute }),
-  } as unknown as EntityManager
-  return { service: new BaseCurrencyService(em), execute }
+  const getConnection = jest.fn(() => {
+    throw new Error('getConnection must not be used: it always takes a separate pooled connection')
+  })
+  const savepointEm = { execute }
+  const transactional = jest.fn(async (callback: (tem: typeof savepointEm) => Promise<unknown>) => callback(savepointEm))
+  const getTransactionContext = jest.fn(() => (options.inTransaction ? {} : undefined))
+  const em = { execute, getConnection, transactional, getTransactionContext } as unknown as EntityManager
+  return { service: new BaseCurrencyService(em), execute, getConnection, transactional }
 }
 
 describe('BaseCurrencyService', () => {
@@ -30,6 +37,48 @@ describe('BaseCurrencyService', () => {
       'tenant-1',
       '{org-1,org-2}',
     ])
+  })
+
+  test('queries through em.execute so a transaction bound to the given em is reused', async () => {
+    const { service, execute, getConnection, transactional } = createService([
+      { organization_id: 'org-1', code: 'EUR' },
+    ])
+
+    await expect(service.resolveBaseCurrency({
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1'],
+    })).resolves.toEqual({ status: 'resolved', code: 'EUR' })
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(getConnection).not.toHaveBeenCalled()
+    expect(transactional).not.toHaveBeenCalled()
+  })
+
+  test('runs the lookup in a clear savepoint when the given em carries a transaction', async () => {
+    const { service, execute, transactional } = createService(
+      [{ organization_id: 'org-1', code: 'EUR' }],
+      { inTransaction: true },
+    )
+
+    await expect(service.resolveBaseCurrency({
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1'],
+    })).resolves.toEqual({ status: 'resolved', code: 'EUR' })
+    expect(transactional).toHaveBeenCalledTimes(1)
+    expect(transactional).toHaveBeenCalledWith(expect.any(Function), { clear: true })
+    expect(execute).toHaveBeenCalledTimes(1)
+  })
+
+  test('fails soft inside a transaction through the savepoint that rolls the lookup back', async () => {
+    const { service, transactional } = createService(
+      new Error('invalid input syntax for type uuid'),
+      { inTransaction: true },
+    )
+
+    await expect(service.resolveBaseCurrency({
+      tenantId: 'tenant-1',
+      organizationIds: ['org-1'],
+    })).resolves.toEqual({ status: 'unavailable' })
+    expect(transactional).toHaveBeenCalledTimes(1)
   })
 
   test('represents differing organization currencies as ambiguous', async () => {
