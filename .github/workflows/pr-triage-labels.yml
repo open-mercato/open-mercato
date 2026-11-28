@@ -27,8 +27,8 @@ jobs:
   triage-labels:
     if: >-
       ${{
-        !github.event.pull_request.draft &&
         !(github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'stabilize/')) &&
+        (!github.event.pull_request.draft || github.event.action == 'labeled' || github.event.action == 'synchronize') &&
         (github.event.action != 'labeled' || github.event.label.name == 'human-triage-accepted')
       }}
     runs-on: blacksmith-4vcpu-ubuntu-2404

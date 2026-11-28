@@ -303,11 +303,109 @@ test('run executes addLabels, removeLabel, and unauthorized-acceptance rejection
   }
 })
 
+test('parseCoreTeamLogins error paths: malformed JSON, missing or invalid logins', () => {
+  assert.throws(() => parseCoreTeamLogins('{not json'), SyntaxError)
+  assert.throws(() => parseCoreTeamLogins('{}'), /logins array/)
+  assert.throws(() => parseCoreTeamLogins('{"logins": "pkarw"}'), /logins array/)
+  assert.throws(() => parseCoreTeamLogins('{"logins": ["pkarw", ""]}'), /non-empty strings/)
+  assert.throws(() => parseCoreTeamLogins('{"logins": [123]}'), /non-empty strings/)
+})
+
 test('parseTrustedBots normalizes prTriage.trustedBots from .ai/agentic.config.json', () => {
   const bots = parseTrustedBots(readFileSync(AGENTIC_CONFIG_PATH, 'utf8'))
   assert.ok(bots.has('open-mercato-maintenance[bot]'))
   assert.ok(bots.has('open-mercato-assistant[bot]'))
   assert.ok(bots.has('dependabot[bot]'))
+})
+
+test('parseTrustedBots fallback and error paths: undefined falls back to empty, malformed throws', () => {
+  assert.deepEqual([...parseTrustedBots('{}')], [])
+  assert.deepEqual([...parseTrustedBots('{"prTriage": {}}')], [])
+  assert.deepEqual([...parseTrustedBots('{"prTriage": {"trustedBots": []}}')], [])
+  assert.throws(() => parseTrustedBots('{bad json'), SyntaxError)
+  assert.throws(() => parseTrustedBots('{"prTriage": {"trustedBots": "bot"}}'), /must be an array/)
+  assert.throws(() => parseTrustedBots('{"prTriage": {"trustedBots": ["  "]}}'), /non-empty strings/)
+  assert.throws(() => parseTrustedBots('{"prTriage": {"trustedBots": [null]}}'), /non-empty strings/)
+})
+
+test('draft PRs: unauthorized human-triage-accepted is removed on drafts, ready_for_review adds needs-triage, synchronize removes triaged', async () => {
+  // 1. Bot / non-core adds human-triage-accepted on a draft -> removed and commented
+  for (const sender of [
+    { login: 'open-mercato-assistant[bot]', type: 'Bot' },
+    { login: 'external-triager', type: 'User' },
+  ]) {
+    const { github, calls } = fakeGithub([HUMAN_TRIAGE_ACCEPTED_LABEL])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'labeled',
+        label: { name: HUMAN_TRIAGE_ACCEPTED_LABEL },
+        pull_request: makePr({ draft: true }),
+        sender,
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'reject-accepted', sender.login)
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'removeLabel', 'createComment'],
+    )
+    assert.equal(calls[1].params.name, HUMAN_TRIAGE_ACCEPTED_LABEL)
+  }
+
+  // 2. Same PR leaves draft (ready_for_review) without human-triage-accepted -> adds needs-triage
+  {
+    const { github, calls } = fakeGithub([])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'ready_for_review',
+        pull_request: makePr({ draft: false }),
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'add-label')
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'addLabels'],
+    )
+    assert.deepEqual(calls[1].params.labels, [NEEDS_TRIAGE_LABEL])
+  }
+
+  // 3. Push (synchronize) to a triaged draft -> removes triaged
+  {
+    const { github, calls } = fakeGithub([TRIAGED_LABEL])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'synchronize',
+        pull_request: makePr({ draft: true }),
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'remove-label')
+    assert.deepEqual(
+      calls.map((c) => c.method),
+      ['listLabelsOnIssue', 'removeLabel'],
+    )
+    assert.equal(calls[1].params.name, TRIAGED_LABEL)
+  }
+
+  // 4. Draft opened / reopened is still skipped
+  for (const action of ['opened', 'reopened']) {
+    const { github, calls } = fakeGithub([])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: { action, pull_request: makePr({ draft: true }) },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'skip', action)
+    assert.deepEqual(calls, [])
+  }
 })
 
 test('trusted bots skip needs-triage case-insensitively, still lose triaged on synchronize, and cannot accept PRs', async () => {
@@ -367,37 +465,88 @@ test('trusted bots skip needs-triage case-insensitively, still lose triaged on s
   assert.equal(acceptDecision.kind, 'reject-accepted')
 })
 
-test('workflow security properties: pull_request_target, minimal permissions, default-branch sparse checkout, no PR code execution', () => {
-  const workflow = readFileSync(WORKFLOW_PATH, 'utf8')
+function stripYamlComments(raw: string): string[] {
+  return raw
+    .split(/\r?\n/)
+    .map((line) => line.replace(/(^|\s)#.*$/, ''))
+    .filter((line) => line.trim().length > 0)
+}
 
-  assert.match(workflow, /^\s*pull_request_target:/m)
-  assert.match(workflow, /types:\s*\[opened,\s*reopened,\s*ready_for_review,\s*synchronize,\s*labeled\]/)
-  assert.doesNotMatch(workflow, /^\s*concurrency:/m)
+function extractIndentedBlock(lines: string[], headerPattern: RegExp): string[] {
+  const startIdx = lines.findIndex((line) => headerPattern.test(line))
+  assert.notEqual(startIdx, -1, `Missing YAML block matching ${headerPattern}`)
+  const baseIndent = lines[startIdx].match(/^(\s*)/)?.[1].length ?? 0
+  const block: string[] = []
+  for (let i = startIdx + 1; i < lines.length; i += 1) {
+    const indent = lines[i].match(/^(\s*)/)?.[1].length ?? 0
+    if (indent <= baseIndent) break
+    block.push(lines[i])
+  }
+  return block
+}
 
-  // Minimal permissions
-  assert.match(workflow, /contents:\s*read/)
-  assert.match(workflow, /issues:\s*write/)
-  assert.match(workflow, /pull-requests:\s*write/)
-  assert.doesNotMatch(workflow, /contents:\s*write/)
-  assert.doesNotMatch(workflow, /write-all/)
+test('workflow security properties: pull_request_target, exact permissions allowlist, sparse-checkout paths, no PR code execution', () => {
+  const raw = readFileSync(WORKFLOW_PATH, 'utf8')
+  const lines = stripYamlComments(raw)
+  const uncommented = lines.join('\n')
 
-  // Sparse checkout pinned to default branch, credential-free, no PR head ref, no shell steps
-  assert.match(workflow, /ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}/)
-  assert.match(workflow, /persist-credentials:\s*false/)
-  assert.match(workflow, /sparse-checkout-cone-mode:\s*false/)
-  assert.match(workflow, /\.github\/core-team\.json/)
-  assert.match(workflow, /\.ai\/agentic\.config\.json/)
-  assert.match(workflow, /scripts\/ci\/pr-triage-labels\.mts/)
-  assert.doesNotMatch(workflow, /pull_request\.head\.sha/)
-  assert.doesNotMatch(workflow, /^\s*run:/m)
+  // 1. Trigger type: only pull_request_target with exact types
+  const onBlock = extractIndentedBlock(lines, /^on:\s*$/)
+  const triggerKeys = onBlock
+    .filter((line) => /^\s{2}[a-z_]+:\s*$/.test(line))
+    .map((line) => line.trim().replace(/:$/, ''))
+  assert.deepEqual(triggerKeys, ['pull_request_target'])
+  const typesLine = onBlock.find((line) => /^\s+types:\s*\[/.test(line))
+  assert.ok(typesLine, 'pull_request_target must declare types')
+  const types = (typesLine.match(/\[([^\]]+)\]/)?.[1] ?? '')
+    .split(',')
+    .map((s) => s.trim())
+  assert.deepEqual(types, ['opened', 'reopened', 'ready_for_review', 'synchronize', 'labeled'])
 
-  // Skips drafts and same-repo stabilize/ branches
-  assert.match(workflow, /!github\.event\.pull_request\.draft/)
-  assert.match(workflow, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
-  assert.match(workflow, /startsWith\(github\.event\.pull_request\.head\.ref,\s*'stabilize\/'\)/)
+  // 2. No concurrency block
+  assert.equal(lines.some((line) => /^\s*concurrency:/.test(line)), false)
 
-  // No ${{ interpolation inside the github-script body
-  const scriptBlock = workflow.split(/script:\s*\|/)[1] ?? ''
-  assert.ok(scriptBlock.length > 0, 'workflow must have a github-script block')
-  assert.equal(scriptBlock.includes('${{'), false, 'script block must not interpolate GitHub expressions')
+  // 3. Exact permissions allowlist at workflow level, and no job-level permissions override
+  const permissionsLines = lines.filter((line) => /^\s*permissions:/.test(line))
+  assert.equal(permissionsLines.length, 1, 'permissions must be declared once at top level')
+  const permBlock = extractIndentedBlock(lines, /^permissions:\s*$/)
+  const permissions: Record<string, string> = {}
+  for (const line of permBlock) {
+    const match = line.trim().match(/^([a-z-]+):\s*([a-z-]+)$/)
+    assert.ok(match, `Unexpected permissions entry: ${line}`)
+    permissions[match[1]] = match[2]
+  }
+  assert.deepEqual(permissions, {
+    contents: 'read',
+    issues: 'write',
+    'pull-requests': 'write',
+  })
+
+  // 4. Single checkout pinned to default branch, credential-free, exact sparse-checkout paths, no shell steps
+  const checkoutSteps = lines.filter((line) => /^\s*uses:\s*actions\/checkout@/.test(line))
+  assert.equal(checkoutSteps.length, 1)
+  assert.equal(lines.some((line) => /^\s*run:/.test(line)), false, 'no shell run steps allowed')
+  assert.equal(uncommented.includes('pull_request.head.sha'), false)
+
+  const sparsePaths = extractIndentedBlock(lines, /^\s+sparse-checkout:\s*\|$/).map((line) => line.trim())
+  assert.deepEqual(sparsePaths, [
+    '.github/core-team.json',
+    '.ai/agentic.config.json',
+    'scripts/ci/pr-triage-labels.mts',
+  ])
+  assert.match(uncommented, /^\s+ref:\s*\$\{\{\s*github\.event\.repository\.default_branch\s*\}\}$/m)
+  assert.match(uncommented, /^\s+persist-credentials:\s*false$/m)
+  assert.match(uncommented, /^\s+sparse-checkout-cone-mode:\s*false$/m)
+  assert.match(uncommented, /^\s+fetch-depth:\s*1$/m)
+
+  // 5. Job condition: skips same-repo stabilize/ branches; skips drafts only for non-labeled/non-synchronize
+  const ifBlock = extractIndentedBlock(lines, /^\s+if:\s*>-$/).map((line) => line.trim()).join(' ')
+  assert.match(ifBlock, /github\.event\.pull_request\.head\.repo\.full_name == github\.repository/)
+  assert.match(ifBlock, /startsWith\(github\.event\.pull_request\.head\.ref,\s*'stabilize\/'\)/)
+  assert.match(ifBlock, /!github\.event\.pull_request\.draft \|\| github\.event\.action == 'labeled' \|\| github\.event\.action == 'synchronize'/)
+
+  // 6. No ${{ interpolation inside the github-script body
+  const scriptLines = extractIndentedBlock(lines, /^\s+script:\s*\|$/)
+  assert.ok(scriptLines.length > 0, 'workflow must have a github-script block')
+  assert.equal(scriptLines.join('\n').includes('${{'), false, 'script block must not interpolate GitHub expressions')
 })

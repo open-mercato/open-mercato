@@ -125,14 +125,14 @@ export function decide({
   if (!pullRequest) {
     return { kind: 'skip', reason: 'not a pull request event' }
   }
-  if (pullRequest.draft) {
-    return { kind: 'skip', reason: 'pull request is a draft' }
-  }
   if (isSameRepoStabilizeBranch(pullRequest, repo)) {
     return { kind: 'skip', reason: 'same-repository stabilize/ branch' }
   }
 
   if (action === 'opened' || action === 'reopened' || action === 'ready_for_review') {
+    if (pullRequest.draft) {
+      return { kind: 'skip', reason: 'pull request is a draft' }
+    }
     const author = pullRequest.user?.login
     if (isCoreTeamLogin(author, coreTeam)) {
       return { kind: 'noop', reason: `author @${author} is in .github/core-team.json` }
@@ -240,11 +240,6 @@ export async function run({ github, context, core, coreTeam, trustedBots }: Tria
     core.info(`Skipping: ${decision.reason}`)
     return decision
   }
-  if (pullRequest.draft) {
-    const decision: TriageDecision = { kind: 'skip', reason: 'pull request is a draft' }
-    core.info(`#${pullRequest.number}: skipping (${decision.reason})`)
-    return decision
-  }
   if (isSameRepoStabilizeBranch(pullRequest, repo)) {
     const decision: TriageDecision = { kind: 'skip', reason: 'same-repository stabilize/ branch' }
     core.info(`#${pullRequest.number}: skipping (${decision.reason})`)
@@ -259,6 +254,11 @@ export async function run({ github, context, core, coreTeam, trustedBots }: Tria
     return decision
   }
   if (action === 'opened' || action === 'reopened' || action === 'ready_for_review') {
+    if (pullRequest.draft) {
+      const decision: TriageDecision = { kind: 'skip', reason: 'pull request is a draft' }
+      core.info(`#${pullRequest.number}: skipping (${decision.reason})`)
+      return decision
+    }
     const author = pullRequest.user?.login
     if (isCoreTeamLogin(author, coreTeam)) {
       const decision: TriageDecision = {
