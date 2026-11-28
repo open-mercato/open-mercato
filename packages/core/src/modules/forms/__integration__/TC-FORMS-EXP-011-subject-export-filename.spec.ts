@@ -18,7 +18,7 @@ test('TC-FORMS-EXP-011: subject exports preserve the display type and use a safe
   expect(response.status()).toBe(200)
   expect(response.headers()['content-type']).toContain('application/json')
   expect(response.headers()['content-disposition']).toBe(
-    `attachment; filename="forms-export-Employee_Application-${subjectId}.json"`,
+    `attachment; filename="forms-export-Employee_Application-${subjectId}.json"; filename*=UTF-8''forms-export-Employee_Application-${subjectId}.json`,
   )
   expect(await readJsonSafe(response)).toMatchObject({ subjectType, subjectId, submissions: [] })
 })
