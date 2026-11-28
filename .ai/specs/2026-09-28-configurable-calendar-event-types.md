@@ -151,6 +151,8 @@ The existing activity-type dictionary POST/PATCH accepts optional `behavior`; ot
 
 Appearance and behavior update in one command/transaction and one undo record. Creating a local override uses the existing POST path. Reset deletes only the local row, revealing the lower-precedence definition. Cache invalidation and side effects run after commit.
 
+With optimistic locking enabled for `customers.dictionary_entry`, a POST that finds an activity-type entry for the same normalized value in the current organization requires its version in the standard header. A missing, invalid, or stale version returns the standard `optimistic_lock_conflict` response. If two requests try to create the same local entry, the losing insert returns that conflict with the winning row's version. When no usable version was supplied, the response echoes `currentUpdatedAt` in `expectedUpdatedAt`. An inherited entry can still be overridden with a versionless POST when the local entry does not exist.
+
 ### Interaction mutations
 
 Existing interaction update input adds optional `confirmDiscardInapplicableValues: boolean`. Create/update resolves the effective type in the authenticated scope before persistence.
@@ -220,6 +222,7 @@ Structured logs include tenant/organization IDs, type key, resolver source count
 - Existing routes, methods, custom-field spots, and stored interaction type values remain unchanged.
 - Calendar-picker writes explicitly request strict selectability/applicability enforcement. Existing public interaction clients that do not opt in retain legacy acceptance for hidden/arbitrary keys and same-type fields; destructive type changes still require the typed confirmation handshake.
 - Activity-type dictionary reads intentionally narrow from every readable organization to the selected organization plus its ancestors, preventing sibling configuration disclosure; callers select another organization explicitly when needed.
+- Clients updating a local activity type via POST can send the `updatedAt` from the dictionary response as the expected version. Clients can also use PATCH with the local entry's ID and version.
 - The deprecated resolver bridge and `UPGRADE_NOTES.md` entry remain for at least one minor version.
 - The canonical schema, six definitions, fallback, resolver, and read route come from the prerequisite foundation; scoped dictionary overlays remain above widget/programmatic sources and cannot execute React.
 - Old application code ignores the nullable column and continues using current fallbacks.
@@ -301,6 +304,10 @@ All fixtures are API-created and removed in `finally`; no test uses demo data.
 Approved for review. The original combined brief was split by capability with the foundation dependency made explicit; no assumption requires human confirmation.
 
 ## Changelog
+
+### 2026-11-21 — Protect activity-type overrides from concurrent creation
+
+- Reject versionless duplicate activity-type POSTs and report concurrent insert collisions through the existing optimistic-lock response (#7269).
 
 ### 2026-09-28 — Initial proposal
 

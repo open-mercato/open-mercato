@@ -358,7 +358,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Create or override dictionary entry',
-      description: 'Creates a dictionary entry (or updates the existing entry for the same value) within the current organization scope.',
+      description: 'Creates a dictionary entry or updates the existing entry for the same value within the current organization. When optimistic locking is enabled for customer dictionary entries, an update by POST for an activity type requires the `x-om-ext-optimistic-lock-expected-updated-at` header.',
       requestBody: {
         contentType: 'application/json',
         schema: postSchema,
@@ -370,7 +370,14 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid payload', schema: dictionaryErrorSchema },
         { status: 401, description: 'Unauthorized', schema: dictionaryErrorSchema },
-        { status: 409, description: 'Duplicate value conflict', schema: dictionaryErrorSchema },
+        {
+          status: 409,
+          description: 'Duplicate value or optimistic-lock conflict. When no usable version was supplied, expectedUpdatedAt echoes currentUpdatedAt.',
+          schema: dictionaryErrorSchema.extend({
+            currentUpdatedAt: z.iso.datetime().optional(),
+            expectedUpdatedAt: z.iso.datetime().optional(),
+          }),
+        },
       ],
     },
   },
