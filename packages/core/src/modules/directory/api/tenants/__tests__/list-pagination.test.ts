@@ -61,7 +61,7 @@ describe('GET /api/directory/tenants pagination', () => {
     expect(em.findAndCount).toHaveBeenCalledTimes(1)
     const [, , options] = em.findAndCount.mock.calls[0]
     expect(options).toEqual(
-      expect.objectContaining({ orderBy: { name: 'ASC' }, limit: 25, offset: 50 }),
+      expect.objectContaining({ orderBy: { name: 'ASC', id: 'ASC' }, limit: 25, offset: 50 }),
     )
 
     expect(res.status).toBe(200)
@@ -77,9 +77,24 @@ describe('GET /api/directory/tenants pagination', () => {
     em.findAndCount.mockResolvedValue([[], 0])
     await GET(new Request('http://localhost/api/directory/tenants?page=1&pageSize=50&sortField=name&sortDir=desc'))
     const options = em.findAndCount.mock.calls[0][2]
-    expect(options.orderBy).toEqual({ name: 'DESC' })
+    expect(options.orderBy).toEqual({ name: 'DESC', id: 'DESC' })
     expect(options.limit).toBe(50)
     expect(options.offset).toBe(0)
+  })
+
+  it.each([
+    ['', 'name', 'ASC'],
+    ['&sortField=name', 'name', 'ASC'],
+    ['&sortField=name&sortDir=desc', 'name', 'DESC'],
+    ['&sortField=createdAt', 'createdAt', 'ASC'],
+    ['&sortField=createdAt&sortDir=desc', 'createdAt', 'DESC'],
+    ['&sortField=updatedAt', 'updatedAt', 'ASC'],
+    ['&sortField=updatedAt&sortDir=desc', 'updatedAt', 'DESC'],
+  ])('breaks ties by id after the sort field for query "%s"', async (query, field, direction) => {
+    em.findAndCount.mockResolvedValue([[], 0])
+    await GET(new Request(`http://localhost/api/directory/tenants?page=2&pageSize=10${query}`))
+    const orderBy = em.findAndCount.mock.calls[0][2].orderBy as Record<string, 'ASC' | 'DESC'>
+    expect(Object.entries(orderBy)).toEqual([[field, direction], ['id', direction]])
   })
 
   it('resolves custom-field filters via a bounded id query and pushes pagination to findAndCount', async () => {
@@ -113,6 +128,7 @@ describe('GET /api/directory/tenants pagination', () => {
     const [, where, options] = em.findAndCount.mock.calls[0]
     expect(where.id).toEqual({ $in: [gold1.id, gold2.id] })
     expect(options).toEqual(expect.objectContaining({ limit: 50, offset: 0 }))
+    expect(Object.entries(options.orderBy)).toEqual([['name', 'ASC'], ['id', 'ASC']])
 
     expect(res.status).toBe(200)
     const body = (await res.json()) as { items: { id: string }[]; total: number }
