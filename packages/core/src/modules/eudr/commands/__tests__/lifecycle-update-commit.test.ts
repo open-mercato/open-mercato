@@ -101,7 +101,7 @@ describe.each(fixtures)('$commandId lifecycle commit boundary', (fixture) => {
     const harness = createHarness(fixture, false)
     await expect(harness.handler.execute({ id: recordId, [fixture.field]: fixture.after }, harness.ctx)).resolves.toMatchObject({ entityId: recordId })
     expect(harness.emitEvent).toHaveBeenCalledTimes(1)
-    expect(harness.emitEvent).toHaveBeenCalledWith(fixture.eventId, expect.objectContaining({ id: recordId, tenantId, organizationId }), { persistent: true })
+    expect(harness.emitEvent).toHaveBeenCalledWith(fixture.eventId, expect.objectContaining({ id: recordId, tenantId, organizationId }), { persistent: true, tenantId, organizationId })
     expect(harness.emittedAtCommit).toEqual([true])
   })
 

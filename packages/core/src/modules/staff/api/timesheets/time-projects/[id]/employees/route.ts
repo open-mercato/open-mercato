@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -265,7 +266,7 @@ const crud = makeCrudRoute({
             id: timeProjectMemberId,
             tenantId: ctx.auth?.tenantId ?? null,
             organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
-          }, { persistent: true }).catch((err) => {
+          }, { persistent: true, ...organizationEventScope({ tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null }) }).catch((err) => {
             logger.error('staff.timesheets emit time_project_access.granted failed', { err })
           })
         }

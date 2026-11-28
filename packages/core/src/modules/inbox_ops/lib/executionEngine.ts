@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityClass } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
@@ -162,7 +163,7 @@ export async function executeAction(
         executedByUserId: ctx.userId,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
-      })
+      }, organizationEventScope(ctx))
     }
 
     return { success: true, ...result, statusCode: 200 }
@@ -186,7 +187,7 @@ export async function executeAction(
         error: freshAction.executionError,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
-      })
+      }, organizationEventScope(ctx))
     }
 
     return { success: false, error: freshAction.executionError || 'Unknown error', statusCode }
@@ -237,7 +238,7 @@ export async function rejectAction(
       actionType: freshAction.actionType,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-    })
+    }, organizationEventScope(ctx))
   }
 }
 
@@ -282,7 +283,7 @@ export async function rejectProposal(
       proposalId,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-    })
+    }, organizationEventScope(ctx))
   }
 }
 

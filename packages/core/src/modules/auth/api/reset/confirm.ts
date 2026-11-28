@@ -35,14 +35,15 @@ export async function POST(req: Request) {
   const auth = c.resolve<AuthService>('authService')
   const user = await auth.confirmPasswordReset(parsed.data.token, parsed.data.password)
   if (!user) return NextResponse.json({ ok: false, error: 'Invalid or expired token' }, { status: 400 })
+  const tenantId = user.tenantId ? String(user.tenantId) : null
+  const organizationId = user.organizationId ? String(user.organizationId) : null
   void emitAuthEvent('auth.password.reset.completed', {
     id: String(user.id),
-    tenantId: user.tenantId ? String(user.tenantId) : null,
-    organizationId: user.organizationId ? String(user.organizationId) : null,
+    tenantId,
+    organizationId,
     at: new Date().toISOString(),
-  }, { persistent: true }).catch(() => undefined)
+  }, { persistent: true, tenantId, organizationId }).catch(() => undefined)
   try {
-    const tenantId = user.tenantId ? String(user.tenantId) : null
     if (tenantId) {
       const notificationService = resolveNotificationService(c)
       const typeDef = notificationTypes.find((type) => type.type === 'auth.password_reset.completed')
@@ -54,7 +55,7 @@ export async function POST(req: Request) {
         })
         await notificationService.create(notificationInput, {
           tenantId,
-          organizationId: user.organizationId ? String(user.organizationId) : null,
+          organizationId,
         })
       }
     }

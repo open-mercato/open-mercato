@@ -1,5 +1,6 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { sendCustomerMagicLinkEmail } from '@open-mercato/core/modules/customer_accounts/lib/authLinkEmails'
@@ -55,7 +56,7 @@ export default async function handle(
       userId: user.id,
       tenantId,
       organizationId: user.organizationId,
-    })
+    }, organizationEventScope(user))
   ).catch((error) => {
     logger.error('Magic link requested event failed', { err: error })
     getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.magic_link_event_failed' })

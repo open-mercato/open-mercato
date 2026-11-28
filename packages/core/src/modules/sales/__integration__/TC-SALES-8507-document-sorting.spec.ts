@@ -28,12 +28,14 @@ for (const { resource, numberField, label } of [
     const prefix = `QA8507-${randomUUID().slice(0, 8)}`
     const numbers = Array.from({ length: 21 }, (_, index) => `${prefix}-${String(index).padStart(2, '0')}`)
     const fixtureIds: string[] = []
+    const fixtureBatchSize = 3
     let token: string
 
     test.beforeAll(async ({ request }) => {
       token = await getAuthToken(request, 'admin')
-      for (let offset = 0; offset < numbers.length; offset += 7) {
-        await Promise.all(numbers.slice(offset, offset + 7).reverse().map(async (number) => {
+      for (let offset = 0; offset < numbers.length; offset += fixtureBatchSize) {
+        const batch = numbers.slice(offset, offset + fixtureBatchSize).reverse()
+        const results = await Promise.allSettled(batch.map(async (number) => {
           const response = await apiRequest(request, 'POST', `/api/sales/${resource}`, {
             token,
             retryTransport: false,
@@ -46,6 +48,8 @@ for (const { resource, numberField, label } of [
           expect(response.status()).toBe(201)
           fixtureIds.push(expectId((await readJsonSafe<{ id?: string }>(response))?.id, 'Owned sales document id'))
         }))
+        const failed = results.find((result) => result.status === 'rejected')
+        if (failed) throw failed.reason
       }
     })
 

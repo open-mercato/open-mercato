@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EudrEventId } from '../events'
 
@@ -13,6 +14,7 @@ export async function emitEudrLifecycleEvent(
   container: LifecycleContainer,
   eventId: EudrEventId,
   payload: Record<string, unknown>,
+  scope: { tenantId: string; organizationId: string },
 ): Promise<void> {
   try {
     const eventBus = container.resolve('eventBus') as LifecycleEventBus | undefined
@@ -20,7 +22,7 @@ export async function emitEudrLifecycleEvent(
     await eventBus.emitEvent(
       eventId,
       { ...payload, occurredAt: new Date().toISOString() },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(scope) },
     )
   } catch (err) {
     logger.warn('EUDR lifecycle event emit failed', { eventId, err })

@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects, emitCrudUndoSideEffects, buildChanges, requireId } from '@open-mercato/shared/lib/commands/helpers'
@@ -140,7 +141,7 @@ async function refreshTagMemberships(
       entityId: assignment.entity.id,
       organizationId: tag.organizationId,
       tenantId: tag.tenantId,
-    }, { persistent: true })
+    }, { persistent: true, ...organizationEventScope(tag) })
   }
   await emitQueryIndexUpsertEvents(ctx, assignments.map((assignment) => ({
     entityType: E.customers.customer_entity,
@@ -545,7 +546,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
       entityId: parsed.entityId,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-    }, { persistent: true })
+    }, { persistent: true, ...organizationEventScope(parsed) })
 
     return { assignmentId: assignment.id }
   },
@@ -641,7 +642,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
       entityId: before.entityId,
       organizationId: before.organizationId,
       tenantId: before.tenantId,
-    }, { persistent: true })
+    }, { persistent: true, ...organizationEventScope(before) })
 
     return { assignmentId: assignment.id }
   },
@@ -682,7 +683,7 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
       entityId: parsed.entityId,
       organizationId: parsed.organizationId,
       tenantId: parsed.tenantId,
-    }, { persistent: true })
+    }, { persistent: true, ...organizationEventScope(parsed) })
 
     return { assignmentId: existing.id ?? null }
   },

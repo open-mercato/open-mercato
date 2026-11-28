@@ -369,7 +369,11 @@ describeWithRedis('customer_accounts: blocked-transport / durable-acceptance bou
         expect(secondRedemption).toBeNull()
 
         await waitUntil(() => mockEmit.mock.calls.length >= 1, 'the requested event to be emitted after delivery')
-        expect(mockEmit).toHaveBeenCalledWith(eventId, expect.objectContaining({ userId: knownUserId, tenantId }))
+        expect(mockEmit).toHaveBeenCalledWith(
+          eventId,
+          expect.objectContaining({ userId: knownUserId, tenantId }),
+          { tenantId, organizationId: orgId },
+        )
       },
       20_000,
     )

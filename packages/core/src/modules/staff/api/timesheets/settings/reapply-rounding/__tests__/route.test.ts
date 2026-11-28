@@ -143,7 +143,7 @@ describe('reapply rounding route', () => {
     expect(emitStaffEvent).toHaveBeenCalledWith(
       'staff.timesheets.time_tracking.rounding_reapplied',
       { tenantId, organizationId, progressJobId, candidateCount: 5 },
-      { persistent: true },
+      { persistent: true, tenantId, organizationId },
     )
   })
 

@@ -156,7 +156,7 @@ describe('createAgentDispositionTask', () => {
     expect(mockEmit).toHaveBeenCalledWith(
       'workflows.task.assigned',
       expect.objectContaining({ taskId: 'task-1', assignedToRoles: ['Sales Rep'] }),
-      { persistent: true },
+      { persistent: true, tenantId, organizationId },
     )
   })
 

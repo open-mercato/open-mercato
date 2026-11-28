@@ -103,6 +103,7 @@ describe('PasswordService', () => {
         organizationId: 'org-1',
         changedAt: expect.any(String),
       }),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
     expect(mockedEmitSecurityEvent).toHaveBeenNthCalledWith(
       2,

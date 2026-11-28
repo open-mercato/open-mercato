@@ -19,6 +19,7 @@
  * command excludes them again, independently.
  */
 
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { resolveFeatureAccess } from '../../../../lib/time-tracking/featureAccess'
 import { z } from 'zod'
@@ -173,7 +174,7 @@ export async function POST(req: Request) {
         organizationId,
         progressJobId,
         candidateCount,
-      }, { persistent: true }).catch((err) => {
+      }, { persistent: true, ...organizationEventScope({ tenantId, organizationId }) }).catch((err) => {
         logger.error('staff.timesheets emit time_tracking.rounding_reapplied failed', { err })
       })
     }

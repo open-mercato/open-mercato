@@ -126,6 +126,7 @@ describe('sharing', () => {
     expect(emitEventMock).toHaveBeenCalledWith(
       'customers.email.conversation_visibility_changed',
       expect.objectContaining({ shared: true, ownerUserId: OWNER }),
+      { tenantId: TENANT, organizationId: ORG },
     )
   })
 
@@ -176,6 +177,7 @@ describe('un-sharing', () => {
     expect(emitEventMock).toHaveBeenCalledWith(
       'customers.email.conversation_visibility_changed',
       expect.objectContaining({ shared: false }),
+      { tenantId: TENANT, organizationId: ORG },
     )
   })
 

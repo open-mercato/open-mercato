@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
@@ -129,7 +130,7 @@ const ingestPhoneCallCommand: CommandHandler<IngestPhoneCallInput, IngestPhoneCa
 
     await emitPhoneCallsEvent(
       created ? 'phone_calls.call.ingested' : 'phone_calls.call.updated',
-      { id: call.id, organizationId: call.organizationId, tenantId: call.tenantId },
+      { id: call.id, organizationId: call.organizationId, tenantId: call.tenantId }, organizationEventScope(call),
     ).catch(() => undefined)
 
     return { phoneCallId: call.id, created }

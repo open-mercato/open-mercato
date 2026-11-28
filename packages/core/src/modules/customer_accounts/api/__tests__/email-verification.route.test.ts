@@ -59,7 +59,7 @@ function request(path: string, password?: string) {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  mockVerifyToken.mockResolvedValue(identity)
+  mockVerifyToken.mockResolvedValue({ ...identity, organizationId })
   mockFindUser.mockResolvedValue({ ...signup })
   mockCreateSession.mockResolvedValue({ jwt: 'jwt-fixture', rawToken: 'session-fixture' })
   mockEmit.mockResolvedValue(undefined)
@@ -70,6 +70,13 @@ test('email verification without a new password clears the prior digest and sess
 
   expect(response.status).toBe(200)
   expect(mockVerifyToken).toHaveBeenCalledWith('verification-fixture', 'email_verification', undefined, mockTx)
+  expect(mockFindUser).toHaveBeenCalledWith(
+    mockTx,
+    CustomerUser,
+    { ...scope, deletedAt: null },
+    expect.anything(),
+    { tenantId: identity.tenantId, organizationId },
+  )
   expect(mockTx.nativeUpdate).toHaveBeenCalledWith(CustomerUser, scope, {
     emailVerifiedAt: expect.any(Date),
     passwordHash: null,
@@ -77,7 +84,7 @@ test('email verification without a new password clears the prior digest and sess
   expect(mockRevoke).toHaveBeenCalledWith(identity.userId, mockTx)
   expect(mockEmit).toHaveBeenCalledWith('customer_accounts.email.verified', expect.objectContaining({
     userId: identity.userId, tenantId: identity.tenantId, organizationId,
-  }))
+  }), { tenantId: identity.tenantId, organizationId })
 })
 
 test('email verification installs the credential chosen by the token holder', async () => {

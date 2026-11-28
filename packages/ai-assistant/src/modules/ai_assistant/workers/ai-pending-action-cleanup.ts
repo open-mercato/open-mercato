@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
@@ -80,9 +81,7 @@ export type PendingActionCleanupEmitter = (
 ) => Promise<void>
 
 const defaultEmitter: PendingActionCleanupEmitter = async (eventId, payload) => {
-  await emitAiAssistantEvent(eventId, payload as unknown as Record<string, unknown>, {
-    persistent: true,
-  })
+  await emitAiAssistantEvent(eventId, payload as unknown as Record<string, unknown>, { persistent: true, ...organizationEventScope(payload) })
 }
 
 export interface PendingActionCleanupRunOptions {

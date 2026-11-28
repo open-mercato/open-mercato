@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/core'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import type { EventBus } from '@open-mercato/events'
@@ -417,7 +418,7 @@ export async function executeRules(
             errorMessage,
             tenantId: context.tenantId,
             organizationId: context.organizationId ?? null,
-          })
+          }, context)
         }
 
         executedRules.push({
@@ -521,7 +522,7 @@ export async function executeSingleRule(
             errorMessage: result.error ?? null,
             tenantId: context.tenantId,
             organizationId: context.organizationId ?? null,
-          })
+          }, context)
         }
 
         return {
@@ -613,7 +614,7 @@ export async function executeSingleRule(
         errorMessage: enhancedError,
         tenantId: context.tenantId,
         organizationId: context.organizationId ?? null,
-      })
+      }, context)
     }
 
     return {
@@ -1062,9 +1063,10 @@ export async function logRuleExecution(
 
 async function emitRuleExecutionFailed(
   eventBus: Pick<EventBus, 'emitEvent'> | null | undefined,
-  payload: RuleExecutionFailedPayload
+  payload: RuleExecutionFailedPayload,
+  scope: Pick<RuleExecutionFailedPayload, 'tenantId' | 'organizationId'>,
 ): Promise<void> {
   if (!eventBus?.emitEvent) return
 
-  await eventBus.emitEvent('business_rules.rule.execution_failed', payload).catch(() => undefined)
+  await eventBus.emitEvent('business_rules.rule.execution_failed', payload, organizationEventScope(scope)).catch(() => undefined)
 }

@@ -809,6 +809,7 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
               : null
       const lifecycleEvent = lifecycleEventId
         ? {
+          scope: { tenantId: record.tenantId, organizationId: record.organizationId },
           eventId: lifecycleEventId,
           payload: {
             id: record.id,
@@ -826,7 +827,7 @@ const updateStatementCommand: CommandHandler<ScopedStatementUpdateInput, Stateme
       return { result, lifecycleEvent }
     })
     if (lifecycleEvent) {
-      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload)
+      await emitEudrLifecycleEvent(ctx.container, lifecycleEvent.eventId, lifecycleEvent.payload, lifecycleEvent.scope)
     }
     return result
   },

@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
@@ -141,7 +142,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     name: updates.name as string || role.name,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
-  }).catch(() => undefined)
+  }, organizationEventScope({ tenantId: auth.tenantId, organizationId: auth.orgId })).catch(() => undefined)
 
   return NextResponse.json({ ok: true, updatedAt: nextUpdatedAt.toISOString() })
 }
@@ -217,7 +218,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     slug: role.slug,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
-  }).catch(() => undefined)
+  }, organizationEventScope({ tenantId: auth.tenantId, organizationId: auth.orgId })).catch(() => undefined)
 
   return NextResponse.json({ ok: true })
 }

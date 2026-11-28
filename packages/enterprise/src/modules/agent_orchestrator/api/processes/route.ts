@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -353,7 +354,7 @@ const crud = makeCrudRoute<
         workflowId: row.workflowId,
         tenantId: row.tenantId,
         organizationId: row.organizationId,
-      }, { persistent: true })
+      }, { persistent: true, ...organizationEventScope(row) })
     },
     afterUpdate: async (entity, ctx) => {
       const row = entity as ProcessDefinition
@@ -375,7 +376,7 @@ const crud = makeCrudRoute<
         workflowId: row.workflowId,
         tenantId: row.tenantId,
         organizationId: row.organizationId,
-      }, { persistent: true })
+      }, { persistent: true, ...organizationEventScope(row) })
     },
     afterDelete: async (id, ctx) => {
       const em = (ctx.container.resolve('em') as EntityManager).fork()
@@ -394,7 +395,7 @@ const crud = makeCrudRoute<
         id: row.id,
         tenantId: row.tenantId,
         organizationId: row.organizationId,
-      }, { persistent: true })
+      }, { persistent: true, ...organizationEventScope(row) })
     },
   },
 })

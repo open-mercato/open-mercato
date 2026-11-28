@@ -175,6 +175,7 @@ describe('MfaAdminService', () => {
         targetUserId: 'user-1',
         reason: 'security incident',
       }),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 
@@ -216,6 +217,7 @@ describe('MfaAdminService', () => {
     expect(mockedEmitSecurityEvent).toHaveBeenCalledWith(
       'security.mfa.reset',
       expect.objectContaining({ adminId: 'root-1', targetUserId: 'user-1' }),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 

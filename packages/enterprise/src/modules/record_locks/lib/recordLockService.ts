@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { randomUUID } from 'crypto'
 import { UniqueConstraintViolationException, type FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -528,7 +529,7 @@ export class RecordLockService {
           organizationId: competingActiveLock.organizationId,
           lockedByUserId: competingActiveLock.lockedByUserId,
           attemptedByUserId: input.userId,
-        })
+        }, organizationEventScope(competingActiveLock))
       }
       return {
         ok: false,
@@ -714,7 +715,7 @@ export class RecordLockService {
           organizationId: outcome.contentionLock.organizationId,
           lockedByUserId: outcome.contentionLock.lockedByUserId,
           attemptedByUserId: input.userId,
-        })
+        }, organizationEventScope(outcome.contentionLock))
       }
 
       activeAfterAcquire = outcome.activeAfterAcquire
@@ -747,7 +748,7 @@ export class RecordLockService {
             organizationId: competingAfterCollision.organizationId,
             lockedByUserId: competingAfterCollision.lockedByUserId,
             attemptedByUserId: input.userId,
-          })
+          }, organizationEventScope(competingAfterCollision))
         }
         return {
           ok: false,
@@ -791,7 +792,7 @@ export class RecordLockService {
         strategy: ownedAfterAcquire.strategy,
         baseActionLogId: ownedAfterAcquire.baseActionLogId,
         activeParticipantCount: activeAfterAcquire.length,
-      })
+      }, organizationEventScope(ownedAfterAcquire))
 
       const recipientUserIds = activeAfterAcquire
         .filter((item) => item.lockedByUserId !== input.userId)
@@ -816,7 +817,7 @@ export class RecordLockService {
           joinedIp: ownedAfterAcquire.lockedByIp ?? null,
           recipientUserIds,
           activeParticipantCount: activeAfterAcquire.length,
-        })
+        }, organizationEventScope(ownedAfterAcquire))
       }
     }
 
@@ -896,7 +897,7 @@ export class RecordLockService {
       lockedByUserId: lock.lockedByUserId,
       releasedByUserId: input.userId,
       reason: lock.releaseReason,
-    })
+    }, organizationEventScope(lock))
 
     if (lock.releaseReason === 'unmount') {
       const remainingActiveLocks = await this.findActiveLocks(input, now)
@@ -915,7 +916,7 @@ export class RecordLockService {
           reason: 'unmount',
           recipientUserIds,
           activeParticipantCount: remainingActiveLocks.length,
-        })
+        }, organizationEventScope(lock))
       }
     }
 
@@ -952,7 +953,7 @@ export class RecordLockService {
       lockedByUserId: lock.lockedByUserId,
       releasedByUserId: input.userId,
       reason: input.reason ?? null,
-    })
+    }, organizationEventScope(lock))
 
     const remainingLocks = this.sortLocksByJoinOrder(activeLocks.filter((item) => item.id !== lock.id))
     const nextInQueue = remainingLocks[0] ?? null
@@ -1222,7 +1223,7 @@ export class RecordLockService {
       recipientUserIds: Array.from(recipientUserIds),
       changedFields: changedFields || '-',
       changedRowsJson,
-    })
+    }, organizationEventScope({ tenantId: input.tenantId, organizationId: normalizeScopeOrganization(input.organizationId) }))
   }
 
   async emitRecordDeletedNotificationAfterMutation(input: {
@@ -1284,7 +1285,7 @@ export class RecordLockService {
       organizationId: normalizeScopeOrganization(input.organizationId),
       deletedByUserId: input.userId,
       recipientUserIds: Array.from(recipientUserIds),
-    })
+    }, organizationEventScope({ tenantId: input.tenantId, organizationId: normalizeScopeOrganization(input.organizationId) }))
   }
 
   async resolveConflictById(input: {
@@ -1522,7 +1523,7 @@ export class RecordLockService {
           reason: 'expired',
           recipientUserIds,
           activeParticipantCount: active.length,
-        })
+        }, organizationEventScope(expiredLock))
       }
     }
     return active
@@ -1899,7 +1900,7 @@ export class RecordLockService {
         incomingActorUserId: result.conflict.incomingActorUserId,
         baseActionLogId: result.conflict.baseActionLogId,
         incomingActionLogId: result.conflict.incomingActionLogId,
-      })
+      }, organizationEventScope(result.conflict))
     }
 
     return result.conflict
@@ -1961,7 +1962,7 @@ export class RecordLockService {
       incomingActorUserId: conflict.incomingActorUserId,
       resolution: conflict.resolution,
       resolvedByUserId,
-    })
+    }, organizationEventScope(conflict))
   }
 
   private async findConflictById(

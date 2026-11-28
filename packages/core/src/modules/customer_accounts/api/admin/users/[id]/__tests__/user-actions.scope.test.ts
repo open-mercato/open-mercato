@@ -104,6 +104,10 @@ describe('admin customer-user actions — target organization scope', () => {
       id: userId, tenantId, organizationId: orgId,
     }, { emailVerifiedAt: expect.any(Date), passwordHash: null })
     expect(mockRevoke).toHaveBeenCalledWith(userId, mockTx)
-    expect(mockEmit).toHaveBeenCalledWith('customer_accounts.email.verified', expect.objectContaining({ userId, verifiedBy: adminId }))
+    expect(mockEmit).toHaveBeenCalledWith(
+      'customer_accounts.email.verified',
+      expect.objectContaining({ userId, verifiedBy: adminId }),
+      { tenantId, organizationId: orgId },
+    )
   })
 })

@@ -454,7 +454,8 @@ describe('LocalSchedulerService', () => {
         expect.objectContaining({
           id: 'test-1',
           error: expect.stringContaining('not an approved scheduler target'),
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
     })
 
@@ -484,7 +485,8 @@ describe('LocalSchedulerService', () => {
         expect.objectContaining({
           id: 'test-1',
           error: expect.stringContaining('not an approved scheduler target'),
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
     })
 
@@ -510,7 +512,8 @@ describe('LocalSchedulerService', () => {
         expect.objectContaining({
           id: 'test-1',
           error: expect.stringContaining('not an approved scheduler target'),
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
     })
 
@@ -600,7 +603,8 @@ describe('LocalSchedulerService', () => {
         expect.objectContaining({
           id: 'test-1',
           error: 'Scheduled command is not allowed',
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
       consoleErrorSpy.mockRestore()
     })
@@ -635,7 +639,8 @@ describe('LocalSchedulerService', () => {
         expect.objectContaining({
           id: 'test-1',
           error: 'Scheduled command actor is not authorized',
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
       consoleErrorSpy.mockRestore()
     })
@@ -659,7 +664,8 @@ describe('LocalSchedulerService', () => {
           id: 'test-1',
           scheduleName: 'Test Schedule',
           triggerType: 'scheduled',
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
     })
 
@@ -681,7 +687,8 @@ describe('LocalSchedulerService', () => {
         expect.objectContaining({
           id: 'test-1',
           scheduleName: 'Test Schedule',
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
     })
 
@@ -705,7 +712,8 @@ describe('LocalSchedulerService', () => {
           id: 'test-1',
           scheduleName: 'Test Schedule',
           error: 'Execution failed',
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
     })
 
@@ -795,7 +803,8 @@ describe('LocalSchedulerService', () => {
         expect.objectContaining({
           id: 'test-1',
           reason: 'Missing required feature: test.feature',
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
       expect(mockQueue.enqueue).not.toHaveBeenCalled()
     })
@@ -855,7 +864,8 @@ describe('LocalSchedulerService', () => {
         'scheduler.job.failed',
         expect.objectContaining({
           error: 'Target queue is required for queue target type',
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
     })
 
@@ -878,7 +888,8 @@ describe('LocalSchedulerService', () => {
         'scheduler.job.failed',
         expect.objectContaining({
           error: 'Target command is required for command target type',
-        })
+        }),
+        { tenantId: null, organizationId: null }
       )
     })
 

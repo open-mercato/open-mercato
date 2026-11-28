@@ -272,7 +272,7 @@ describe('executeScheduleWorker nextRunAt sync (async strategy)', () => {
     await runWorker(schedule, harness)
 
     expect(mockCommandExecute).not.toHaveBeenCalled()
-    expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.skipped', expect.objectContaining({ id: scheduleId }))
+    expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.skipped', expect.objectContaining({ id: scheduleId }), { tenantId: 'tenant-a', organizationId: 'org-a' })
     expectNextRunWrite(harness.execute, cronTiming)
     expect(harness.em.flush).not.toHaveBeenCalled()
   })
@@ -298,7 +298,8 @@ describe('executeScheduleWorker nextRunAt sync (async strategy)', () => {
     expect(enqueue).not.toHaveBeenCalled()
     expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.skipped', expect.objectContaining({
       reason: 'Invalid payload for scheduler queue next-run-strict',
-    }))
+    }), { tenantId: 'tenant-a', organizationId: 'org-a' })
+
     expectNextRunWrite(harness.execute, intervalTiming)
   })
 
@@ -313,7 +314,8 @@ describe('executeScheduleWorker nextRunAt sync (async strategy)', () => {
     expect(enqueue).not.toHaveBeenCalled()
     expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.skipped', expect.objectContaining({
       reason: 'Tenant lacks feature required by scheduler queue next-run-gated: next_run.gated',
-    }))
+    }), { tenantId: 'tenant-a', organizationId: 'org-a' })
+
     expectNextRunWrite(harness.execute, intervalTiming)
   })
 
@@ -325,7 +327,7 @@ describe('executeScheduleWorker nextRunAt sync (async strategy)', () => {
     await expect(runWorker(schedule, harness)).resolves.toBeUndefined()
 
     expect(mockCommandExecute).not.toHaveBeenCalled()
-    expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.failed', expect.objectContaining({ id: scheduleId }))
+    expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.failed', expect.objectContaining({ id: scheduleId }), { tenantId: 'tenant-a', organizationId: 'org-a' })
     expectNextRunWrite(harness.execute, cronTiming)
   })
 
@@ -399,7 +401,7 @@ describe('executeScheduleWorker nextRunAt sync (async strategy)', () => {
     await expect(runWorker(schedule, harness)).resolves.toBeUndefined()
 
     expect(harness.execute).toHaveBeenCalledTimes(1)
-    expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.completed', expect.objectContaining({ id: scheduleId }))
+    expect(emitSchedulerEvent).toHaveBeenCalledWith('scheduler.job.completed', expect.objectContaining({ id: scheduleId }), { tenantId: 'tenant-a', organizationId: 'org-a' })
   })
 
   it('rethrows the target error, not the sync error, when both fail', async () => {

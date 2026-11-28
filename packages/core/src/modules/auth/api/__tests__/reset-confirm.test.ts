@@ -82,7 +82,7 @@ describe('POST /api/auth/reset/confirm — auth.password.reset.completed event',
       tenantId: 'tenant-1',
       organizationId: 'org-1',
       at: expect.any(String),
-    }, { persistent: true })
+    }, { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 
   test('identifies the user by id only, keeping the email out of the durable payload', async () => {

@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -84,7 +85,7 @@ export async function PUT(req: Request) {
         tenantId: auth.tenantId,
         organizationId: auth.orgId ?? null,
         userId: auth.sub,
-      })
+      }, organizationEventScope({ tenantId: auth.tenantId, organizationId: auth.orgId ?? null }))
     }
 
     return NextResponse.json({ ok: true })

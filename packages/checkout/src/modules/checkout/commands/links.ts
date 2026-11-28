@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -140,7 +141,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       status: link.status,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(scope)).catch(() => undefined)
     if (link.status === 'active') {
       await emitCheckoutEvent('checkout.link.published', {
         id: link.id,
@@ -240,7 +241,7 @@ const createLinkCommand: CommandHandler<Record<string, unknown>, { id: string; s
       status: link.status,
       tenantId: after.tenantId,
       organizationId: after.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(after)).catch(() => undefined)
     if (link.status === 'active') {
       await emitCheckoutEvent('checkout.link.published', {
         id: link.id,
@@ -335,7 +336,7 @@ const updateLinkCommand: CommandHandler<Record<string, unknown>, { ok: true; slu
       previousStatus,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(scope)).catch(() => undefined)
     if (previousStatus !== 'active' && link.status === 'active') {
       await emitCheckoutEvent('checkout.link.published', {
         id: link.id,
@@ -467,7 +468,7 @@ const deleteLinkCommand: CommandHandler<Record<string, unknown>, { ok: true }> =
       slug: link.slug,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(scope)).catch(() => undefined)
     return { ok: true }
   },
   buildLog: async ({ snapshots, input }) => {

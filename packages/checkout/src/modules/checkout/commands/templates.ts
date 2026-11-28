@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -138,7 +139,7 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
       id: template.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(scope)).catch(() => undefined)
     return { id: template.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -224,7 +225,7 @@ const createTemplateCommand: CommandHandler<Record<string, unknown>, { id: strin
       id: template.id,
       tenantId: after.tenantId,
       organizationId: after.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(after)).catch(() => undefined)
     return { id: template.id }
   },
 }
@@ -335,7 +336,7 @@ const updateTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       id: template.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(scope)).catch(() => undefined)
     return { ok: true }
   },
   captureAfter: async (input, _result, ctx) => {
@@ -461,7 +462,7 @@ const deleteTemplateCommand: CommandHandler<Record<string, unknown>, { ok: true 
       id: template.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(scope)).catch(() => undefined)
     return { ok: true }
   },
   buildLog: async ({ snapshots, input }) => {

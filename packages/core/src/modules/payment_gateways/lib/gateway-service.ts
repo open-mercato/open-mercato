@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { randomUUID } from 'node:crypto'
 import { LockMode, QueryOrder } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -186,7 +187,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     throw new Error('Transaction is missing provider session id')
   }
 
-  async function emitStatusEvent(status: UnifiedPaymentStatus, payload: Record<string, unknown> & { tenantId: string; organizationId: string }) {
+  async function emitStatusEvent(status: UnifiedPaymentStatus, payload: Record<string, unknown> & { tenantId: string; organizationId: string }, transaction: GatewayTransaction) {
     type PaymentGatewayEventId = Parameters<typeof emitPaymentGatewayEvent>[0]
     const eventMap: Partial<Record<UnifiedPaymentStatus, PaymentGatewayEventId>> = {
       authorized: 'payment_gateways.payment.authorized',
@@ -197,7 +198,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     }
     const eventId = eventMap[status]
     if (!eventId) return
-    await emitPaymentGatewayEvent(eventId, payload, { tenantId: payload.tenantId, organizationId: payload.organizationId })
+    await emitPaymentGatewayEvent(eventId, payload, organizationEventScope(transaction))
   }
 
   async function writeTransactionLog(
@@ -391,7 +392,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           providerKey: transaction.providerKey,
           organizationId: transaction.organizationId,
           tenantId: transaction.tenantId,
-        })
+        }, transaction)
       }
       await input.afterCommit(transaction, result)
       return result
@@ -465,7 +466,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       status: transaction.unifiedStatus,
       organizationId: transaction.organizationId,
       tenantId: transaction.tenantId,
-    })
+    }, organizationEventScope(transaction))
     await writeTransactionLog(
       transaction.providerKey,
       scope,
@@ -886,7 +887,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         previousStatus: outcome.previousStatus,
         organizationId: transaction.organizationId,
         tenantId: transaction.tenantId,
-      })
+      }, transaction)
       await writeTransactionLog(
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
@@ -959,12 +960,12 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
           tenantId: transaction.tenantId,
         }
         if (impliedCaptureStatus) {
-          await emitStatusEvent(impliedCaptureStatus, { ...eventPayload, previousStatus })
+          await emitStatusEvent(impliedCaptureStatus, { ...eventPayload, previousStatus }, transaction)
         }
         await emitStatusEvent(update.unifiedStatus, {
           ...eventPayload,
           previousStatus: impliedCaptureStatus ?? previousStatus,
-        })
+        }, transaction)
       }
       await writeTransactionLog(
         transaction.providerKey,

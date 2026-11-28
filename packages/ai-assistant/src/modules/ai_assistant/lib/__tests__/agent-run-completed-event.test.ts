@@ -113,7 +113,11 @@ describe('ai_assistant.agent_run.completed emission', () => {
       status: 'completed',
       conversationId: 'conversation-1',
     })
-    expect(emitOptions).toEqual({ persistent: true })
+    expect(emitOptions).toEqual({
+      persistent: true,
+      tenantId: '00000000-0000-4000-8000-0000000000a1',
+      organizationId: '00000000-0000-4000-8000-0000000000b1',
+    })
     expect(JSON.stringify(eventPayload)).not.toContain('secret')
   })
 

@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
@@ -205,7 +206,7 @@ export class SudoChallengeService {
       organizationId: user.organizationId,
       targetIdentifier,
       method,
-    })
+    }, organizationEventScope(user))
 
     return {
       required: true,
@@ -311,7 +312,7 @@ export class SudoChallengeService {
         organizationId: user.organizationId,
         targetIdentifier: session.targetIdentifier,
         method: methodUsed,
-      })
+      }, organizationEventScope(user))
       throw new SudoChallengeServiceError('Unable to verify sudo challenge', 401)
     }
 
@@ -378,7 +379,7 @@ export class SudoChallengeService {
       targetIdentifier: session.targetIdentifier,
       method: methodUsed,
       expiresAt: expiresAt.toISOString(),
-    })
+    }, organizationEventScope({ tenantId: scopeTenantId, organizationId: scopeOrganizationId }))
 
     return { sudoToken, expiresAt }
   }

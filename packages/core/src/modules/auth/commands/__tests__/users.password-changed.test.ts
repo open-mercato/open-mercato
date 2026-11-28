@@ -100,6 +100,8 @@ function getUpdateHandler(): CommandHandler {
   return handler
 }
 
+const passwordChangedEventOptions = { persistent: true, tenantId: 'tenant-1', organizationId: 'org-1' }
+
 describe('auth.users.update — auth.password.changed event', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -115,7 +117,7 @@ describe('auth.users.update — auth.password.changed event', () => {
       changedBy: 'self',
       changedById: USER_ID,
       at: expect.any(String),
-    }, { persistent: true })
+    }, passwordChangedEventOptions)
   })
 
   it('reports changedBy admin when another user sets the password', async () => {
@@ -124,7 +126,7 @@ describe('auth.users.update — auth.password.changed event', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledWith(
       'auth.password.changed',
       expect.objectContaining({ id: USER_ID, changedBy: 'admin', changedById: ADMIN_ID }),
-      { persistent: true },
+      passwordChangedEventOptions,
     )
   })
 
@@ -134,7 +136,7 @@ describe('auth.users.update — auth.password.changed event', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledWith(
       'auth.password.changed',
       expect.objectContaining({ id: USER_ID, changedBy: 'system', changedById: null }),
-      { persistent: true },
+      passwordChangedEventOptions,
     )
   })
 
@@ -144,7 +146,7 @@ describe('auth.users.update — auth.password.changed event', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledWith(
       'auth.password.changed',
       expect.objectContaining({ id: USER_ID, changedBy: 'system', changedById: ADMIN_ID }),
-      { persistent: true },
+      passwordChangedEventOptions,
     )
   })
 

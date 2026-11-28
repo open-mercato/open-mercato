@@ -137,7 +137,7 @@ describe('evalCases.createFromRun command', () => {
         tenantId: TENANT,
         organizationId: ORG,
       }),
-      { persistent: true },
+      { persistent: true, tenantId: TENANT, organizationId: ORG },
     )
   })
 

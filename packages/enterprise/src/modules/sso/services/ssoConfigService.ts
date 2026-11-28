@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { LockMode, type FilterQuery, type RequiredEntityData } from '@mikro-orm/core'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -173,7 +174,7 @@ export class SsoConfigService {
       id: result.id,
       tenantId: result.tenantId,
       organizationId: result.organizationId,
-    }).catch(reportSsoEventFailure)
+    }, organizationEventScope(result)).catch(reportSsoEventFailure)
 
     return result
   }
@@ -218,7 +219,7 @@ export class SsoConfigService {
       id: result.id,
       tenantId: result.tenantId,
       organizationId: result.organizationId,
-    }).catch(reportSsoEventFailure)
+    }, organizationEventScope(result)).catch(reportSsoEventFailure)
 
     return result
   }
@@ -237,7 +238,7 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch(reportSsoEventFailure)
+    }, organizationEventScope(config)).catch(reportSsoEventFailure)
   }
 
   async activate(scope: SsoAdminScope, id: string, active: boolean): Promise<SsoConfigPublic> {
@@ -274,13 +275,13 @@ export class SsoConfigService {
           id: config.id,
           tenantId: config.tenantId,
           organizationId: config.organizationId,
-        }).catch(reportSsoEventFailure)
+        }, organizationEventScope(config)).catch(reportSsoEventFailure)
       } else if (!active && wasActive) {
         void emitSsoEvent('sso.config.deactivated', {
           id: config.id,
           tenantId: config.tenantId,
           organizationId: config.organizationId,
-        }).catch(reportSsoEventFailure)
+        }, organizationEventScope(config)).catch(reportSsoEventFailure)
       }
 
       return this.toPublic(config)
@@ -329,7 +330,7 @@ export class SsoConfigService {
         tenantId: config.tenantId,
         organizationId: config.organizationId,
         domain: normalized,
-      }).catch(reportSsoEventFailure)
+      }, organizationEventScope(config)).catch(reportSsoEventFailure)
 
       return this.toPublic(config)
     })
@@ -353,7 +354,7 @@ export class SsoConfigService {
       tenantId: result.tenantId,
       organizationId: result.organizationId,
       domain: normalized,
-    }).catch(reportSsoEventFailure)
+    }, organizationEventScope(result)).catch(reportSsoEventFailure)
 
     return result
   }

@@ -19,6 +19,7 @@
  * `sendSignal`.
  */
 
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { StepInstance, UserTask, WorkflowInstance } from '../data/entities'
@@ -312,7 +313,7 @@ async function emitDispositionTaskAssigned(
         tenantId: instance.tenantId,
         organizationId: instance.organizationId ?? null,
       },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(instance) },
     )
   } catch (error) {
     logger.error('Failed to emit workflows.task.assigned for an agent disposition task', {

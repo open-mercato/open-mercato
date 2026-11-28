@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
@@ -56,7 +57,7 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     email: targetUser.email,
     tenantId: auth.tenantId,
     organizationId: auth.orgId,
-  }).catch(() => undefined)
+  }, organizationEventScope(targetUser)).catch(() => undefined)
 
   return NextResponse.json({ ok: true })
 }

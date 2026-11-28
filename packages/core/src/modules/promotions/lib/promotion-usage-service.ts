@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
@@ -63,7 +64,7 @@ async function emitRegisteredEvent(promotionId: string, orderId: string, scope: 
     await emitPromotionsEvent(
       'promotions.usage.registered',
       { promotionId, orderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(scope) },
     )
   } catch (err) {
     usageLogger.warn('[internal] promotions.usage.registered emit failed', { promotionId, orderId, err })
@@ -75,7 +76,7 @@ async function emitBudgetExhaustedEvent(promotionId: string, orderId: string, sc
     await emitPromotionsEvent(
       'promotions.promotion.budget_exhausted',
       { promotionId, orderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(scope) },
     )
   } catch (err) {
     usageLogger.warn('[internal] promotions.promotion.budget_exhausted emit failed', { promotionId, orderId, err })
@@ -87,7 +88,7 @@ async function emitRevertedEvent(promotionId: string, orderId: string, scope: Pr
     await emitPromotionsEvent(
       'promotions.usage.reverted',
       { promotionId, orderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(scope) },
     )
   } catch (err) {
     usageLogger.warn('[internal] promotions.usage.reverted emit failed', { promotionId, orderId, err })

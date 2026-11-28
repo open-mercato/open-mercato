@@ -372,6 +372,7 @@ describe('POST /api/inbox_ops/proposals/[id]/replies/[replyId]/send', () => {
           sentMessageId: 'sent-msg-1',
           messageRecordId: 'msg-record-456',
         }),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
     })
 

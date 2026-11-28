@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { resolveFeatureAccess } from '../../../lib/time-tracking/featureAccess'
 import { z } from 'zod'
@@ -307,7 +308,7 @@ async function PUT(req: Request) {
       tenantId: context.tenantId,
       organizationId: context.organizationId,
       settings,
-    }, { persistent: true }).catch((err) => {
+    }, { persistent: true, ...organizationEventScope(context) }).catch((err) => {
       logger.error('staff.timesheets emit time_tracking.settings_updated failed', { err })
     })
 

@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { POST } from '@open-mercato/core/modules/auth/api/login'
+import type { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { registerApiInterceptors } from '@open-mercato/shared/lib/crud/interceptor-registry'
 import { MfaProviderRegistry } from '../../lib/mfa-provider-registry'
@@ -15,7 +16,8 @@ const organizationId = '058fda92-9934-4e2f-b733-83584214e3f2'
 const userId = '3074be34-5dd8-44ca-acb3-3cb30e9086c1'
 const sessionId = '5185a109-c950-414d-a889-5d2f3c3fb619'
 const mockReportError = jest.fn()
-const mockEmitAuthEvent = jest.fn(async () => undefined)
+const mockEmitAuthEvent = jest.fn<ReturnType<typeof emitAuthEvent>, Parameters<typeof emitAuthEvent>>()
+  .mockResolvedValue(undefined)
 const methods = [{ userId, tenantId, type: 'totp' }]
 const mockEm = {
   find: jest.fn(async () => methods),
@@ -62,7 +64,7 @@ jest.mock('@open-mercato/core/modules/auth/lib/rateLimitCheck', () => ({
   resetAuthRateLimit: async () => undefined,
 }))
 jest.mock('@open-mercato/core/modules/auth/events', () => ({
-  emitAuthEvent: (...args: unknown[]) => mockEmitAuthEvent(...(args as [])),
+  emitAuthEvent: (...args: Parameters<typeof emitAuthEvent>) => mockEmitAuthEvent(...args),
 }))
 jest.mock('../../events', () => ({ emitSecurityEvent: async () => undefined }))
 
@@ -87,10 +89,18 @@ async function expectDenied(response: Response, status = 500) {
   expect(response.headers.get('set-cookie')).toBeNull()
   expect(mockAuthService.deleteSessionById).toHaveBeenCalledTimes(1)
   expect(mockAuthService.deleteSessionById).toHaveBeenCalledWith(sessionId)
-  expect(mockEmitAuthEvent).not.toHaveBeenCalledWith('auth.login.success', expect.anything())
+  expect(mockEmitAuthEvent.mock.calls.map(([eventId]) => eventId)).not.toContain('auth.login.success')
   expect(mockEmitAuthEvent).toHaveBeenCalledWith(
     'auth.login.failed',
     expect.objectContaining({ email: 'mfa-test@example.com', reason: 'after_interceptor_failed' }),
+  )
+}
+
+function expectScopedLoginSuccess() {
+  expect(mockEmitAuthEvent).toHaveBeenCalledWith(
+    'auth.login.success',
+    expect.objectContaining({ id: userId }),
+    { tenantId, organizationId },
   )
 }
 
@@ -203,7 +213,7 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(body.refreshToken).toBe('provisional-refresh')
     expect(mockEm.find).not.toHaveBeenCalled()
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
-    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
+    expectScopedLoginSuccess()
   })
 
   test('reports revocation failure and still returns no credentials', async () => {
@@ -240,7 +250,7 @@ describe('login route with the registered MFA interceptor and verification servi
     expect(response.headers.get('set-cookie')).toContain('auth_token=')
     expect(response.headers.get('set-cookie')).toContain('session_token=provisional-refresh')
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
-    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
+    expectScopedLoginSuccess()
   })
 
   test.each([false, true])('issues only pending credentials for an MFA account with remember=%s', async (remember) => {
@@ -258,7 +268,7 @@ describe('login route with the registered MFA interceptor and verification servi
       userId, isActive: true, deletedAt: null,
     }, expect.anything())
     expect(mockAuthService.deleteSessionById).not.toHaveBeenCalled()
-    expect(mockEmitAuthEvent).toHaveBeenCalledWith('auth.login.success', expect.objectContaining({ id: userId }))
+    expectScopedLoginSuccess()
   })
 
   test('rejects invalid credentials before invoking MFA or creating a session', async () => {

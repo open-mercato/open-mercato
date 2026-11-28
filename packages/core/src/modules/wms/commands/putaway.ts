@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { withRequiredFeatures } from './featureGuard'
@@ -558,7 +559,7 @@ const createPutawayTaskCommand: CommandHandler<PutawayTaskCreateInput, { taskId:
       quantity: task.quantity,
       tenantId: task.tenantId,
       organizationId: task.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(task)).catch(() => undefined)
     return { taskId: task.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -840,7 +841,7 @@ const createPutawayTaskFromBalanceCommand: CommandHandler<
       quantity: task.quantity,
       tenantId: task.tenantId,
       organizationId: task.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(task)).catch(() => undefined)
     return { taskId: task.id }
   },
   buildLog: async ({ input, result, ctx }) =>
@@ -874,7 +875,7 @@ const assignPutawayTaskCommand: CommandHandler<PutawayTaskAssignInput, { taskId:
       assignedTo: task.assignedTo,
       tenantId: task.tenantId,
       organizationId: task.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(task)).catch(() => undefined)
     return { taskId: task.id }
   },
   buildLog: async ({ input, result, ctx }) =>
@@ -901,7 +902,7 @@ const startPutawayTaskCommand: CommandHandler<PutawayTaskStartInput, { taskId: s
       id: task.id,
       tenantId: task.tenantId,
       organizationId: task.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(task)).catch(() => undefined)
     return { taskId: task.id }
   },
   buildLog: async ({ input, result, ctx }) =>
@@ -1112,7 +1113,7 @@ const completePutawayTaskCommand: CommandHandler<
         quantity: toNumericString(input.confirmedQuantity),
         tenantId: outcome.task.tenantId,
         organizationId: outcome.task.organizationId,
-      }).catch(() => undefined)
+      }, organizationEventScope(outcome.task)).catch(() => undefined)
     }
 
     return { taskId: outcome.task.id, movementId: outcome.moveResult.movementId }
@@ -1153,7 +1154,7 @@ const cancelPutawayTaskCommand: CommandHandler<PutawayTaskCancelInput, { taskId:
       id: task.id,
       tenantId: task.tenantId,
       organizationId: task.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(task)).catch(() => undefined)
     return { taskId: task.id }
   },
   buildLog: async ({ input, result, ctx }) =>

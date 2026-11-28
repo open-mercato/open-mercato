@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { EntityClass } from '@mikro-orm/core'
@@ -198,7 +199,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
           tenantId: email.tenantId,
           organizationId: email.organizationId,
           error: email.processingError,
-        })
+        }, organizationEventScope(email))
       } catch (eventError) {
         logger.error('Failed to emit email.failed event', { err: eventError })
       }
@@ -577,7 +578,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
         emailId: email.id,
         tenantId: email.tenantId,
         organizationId: email.organizationId,
-      })
+      }, organizationEventScope(email))
 
       await emitInboxOpsEvent('inbox_ops.proposal.created', {
         proposalId: proposal.id,
@@ -588,7 +589,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
         discrepancyCount: allDiscrepancies.length,
         confidence: proposal.confidence,
         summary: proposal.summary,
-      })
+      }, organizationEventScope(email))
     } catch (eventError) {
       logger.error('Failed to emit events', { err: eventError })
     }
@@ -603,7 +604,7 @@ export default async function handle(payload: EmailReceivedPayload, ctx: Resolve
         tenantId: email.tenantId,
         organizationId: email.organizationId,
         error: email.processingError,
-      })
+      }, organizationEventScope(email))
     } catch (eventError) {
       logger.error('Failed to emit email.failed event', { err: eventError })
     }

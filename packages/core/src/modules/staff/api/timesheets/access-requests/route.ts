@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -231,7 +232,7 @@ async function POST(req: Request) {
       timeProjectId: project?.id ?? null,
       timeProjectName: project?.name ?? null,
       requestedAt: new Date().toISOString(),
-    })
+    }, organizationEventScope(context))
 
     if (cache) {
       await cache

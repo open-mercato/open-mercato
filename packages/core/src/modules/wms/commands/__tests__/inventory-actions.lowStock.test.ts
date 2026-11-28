@@ -187,6 +187,7 @@ describe('wms inventory low stock event profile resolution', () => {
           tenantId: TENANT,
           organizationId: ORG,
         }),
+        { tenantId: TENANT, organizationId: ORG },
       ],
     ])
   })

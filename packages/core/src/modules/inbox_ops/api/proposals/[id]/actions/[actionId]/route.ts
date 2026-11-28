@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
@@ -116,7 +117,7 @@ export async function PATCH(req: Request) {
         actionType: action.actionType,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
-      })
+      }, organizationEventScope(ctx))
     } catch (eventError) {
       logger.error('Failed to emit event', { err: eventError })
     }

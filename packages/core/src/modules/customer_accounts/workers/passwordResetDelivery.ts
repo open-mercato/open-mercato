@@ -1,5 +1,6 @@
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { CustomerUserService } from '@open-mercato/core/modules/customer_accounts/services/customerUserService'
 import { CustomerTokenService } from '@open-mercato/core/modules/customer_accounts/services/customerTokenService'
 import { sendCustomerPasswordResetEmail } from '@open-mercato/core/modules/customer_accounts/lib/authLinkEmails'
@@ -54,7 +55,7 @@ export default async function handle(
     emitCustomerAccountsEvent('customer_accounts.password_reset.requested', {
       userId: user.id,
       tenantId,
-    })
+    }, organizationEventScope(user))
   ).catch((error) => {
     logger.error('Password reset requested event failed', { err: error })
     getTelemetryRuntime()?.reportError(error, { module: 'customer_accounts', code: 'customer_accounts.password_reset_event_failed' })

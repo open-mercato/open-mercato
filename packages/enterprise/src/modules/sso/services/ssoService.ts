@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import crypto from 'node:crypto'
 import { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -65,7 +66,7 @@ export class SsoService {
     void emitSsoEvent('sso.login.initiated', {
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+    }, organizationEventScope(config)).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     const authUrl = await provider.buildAuthUrl(config, {
       state: state.state,
@@ -161,7 +162,7 @@ export class SsoService {
       id: String(user.id),
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
+    }, organizationEventScope(config)).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return {
       token,

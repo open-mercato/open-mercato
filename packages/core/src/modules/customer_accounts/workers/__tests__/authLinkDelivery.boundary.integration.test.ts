@@ -383,7 +383,11 @@ describe('customer_accounts: blocked-transport / durable-acceptance boundary (#8
       expect(secondRedemption).toBeNull()
 
       await new Promise((resolve) => setImmediate(resolve))
-      expect(mockEmit).toHaveBeenCalledWith(eventId, expect.objectContaining({ userId: knownUserId, tenantId }))
+      expect(mockEmit).toHaveBeenCalledWith(
+        eventId,
+        expect.objectContaining({ userId: knownUserId, tenantId }),
+        { tenantId, organizationId: orgId },
+      )
     })
 
     it('silently drops an unknown account without minting or sending anything', async () => {

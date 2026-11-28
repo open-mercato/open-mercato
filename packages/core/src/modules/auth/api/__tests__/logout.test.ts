@@ -43,13 +43,18 @@ beforeAll(() => {
 
 const sessionId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const userId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const logoutEventOptions = {
+  persistent: true,
+  tenantId: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
+  organizationId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
+}
 
 function buildAuthToken(overrides: Record<string, unknown> = {}): string {
   return signJwt({
     sub: userId,
     sid: sessionId,
-    tenantId: 'tttttttt-tttt-4ttt-8ttt-tttttttttttt',
-    orgId: 'oooooooo-oooo-4ooo-8ooo-oooooooooooo',
+    tenantId: logoutEventOptions.tenantId,
+    orgId: logoutEventOptions.organizationId,
     email: 'user@example.test',
     roles: ['admin'],
     ...overrides,
@@ -97,7 +102,7 @@ describe('POST /api/auth/logout — session revocation', () => {
       id: userId,
       sessionId,
       sessionRevoked: true,
-    }), { persistent: true })
+    }), logoutEventOptions)
   })
 
   it('prefers bearer credentials over an unrelated auth cookie, like staff authentication', async () => {
@@ -106,12 +111,21 @@ describe('POST /api/auth/logout — session revocation', () => {
       method: 'POST',
       headers: {
         authorization: `Bearer ${buildAuthToken()}`,
-        cookie: buildCookieHeader({ auth_token: buildAuthToken({ sid: cookieSessionId }) }),
+        cookie: buildCookieHeader({ auth_token: buildAuthToken({
+          sid: cookieSessionId,
+          tenantId: 'different-tenant',
+          orgId: 'different-organization',
+        }) }),
       },
     }))
 
     expect(deleteSessionById).toHaveBeenCalledTimes(1)
     expect(deleteSessionById).toHaveBeenCalledWith(sessionId)
+    expect(mockEmitAuthEvent).toHaveBeenCalledWith(
+      'auth.logout',
+      expect.objectContaining({ id: userId, sessionId }),
+      logoutEventOptions,
+    )
   })
 
   it.each([
@@ -324,7 +338,7 @@ describe('POST /api/auth/logout — auth.logout event', () => {
       sessionId,
       sessionRevoked: true,
       at: expect.any(String),
-    }, { persistent: true })
+    }, logoutEventOptions)
   })
 
   it('reports sessionRevoked false when server-side revocation failed', async () => {
@@ -338,7 +352,7 @@ describe('POST /api/auth/logout — auth.logout event', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledWith(
       'auth.logout',
       expect.objectContaining({ id: userId, sessionRevoked: false }),
-      { persistent: true },
+      logoutEventOptions,
     )
     expect(res.headers.get('set-cookie') ?? '').toContain('auth_token=;')
   })
@@ -360,7 +374,7 @@ describe('POST /api/auth/logout — auth.logout event', () => {
     expect(mockEmitAuthEvent).toHaveBeenCalledWith(
       'auth.logout',
       expect.objectContaining({ id: userId, sessionId: null }),
-      { persistent: true },
+      logoutEventOptions,
     )
   })
 

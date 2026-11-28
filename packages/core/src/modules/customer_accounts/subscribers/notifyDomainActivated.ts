@@ -1,3 +1,4 @@
+import { matchingOrganizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EventBus } from '@open-mercato/events/types'
 
 export const metadata = {
@@ -8,7 +9,7 @@ export const metadata = {
 
 export default async function handle(
   payload: unknown,
-  ctx: { resolve: <T = unknown>(name: string) => T },
+  ctx: { tenantId?: string | null; organizationId?: string | null; resolve: <T = unknown>(name: string) => T },
 ): Promise<void> {
   const data = (payload ?? {}) as Record<string, unknown>
   const id = typeof data.id === 'string' ? data.id : null
@@ -25,7 +26,7 @@ export default async function handle(
       organizationId,
       sourceEntityId: id,
       data: { hostname },
-    })
+    }, matchingOrganizationEventScope(ctx, { tenantId, organizationId }))
   } catch {
     // Notifications module may be absent — best-effort.
   }

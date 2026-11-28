@@ -1,6 +1,7 @@
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { CustomerUser } from '../data/entities'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import type { CustomerSessionService } from '../services/customerSessionService'
@@ -53,5 +54,5 @@ export function emitCustomerEmailVerified(user: CustomerUser, verifiedBy?: strin
     tenantId: user.tenantId,
     organizationId: user.organizationId,
     ...(verifiedBy ? { email: user.email, verifiedBy } : {}),
-  }).catch(() => undefined)
+  }, organizationEventScope(user)).catch(() => undefined)
 }

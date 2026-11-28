@@ -49,14 +49,14 @@ export async function POST(req: Request) {
     await customerSessionService.revokeAllUserSessions(user.id, trx)
   })
 
+  const eventScope = { tenantId: auth.tenantId, organizationId: auth.orgId ?? null }
   void emitCustomerAccountsEvent('customer_accounts.password.changed', {
     userId: user.id,
-    tenantId: auth.tenantId,
-    organizationId: auth.orgId ?? null,
+    ...eventScope,
     changedBy: 'self',
     changedById: null,
     at: new Date().toISOString(),
-  }).catch(() => undefined)
+  }, eventScope).catch(() => undefined)
 
   return NextResponse.json({ ok: true })
 }

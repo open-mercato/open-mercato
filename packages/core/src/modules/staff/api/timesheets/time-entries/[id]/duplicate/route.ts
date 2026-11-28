@@ -27,6 +27,7 @@
  * from the list response.
  */
 
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { resolveFeatureAccess } from '../../../../../lib/time-tracking/featureAccess'
 import { z } from 'zod'
@@ -247,7 +248,7 @@ export async function POST(req: Request) {
         sourceId: timeEntryId,
         tenantId,
         organizationId,
-      }, { persistent: true }).catch((err) => {
+      }, { persistent: true, ...organizationEventScope({ tenantId, organizationId }) }).catch((err) => {
         logger.error('staff.timesheets emit time_entry.copied failed', { err })
       })
     }

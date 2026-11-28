@@ -95,45 +95,45 @@ describe('buildTodoAnnouncement', () => {
 })
 
 describe('handler', () => {
+  const globalKey = '__openMercatoGlobalEventBus__'
+  const globals = globalThis as Record<string, unknown>
+  const emit = jest.fn()
+  let previous: unknown
+
+  beforeEach(() => {
+    previous = globals[globalKey]
+    emit.mockReset().mockResolvedValue(undefined)
+    globals[globalKey] = { emit }
+  })
+
+  afterEach(() => {
+    if (previous === undefined) delete globals[globalKey]
+    else globals[globalKey] = previous
+  })
+
   it('stays silent when the write is unscoped', async () => {
-    // Asserts the ABSENCE OF AN EMIT, not just that the handler resolves. The handler always
-    // returns void and swallows emit failures, so `resolves.toBeUndefined()` held whether or
-    // not it published — a probe confirmed the handler could broadcast with an empty tenantId
-    // and organizationId onto the global bus with every test still green.
-    const globalKey = '__openMercatoGlobalEventBus__'
-    const previous = (globalThis as Record<string, unknown>)[globalKey]
-    const emit = jest.fn().mockResolvedValue(undefined)
-    ;(globalThis as Record<string, unknown>)[globalKey] = { emit }
-    try {
-      await expect(
-        handler({ id: 'todo-1', tenantId: null, organizationId: null }, { eventName: 'example.todo.updated' }),
-      ).resolves.toBeUndefined()
-      expect(emit).not.toHaveBeenCalled()
-    } finally {
-      if (previous === undefined) delete (globalThis as Record<string, unknown>)[globalKey]
-      else (globalThis as Record<string, unknown>)[globalKey] = previous
-    }
+    await handler({ id: 'todo-1', tenantId: null, organizationId: null }, { eventName: 'example.todo.updated' })
+    expect(emit).not.toHaveBeenCalled()
+  })
+
+  const payload = { id: 'todo-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+  const announcement = { todoId: 'todo-1', tenantId: 'tenant-1', organizationId: 'org-1', action: 'deleted' }
+  const scope = { tenantId: 'tenant-1', organizationId: 'org-1' }
+  const noScope = { tenantId: null, organizationId: null }
+
+  it.each([
+    ['matching parent', scope, scope],
+    ['missing parent scope', {}, noScope],
+    ['different parent tenant', { ...scope, tenantId: 'tenant-2' }, noScope],
+    ['different parent organization', { ...scope, organizationId: 'org-2' }, noScope],
+  ] as const)('publishes with the expected routing scope for a %s', async (_name, parent, expectedScope) => {
+    await handler(payload, { eventName: 'example.todo.deleted', ...parent })
+    expect(emit).toHaveBeenCalledWith(ANNOUNCEMENT_EVENT, announcement, expectedScope)
   })
 
   it('swallows an emit failure so the committed write is not reported as failed', async () => {
-    const globalKey = '__openMercatoGlobalEventBus__'
-    const previous = (globalThis as Record<string, unknown>)[globalKey]
-    const emit = jest.fn().mockRejectedValue(new Error('bus down'))
-    ;(globalThis as Record<string, unknown>)[globalKey] = { emit }
-    try {
-      await expect(
-        handler(
-          { id: 'todo-1', tenantId: 'tenant-1', organizationId: 'org-1' },
-          { eventName: 'example.todo.deleted' },
-        ),
-      ).resolves.toBeUndefined()
-      expect(emit).toHaveBeenCalledWith(
-        ANNOUNCEMENT_EVENT,
-        { todoId: 'todo-1', tenantId: 'tenant-1', organizationId: 'org-1', action: 'deleted' },
-        undefined,
-      )
-    } finally {
-      ;(globalThis as Record<string, unknown>)[globalKey] = previous
-    }
+    emit.mockRejectedValue(new Error('bus down'))
+    await expect(handler(payload, { eventName: 'example.todo.deleted' })).resolves.toBeUndefined()
+    expect(emit).toHaveBeenCalledWith(ANNOUNCEMENT_EVENT, announcement, noScope)
   })
 })

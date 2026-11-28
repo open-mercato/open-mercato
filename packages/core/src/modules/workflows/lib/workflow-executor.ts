@@ -10,6 +10,7 @@
  * Functional API (no classes) following Open Mercato conventions.
  */
 
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { EntityManager, LockMode } from '@mikro-orm/core'
 import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
@@ -2250,7 +2251,7 @@ async function emitInstanceLifecycleEvent(
         stepId: instance.currentStepId ?? null,
         ...extra,
       },
-      { persistent: true }
+      { persistent: true, ...organizationEventScope(instance) }
     )
   } catch (error) {
     logger.error('failed to emit workflow event', {

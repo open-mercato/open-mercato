@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/core'
 import { Notification } from '../data/entities'
 import type { CreateNotificationInput } from '../data/validators'
@@ -55,7 +56,7 @@ export function buildNotificationEntity(
 }
 
 export async function emitNotificationCreated(
-  eventBus: { emit: (event: string, payload: unknown) => Promise<void> },
+  eventBus: { emit: (event: string, payload: unknown, options?: ReturnType<typeof organizationEventScope>) => Promise<void> },
   notification: Notification,
   ctx: NotificationTenantContext
 ): Promise<void> {
@@ -66,11 +67,11 @@ export async function emitNotificationCreated(
     title: notification.title,
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
-  })
+  }, organizationEventScope(notification))
 }
 
 export async function emitNotificationCreatedBatch(
-  eventBus: { emit: (event: string, payload: unknown) => Promise<void> },
+  eventBus: { emit: (event: string, payload: unknown, options?: ReturnType<typeof organizationEventScope>) => Promise<void> },
   notifications: Notification[],
   ctx: NotificationTenantContext
 ): Promise<void> {

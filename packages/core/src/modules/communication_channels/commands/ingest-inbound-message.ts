@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -569,7 +570,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
           tenantId: input.scope.tenantId,
           organizationId: input.scope.organizationId ?? null,
         },
-        { persistent: true },
+        { persistent: true, ...organizationEventScope(input.scope) },
       )
     }
     if (matchedPersonId) {
@@ -582,7 +583,7 @@ const ingestInboundMessageCommand: CommandHandler<IngestInboundMessageInput, Ing
           tenantId: input.scope.tenantId,
           organizationId: input.scope.organizationId ?? null,
         },
-        { persistent: true },
+        { persistent: true, ...organizationEventScope(input.scope) },
       )
     }
     await emitCommunicationChannelsEvent(

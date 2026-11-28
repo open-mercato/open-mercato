@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { raw } from '@mikro-orm/core'
 import type { EntityData, FilterQuery } from '@mikro-orm/core'
@@ -72,7 +73,7 @@ function buildJobPayload(job: ProgressJob): Record<string, unknown> {
   }
 }
 
-export function createProgressService(em: EntityManager, eventBus: { emit: (event: string, payload: Record<string, unknown>) => Promise<void> }): ProgressService {
+export function createProgressService(em: EntityManager, eventBus: { emit: (event: string, payload: Record<string, unknown>, options?: ReturnType<typeof organizationEventScope>) => Promise<void> }): ProgressService {
   const broadcastMinIntervalMs = resolveBroadcastMinIntervalMs()
   // Per-job coalescing state, scoped to this service instance (request/worker scope).
   // The cached entity is a DETACHED snapshot (loaded with disableIdentityMap) that doubles
@@ -195,7 +196,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
       ...buildJobPayload(job),
       tenantId: ctx.tenantId,
       organizationId: job.organizationId ?? null,
-    })
+    }, organizationEventScope(job))
 
     return job
   }
@@ -261,7 +262,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         ...buildJobPayload(persistedJob),
         tenantId: ctx.tenantId,
         organizationId: persistedJob.organizationId ?? null,
-      })
+      }, organizationEventScope(persistedJob))
       entry.lastBroadcastAt = now
       entry.lastBroadcastPercent = persistedJob.progressPercent
     }
@@ -302,7 +303,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         ...buildJobPayload(job),
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
-      })
+      }, organizationEventScope(job))
 
       return job
     },
@@ -489,7 +490,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         resultSummary: persistedJob.resultSummary,
         tenantId: ctx.tenantId,
         organizationId: persistedJob.organizationId ?? null,
-      })
+      }, organizationEventScope(persistedJob))
 
       return persistedJob
     },
@@ -548,7 +549,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         errorMessage: persistedJob.errorMessage,
         tenantId: ctx.tenantId,
         organizationId: persistedJob.organizationId ?? null,
-      })
+      }, organizationEventScope(persistedJob))
 
       return persistedJob
     },
@@ -609,7 +610,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         ...buildJobPayload(job),
         tenantId: ctx.tenantId,
         organizationId: job.organizationId ?? null,
-      })
+      }, organizationEventScope(job))
 
       return job
     },
@@ -670,7 +671,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
         ...buildJobPayload(persistedJob),
         tenantId: ctx.tenantId,
         organizationId: persistedJob.organizationId ?? null,
-      })
+      }, organizationEventScope(persistedJob))
 
       return persistedJob
     },
@@ -781,7 +782,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
           tenantId: job.tenantId,
           stale: true,
           organizationId: job.organizationId ?? null,
-        })
+        }, organizationEventScope(job))
       }
 
       // Jobs stuck in `pending` (enqueue failed, worker died before startJob) have no
@@ -820,7 +821,7 @@ export function createProgressService(em: EntityManager, eventBus: { emit: (even
           tenantId: job.tenantId,
           stale: true,
           organizationId: job.organizationId ?? null,
-        })
+        }, organizationEventScope(job))
       }
 
       return failedCount

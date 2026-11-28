@@ -1,4 +1,5 @@
 import { LockMode, type EntityManager } from '@mikro-orm/postgresql'
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { compare, hash } from 'bcryptjs'
 import { PasswordReset, Session, User } from '@open-mercato/core/modules/auth/data/entities'
 import { validatePassword } from '@open-mercato/shared/lib/auth/passwordPolicy'
@@ -97,7 +98,7 @@ export class PasswordService {
         changedAt: changedAt.toISOString(),
       }
     })
-    await emitSecurityEvent('security.password.changed', eventPayload)
+    await emitSecurityEvent('security.password.changed', eventPayload, organizationEventScope(eventPayload))
     await emitSecurityEvent('security.password.notification_requested', eventPayload)
   }
 

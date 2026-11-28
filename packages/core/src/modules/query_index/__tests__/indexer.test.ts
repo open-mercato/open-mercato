@@ -623,7 +623,7 @@ describe('Indexer', () => {
       expect(fake.deletes.map((entry) => entry.table)).toEqual(['search_tokens', 'search_tokens', 'entity_indexes'])
       expect(emitEvent).toHaveBeenCalledWith('search.delete_record', {
         entityId: 'example:todo', recordId: '1', organizationId: 'org1', tenantId: 't1',
-      })
+      }, { organizationId: null, tenantId: null })
     } finally {
       registerEntityIds(previousEntityIds)
     }

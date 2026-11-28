@@ -21,6 +21,7 @@
  * its per-entry results straight into the freeze records.
  */
 
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -1121,7 +1122,7 @@ const closeReportCommand: CommandHandler<StaffTimeReportCloseInput, StaffTimeRep
         organizationId: report.organizationId,
         reportId: report.id,
         lockedEntryCount,
-      }).catch((err) => {
+      }, organizationEventScope(report)).catch((err) => {
         logger.error('staff.timesheets emit time_entry.locked failed', { err })
       })
     }
@@ -1375,7 +1376,7 @@ const unlockReportCommand: CommandHandler<StaffTimeReportUnlockInput, StaffTimeR
         organizationId: report.organizationId,
         reportId: report.id,
         unlockedEntryCount,
-      }).catch((err) => {
+      }, organizationEventScope(report)).catch((err) => {
         logger.error('staff.timesheets emit time_entry.unlocked failed', { err })
       })
     }

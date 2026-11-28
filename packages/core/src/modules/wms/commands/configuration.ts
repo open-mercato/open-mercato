@@ -28,6 +28,7 @@
 //     and update undo payloads capture `demotedPrimariesBefore` so undo restores
 //     the previous primary flag on affected siblings.
 // =============================================================================
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { withRequiredFeatures } from './featureGuard'
@@ -837,7 +838,7 @@ const createWarehouseCommand: CommandHandler<
       warehouseId: warehouse.id,
       tenantId: warehouse.tenantId,
       organizationId: warehouse.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(warehouse)).catch(() => undefined)
     return {
       warehouseId: warehouse.id,
       updatedAt: isoOrNull(warehouse.updatedAt),
@@ -968,7 +969,7 @@ const updateWarehouseCommand: CommandHandler<
       warehouseId: warehouse.id,
       tenantId: warehouse.tenantId,
       organizationId: warehouse.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(warehouse)).catch(() => undefined)
     return {
       warehouseId: warehouse.id,
       ...(demotedPrimariesBefore.length > 0 ? { demotedPrimariesBefore } : {}),
@@ -1188,7 +1189,7 @@ const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zon
       warehouseId: typeof zone.warehouse === 'string' ? zone.warehouse : zone.warehouse.id,
       tenantId: zone.tenantId,
       organizationId: zone.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(zone)).catch(() => undefined)
     return { zoneId: zone.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1255,7 +1256,7 @@ const updateWarehouseZoneCommand: CommandHandler<WarehouseZoneUpdateInput, { zon
       warehouseId: typeof zone.warehouse === 'string' ? zone.warehouse : zone.warehouse.id,
       tenantId: zone.tenantId,
       organizationId: zone.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(zone)).catch(() => undefined)
     return { zoneId: zone.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1394,7 +1395,7 @@ const createWarehouseLocationCommand: CommandHandler<WarehouseLocationCreateInpu
       warehouseId: typeof location.warehouse === 'string' ? location.warehouse : location.warehouse.id,
       tenantId: location.tenantId,
       organizationId: location.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(location)).catch(() => undefined)
     return { locationId: location.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1463,7 +1464,7 @@ const updateWarehouseLocationCommand: CommandHandler<WarehouseLocationUpdateInpu
       warehouseId: typeof location.warehouse === 'string' ? location.warehouse : location.warehouse.id,
       tenantId: location.tenantId,
       organizationId: location.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(location)).catch(() => undefined)
     return { locationId: location.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1554,7 +1555,7 @@ function emitInventoryProfileEvent(
     catalogVariantId: profile.catalogVariantId ?? null,
     tenantId: profile.tenantId,
     organizationId: profile.organizationId,
-  }).catch(() => undefined)
+  }, organizationEventScope(profile)).catch(() => undefined)
 }
 
 const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfileCreateInput, { profileId: string }> = {

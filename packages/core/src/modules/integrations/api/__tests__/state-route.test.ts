@@ -86,6 +86,7 @@ describe('integrations state PUT route — missing state row', () => {
     expect(emitIntegrationsEvent).toHaveBeenCalledWith(
       'integrations.state.updated',
       expect.objectContaining({ integrationId, isEnabled: true, reauthRequired: true }),
+      { tenantId: 't1', organizationId: 'o1' },
     )
   })
 })

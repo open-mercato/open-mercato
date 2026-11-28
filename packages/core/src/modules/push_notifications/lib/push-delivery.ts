@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { raw, type EntityName } from '@mikro-orm/core'
@@ -123,7 +124,7 @@ async function finalize(
       provider: delivery.provider,
       status: finalStatus,
     },
-    { persistent: true },
+    { persistent: true, ...organizationEventScope(delivery) },
   )
   return { status: finalStatus, deliveryId: delivery.id }
 }
@@ -192,7 +193,7 @@ async function handleRetryableFailure(
             provider: delivery.provider,
             status: 'failed',
           },
-          { persistent: true },
+          { persistent: true, ...organizationEventScope(delivery) },
         )
       }
       return { status: 'failed', deliveryId: delivery.id }
@@ -212,7 +213,7 @@ async function handleRetryableFailure(
         status: 'retrying',
         willRetry: true,
       },
-      { persistent: true },
+      { persistent: true, ...organizationEventScope(delivery) },
     )
     return { status: 'pending', deliveryId: delivery.id }
   }

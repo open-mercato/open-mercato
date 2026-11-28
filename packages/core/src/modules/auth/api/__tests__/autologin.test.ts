@@ -114,6 +114,12 @@ describe('GET /api/auth/autologin', () => {
     expect(authServiceMock.findUsersByEmail).toHaveBeenCalledWith('superadmin@acme.com')
     expect(authServiceMock.findUserByEmailAndTenant).not.toHaveBeenCalled()
     expect(authServiceMock.createSession).toHaveBeenCalledTimes(1)
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    expect(emitAuthEvent).toHaveBeenCalledWith(
+      'auth.login.success',
+      { id: '1', email: 'superadmin@acme.com', tenantId, organizationId: orgId },
+      { tenantId, organizationId: orgId },
+    )
   })
 
   test('scopes the lookup by tenant when OM_AUTOLOGIN_TENANT is set', async () => {

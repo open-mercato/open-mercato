@@ -222,6 +222,7 @@ describe('executionEngine', () => {
       expect(mockEventBus.emit).toHaveBeenCalledWith(
         'inbox_ops.action.failed',
         expect.objectContaining({ actionId: freshAction.id }),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
     })
 
@@ -245,6 +246,7 @@ describe('executionEngine', () => {
           createdEntityId: 'order-1',
           createdEntityType: 'sales_order',
         }),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
     })
   })
@@ -267,6 +269,7 @@ describe('executionEngine', () => {
       expect(mockEventBus.emit).toHaveBeenCalledWith(
         'inbox_ops.action.rejected',
         expect.objectContaining({ actionId: 'action-1' }),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
     })
 
@@ -302,6 +305,7 @@ describe('executionEngine', () => {
       expect(mockEventBus.emit).toHaveBeenCalledWith(
         'inbox_ops.proposal.rejected',
         expect.objectContaining({ proposalId: 'proposal-1' }),
+        { tenantId: 'tenant-1', organizationId: 'org-1' },
       )
     })
   })

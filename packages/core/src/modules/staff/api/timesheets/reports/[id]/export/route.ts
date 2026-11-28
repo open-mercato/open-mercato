@@ -16,6 +16,7 @@
  * does not deny the caller their file.
  */
 
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -273,7 +274,7 @@ export async function GET(req: Request) {
       format,
       grouping: sheet.grouping,
       rowCount: rows.length,
-    }, { persistent: true }).catch((err) => {
+    }, { persistent: true, ...organizationEventScope({ tenantId, organizationId }) }).catch((err) => {
       logger.error('staff.timesheets emit time_report.exported failed', { err })
     })
 

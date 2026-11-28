@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import { withRequiredFeatures } from './featureGuard'
@@ -546,7 +547,7 @@ async function emitAsnReceivePutawayCreatedSideEffects(
     quantity: putaway.quantity,
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
-  }).catch(() => undefined)
+  }, organizationEventScope(scope)).catch(() => undefined)
 }
 
 async function buildCrudLog(
@@ -764,7 +765,7 @@ const createAsnCommand: CommandHandler<AsnCreateInput, { asnId: string; lineIds:
       status: asn.status,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(scope)).catch(() => undefined)
 
     return { asnId: asn.id, lineIds: createdLines.map((line) => line.id) }
   },
@@ -903,7 +904,7 @@ const updateAsnCommand: CommandHandler<AsnUpdateInput, { asnId: string }> = {
       status: asn.status,
       tenantId: asn.tenantId,
       organizationId: asn.organizationId,
-    }).catch(() => undefined)
+    }, organizationEventScope(asn)).catch(() => undefined)
     return { asnId: asn.id }
   },
   captureAfter: async (_input, result, ctx) => {
@@ -1655,7 +1656,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
           warehouseId: locked.warehouseId,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
-        }).catch(() => undefined)
+        }, organizationEventScope(scope)).catch(() => undefined)
       }
       // Identical absolute-target retry is a no-op (lineUpdated=false); do not re-emit.
       if (locked.lineUpdated) {
@@ -1668,7 +1669,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
           rejectionReason: locked.line.rejectionReason,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
-        }).catch(() => undefined)
+        }, organizationEventScope(scope)).catch(() => undefined)
       }
       return {
         movementIds: [],
@@ -2001,7 +2002,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
           warehouseId: outcome.warehouseId,
           tenantId: scope.tenantId,
           organizationId: scope.organizationId,
-        }).catch(() => undefined)
+        }, organizationEventScope(scope)).catch(() => undefined)
       }
       void emitWmsEvent('wms.asn.line_received', {
         id: outcome.line.id,
@@ -2013,7 +2014,7 @@ const receiveAsnLineCommand: CommandHandler<AsnReceiveLineInput, ReceiveAsnLineR
         locationId: input.targetStagingLocationId,
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
-      }).catch(() => undefined)
+      }, organizationEventScope(scope)).catch(() => undefined)
     }
 
     if (outcome.putaways.length === 0) {
@@ -2105,7 +2106,7 @@ const closeAsnCommand: CommandHandler<AsnCloseInput, { asnId: string; status: As
         closeWhenShort: !!input.closeWhenShort,
         tenantId: locked.asn.tenantId,
         organizationId: locked.asn.organizationId,
-      }).catch(() => undefined)
+      }, organizationEventScope(locked.asn)).catch(() => undefined)
     }
     return { asnId: locked.asn.id, status: locked.asn.status }
   },

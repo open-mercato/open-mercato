@@ -722,6 +722,7 @@ describe('data sync engine fences cursor commits against a concurrent delivery',
     expect(mockEmitDataSyncEvent).toHaveBeenCalledWith(
       'data_sync.run.started',
       expect.objectContaining({ resumed: true }),
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 })

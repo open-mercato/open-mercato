@@ -200,7 +200,7 @@ describe('promotions:code-generation worker', () => {
     expect(emitPromotionsEvent).toHaveBeenCalledWith(
       'promotions.generated_code.created',
       expect.objectContaining({ codeId: code.id, generated: 5, amount: 5 }),
-      { persistent: true },
+      { persistent: true, tenantId: TENANT, organizationId: ORG },
     )
   })
 

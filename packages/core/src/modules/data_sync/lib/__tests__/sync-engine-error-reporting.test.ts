@@ -275,7 +275,7 @@ describe('data sync error reporting', () => {
       updatedCount: 0,
       skippedCount: 0,
       failedCount: 0,
-    }))
+    }), { tenantId: 'tenant-1', organizationId: 'org-1' })
   })
 
   it('reports a dropped coverage refresh instead of swallowing it', async () => {

@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import { createQueue } from '@open-mercato/queue'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
@@ -165,7 +166,7 @@ async function executeSchedule(
       tenantId: schedule.tenantId,
       organizationId: schedule.organizationId,
       reason: 'Schedule is disabled',
-    })
+    }, organizationEventScope(schedule))
     return
   }
 
@@ -198,7 +199,7 @@ async function executeSchedule(
     organizationId: schedule.organizationId,
     scheduleName: schedule.name,
     attemptNumber: ctx.attemptNumber || 1,
-  })
+  }, organizationEventScope(schedule))
 
   // Check feature flag if required
   if (schedule.requireFeature) {
@@ -214,7 +215,7 @@ async function executeSchedule(
         tenantId: schedule.tenantId,
         organizationId: schedule.organizationId,
         reason: `Feature not enabled: ${schedule.requireFeature}`,
-      })
+      }, organizationEventScope(schedule))
 
       logger.debug('Schedule skipped: feature not enabled', { scheduleId, requireFeature: schedule.requireFeature })
       return
@@ -239,7 +240,7 @@ async function executeSchedule(
         tenantId: schedule.tenantId,
         organizationId: schedule.organizationId,
         reason: `Queue is not an approved scheduler target: ${schedule.targetQueue}`,
-      })
+      }, organizationEventScope(schedule))
       return
     }
 
@@ -257,7 +258,7 @@ async function executeSchedule(
         tenantId: schedule.tenantId,
         organizationId: schedule.organizationId,
         reason: `Invalid payload for scheduler queue ${schedule.targetQueue}`,
-      })
+      }, organizationEventScope(schedule))
       return
     }
 
@@ -275,7 +276,7 @@ async function executeSchedule(
           tenantId: schedule.tenantId,
           organizationId: schedule.organizationId,
           reason: `Tenant lacks feature required by scheduler queue ${schedule.targetQueue}: ${feature}`,
-        })
+        }, organizationEventScope(schedule))
         return
       }
     }
@@ -320,7 +321,7 @@ async function executeSchedule(
       organizationId: schedule.organizationId,
       queueJobId: targetJobId,
       queueName: schedule.targetQueue,
-    })
+    }, organizationEventScope(schedule))
 
     logger.debug('Successfully enqueued job', {
       scheduleId: schedule.id,
@@ -367,7 +368,7 @@ async function executeSchedule(
         scopeType: schedule.scopeType,
         error: reason,
         failedAt: new Date(),
-      })
+      }, organizationEventScope(schedule))
 
       logger.warn('Schedule refused: scheduled command is not authorized', {
         scheduleId: schedule.id,
@@ -405,7 +406,7 @@ async function executeSchedule(
       organizationId: schedule.organizationId,
       commandId: schedule.targetCommand,
       commandResult: commandResult.result,
-    })
+    }, organizationEventScope(schedule))
     
     logger.debug('Successfully executed command', {
       scheduleId: schedule.id,

@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -57,16 +58,16 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     tenantId: user.tenantId,
     organizationId: user.organizationId,
     resetBy: auth.sub,
-  }).catch(() => undefined)
+  }, organizationEventScope(user)).catch(() => undefined)
 
+  const eventScope = { tenantId: user.tenantId, organizationId: user.organizationId }
   void emitCustomerAccountsEvent('customer_accounts.password.changed', {
     userId: user.id,
-    tenantId: user.tenantId,
-    organizationId: user.organizationId,
+    ...eventScope,
     changedBy: 'admin',
     changedById: auth.sub,
     at: new Date().toISOString(),
-  }).catch(() => undefined)
+  }, eventScope).catch(() => undefined)
 
   return NextResponse.json({ ok: true })
 }

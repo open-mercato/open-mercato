@@ -218,6 +218,12 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toContain('auth_token=jwt-token')
     expect(setCookie).toContain('session_token=session-token')
+    const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
+    expect(emitAuthEvent).toHaveBeenCalledWith(
+      'auth.login.success',
+      { id: '1', email: 'user@example.com', tenantId, organizationId: orgId },
+      { tenantId, organizationId: orgId },
+    )
   })
 
   test('rejects raw // bypass in the redirect parameter (issue #1560)', async () => {
@@ -502,7 +508,7 @@ describe('POST /api/auth/login with custom route interceptors', () => {
     expect(res.headers.get('set-cookie')).toBeNull()
     expect(authServiceMock.deleteSessionById).toHaveBeenCalledWith('session-1')
     const { emitAuthEvent } = await import('@open-mercato/core/modules/auth/events')
-    expect(emitAuthEvent as jest.Mock).not.toHaveBeenCalledWith('auth.login.success', expect.anything())
+    expect(jest.mocked(emitAuthEvent).mock.calls.map(([eventId]) => eventId)).not.toContain('auth.login.success')
     expect(emitAuthEvent as jest.Mock).toHaveBeenCalledWith(
       'auth.login.failed',
       expect.objectContaining({ email: 'user@example.com', reason: 'after_interceptor_failed' }),

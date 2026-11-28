@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -123,7 +124,7 @@ export class MfaAdminService {
       methodCount: activeMethods.length,
       recoveryCodesInvalidated: activeRecoveryCodes.length,
       resetAt: new Date().toISOString(),
-    })
+    }, organizationEventScope(user))
   }
 
   async getUserMfaStatus(userId: string, actor?: ActorContext): Promise<UserMfaStatus> {

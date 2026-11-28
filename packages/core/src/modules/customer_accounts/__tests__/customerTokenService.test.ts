@@ -38,21 +38,23 @@ describe('CustomerTokenService – atomic token consumption', () => {
       purpose: 'email_verification',
       usedAt: null,
       expiresAt: new Date(Date.now() + 60000),
-      user: { id: 'user-1', tenantId: 'tenant-1' },
+      user: { id: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' },
     }
 
     it('performs atomic UPDATE SET used_at WHERE used_at IS NULL', async () => {
-      const { em, db, builder } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
+      const { em } = createEm({ knexUpdateResult: 0 })
+      const { em: transaction, db, builder } = createEm({ findOneResult: validRecord, knexUpdateResult: 1 })
       const service = new CustomerTokenService(em)
 
-      const result = await service.verifyEmailToken('abc', 'email_verification')
+      const result = await service.verifyEmailToken('abc', 'email_verification', undefined, transaction)
 
+      expect(em.findOne).not.toHaveBeenCalled()
       expect(db.updateTable).toHaveBeenCalledWith('customer_user_email_verifications')
       expect(builder.set).toHaveBeenCalledWith({ used_at: expect.any(Date) })
       expect(builder.where).toHaveBeenCalledWith('id', '=', 'ver-1')
       expect(builder.where).toHaveBeenCalledWith('used_at', 'is', null)
       expect(builder.where).toHaveBeenCalledWith('expires_at', '>', expect.any(Date))
-      expect(result).toEqual({ userId: 'user-1', tenantId: 'tenant-1' })
+      expect(result).toEqual({ userId: 'user-1', tenantId: 'tenant-1', organizationId: 'org-1' })
     })
 
     it('returns null when atomic UPDATE affects 0 rows (concurrent race)', async () => {

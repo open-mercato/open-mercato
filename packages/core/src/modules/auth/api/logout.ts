@@ -78,14 +78,14 @@ export async function POST(req: Request) {
     }
   }
   if (claims.userId) {
+    const scope = { tenantId: claims.tenantId, organizationId: claims.organizationId }
     void emitAuthEvent('auth.logout', {
       id: claims.userId,
-      tenantId: claims.tenantId,
-      organizationId: claims.organizationId,
+      ...scope,
       sessionId: claims.sessionId,
       sessionRevoked,
       at: new Date().toISOString(),
-    }, { persistent: true }).catch(() => undefined)
+    }, { persistent: true, ...scope }).catch(() => undefined)
   }
   const res = buildSafeRedirectResponse(req, '/login', 303)
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })

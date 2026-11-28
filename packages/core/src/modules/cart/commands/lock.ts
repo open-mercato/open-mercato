@@ -1,3 +1,4 @@
+import { organizationEventScope } from '@open-mercato/shared/lib/events/organization-scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandBus, CommandHandler } from '@open-mercato/shared/lib/commands'
@@ -189,7 +190,7 @@ const lockCartCommand: CommandHandler<CartLockInput, CartLockResult> = {
       tenantId: cart.tenantId,
       organizationId: cart.organizationId,
       checkoutSessionId: cart.checkoutSessionId,
-    })
+    }, organizationEventScope(cart))
 
     return {
       cart: toCartSummary(cart),
@@ -256,7 +257,7 @@ const unlockCartCommand: CommandHandler<CartUnlockInput, CartUnlockResult> = {
       cartId: cart.id,
       tenantId: cart.tenantId,
       organizationId: cart.organizationId,
-    })
+    }, organizationEventScope(cart))
 
     return { cart: toCartSummary(cart) }
   },
@@ -318,7 +319,7 @@ const markConvertedCommand: CommandHandler<CartMarkConvertedInput, CartMarkConve
       cartId: cart.id,
       tenantId: cart.tenantId,
       organizationId: cart.organizationId,
-    })
+    }, organizationEventScope(cart))
 
     return { cart: toCartSummary(cart) }
   },
