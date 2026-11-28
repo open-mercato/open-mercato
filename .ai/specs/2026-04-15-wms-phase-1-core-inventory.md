@@ -400,7 +400,6 @@ See [2026-06-13-wms-ledger-integrity.md](2026-06-13-wms-ledger-integrity.md) for
 All validators live in `data/validators.ts`:
 
 - `warehouseCreateSchema`: `name` required, `code` required and unique per organization, `isPrimary` optional with at-most-one enforcement per organization in commands (sibling primaries demoted org-wide via `enforcePrimaryWarehouse`; undo restores demoted siblings from `demotedPrimariesBefore`); rejects `isPrimary=true` when `isActive=false`; deactivating a primary warehouse auto-clears `isPrimary`
-- `wms.warehouses.delete` (and the undo of `wms.warehouses.create`): refused with `409 warehouse_has_stock` while any live balance in the warehouse has non-zero on-hand, reserved or allocated quantity
 - `locationCreateSchema`: validate hierarchy (`parent_id` must belong to same warehouse), capacity constraints (`capacity_units` / `capacity_weight` non-negative when provided)
 - `inventoryAdjustSchema`: `reason` required, `delta` must be non-zero
 - `reservationCreateSchema`: `quantity` must be positive, must not exceed `quantity_available` in target buckets
@@ -408,6 +407,10 @@ All validators live in `data/validators.ts`:
 - `wms.lots.update`: when any date is patched, checks the stored dates merged with the patched ones in the same order as create (`inventoryLotDateOrderingSchema`)
 - `movementCreateSchema`: enforce valid `type` and `reference_type` combinations
 - `cycleCountCreateSchema`: `countedQuantity` and `reason` required; used by `POST /api/wms/inventory/cycle-count` / `cycleCountReconcile`
+
+Command rules:
+
+- `wms.warehouses.delete` (and the undo of `wms.warehouses.create`): refused with `409 warehouse_has_stock` while any live balance in the warehouse has non-zero on-hand, reserved or allocated quantity
 
 ### Catalog Integration Contracts
 
@@ -496,6 +499,7 @@ UI patterns:
 - No existing `catalog` or `sales` route is removed or renamed.
 - All foreign-module enrichments remain additive under `_wms`.
 - Event IDs introduced here become frozen contracts; naming must remain singular and stable.
+- `DELETE /api/wms/warehouses` and the undo of a warehouse create can return `409 warehouse_has_stock` (added 2026-11-28); warehouses already archived with stock are not repaired.
 - If current product forms already show placeholder inventory flags, WMS becomes the owner of the data behind those flags via injected UI and command-backed APIs rather than direct catalog schema mutation.
 
 ## Implementation Plan

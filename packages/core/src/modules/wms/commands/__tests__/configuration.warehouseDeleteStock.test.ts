@@ -162,6 +162,7 @@ describe('wms.warehouses.delete stock guard', () => {
 
     expect(failure).toBeInstanceOf(CrudHttpError)
     expect((failure as CrudHttpError).status).toBe(409)
+    expect((failure as CrudHttpError).body).toMatchObject({ code: 'warehouse_has_stock' })
     expect(store.warehouse.deletedAt).toBeNull()
     expect(store.em.flush).not.toHaveBeenCalled()
   })

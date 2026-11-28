@@ -1223,7 +1223,7 @@
   "wms.search.profile.productScoped": "Produktbezogen",
   "wms.search.profile.variantScoped": "Variantenbezogen",
   "wms.subscribers.procurementGoodsReceipt.asnNotes": "Erstellt aus dem Beschaffungs-Wareneingang {goodsReceiptId}",
-  "wms.validation.warehouse.deleteHasStock": "Dieses Lager enthält noch Bestand. Korrigieren Sie den Bestand auf null und geben Sie Reservierungen und Zuweisungen frei, bevor Sie es archivieren.",
+  "wms.validation.warehouse.deleteHasStock": "Dieses Lager enthält noch Bestand. Geben Sie Reservierungen und Zuweisungen frei und korrigieren Sie den Bestand dann auf null, bevor Sie es archivieren.",
   "wms.validation.warehouse.inactivePrimary": "Inaktive Lager können nicht als Hauptlager markiert werden.",
   "wms.validation.warehouse.primaryConflict": "Ein anderes Lager wurde soeben als Hauptlager für diese Organisation festgelegt. Bitte versuchen Sie es erneut.",
   "wms.widgets.catalog.inventoryProfile.defaultStrategy": "Rotationsstrategie",

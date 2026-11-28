@@ -30,8 +30,8 @@ const STOCK_FEATURES = [
   'wms.adjust_inventory',
 ]
 
-const HAS_STOCK_MESSAGE = 'This warehouse still holds inventory. Adjust its stock to zero and release its reservations and allocations before archiving it.'
-const HAS_STOCK_MESSAGE_PL = 'Ten magazyn nadal zawiera zapasy. Skoryguj jego stan do zera i zwolnij rezerwacje oraz alokacje przed archiwizacją.'
+const HAS_STOCK_MESSAGE = 'This warehouse still holds inventory. Release its reservations and allocations, then adjust its stock to zero before archiving it.'
+const HAS_STOCK_MESSAGE_PL = 'Ten magazyn nadal zawiera zapasy. Zwolnij jego rezerwacje i alokacje, a następnie skoryguj stan do zera przed archiwizacją.'
 
 type Fixture = {
   token: string
