@@ -2,6 +2,7 @@ import { runInOwnedRequestScope } from '@open-mercato/shared/lib/di/request-scop
 import type { Metadata } from 'next'
 import { headers } from 'next/headers'
 import './globals.css'
+import './theme.css'
 import '@/lib/i18n/register-dictionary-loader'
 import { AppProviders } from '@/components/AppProviders'
 
