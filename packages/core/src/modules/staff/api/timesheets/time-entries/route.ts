@@ -32,10 +32,11 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveCrudRecordId, parseScopedCommandInput } from '@open-mercato/shared/lib/api/scoped'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
+import type { AdvancedFilterTree } from '@open-mercato/shared/lib/query/advanced-filter-tree'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { isIdsParamProvided, mergeIdFilter, parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
-import { mergeAdvancedFiltersFromQuery } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
+import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
 import { sanitizeSearchTerm } from '../../helpers'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { StaffTimeEntry, StaffTimeEntryTag, StaffTimeProject } from '../../../data/entities'
@@ -253,6 +254,20 @@ export async function resolveListProjectAccess(ctx: CrudCtx): Promise<ProjectAcc
 }
 
 /**
+ * The factory merges any `filter[...]` keys still on the query after
+ * `buildFilters`, so they are consumed here to apply the advanced filter once.
+ * The tree is remembered per query object because `attachTimeEntryTotals`
+ * rebuilds the filters from that same object after the list did.
+ */
+const advancedFilterByQuery = new WeakMap<object, AdvancedFilterTree>()
+
+function takeAdvancedFilter(query: Record<string, unknown>): AdvancedFilterTree | null {
+  const consumed = consumeAdvancedFilterState(query)
+  if (consumed) advancedFilterByQuery.set(query, consumed)
+  return consumed ?? advancedFilterByQuery.get(query) ?? null
+}
+
+/**
  * Every entry query narrows to what the caller may actually see: entries on the
  * projects they belong to, plus their OWN entries that name no project. A
  * project-less entry has no membership to check, so the only person it can belong
@@ -319,8 +334,9 @@ export async function buildScopedTimeEntryListFilters(
     filters[F.id] = { $in: entryIds.length > 0 ? entryIds : [IMPOSSIBLE_ID] }
   }
 
+  const advancedFilter = takeAdvancedFilter(query as Record<string, unknown>)
   const access = await resolveListProjectAccess(ctx)
-  if (access.canManageAll) return mergeAdvancedFiltersFromQuery(filters, query as Record<string, unknown>)
+  if (access.canManageAll) return mergeAdvancedFilterTree(filters, advancedFilter)
 
   const branches: Record<string, unknown>[] = []
   if (access.projectIds.length > 0) {
@@ -333,10 +349,10 @@ export async function buildScopedTimeEntryListFilters(
     // A caller with no membership and no staff record gets no row at all — not a
     // redacted one — so an entry's note and its project never leave the server.
     filters[F.id] = { $in: [IMPOSSIBLE_ID] }
-    return mergeAdvancedFiltersFromQuery(filters, query as Record<string, unknown>)
+    return mergeAdvancedFilterTree(filters, advancedFilter)
   }
   filters.$or = branches
-  return mergeAdvancedFiltersFromQuery(filters, query as Record<string, unknown>)
+  return mergeAdvancedFilterTree(filters, advancedFilter)
 }
 
 /**
