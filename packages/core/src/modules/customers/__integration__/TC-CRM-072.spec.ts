@@ -51,7 +51,7 @@ test.describe('TC-CRM-072: org-scope fail-open authorization hardening (#2239 + 
     test.slow();
 
     const stamp = Date.now();
-    const password = 'Secret123!';
+    const password = 'QaSecret123!';
 
     let adminToken: string | null = null;
     let orgAId: string | null = null;

@@ -164,7 +164,7 @@ test.describe('TC-CHANNEL-EMAIL-HUB-004: compose from a connected mailbox', () =
       expect(aclResp.ok(), 'PUT /api/auth/roles/acl (channel owner) should succeed').toBeTruthy()
 
       const ownerEmail = `qa-channel-hub-004-owner-${stamp}@example.com`
-      const ownerPassword = 'Valid1!Pass'
+      const ownerPassword = 'QaValid1!Pass'
       ownerUserId = await createUserFixture(request, adminToken, {
         email: ownerEmail,
         password: ownerPassword,

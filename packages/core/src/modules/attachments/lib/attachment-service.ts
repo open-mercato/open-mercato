@@ -1,3 +1,4 @@
+import { attachmentPartitionVisibility, indexAttachmentPartitions, resolveAttachmentPartition } from './partitionScope'
 import { evaluateAttachmentAccess, type AttachmentAccessContext } from './access-runner'
 import { throwAttachmentAccessError } from './access-errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -459,16 +460,16 @@ export class DefaultAttachmentService implements AttachmentService {
     const attachmentsById = new Map(attachments.map((attachment) => [attachment.id, attachment]))
     const partitionCodes = [...new Set(attachments.map((attachment) => attachment.partitionCode))]
     const partitions = partitionCodes.length
-      ? await findWithDecryption(this.em, AttachmentPartition, { code: { $in: partitionCodes } }, undefined, decryptionScope)
+      ? await findWithDecryption(this.em, AttachmentPartition, { code: { $in: partitionCodes }, ...attachmentPartitionVisibility(decryptionScope) }, undefined, decryptionScope)
       : []
-    const partitionsByCode = new Map(partitions.map((partition) => [partition.code, partition]))
+    const partitionsByCode = indexAttachmentPartitions(partitions)
 
     const accessContext = this.resolveAccessContext?.()
     const described: DescribedScopedAttachment[] = []
     for (const item of input.items) {
       const attachment = attachmentsById.get(item.attachmentId)
       if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
-      const partition = partitionsByCode.get(attachment.partitionCode)
+      const partition = partitionsByCode(attachment.partitionCode, attachment)
       if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
       await this.assertReadableScoped({ ...item, auth }, attachment, partition, accessContext)
       described.push(toDescribedScopedAttachment(attachment))
@@ -495,13 +496,7 @@ export class DefaultAttachmentService implements AttachmentService {
       { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
     )
     if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
-    const partition = await findOneWithDecryption(
-      this.em,
-      AttachmentPartition,
-      { code: attachment.partitionCode },
-      undefined,
-      { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
-    )
+    const partition = await resolveAttachmentPartition(this.em, attachment.partitionCode, attachment, { decrypt: true })
     if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
     await this.assertReadableScoped(input, attachment, partition, this.resolveAccessContext?.())
     return attachment

@@ -87,6 +87,17 @@ describe('wms sales order warehouse assignment commands', () => {
     expect(em.flush).toHaveBeenCalled()
   })
 
+  it('rejects an unassignment outside the actor organization before reading the assignment', async () => {
+    const em = createEm()
+    const handler = commandRegistry.get('wms.sales-order.unassign-warehouse')
+    const input = { salesOrderId: 'order-1', tenantId: TENANT, organizationId: 'org-2' }
+
+    await expect(handler!.prepare!(input, createCtx(em))).rejects.toMatchObject({ status: 403 })
+    await expect(handler!.execute!(input, createCtx(em))).rejects.toMatchObject({ status: 403 })
+    expect(em.findOne).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
   it('soft-deletes an explicit assignment on unassign', async () => {
     const em = createEm()
     const existing = {

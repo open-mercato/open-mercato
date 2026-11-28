@@ -98,7 +98,7 @@ async function withClient<T>(pool: PgPool, fn: (client: PgPoolClient) => Promise
 export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDriver {
   const tableName = assertIdentifier(opts.tableName ?? DEFAULT_TABLE, DEFAULT_TABLE)
   const migrationsTable = assertIdentifier(opts.migrationsTable ?? DEFAULT_MIGRATIONS_TABLE, DEFAULT_MIGRATIONS_TABLE)
-  let dimension = opts.dimension ?? DEFAULT_DIMENSION
+  const dimension = opts.dimension ?? DEFAULT_DIMENSION
   const distanceMetric = opts.distanceMetric ?? 'cosine'
   const tableIdent = quoteIdent(tableName)
   const migrationsIdent = quoteIdent(migrationsTable)
@@ -699,11 +699,10 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
       const res = await pool.query<{ atttypmod: number }>(
         `SELECT a.atttypmod
          FROM pg_attribute a
-         JOIN pg_class c ON a.attrelid = c.oid
-         WHERE c.relname = $1
+         WHERE a.attrelid = to_regclass($1)
          AND a.attname = 'embedding'
          AND a.atttypmod > 0`,
-        [tableName]
+        [tableIdent]
       )
       if (res.rows.length > 0 && res.rows[0].atttypmod > 0) {
         return res.rows[0].atttypmod
@@ -715,12 +714,10 @@ export function createPgVectorDriver(opts: PgVectorDriverOptions = {}): VectorDr
   }
 
   const recreateWithDimension = async (newDimension: number): Promise<void> => {
-    await withClient(pool, async (client) => {
-      await client.query(`DROP TABLE IF EXISTS ${tableIdent} CASCADE`)
-      await client.query(`DROP TABLE IF EXISTS ${migrationsIdent} CASCADE`)
-    })
-    ready = null
-    dimension = newDimension
+    const currentDimension = await getTableDimension()
+    if (newDimension !== (currentDimension ?? dimension)) {
+      throw new Error('[internal] Changing the shared vector index dimension requires an operator-managed migration')
+    }
     await ensureReady()
   }
 

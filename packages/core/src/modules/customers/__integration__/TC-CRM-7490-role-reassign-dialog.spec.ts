@@ -64,7 +64,19 @@ test.describe('TC-CRM-7490: role assignment and reassignment share one dialog', 
       expect(roleTypeResponse.status(), await roleTypeResponse.text()).toBe(201)
       roleTypeId = ((await roleTypeResponse.json()) as { id: string }).id
 
+<<<<<<< HEAD
       for (const [displayName, userId] of [[firstMemberName, adminUserId], [secondMemberName, employeeUserId]] as const) {
+=======
+      for (const [displayName, name] of [[firstMemberName, firstAccountName], [secondMemberName, secondAccountName]] as const) {
+        const userId = await createUserFixture(request, adminToken, {
+          email: `qa-role-${stamp}-${userIds.length}@example.com`,
+          name,
+          password: 'QaValid1!Pass',
+          organizationId,
+          roles: [],
+        })
+        userIds.push(userId)
+>>>>>>> 9934e0940a (fix(security): harden platform authorization and deployment defaults (#10543))
         const memberResponse = await apiRequest(request, 'POST', '/api/staff/team-members', {
           token: adminToken,
           data: { displayName, userId, isActive: true },

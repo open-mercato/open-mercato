@@ -94,7 +94,8 @@ export async function GET(
         ua: req.headers.get('user-agent') ?? null,
       })
     }
-    const filename = `forms-export-${subjectType}-${subjectId}.json`
+    const filenameSubjectType = subjectType.replace(/[^a-zA-Z0-9._-]/g, '_')
+    const filename = `forms-export-${filenameSubjectType}-${subjectId}.json`
     return new NextResponse(JSON.stringify(document, null, 2), {
       status: 200,
       headers: {

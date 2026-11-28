@@ -92,18 +92,19 @@ export function useMessageDetailsConversation({
     : null
 
   const [expandedById, setExpandedById] = React.useState<Record<string, boolean>>({})
-  const conversationIdsKey = React.useMemo(
-    () => conversationItems.map((item) => item.id).join('|'),
-    [conversationItems],
-  )
-
   React.useEffect(() => {
-    const nextState: Record<string, boolean> = {}
-    for (const item of conversationItems) {
-      nextState[item.id] = forcedExpandedItemId === item.id
-    }
-    setExpandedById(nextState)
-  }, [conversationIdsKey, conversationItems, forcedExpandedItemId])
+    setExpandedById((previous) => {
+      const nextState: Record<string, boolean> = {}
+      for (const item of conversationItems) {
+        nextState[item.id] = previous[item.id] ?? false
+      }
+      if (Object.keys(previous).length === conversationItems.length
+        && conversationItems.every((item) => previous[item.id] === nextState[item.id])) {
+        return previous
+      }
+      return nextState
+    })
+  }, [conversationItems])
 
   const toggleConversationItem = React.useCallback((itemId: string) => {
     if (itemId === forcedExpandedItemId) return

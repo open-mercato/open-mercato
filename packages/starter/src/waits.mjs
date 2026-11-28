@@ -66,14 +66,14 @@ export async function waitForHealthyServices(repoRoot, composeFile, services, { 
   return { ok: false, failed: 'timeout' }
 }
 
-export async function waitForHttp(url, { timeoutMs = 10 * 60 * 1000, label = url, log = console.log, validate = null } = {}) {
+export async function waitForHttp(url, { timeoutMs = 10 * 60 * 1000, label = url, log = console.log, validate = null, request = {} } = {}) {
   const deadline = Date.now() + timeoutMs
   let lastError = ''
   const spinner = createSpinner(`waiting for ${label}`)
   try {
     while (Date.now() < deadline) {
       try {
-        const response = await fetch(url, { signal: AbortSignal.timeout(5000) })
+        const response = await fetch(url, { ...request, signal: AbortSignal.timeout(5000) })
         if (response.ok) {
           if (!validate) {
             spinner.stop('ok', `${label} ready`)

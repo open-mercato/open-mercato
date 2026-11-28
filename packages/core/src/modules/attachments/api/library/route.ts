@@ -1,3 +1,4 @@
+import { attachmentPartitionVisibility, indexAttachmentPartitions } from '../../lib/partitionScope'
 import { createAttachmentAccessContext } from '../../lib/access-runner'
 import { requiresAttachmentAccessScan, scanAuthorizedAttachments } from '../../lib/access-query'
 import { withAttachmentAccessErrors } from '../../lib/access-errors'
@@ -107,7 +108,8 @@ async function listAttachments(req: Request) {
   qb.orderBy({ [orderColumn]: sortDir === 'asc' ? 'asc' : 'desc', 'a.id': 'asc' })
   qb.limit(pageSize).offset(offset)
 
-  const partitions = await em.find(AttachmentPartition, {}, { orderBy: { title: 'asc' } })
+  const scope = { tenantId: auth.tenantId, organizationId: auth.orgId }
+  const partitions = await em.find(AttachmentPartition, attachmentPartitionVisibility(scope, !auth.orgId), { orderBy: { title: 'asc' } })
   const protectedScan = requiresAttachmentAccessScan(partitions)
   const accessContext = createAttachmentAccessContext(container)
   const deadline = Date.now() + 15_000
@@ -130,10 +132,7 @@ async function listAttachments(req: Request) {
   } else {
     ;[records, total] = await Promise.all([qb.getResultList(), countQb.getCount('a.id', true)])
   }
-  const partitionTitleByCode = partitions.reduce<Record<string, string>>((acc, entry) => {
-    if (entry.code) acc[entry.code] = entry.title ?? entry.code
-    return acc
-  }, {})
+  const partitionFor = indexAttachmentPartitions(partitions)
   const items = records.map((record) => {
     const metadata = readAttachmentMetadata(record.storageMetadata)
     const fileName = record.fileName || ''
@@ -151,7 +150,7 @@ async function listAttachments(req: Request) {
       fileSize: record.fileSize,
       mimeType: record.mimeType,
       partitionCode: record.partitionCode,
-      partitionTitle: partitionTitleByCode[record.partitionCode] ?? null,
+      partitionTitle: partitionFor(record.partitionCode, record)?.title ?? null,
       url: record.url,
       createdAt: formatDateValue(record.createdAt),
       tags: metadata.tags ?? [],

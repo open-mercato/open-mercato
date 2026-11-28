@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -13,6 +14,7 @@ import {
   WidgetDataScanLimitError,
   WidgetDataEncryptionUnavailableError,
 } from '../../../../services/widgetDataService'
+import { runWidgetDataBeforeInterceptors } from '../../../../lib/widgetDataInterceptors'
 import { runWidgetDataBatch } from '../../../../lib/widgetDataBatch'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -108,25 +110,38 @@ export async function POST(req: Request) {
     resolveOptionalBaseCurrencyResolver(container),
   )
 
-  const rbacService = container.resolve<{
-    userHasAllFeatures: (
-      userId: string,
-      features: string[],
-      scope: { tenantId: string; organizationId?: string | null },
-    ) => Promise<boolean>
-  }>('rbacService')
+  const rbacService = container.resolve<RbacService>('rbacService')
+  const userFeatures = await rbacService.getGrantedFeatures(auth.sub, {
+    tenantId,
+    organizationId: rbacOrganizationId,
+  })
+  const checkFeatures = (features: string[]): Promise<boolean> => {
+    if (!features.length) return Promise.resolve(true)
+    return rbacService.userHasAllFeatures(auth.sub, features, {
+      tenantId,
+      organizationId: rbacOrganizationId,
+    })
+  }
 
   try {
     const results = await runWidgetDataBatch(parsed.data.requests as Array<{ id: string; request: WidgetDataRequest }>, {
       getRequiredFeatures: (entityType) => analyticsRegistry.getRequiredFeatures(entityType),
-      checkFeatures: (features) => {
-        if (features.length === 0) return Promise.resolve(true)
-        return rbacService.userHasAllFeatures(auth.sub, features, {
+      checkFeatures,
+      fetchOne: async (request) => {
+        const intercepted = await runWidgetDataBeforeInterceptors(req, request, {
+          em,
+          container,
+          userId: auth.sub,
           tenantId,
-          organizationId: rbacOrganizationId,
+          organizationId: rbacOrganizationId ?? '',
+          userFeatures,
         })
+        if (!intercepted.ok) {
+          const message = intercepted.body.error
+          throw new WidgetDataValidationError(typeof message === 'string' ? message : 'Forbidden')
+        }
+        return service.fetchWidgetData(intercepted.request)
       },
-      fetchOne: (request) => service.fetchWidgetData(request),
       describeError: (error) =>
         error instanceof WidgetDataValidationError
         || error instanceof WidgetDataScanLimitError

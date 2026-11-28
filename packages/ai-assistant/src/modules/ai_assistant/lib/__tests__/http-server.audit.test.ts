@@ -39,6 +39,12 @@ jest.mock('@open-mercato/core/modules/api_keys/services/apiKeyService', () => ({
   findSessionApiKeyWithSecret: (...args: unknown[]) => mockFindSessionApiKeyWithSecret(...args),
 }))
 
+jest.mock('@open-mercato/core/modules/auth/lib/tenantEligibility', () => ({
+  isStaffTenantActive: jest.fn(async () => true),
+}))
+
+const originalDelegationKey = process.env.MCP_SERVER_API_KEY
+
 type AclFixture = { features: string[]; isSuperAdmin: boolean }
 
 const SERVER_KEY_ID = 'server-key'
@@ -127,6 +133,7 @@ async function callTool(
 
 describe('MCP HTTP server — tools/call audit', () => {
   beforeEach(() => {
+    process.env.MCP_SERVER_API_KEY = SERVER_SECRET
     mockRegisteredTools.clear()
     aclBySubject.clear()
     accessLogEntries.length = 0
@@ -164,6 +171,8 @@ describe('MCP HTTP server — tools/call audit', () => {
   })
 
   afterEach(async () => {
+    if (originalDelegationKey === undefined) delete process.env.MCP_SERVER_API_KEY
+    else process.env.MCP_SERVER_API_KEY = originalDelegationKey
     if (activeServer) {
       await new Promise<void>((resolve) => activeServer?.close(() => resolve()))
       activeServer = null

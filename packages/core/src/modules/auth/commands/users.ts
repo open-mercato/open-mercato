@@ -77,6 +77,7 @@ import {
   requireTransactionalReplayEntityManager,
 } from '@open-mercato/core/modules/auth/lib/commandReplay'
 import { lockUserRoleWriterAuthorizationState } from '@open-mercato/core/modules/auth/lib/authorizationStateLocks'
+import { PROFILE_PASSWORD_PROOF, type ProfilePasswordProof } from '@open-mercato/core/modules/auth/lib/profilePasswordProof'
 
 const logger = createLogger('auth').child({ component: 'users-commands' })
 const USER_REDO_LOG = Symbol('auth.users.redoLog')
@@ -767,6 +768,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     if (actorTenantScope) updateWhere.tenantId = actorTenantScope
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const profileProof = (ctx as CommandRuntimeContext & { [PROFILE_PASSWORD_PROOF]?: ProfilePasswordProof })[PROFILE_PASSWORD_PROOF]
     let user!: User
 
     await withAtomicFlush(em, [
@@ -808,6 +810,22 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           protectedRoleIds,
         )
 
+        const current = profileProof || parsed.email !== undefined
+          ? await findOneWithDecryption(
+            em, User, updateWhere as FilterQuery<User>,
+            { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
+            { tenantId: userTenantId, organizationId: existing.organizationId ?? null },
+          )
+          : null
+        if (profileProof && (profileProof.userId !== parsed.id || !current || current.passwordHash !== profileProof.passwordHash)) {
+          const { translate } = await resolveTranslations()
+          const message = translate('auth.profile.form.errors.currentPasswordInvalid', 'Current password is incorrect.')
+          throw new CrudHttpError(400, {
+            error: message,
+            issues: [{ path: ['currentPassword'], message }],
+          })
+        }
+
         // Email is unique per-tenant, not globally (see Migration20260610120000:
         // users_tenant_email_hash_uniq) — a matching email in another tenant must not block
         // the update or leak cross-tenant account existence (#2934). `targetTenantId` is the
@@ -828,6 +846,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           if (duplicate) await throwDuplicateEmailError()
         }
 
+        const emailChanged = parsed.email !== undefined && current?.email !== parsed.email
         try {
           const updated = await de.updateOrmEntity({
             entity: User,
@@ -857,8 +876,11 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
         }
         if (!user) throw new CrudHttpError(404, { error: 'User not found' })
 
-        if (hashed || parsed.isConfirmed === false) {
+        if (hashed || emailChanged || parsed.isConfirmed === false) {
           await em.nativeDelete(Session, { user: parsed.id })
+        }
+        if (emailChanged) {
+          await em.nativeDelete(PasswordReset, { user: parsed.id, usedAt: null })
         }
 
         if (Array.isArray(parsed.roles)) {
@@ -1030,11 +1052,15 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
           requireReplayProtectedRoleIds(em, currentTenantId),
         )
 
+        const emailChanged = 'email' in replayInput && current?.email !== before.email
         updated = await de.updateOrmEntity({
           entity: User,
           where: { id: userId, deletedAt: null } as FilterQuery<User>,
           apply: (entity) => {
-            if ('email' in replayInput) entity.email = before.email
+            if ('email' in replayInput) {
+              entity.email = before.email
+              entity.emailHash = computeEmailHash(before.email)
+            }
             if ('organizationId' in replayInput) {
               entity.organizationId = before.organizationId ?? null
               entity.tenantId = before.tenantId ?? null
@@ -1043,6 +1069,10 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
             if ('isConfirmed' in replayInput) entity.isConfirmed = before.isConfirmed
           },
         })
+        if (updated && emailChanged) {
+          await em.nativeDelete(Session, { user: userId })
+          await em.nativeDelete(PasswordReset, { user: userId, usedAt: null })
+        }
 
         if (updated && Array.isArray(replayInput.roles)) {
           await syncUserRoles(em, updated, before.roles, before.tenantId)

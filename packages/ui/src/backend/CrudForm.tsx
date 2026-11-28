@@ -263,6 +263,7 @@ export type CrudBuiltinField = CrudFieldBase & {
   editor?: 'simple' | 'uiw' | 'html'
   // for text fields; provides datalist suggestions while allowing free-text input
   suggestions?: string[]
+  autoComplete?: React.ComponentProps<'input'>['autoComplete']
   // for combobox fields; allow custom values or restrict to suggestions only
   allowCustomValues?: boolean
   // for combobox fields; hydrate the option map up front so a pre-selected value
@@ -4301,6 +4302,8 @@ function TextInput({
   readOnly,
   suggestions,
   inputType = 'text',
+  autoComplete,
+  describedBy,
 }: {
   id?: string
   value: string
@@ -4312,6 +4315,8 @@ function TextInput({
   readOnly?: boolean
   suggestions?: string[]
   inputType?: 'text' | 'password'
+  autoComplete?: React.ComponentProps<'input'>['autoComplete']
+  describedBy?: string
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
@@ -4360,6 +4365,8 @@ function TextInput({
     return (
       <PasswordInput
         id={id}
+        autoComplete={autoComplete}
+        aria-describedby={describedBy}
         placeholder={placeholder}
         value={local}
         onChange={handleChange}
@@ -4868,6 +4875,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   // group wrapper, per #5360's accessible-name requirement.
   const controlId = `${formId}-field-${field.id}`
   const labelId = `${controlId}-label`
+  const descriptionId = field.description ? `${controlId}-description` : undefined
   const hasSingleControl =
     field.type === 'text' ||
     field.type === 'password' ||
@@ -4923,6 +4931,8 @@ const FieldControl = React.memo(function FieldControlImpl({
           disabled={disabled}
           readOnly={readOnly}
           inputType="password"
+          autoComplete={field.autoComplete}
+          describedBy={descriptionId}
         />
       )}
       {(field.type === 'number' || field.type === 'decimal') && (
@@ -5209,8 +5219,8 @@ const FieldControl = React.memo(function FieldControlImpl({
         </div>
       )}
       {field.description ? (
-        <div className="flex items-start gap-2 text-xs text-muted-foreground">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div id={descriptionId} className="flex items-start gap-2 text-xs text-muted-foreground">
+          <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
           <div>{field.description}</div>
         </div>
       ) : null}
@@ -5225,6 +5235,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.field.type === next.field.type &&
   prev.field.label === next.field.label &&
   prev.field.description === next.field.description &&
+  (prev.field.type !== 'password' || (next.field.type === 'password' && prev.field.autoComplete === next.field.autoComplete)) &&
   prev.field.required === next.field.required &&
   prev.markRequired === next.markRequired &&
   prev.value === next.value &&

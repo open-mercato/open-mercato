@@ -191,6 +191,29 @@ describe('CustomerInvitationService.acceptInvitation — role lookup batching', 
     service = new CustomerInvitationService(mockEm as unknown as EntityManager)
   })
 
+  it('rejects an outstanding privileged invitation after the inviter loses the grant', async () => {
+    const invitedByUserId = 'inviter-1'
+    const invitation = {
+      id: 'inv-privileged',
+      email: 'new@example.com',
+      tenantId,
+      organizationId,
+      roleIdsJson: [roleIds[0]],
+      invitedByUserId,
+      expiresAt: new Date(Date.now() + 60_000),
+      acceptedAt: null,
+      cancelledAt: null,
+    }
+    mockEm.findOne.mockImplementation(async (entity) => entity === CustomerUserInvitation ? invitation : null)
+    mockEm.find.mockResolvedValue([{ id: roleIds[0], customerAssignable: false }])
+    const authorize = jest.fn(async () => false)
+
+    await expect(service.acceptInvitation('sample-invite', 'SamplePassword12!', 'New User', authorize)).resolves.toBeNull()
+    expect(authorize).toHaveBeenCalledWith(invitedByUserId, { tenantId, organizationId }, mockEm)
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
+  })
+
   it('uses a single CustomerRole $in query for all invitation roleIds (not per-role findOne)', async () => {
     const invitation = {
       id: 'inv-1',

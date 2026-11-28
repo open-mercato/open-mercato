@@ -1,3 +1,4 @@
+import { resolveAttachmentPartition } from '../../../lib/partitionScope'
 import { withAttachmentStorageErrors } from '@open-mercato/core/modules/attachments/lib/storageErrors'
 import { assertAttachmentStoragePartitionExists } from '@open-mercato/core/modules/attachments/lib/drivers/storageValidation'
 import { createAttachmentAccessContext, evaluateAttachmentAccess } from '../../../lib/access-runner'
@@ -8,7 +9,6 @@ import { getAuthFromRequest } from "@open-mercato/shared/lib/auth/server";
 import { createRequestContainer } from "@open-mercato/shared/lib/di/container";
 import {
   Attachment,
-  AttachmentPartition,
 } from "@open-mercato/core/modules/attachments/data/entities";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import { checkAttachmentAccess, isSuperAdminAuth } from "@open-mercato/core/modules/attachments/lib/access";
@@ -63,9 +63,7 @@ async function readAttachmentFile(
       { status: 404 },
     );
   }
-  const partition = await em.findOne(AttachmentPartition, {
-    code: attachment.partitionCode,
-  });
+  const partition = await resolveAttachmentPartition(em, attachment.partitionCode, attachment);
   assertAttachmentStoragePartitionExists(Boolean(partition))
   if (!partition) {
     return NextResponse.json(

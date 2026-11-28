@@ -39,7 +39,7 @@ export const PRICE_KINDS_PATH = '/api/catalog/price-kinds';
 export const PRODUCTS_PATH = '/api/catalog/products';
 const SALES_CHANNELS_PATH = '/api/sales/channels';
 
-export const OMNIBUS_ACTOR_PASSWORD = 'Valid1!Pass';
+export const OMNIBUS_ACTOR_PASSWORD = 'QaValid1!Pass';
 
 export type PriceHistoryItem = {
   id: string;

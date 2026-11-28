@@ -38,3 +38,7 @@ Uses shared password-policy helpers, modifies no tenant data access, adds no dep
 
 ## Changelog
 - 2026-11-06: Production-only fix and regression tests prepared for #7809.
+
+### Production example portal accounts
+
+Production example seeding leaves the portal sample users absent unless the operator supplies `OM_INIT_PORTAL_DEMO_PASSWORD` with a unique strong secret. The development path retains its sample data. Existing production accounts using public sample credentials need a password reset or deactivation, and operators should revoke their outstanding portal sessions. The public sample credentials cannot open a new password-authenticated session after the upgrade. The production admin demo-account endpoint keeps its response shape and returns an empty list.

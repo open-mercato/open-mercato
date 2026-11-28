@@ -704,8 +704,52 @@ STABLE API and query behavior. Relation options require authorized target reads 
 
 ## 2026-11-24 — Relation options for record-protected targets (#9106)
 
+<<<<<<< HEAD
 The STABLE generic relation options route requires an owning record policy for protected targets. Current clients can use the owning Staff APIs for time projects, tasks, and reports. Preserving generic reads for these targets would retain the authorization bypass. Named maintainer acknowledgment remains required. [Migration](UPGRADE_NOTES.md#relation-options-and-explicit-global-query-scope-9106).
 
 ## 2026-11-25 — Empty organization scope (#10503)
 
 STABLE feature-gated APIs return `403` before lookup when organization scope resolves to an explicitly empty set. Restoring permission checks without a resolved scope would reopen the authorization gap. Grant the intended scopes and handle `403`. [Upgrade](UPGRADE_NOTES.md#an-empty-organization-scope-is-stopped-at-the-feature-guard-10503) · [Spec](.ai/specs/implemented/2026-05-29-org-scope-fail-open-authorization-hardening.md). [Prior maintainer review](https://github.com/open-mercato/open-mercato/pull/10503#pullrequestreview-6052982527) accepts the status change. Named confirmation of the emergency exception is pending.
+=======
+STABLE SSO/SCIM APIs and `SsoConfigService`/`ScimTokenService` calls: configs/tokens without a live authorized author now fail closed (403); direct callers pass `actorUserId`. Accepting them permits escalation; a bridge retains it. Re-save configs, reissue tokens. Piotr Karwatka (@pkarw) acknowledged the emergency waiver of steps 1–3 on 2026-11-20: [human approval](https://github.com/open-mercato/open-mercato/pull/10070#issuecomment-7042761315). [Upgrade](UPGRADE_NOTES.md#sso-configuration-and-scim-authority-9014); [Spec](.ai/specs/enterprise/2026-11-15-sso-authority-ceiling.md).
+
+## 2026-11-22 — Attachment assignment label authorization (#10336)
+
+STABLE attachment API and helper shapes stay. Optional labels/links need scoped tenant/org reads. An unrestricted fallback retains disclosure. Pass verified auth or use assignment metadata. [Upgrade](UPGRADE_NOTES.md#attachment-assignment-label-authorization-10336) and [spec](.ai/specs/2026-07-05-attachment-metadata-assignment-layout.md#security-follow-up-10336).
+
+## #10331 #10332 (2026-11-23)
+
+STABLE UMES/SQL: bridge keeps flaws. [Fix](UPGRADE_NOTES.md).
+
+## 2026-11-24 — Trace ingest
+
+STABLE API: legacy signatures leave organization unverified. Rotate scoped keys and reuse workflow run IDs. [Migration](UPGRADE_NOTES.md). Named waiver pending.
+
+## 2026-11-25 — Encrypted custom field writes
+
+STABLE API: encrypted tenant custom-field writes return HTTP 503 when the data key is unavailable. Allowing success would persist plaintext. Restore key access, retry, and review historical values. [Migration](UPGRADE_NOTES.md#encrypted-tenant-custom-field-writes-require-a-usable-key) · [Spec](.ai/specs/2026-11-25-encrypted-custom-field-write-availability.md). Named waiver pending.
+
+## MCP HTTP session token, no fallback (2026-11-14, #5173)
+
+STABLE: remove header-only HTTP auth. An opt-in retains the bypass. Named waiver pending. [Migration](UPGRADE_NOTES.md#mcp-http-tool-calls-require-a-per-user-session-token-no-fallback-5173).
+
+## Workflow events (2026-11-20, #9134)
+
+STABLE configs: opt-in and instance scope. A bridge retains the bypass. [Upgrade](UPGRADE_NOTES.md).
+
+## 2026-11-25 — MCP Code Mode
+
+STABLE `execute`: set direct or use typed tools. A bridge preserves implicit writes. Named waiver pending.
+
+## 2026-11-26 — Vector-index entity authorization (#10693)
+
+STABLE `GET /api/search/index` enforces entity view and org scope. A bridge leaks rows. [Migration](UPGRADE_NOTES.md#vector-index-entity-authorization-10693) · [Spec](.ai/specs/2026-11-26-vector-index-entity-authorization.md). Named waiver pending.
+
+## Staff credential email (2026-11-27, #10594)
+
+STABLE superadmin reset and invite email uses the instance provider. Tenant fallback retains exposure. Named waiver pending. [Migration](.ai/specs/2026-06-03-pluggable-email-providers.md).
+
+## 2026-11-27 — Staff and organization boundaries (#10503, #10543)
+
+STABLE APIs §7 require organization grants and return `403` for explicitly empty scope. Grant scope and handle `403`. `PUT /api/auth/profile` requires current-password proof for email changes. Send proof and reauthenticate. ADDITIVE-ONLY schema §8 uses owner-unique partition codes. Rehome incompatible references. Bridging prior behavior retains unscoped access or unverified changes. [Migration and specs](UPGRADE_NOTES.md). Named waiver pending.
+>>>>>>> 9934e0940a (fix(security): harden platform authorization and deployment defaults (#10543))
