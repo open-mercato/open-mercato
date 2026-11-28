@@ -59,7 +59,7 @@ it('edit preserves the loaded version, canonicalizes repeated saves and refuses 
 })
 
 describe.each(['unitPriceNet', 'unitPriceGross'] as const)('%s text validation', (field) => {
-  it.each(['999999999999.12345', '999999999999,12345', '-1e-999'])('refuses %s before create or update', async (raw) => {
+  it.each(['-1e-999'])('refuses %s before create or update', async (raw) => {
     const create = render(<CreateCatalogPricePage />)
     await expect(mockProps.onSubmit({ ...values, [field]: raw })).rejects.toThrow()
     expect(mockCreateCrud).not.toHaveBeenCalled()
@@ -70,4 +70,10 @@ describe.each(['unitPriceNet', 'unitPriceGross'] as const)('%s text validation',
     await expect(mockProps.onSubmit({ ...values, [field]: raw })).rejects.toThrow()
     expect(mockUpdateCrud).not.toHaveBeenCalled()
   })
+})
+
+it.each(['unitPriceNet', 'unitPriceGross'] as const)('create submits an amount beyond the old digit limits in %s exactly', async (field) => {
+  render(<CreateCatalogPricePage />)
+  await mockProps.onSubmit({ ...values, [field]: '999999999999,12345' })
+  expect(mockCreateCrud).toHaveBeenCalledWith('catalog/prices', expect.objectContaining({ [field]: '999999999999.12345' }))
 })
