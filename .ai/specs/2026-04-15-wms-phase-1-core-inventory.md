@@ -360,6 +360,7 @@ All list routes:
 - `POST /api/wms/inventory/adjust`
 - Request: `{ "warehouseId": "uuid", "locationId": "uuid", "catalogVariantId": "uuid", "delta": "-2", "reason": "damage" }`
 - Response: `{ "ok": true, "movementId": "uuid" }`
+- Errors: `409 insufficient_stock`, `422 invalid_location`, `422 lot_required` / `serial_required`
 
 #### Move inventory
 - `POST /api/wms/inventory/move`
@@ -372,6 +373,7 @@ All list routes:
 - Request: `{ "warehouseId": "uuid", "locationId": "uuid", "catalogVariantId": "uuid", "countedQuantity": "12", "reason": "cycle_count" }`
 - Response: `{ "ok": true, "adjustmentDelta": "1" }`
 - Errors: `409 insufficient_stock` (body adds `countedQuantity`, `committedQuantity`) when a negative variance would drop on-hand below the bucket's `quantity_reserved + quantity_allocated`; the same availability bound as a negative `adjust`. Release the affected reservations first, then recount. Positive variances are never blocked.
+- Errors: `422 lot_required` / `serial_required`, as for adjust.
 
 ### Inventory Strategy Rules
 
@@ -679,6 +681,9 @@ None.
 - **Fully compliant**: Approved — ready for implementation
 
 ## Changelog
+
+### 2026-11-28
+- Adjust and cycle count did not apply the variant's `track_lot` / `track_serial`, so a call without a lot or serial created an untracked balance row next to the tracked rows. They now return `422 lot_required` / `serial_required` when they would create such a row; existing rows can still be corrected. The CSV import preview reports these rows with the same codes. Coverage: `inventory-actions.trackingEnforcement.test.ts`, `inventoryImportService.test.ts`, `TC-WMS-TRACK-001`.
 
 ### 2026-11-22
 - A lot update that sent only one or two dates compared them with each other but not with the lot's stored dates, so `PUT /api/wms/lots` with just `expiresAt` could save an expiry earlier than the stored manufactured or best-before date. `wms.lots.update` now checks the stored dates merged with the patched ones before writing and answers with the same 400 validation error as create. Updates that don't touch a date are not re-checked, and existing lots are not repaired. Coverage: `configuration.lotDateOrdering.test.ts`, `TC-WMS-036`.
