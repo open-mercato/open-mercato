@@ -31,76 +31,97 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: jest.fn(async () => mockContainer),
 }))
 
-const email = {
+const logEmail = {
   id: 'email-1',
   subject: 'Operational subject',
   forwardedByAddress: 'sender@example.test',
+  forwardedByName: 'Sender',
   status: 'processed',
+  processingError: null,
   receivedAt: new Date('2026-07-11T10:00:00.000Z'),
+  organizationId: 'org-1',
+  tenantId: 'tenant-1',
+}
+
+const email = {
+  ...logEmail,
   rawText: 'sensitive plain body',
   rawHtml: '<p>sensitive html body</p>',
   cleanedText: 'sensitive cleaned body',
   threadMessages: [{ body: 'sensitive thread' }],
   metadata: { sensitive: true },
-  organizationId: 'org-1',
-  tenantId: 'tenant-1',
 }
 
 describe('GET /api/inbox_ops/emails/[id]', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockEm.fork.mockReturnValue(mockEm)
-    mockFindOneWithDecryption.mockResolvedValue(email)
   })
 
-  it('redacts correspondence fields from log-only viewers', async () => {
-    mockUserHasAllFeatures.mockResolvedValue(false)
+  it.each(['denied', 'unavailable'] as const)('loads only log fields when content access is %s', async (access) => {
+    if (access === 'denied') {
+      mockUserHasAllFeatures.mockResolvedValue(false)
+    } else {
+      mockUserHasAllFeatures.mockRejectedValue(new Error('[internal] RBAC unavailable'))
+    }
+    mockFindOneWithDecryption.mockResolvedValue(logEmail)
 
     const response = await GET(new Request('http://localhost/api/inbox_ops/emails/email-1'))
     const payload = await response.json()
 
     expect(response.status).toBe(200)
-    expect(payload.email).toMatchObject({
-      id: 'email-1',
-      subject: 'Operational subject',
-      forwardedByAddress: 'sender@example.test',
-      status: 'processed',
+    expect(payload.email).toEqual({
+      ...logEmail,
+      receivedAt: '2026-07-11T10:00:00.000Z',
+      messageId: null,
+      contentHash: null,
+      toAddress: null,
+      replyTo: null,
+      inReplyTo: null,
+      emailReferences: null,
       rawText: null,
       rawHtml: null,
       cleanedText: null,
       threadMessages: null,
+      detectedLanguage: null,
+      attachmentIds: null,
+      isActive: null,
       metadata: null,
       organizationId: null,
       tenantId: null,
+      createdAt: null,
+      updatedAt: null,
+      deletedAt: null,
     })
-    expect(JSON.stringify(payload)).not.toContain('sensitive')
+    expect(mockUserHasAllFeatures.mock.invocationCallOrder[0]).toBeLessThan(
+      mockFindOneWithDecryption.mock.invocationCallOrder[0],
+    )
     expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
       mockEm,
       InboxEmail,
-      expect.objectContaining({
+      {
         id: 'email-1',
         tenantId: 'tenant-1',
         organizationId: 'org-1',
         deletedAt: null,
-      }),
-      undefined,
+      },
+      { fields: Object.keys(logEmail) },
       { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
   })
 
   it('preserves the full response for viewers allowed to read email threads', async () => {
     mockUserHasAllFeatures.mockResolvedValue(true)
+    mockFindOneWithDecryption.mockResolvedValue(email)
 
     const response = await GET(new Request('http://localhost/api/inbox_ops/emails/email-1'))
     const payload = await response.json()
 
-    expect(payload.email).toMatchObject({
-      rawText: 'sensitive plain body',
-      rawHtml: '<p>sensitive html body</p>',
-      cleanedText: 'sensitive cleaned body',
-      threadMessages: [{ body: 'sensitive thread' }],
-      tenantId: 'tenant-1',
-      organizationId: 'org-1',
+    expect(payload.email).toEqual({
+      ...email,
+      receivedAt: email.receivedAt.toISOString(),
     })
+    const [, , , options] = mockFindOneWithDecryption.mock.calls[0]
+    expect(options).toBeUndefined()
   })
 })

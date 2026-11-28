@@ -2,6 +2,18 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import type { InboxEmail } from '../../data/entities'
 import type { RequestContext } from '../routeHelpers'
 
+export const EMAIL_LOG_FIELDS = [
+  'id',
+  'subject',
+  'forwardedByAddress',
+  'forwardedByName',
+  'status',
+  'processingError',
+  'receivedAt',
+  'organizationId',
+  'tenantId',
+] satisfies (keyof InboxEmail)[]
+
 const EMAIL_CONTENT_FIELDS = [
   'messageId',
   'contentHash',
