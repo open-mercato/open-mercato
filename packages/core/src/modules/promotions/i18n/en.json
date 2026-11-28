@@ -1,4 +1,5 @@
 {
+  "auth.acl.modules.promotions": "Promotions",
   "promotions.audit.code.create": "Create promotional code",
   "promotions.audit.code.delete": "Delete promotional code",
   "promotions.audit.code.update": "Update promotional code",
@@ -206,7 +207,7 @@
   "promotions.form.fields.cumulative": "Cumulative",
   "promotions.form.fields.description": "Description",
   "promotions.form.fields.eligibleCurrencies": "Eligible currencies",
-  "promotions.form.fields.eligibleCurrencies.description": "Leave empty to allow every currency. Exactly one currency is required once a rule or benefit depends on a fixed amount (D-R4-27).",
+  "promotions.form.fields.eligibleCurrencies.description": "Leave empty to allow every currency. Exactly one currency is required once a rule or benefit depends on a fixed amount.",
   "promotions.form.fields.endsAt": "Ends at",
   "promotions.form.fields.excludePromotionalPrices": "Exclude items already on a promotional price",
   "promotions.form.fields.excludePromotionalPrices.description": "Skip items whose unit price already comes from a promotional catalog price.",
@@ -302,6 +303,8 @@
   "promotions.tree.empty.rules": "Add a rule or sub-group to define when this promotion activates.",
   "promotions.tree.errors.eligibleCurrencyRequired": "Add an eligible currency in the promotion's Settings panel before saving a rule or benefit that needs one",
   "promotions.tree.errors.missingLabels": "Every benefit needs at least one label before saving",
+  "promotions.tree.errors.nonNegativeDecimal": "Must be a non-negative decimal string",
+  "promotions.tree.errors.percentageTooLarge": "A percentage discount value cannot exceed 100",
   "promotions.tree.loadError": "Failed to load the promotion rule tree",
   "promotions.tree.loading": "Loading rule tree...",
   "promotions.tree.operator.and": "AND",

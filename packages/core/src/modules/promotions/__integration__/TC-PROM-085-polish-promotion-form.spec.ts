@@ -43,6 +43,44 @@ async function expectOctoberDates(page: Page) {
 }
 
 test.describe('TC-PROM-085: Polish promotion form', () => {
+  test('shows Polish rule validation feedback without internal references', async ({ page, request }) => {
+    const token = await getAuthToken(request, 'admin');
+    const fixture = await createPromotionFixture(request, token);
+
+    try {
+      await loginInPolish(page);
+      await page.goto(`/backend/promotions/${fixture.id}`);
+      await expect(page.getByText('D-R4-27', { exact: false })).toHaveCount(0);
+      await page.getByRole('button', { name: 'Dodaj korzyść', exact: true }).click();
+      await page.getByRole('combobox', { name: 'Kod języka (np. en)' }).click();
+      await page.getByRole('option', { name: 'pl', exact: true }).click();
+      await page.getByRole('button', { name: 'Dodaj język', exact: true }).click();
+      await page.getByPlaceholder('Tekst etykiety').fill('Rabat');
+
+      const value = page.locator('label').filter({ hasText: /^Wartość$/ }).getByRole('textbox');
+      for (const [input, message] of [
+        ['-10', 'Wpisz liczbę nieujemną'],
+        ['150', 'Rabat procentowy nie może przekraczać 100'],
+      ]) {
+        await value.fill(input);
+        const [rejected] = await Promise.all([
+          page.waitForResponse((response) =>
+            new URL(response.url()).pathname === promotionTreePath(fixture.id) && response.request().method() === 'PUT'),
+          page.getByRole('button', { name: 'Zapisz reguły', exact: true }).click(),
+        ]);
+        expect(rejected.status()).toBe(422);
+        await expect(page.getByText(message, { exact: false })).toBeVisible();
+      }
+    } finally {
+      const detail = await getPromotionDetail(request, token, fixture.id);
+      const deleted = await apiRequest(request, 'DELETE', `${PROMOTIONS_PATH}?id=${fixture.id}`, {
+        token,
+        headers: { [OPTIMISTIC_LOCK_HEADER_NAME]: detail.updatedAt },
+      });
+      expect(deleted.ok(), 'remove the validation fixture').toBeTruthy();
+    }
+  });
+
   test('persists comma decimals and October dates and rejects mixed separators at mobile width', async ({ page, request }) => {
     const token = await getAuthToken(request, 'admin');
     let promotionId: string | null = null;

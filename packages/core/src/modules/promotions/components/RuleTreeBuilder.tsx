@@ -38,7 +38,7 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { RuleGroupNode } from './RuleGroupNode'
 import { ruleTreeReducer, type TreeAction } from './ruleTreeReducer'
 import { fromServerTree, isBenefitLabelsEmpty, toServerTree, type LocalRuleGroupNode, type ServerRuleGroupTree } from './ruleTreeTypes'
@@ -70,10 +70,20 @@ type TreeValidationIssue = { path?: unknown; message?: unknown }
 // `api/[id]/tree/route.ts`) is directly readable off the caught error. Surfacing it here
 // is this Step's own fix for the gap it was built to diagnose: before this, every tree
 // save failure flashed the same generic message regardless of cause (QA F3).
-export function extractTreeValidationIssues(error: unknown): TreeValidationIssue[] {
+export function extractTreeValidationIssues(error: unknown, translate?: TranslateFn): TreeValidationIssue[] {
   if (!error || typeof error !== 'object') return []
   const issues = (error as { issues?: unknown }).issues
-  return Array.isArray(issues) ? (issues as TreeValidationIssue[]) : []
+  if (!Array.isArray(issues)) return []
+  if (!translate) return issues as TreeValidationIssue[]
+  return (issues as TreeValidationIssue[]).map((issue) => {
+    if (issue.message === 'Must be a non-negative decimal string') {
+      return { ...issue, message: translate('promotions.tree.errors.nonNegativeDecimal', issue.message) }
+    }
+    if (issue.message === 'A percentage discount value cannot exceed 100') {
+      return { ...issue, message: translate('promotions.tree.errors.percentageTooLarge', issue.message) }
+    }
+    return issue
+  })
 }
 
 export function issueTouchesPath(issue: TreeValidationIssue, segment: string): boolean {
@@ -229,7 +239,7 @@ export function RuleTreeBuilder({ promotionId, refreshSignal, onSaved }: RuleTre
       onSaved?.()
     } catch (error) {
       if (surfaceRecordConflict(error, t, { onRefresh: () => setReloadToken((value) => value + 1) })) return
-      const issues = extractTreeValidationIssues(error)
+      const issues = extractTreeValidationIssues(error, t)
       if (issues.some((issue) => issueTouchesPath(issue, 'eligibleCurrencies'))) {
         flash(
           t(
