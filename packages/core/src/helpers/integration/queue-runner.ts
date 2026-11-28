@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bootstrapFromAppRoot } from '@open-mercato/shared/lib/bootstrap/dynamicLoader'
+import { installNextSubpathResolveHook } from '@open-mercato/shared/lib/bootstrap/next-subpath-resolve-hook'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createQueue } from '@open-mercato/queue'
 
@@ -18,6 +19,8 @@ function getBootstrapData(appRoot: string): Promise<BootstrapData> {
   const resolvedAppRoot = path.resolve(appRoot)
   const cached = bootstrapCache.get(resolvedAppRoot)
   if (cached) return cached
+  // Generated registries load dist files that import `next/<subpath>` without an extension.
+  installNextSubpathResolveHook()
   const promise = bootstrapFromAppRoot(resolvedAppRoot)
   bootstrapCache.set(resolvedAppRoot, promise)
   return promise
