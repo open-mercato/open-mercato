@@ -559,10 +559,57 @@ const EMPTY_VIEW_SETTINGS: PerspectiveSettings = Object.freeze({}) as Perspectiv
 // first column + actions column can be wider than the whole viewport, which
 // leaves the scrollable middle columns no visible window at all — narrow
 // screens fall back to plain horizontal scroll so every column stays reachable.
+// Shadows stay hidden until content is actually scrolled under the pinned column.
 const STICKY_RIGHT_SHADOW_CLASS =
-  'md:before:absolute md:before:inset-y-0 md:before:-left-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
+  'md:before:absolute md:before:inset-y-0 md:before:-left-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none md:before:transition-opacity md:before:duration-150'
 const STICKY_LEFT_SHADOW_CLASS =
-  'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
+  'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none md:after:transition-opacity md:after:duration-150'
+const STICKY_RIGHT_SHADOW_HIDDEN_CLASS = 'md:before:opacity-0'
+const STICKY_RIGHT_SHADOW_VISIBLE_CLASS = 'md:before:opacity-100'
+const STICKY_LEFT_SHADOW_HIDDEN_CLASS = 'md:after:opacity-0'
+const STICKY_LEFT_SHADOW_VISIBLE_CLASS = 'md:after:opacity-100'
+const OVERFLOW_EDGE_TOLERANCE_PX = 1
+
+type HorizontalOverflowEdges = { hiddenStart: boolean; hiddenEnd: boolean }
+
+const NO_HIDDEN_EDGES: HorizontalOverflowEdges = { hiddenStart: false, hiddenEnd: false }
+
+function useHorizontalOverflowEdges(
+  scrollEl: HTMLElement | null,
+  enabled: boolean,
+  remeasureKey: unknown,
+): HorizontalOverflowEdges {
+  const [edges, setEdges] = React.useState<HorizontalOverflowEdges>(NO_HIDDEN_EDGES)
+  React.useEffect(() => {
+    if (!enabled || !scrollEl) {
+      setEdges(NO_HIDDEN_EDGES)
+      return
+    }
+    const measure = () => {
+      const maxScroll = scrollEl.scrollWidth - scrollEl.clientWidth
+      const isRightToLeft = getComputedStyle(scrollEl).direction === 'rtl'
+      const scrollLeft = isRightToLeft ? maxScroll + scrollEl.scrollLeft : scrollEl.scrollLeft
+      const hiddenStart = scrollLeft > OVERFLOW_EDGE_TOLERANCE_PX
+      const hiddenEnd = maxScroll - scrollLeft > OVERFLOW_EDGE_TOLERANCE_PX
+      setEdges((previous) =>
+        previous.hiddenStart === hiddenStart && previous.hiddenEnd === hiddenEnd
+          ? previous
+          : { hiddenStart, hiddenEnd },
+      )
+    }
+    measure()
+    scrollEl.addEventListener('scroll', measure, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(scrollEl)
+    const tableEl = scrollEl.querySelector('table')
+    if (tableEl) observer?.observe(tableEl)
+    return () => {
+      scrollEl.removeEventListener('scroll', measure)
+      observer?.disconnect()
+    }
+  }, [scrollEl, enabled, remeasureKey])
+  return edges
+}
 // Pinned cells need an opaque background so scrolled columns don't show through,
 // which also hides the translucent tints painted behind them (the `bg-muted/40`
 // header strip on `<thead>`, the `bg-muted/30` row hover on `<tr>`). A flat
@@ -3737,6 +3784,17 @@ function DataTableImpl<T extends RowData>({
       header.style.removeProperty('top')
     }
   }, [tableScrollEl, isInitializingColumns])
+  const overflowEdges = useHorizontalOverflowEdges(
+    tableScrollEl,
+    stickyFirstColumn || stickyActionsColumn,
+    isInitializingColumns,
+  )
+  const stickyLeftShadowClass = `${STICKY_LEFT_SHADOW_CLASS} ${
+    overflowEdges.hiddenStart ? STICKY_LEFT_SHADOW_VISIBLE_CLASS : STICKY_LEFT_SHADOW_HIDDEN_CLASS
+  }`
+  const stickyRightShadowClass = `${STICKY_RIGHT_SHADOW_CLASS} ${
+    overflowEdges.hiddenEnd ? STICKY_RIGHT_SHADOW_VISIBLE_CLASS : STICKY_RIGHT_SHADOW_HIDDEN_CLASS
+  }`
   const allRows = table.getRowModel().rows
   const hasRowActionsColumn = Boolean(rowActions || injectedRowActions.length > 0)
   const measuredHeaderWidthsRef = React.useRef<Map<string, number>>(new Map())
@@ -3930,7 +3988,7 @@ function DataTableImpl<T extends RowData>({
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
-                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 ${stickyHeaderSurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : ''
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 ${stickyHeaderSurfaceClass} ${stickyLeftShadowClass}` : ''
                   const isColumnSortable = sortable && !!header.column.getCanSort?.()
                   const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
                   // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
@@ -3990,7 +4048,7 @@ function DataTableImpl<T extends RowData>({
                     style={fixedWidthStyle(resolveHeaderWidth(ROW_ACTIONS_WIDTH_KEY))}
                     className={cn(
                       actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-right',
-                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 ${stickyHeaderSurfaceClass} ${STICKY_RIGHT_SHADOW_CLASS}`,
+                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 ${stickyHeaderSurfaceClass} ${stickyRightShadowClass}`,
                     )}
                   >
                     {t('ui.dataTable.actionsColumn', 'Actions')}
@@ -4156,7 +4214,7 @@ function DataTableImpl<T extends RowData>({
                       return (
                         <TableCell
                           key={cell.id}
-                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 ${stickyBodySurfaceClass} ${STICKY_LEFT_SHADOW_CLASS}` : '')}
+                          className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 ${stickyBodySurfaceClass} ${stickyLeftShadowClass}` : '')}
                           style={typeof sizedWidth === 'number' ? { width: sizedWidth, minWidth: sizedWidth, maxWidth: sizedWidth } : undefined}
                         >
                           {expandAffordance ? (
@@ -4172,7 +4230,7 @@ function DataTableImpl<T extends RowData>({
                       <TableCell
                         className={cn(
                           actionsColumnAlign === 'center' ? 'text-center whitespace-nowrap' : 'text-right whitespace-nowrap',
-                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 ${stickyBodySurfaceClass} ${STICKY_RIGHT_SHADOW_CLASS}`,
+                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 ${stickyBodySurfaceClass} ${stickyRightShadowClass}`,
                         )}
                         data-actions-cell
                       >
