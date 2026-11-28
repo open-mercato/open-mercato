@@ -1,0 +1,51 @@
+{
+  "tenantB": "2788ef14-d112-45d3-ac06-b9e3861e5bc7",
+  "userB": "d06fbc06-1414-4ea2-9b07-019ab7f38936",
+  "ownGroup": "b87fd5e6-31e6-49ff-886b-2bd4c1c33624",
+  "foreignDelete": 404,
+  "foreignCheck": 404,
+  "foreignPreview": {
+    "policyTrace": {
+      "allowBackorder": {
+        "value": false,
+        "policySourceId": null
+      },
+      "hideWhenOutOfStock": {
+        "value": false,
+        "policySourceId": null
+      },
+      "isActive": {
+        "value": true,
+        "policySourceId": null
+      },
+      "isStockManaged": {
+        "value": false,
+        "policySourceId": null
+      },
+      "backorderLeadTimeDays": {
+        "value": null,
+        "policySourceId": null
+      },
+      "preorderReleaseAt": {
+        "value": null,
+        "policySourceId": null
+      },
+      "lowStockThreshold": {
+        "value": null,
+        "policySourceId": null
+      },
+      "minOrderQuantity": {
+        "value": null,
+        "policySourceId": null
+      },
+      "maxOrderQuantity": {
+        "value": null,
+        "policySourceId": null
+      },
+      "quantityIncrement": {
+        "value": null,
+        "policySourceId": null
+      }
+    }
+  }
+}
