@@ -226,6 +226,11 @@ function reportHistoryLookupFailure() {
 
 export type ParsedRecordLockHeaders = Partial<RecordLockMutationHeaders>
 
+function readAuditTimestampMs(value: unknown): number {
+  if (value instanceof Date) return value.getTime()
+  return typeof value === 'string' ? Date.parse(value) : Number.NaN
+}
+
 function normalizeDate(value: Date): string {
   return value.toISOString()
 }
@@ -957,6 +962,52 @@ export class RecordLockService {
     const remainingLocks = this.sortLocksByJoinOrder(activeLocks.filter((item) => item.id !== lock.id))
     const nextInQueue = remainingLocks[0] ?? null
     return { ok: true, released: true, lock: nextInQueue ? this.toLockView(nextInQueue, false, remainingLocks) : null }
+  }
+
+  /**
+   * Whether a "Keep my changes" retry may pass the OSS `updated_at` floor even
+   * though it still carries the version the page loaded.
+   *
+   * The retry cannot send a fresh version (the host owns that header), so
+   * without this the floor rejects every keep-mine save. It is allowed only for
+   * a conflict this server raised for the requesting user on this record, when
+   * the user may override incoming changes, and when nobody has written the
+   * record since the conflict was shown. That last condition is checked twice:
+   * the latest action log is still the incoming one, and the record's current
+   * `updated_at` (as read by the floor) is no later than that incoming log. The
+   * second check catches a write that left no action log (a worker or a direct
+   * SQL update). A write without these headers, after a third change, or with
+   * no readable current version keeps the floor's 409.
+   */
+  async canKeepMineOverrideStaleVersion(
+    input: RecordLockMutationValidationInput,
+    currentUpdatedAt: string | null,
+  ): Promise<boolean> {
+    const currentVersionMs = currentUpdatedAt ? Date.parse(currentUpdatedAt) : Number.NaN
+    if (!Number.isFinite(currentVersionMs)) return false
+
+    const settings = await this.getSettings()
+    if (!isRecordLockingEnabledForResource(settings, input.resourceKind)) return false
+
+    const parsedHeaders = this.normalizeMutationHeaders(input.headers)
+    const resolution = parsedHeaders.resolution
+    if ((resolution !== 'accept_mine' && resolution !== 'merged') || !parsedHeaders.conflictId) return false
+
+    const conflict = await this.findConflictById(parsedHeaders.conflictId, input)
+    if (!conflict || conflict.conflictActorUserId !== input.userId || !conflict.incomingActionLogId) return false
+
+    const resolvedByRequester = conflict.status !== 'pending'
+      && conflict.resolution === resolution
+      && conflict.resolvedByUserId === input.userId
+    if (conflict.status !== 'pending' && !resolvedByRequester) return false
+
+    if (!(await this.canUserOverrideIncoming(input, settings))) return false
+
+    const latest = await this.findLatestActionLog(input)
+    if (!latest || latest.id !== conflict.incomingActionLogId) return false
+    const latestWriteMs = readAuditTimestampMs(latest.createdAt)
+    if (!Number.isFinite(latestWriteMs)) return false
+    return currentVersionMs <= latestWriteMs
   }
 
   async validateMutation(input: RecordLockMutationValidationInput): Promise<RecordLockValidationResult> {

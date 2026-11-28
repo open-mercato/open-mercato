@@ -7,15 +7,18 @@ import {
   parseOptimisticLockEnv,
   type OptimisticLockConfig,
 } from '@open-mercato/shared/lib/crud/optimistic-lock'
-import { OPTIMISTIC_LOCK_ENV_VAR } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import {
+  OPTIMISTIC_LOCK_CONFLICT_CODE,
+  OPTIMISTIC_LOCK_ENV_VAR,
+} from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import { canonicalizeResourceTag } from '@open-mercato/shared/lib/crud/cache'
+import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import {
   readRecordLockHeaders,
   RecordLockHistoryUnavailableError,
   type ParsedRecordLockHeaders,
   type RecordLockService,
 } from './recordLockService'
-import { getTelemetryRuntime } from '@open-mercato/shared/lib/telemetry/runtime'
 import { isRecordLockingEnabledForResource } from './config'
 
 export type RecordLockCrudMutationGuardService = {
@@ -32,6 +35,18 @@ export type OssCrudMutationGuardServiceLike = {
 function resolveRecordLockMutationMethod(operation: CrudMutationGuardValidateInput['operation']): 'PUT' | 'DELETE' {
   if (operation === 'delete') return 'DELETE'
   return 'PUT'
+}
+
+function reportKeepMineCheckFailure(error: unknown, resourceKind: string): void {
+  try {
+    getTelemetryRuntime()?.reportError(error, {
+      module: 'record_locks',
+      code: 'record_locks.keep_mine_floor_check_failed',
+      attributes: { resourceKind },
+    })
+  } catch {
+    return
+  }
 }
 
 function resolveConfig(envValue: string | null | undefined): OptimisticLockConfig {
@@ -86,7 +101,12 @@ export type CreateRecordLockCrudMutationGuardServiceOptions = {
  *   2. OSS `updated_at` floor runs first (delegated to the default OSS guard the
  *      enterprise registration overrides). A stale write 409s here regardless of
  *      any record-lock token / widget state — so a tokenless API/CLI client is
- *      still caught (H1/H2).
+ *      still caught (H1/H2). Exception: a "Keep my changes" retry whose
+ *      conflict id record_locks verifies (`canKeepMineOverrideStaleVersion`:
+ *      same user and record, override allowed, no write since the conflict,
+ *      neither in the action log nor in the floor's current `updated_at`)
+ *      passes on to step 3, which resolves the conflict. Without it the retry,
+ *      which still sends the version the page loaded, could never save.
  *   3. Only if the floor passes, AND record_locks is enabled for the resource in
  *      settings, the enterprise `validateMutation` enrichment runs (pessimistic
  *      lock + action-log diff). It can only ADD a 409, never relax the floor.
@@ -108,6 +128,22 @@ export function createRecordLockCrudMutationGuardService(
     }
   }
 
+  async function canKeepMineOverrideFloor(
+    floorResult: Extract<CrudMutationGuardValidationResult, { ok: false }>,
+    recordLockInput: Parameters<RecordLockService['validateMutation']>[0],
+  ): Promise<boolean> {
+    if (floorResult.body?.code !== OPTIMISTIC_LOCK_CONFLICT_CODE) return false
+    const currentUpdatedAt = typeof floorResult.body.currentUpdatedAt === 'string'
+      ? floorResult.body.currentUpdatedAt
+      : null
+    try {
+      return await recordLockService.canKeepMineOverrideStaleVersion(recordLockInput, currentUpdatedAt)
+    } catch (error) {
+      reportKeepMineCheckFailure(error, recordLockInput.resourceKind)
+      return false
+    }
+  }
+
   return {
     async validateMutation(input) {
       const config = resolveConfig(options.envValue)
@@ -116,31 +152,41 @@ export function createRecordLockCrudMutationGuardService(
         return { ok: true, shouldRunAfterSuccess: false, metadata: null }
       }
 
+      const recordLockInput: Parameters<RecordLockService['validateMutation']>[0] = {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId ?? null,
+        ...(input.organizationScope !== undefined ? { organizationScope: input.organizationScope } : {}),
+        userId: input.userId,
+        resourceKind: input.resourceKind,
+        resourceId: input.resourceId,
+        method: resolveRecordLockMutationMethod(input.operation),
+        headers: scopeRecordLockHeadersToResource(readRecordLockHeaders(input.requestHeaders), {
+          resourceKind: input.resourceKind,
+          resourceId: input.resourceId,
+        }),
+        mutationPayload: input.mutationPayload ?? null,
+      }
+
       // 1. OSS floor — always runs first, independent of any client lock token.
+      //    The one exception is a server-verified "Keep my changes" retry: it
+      //    still carries the version the page loaded, and record_locks itself
+      //    confirms nobody wrote the record since the conflict was shown.
       const floorResult = await ossFloorGuardService.validateMutation(input)
-      if (!floorResult.ok) return floorResult
+      const floorOverriddenByKeepMine = !floorResult.ok
+        && (await canKeepMineOverrideFloor(floorResult, recordLockInput))
+      if (!floorResult.ok && !floorOverriddenByKeepMine) return floorResult
+      const passedFloor: CrudMutationGuardValidationResult = floorResult.ok
+        ? { ok: true, shouldRunAfterSuccess: false, metadata: null }
+        : floorResult
 
       // 2. Enterprise enrichment — only when the resource is enabled in settings.
       if (!(await isRecordLockEnrichmentEnabled(input.resourceKind))) {
-        return { ok: true, shouldRunAfterSuccess: false, metadata: null }
+        return passedFloor
       }
 
       let enrichmentResult: Awaited<ReturnType<RecordLockService['validateMutation']>>
       try {
-        enrichmentResult = await recordLockService.validateMutation({
-          tenantId: input.tenantId,
-          organizationId: input.organizationId ?? null,
-          ...(input.organizationScope !== undefined ? { organizationScope: input.organizationScope } : {}),
-          userId: input.userId,
-          resourceKind: input.resourceKind,
-          resourceId: input.resourceId,
-          method: resolveRecordLockMutationMethod(input.operation),
-          headers: scopeRecordLockHeadersToResource(readRecordLockHeaders(input.requestHeaders), {
-            resourceKind: input.resourceKind,
-            resourceId: input.resourceId,
-          }),
-          mutationPayload: input.mutationPayload ?? null,
-        })
+        enrichmentResult = await recordLockService.validateMutation(recordLockInput)
       } catch (error) {
         if (error instanceof RecordLockHistoryUnavailableError) {
           return { ok: false, status: error.status, body: error.body }
@@ -149,7 +195,7 @@ export function createRecordLockCrudMutationGuardService(
           module: 'record_locks',
           code: 'record_locks.mutation_enrichment_failed',
         })
-        return { ok: true, shouldRunAfterSuccess: false, metadata: null }
+        return passedFloor
       }
 
       if (enrichmentResult.ok) {
