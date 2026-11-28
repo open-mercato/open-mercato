@@ -128,10 +128,20 @@ const scopedMetadata = createMetadata({
   tenantColumn: 'tenant_id',
 })
 
+const organizationMetadata: MetadataShape = {
+  className: 'Organization',
+  tableName: 'organizations',
+  properties: {
+    id: { fieldNames: ['id'] },
+    tenant: { fieldNames: ['tenant_id'] },
+  },
+}
+
 describe('query_index DI CRUD bridge', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     registerEntityIds({
+      directory: { organization: 'directory:organization' },
       feature_toggles: { feature_toggle: 'feature_toggles:feature_toggle' },
       customers: { customer_person: 'customers:customer_person' },
     })
@@ -139,6 +149,55 @@ describe('query_index DI CRUD bridge', () => {
 
   afterAll(() => {
     registerEntityIds({})
+  })
+
+  it.each([
+    ['updated', 'upsert_one'],
+    ['deleted', 'delete_one'],
+  ])('keeps organization %s events in the source row scope', async (action, targetEvent) => {
+    const entityType = 'directory:organization'
+    const { handlers, emitEvent, container } = createBridgeHarness({
+      entityType, metadata: organizationMetadata, sourceRow: { id: 'org-1', tenant_id: 'tenant-1' },
+    })
+    register(container as never)
+    await flushRegistration()
+
+    const handler = handlers.get(`directory.organization.${action}`)
+    expect(handler).toBeDefined()
+    await handler!({ id: 'org-1', organizationId: 'org-1' }, { resolve: container.resolve })
+
+    expect(emitEvent).toHaveBeenCalledWith(`query_index.${targetEvent}`, {
+      entityType, recordId: 'org-1', organizationId: 'org-1', tenantId: 'tenant-1',
+    })
+    expect(mockRecordIndexerError).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['tenantId', 'other-tenant'],
+    ['organizationId', 'other-org'],
+  ])('rejects an organization update with a mismatched %s assertion', async (scopeKey, scopeValue) => {
+    const { handlers, emitEvent, container } = createBridgeHarness({
+      entityType: 'directory:organization',
+      metadata: organizationMetadata,
+      sourceRow: { id: 'org-1', tenant_id: 'tenant-1' },
+    })
+    register(container as never)
+    await flushRegistration()
+
+    const handler = handlers.get('directory.organization.updated')
+    expect(handler).toBeDefined()
+    await handler!({ id: 'org-1', [scopeKey]: scopeValue }, { resolve: container.resolve })
+
+    expect(emitEvent).not.toHaveBeenCalled()
+    expect(mockRecordIndexerError).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        error: expect.objectContaining({
+          name: 'QueryIndexScopeError',
+          message: expect.stringContaining(`${scopeKey} does not match source row scope`),
+        }),
+      }),
+    )
   })
 
   it('reports a scoped custom-field gate failure while preserving the existing upsert fallback', async () => {

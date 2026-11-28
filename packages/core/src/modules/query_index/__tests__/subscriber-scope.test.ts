@@ -44,6 +44,7 @@ function createEm(
 
 beforeEach(() => {
   registerEntityIds({
+    directory: { organization: 'directory:organization' },
     feature_toggles: { feature_toggle: 'feature_toggles:feature_toggle' },
     customer_accounts: { customer_user: 'customer_accounts:customer_user' },
     customers: { customer_person: 'customers:customer_person' },
@@ -110,6 +111,40 @@ describe('resolveQueryIndexSourceMetadata', () => {
       scope: { organizationId: null, tenantId: 'tenant-1' },
     })
     expect(select).toHaveBeenCalledWith(['tenant_id'])
+  })
+
+  it('reads the organization identity and mapped tenant relation from the source row', async () => {
+    const metadata = createMetadata({ className: 'Organization', tableName: 'organizations' })
+    metadata.properties.id = { fieldNames: ['id'] }
+    metadata.properties.tenant = { fieldNames: ['tenant_id'] }
+    const { em, select, where } = createEm(metadata, { id: 'org-1', tenant_id: 'tenant-1' })
+    const source = resolveQueryIndexSourceMetadata(em, 'directory:organization')
+
+    await expect(loadQueryIndexRowScope(em, source, 'org-1')).resolves.toEqual({
+      kind: 'row',
+      scope: { organizationId: 'org-1', tenantId: 'tenant-1' },
+    })
+    expect(select).toHaveBeenCalledWith(['id', 'tenant_id'])
+    expect(where).toHaveBeenCalledWith('id', '=', 'org-1')
+  })
+
+  it('fails closed when organization metadata has no mapped tenant relation', () => {
+    const metadata = createMetadata({ className: 'Organization', tableName: 'organizations' })
+    metadata.properties.id = { fieldNames: ['id'] }
+    const { em, getKysely } = createEm(metadata)
+
+    expect(() => resolveQueryIndexSourceMetadata(em, 'directory:organization')).toThrow(QueryIndexScopeError)
+    expect(getKysely).not.toHaveBeenCalled()
+  })
+
+  it('distinguishes a missing organization row from a global entity', async () => {
+    const metadata = createMetadata({ className: 'Organization', tableName: 'organizations' })
+    metadata.properties.id = { fieldNames: ['id'] }
+    metadata.properties.tenant = { fieldNames: ['tenant_id'] }
+    const { em } = createEm(metadata)
+    const source = resolveQueryIndexSourceMetadata(em, 'directory:organization')
+
+    await expect(loadQueryIndexRowScope(em, source, 'org-1')).resolves.toEqual({ kind: 'missing' })
   })
 
   it('returns global scope without creating a Kysely query', async () => {
