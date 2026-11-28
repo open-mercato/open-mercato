@@ -20141,7 +20141,7 @@
             "data.entities"
           ],
           "maxFiles": 10,
-          "maxBytes": 261444
+          "maxBytes": 261767
         }
       ],
       "sourceReferenceIds": [
@@ -22126,7 +22126,7 @@
       "patterns.forbidden"
     ],
     "maxContextFiles": 16,
-    "maxInitialContextBytes": 73728,
+    "maxInitialContextBytes": 77824,
     "maxTotalContextBytes": 385024,
     "relatedCases": [
       "OMH-030",
