@@ -29,9 +29,12 @@ module.exports = {
     ],
     require: [
       'packages/core/src/modules/ledger/__bdd__/step_definitions/**/*.steps.ts',
+      'packages/core/src/modules/journal_entry_line_dimensions/__bdd__/support/**/*.ts',
+      'packages/core/src/modules/journal_entry_line_dimensions/__bdd__/step_definitions/**/*.steps.ts',
     ],
     paths: [
       'packages/core/src/modules/ledger/__bdd__/features/**/*.feature',
+      'packages/core/src/modules/journal_entry_line_dimensions/__bdd__/features/**/*.feature',
     ],
     format: ['progress'],
   },

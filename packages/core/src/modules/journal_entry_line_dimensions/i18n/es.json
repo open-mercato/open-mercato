@@ -1,0 +1,9 @@
+{
+  "journal_entry_line_dimensions.audit.set": "Dimensión de línea de asiento contable establecida",
+  "journal_entry_line_dimensions.errors.duplicateDimensionIds": "La misma dimensión no puede indicarse más de una vez.",
+  "journal_entry_line_dimensions.errors.fiscalPeriodLocked": "El período fiscal que cubre este asiento contable está bloqueado. Contabilice en su lugar un asiento de corrección con sus propias dimensiones.",
+  "journal_entry_line_dimensions.errors.lineNotFound": "Línea de asiento contable no encontrada.",
+  "journal_entry_line_dimensions.errors.noFiscalPeriodForOperationDate": "Ningún período fiscal cubre la fecha de operación de este asiento contable, por lo que no se pueden cambiar sus dimensiones.",
+  "journal_entry_line_dimensions.errors.scopeRequired": "Se requiere el contexto de inquilino y de organización para cambiar las dimensiones de una línea de asiento contable.",
+  "journal_entry_line_dimensions.errors.writtenByAnotherWriter": "Esta dimensión de la línea de asiento contable ya ha sido establecida por otro módulo ({writer})."
+}

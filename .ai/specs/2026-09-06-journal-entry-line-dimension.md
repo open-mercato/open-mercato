@@ -728,6 +728,21 @@ immediately actionable on its own.
 - A maximum-`dimensionIds`-per-type constraint, if a real case
   requiring "exactly one" per type ever surfaces (none identified in
   Phase 1).
+- A read API for a line's dimensions (`GET`, scoped by tenant and the
+  selected organization, behind a new `view` ACL feature) and a cost
+  centre column on the ledger journal entry detail page that uses it.
+  Phase 1 has no HTTP routes and no UI (API Contracts, Backend Pages);
+  this pair lands together with the ACL features above (raised in the
+  #6708 review, 2026-10-12).
+- Accepting a `dimensions` map in `ledger.postJournalEntry`, written in
+  the posting's own transaction. Phase 1 tags a line only after posting,
+  through `setJournalEntryLineDimension`, by one of the closed
+  `DIMENSION_WRITERS` (Design Decisions, "Writers and line ownership";
+  SPEC-024's `dimensions` map is rejected in Alternatives Considered).
+  Tagging at posting time changes the `ledger` command contract and the
+  ownership model (which writer owns a tag set by the poster), so it
+  needs its own decision and a `ledger` spec change, not a Phase 1 edit
+  (raised in the #6708 review, 2026-10-12).
 
 ## File Manifest
 
@@ -955,6 +970,11 @@ One new, additive table. No backfill, no default config, no
   appears (Phase 2).
 - Events for dimension changes — no identified subscriber yet (Phase
   2, revisit when one emerges).
+- A read API for a line's dimensions and a cost centre column on the
+  journal entry detail page (Phase 2, with the ACL features).
+- A `dimensions` map on `ledger.postJournalEntry`, written in the
+  posting transaction (Phase 2 candidate; needs a `ledger` spec change
+  and a decision on tag ownership).
 - A maximum-`dimensionIds`-per-type constraint — no identified need
   yet (Phase 2, if one surfaces).
 - Handing a pair's tags from one writer to another (releasing an
@@ -1375,6 +1395,15 @@ heads (#5663, #6015, #6014) before editing:
   ordering and undo restoration.
 - Finished the currency cleanup in Out of scope and in the README summary.
 - Removed a duplicated Fixed Assets link from the Related header.
+
+### 2026-11-20 — #6708 review requests recorded as Phase 2
+
+- Phase 2 and Out of scope now name two requests from the #6708 review
+  (2026-10-12) that Phase 1 deliberately leaves out: a read API plus a
+  cost centre column on the journal entry detail page, and a
+  `dimensions` map accepted by `ledger.postJournalEntry` in the posting
+  transaction. No change to the Phase 1 data model, command or tests.
+  Pending the reviewer's confirmation that Phase 2 is the right place.
 
 ### 2026-10-23 — currency is a column of the line
 

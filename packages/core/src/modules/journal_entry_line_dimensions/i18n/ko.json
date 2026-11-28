@@ -1,0 +1,9 @@
+{
+  "journal_entry_line_dimensions.audit.set": "전표 라인 차원 설정됨",
+  "journal_entry_line_dimensions.errors.duplicateDimensionIds": "같은 차원을 두 번 이상 지정할 수 없습니다.",
+  "journal_entry_line_dimensions.errors.fiscalPeriodLocked": "이 전표가 속한 회계 기간이 잠겨 있습니다. 대신 자체 차원이 포함된 수정 전표를 기록하세요.",
+  "journal_entry_line_dimensions.errors.lineNotFound": "전표 라인을 찾을 수 없습니다.",
+  "journal_entry_line_dimensions.errors.noFiscalPeriodForOperationDate": "이 전표의 거래일을 포함하는 회계 기간이 없어 차원을 변경할 수 없습니다.",
+  "journal_entry_line_dimensions.errors.scopeRequired": "전표 라인 차원을 변경하려면 테넌트 및 조직 컨텍스트가 필요합니다.",
+  "journal_entry_line_dimensions.errors.writtenByAnotherWriter": "전표 라인의 이 차원은 이미 다른 모듈({writer})에서 설정되었습니다."
+}
