@@ -104,6 +104,8 @@ const routeContext = { params: { id: dealId } }
 
 beforeEach(() => {
   jest.clearAllMocks()
+  cache.get.mockReset()
+  cache.set.mockReset()
   process.env = { ...ORIGINAL_ENV }
 
   mockGetAuthFromRequest.mockResolvedValue({
@@ -167,7 +169,7 @@ describe('GET /api/customers/deals/[id] caching', () => {
 
     const [key, value, opts] = cache.set.mock.calls[0]
     expect(key).toBe(
-      `customers:deal:detail:tenant=${tenantId}:org=${organizationId}:deal=${dealId}:scope=filter:${organizationId}:view=full:include=none`,
+      `customers:deal:detail:v2:tenant=${tenantId}:org=${organizationId}:deal=${dealId}:scope=filter:${organizationId}:view=full:include=none:related=111`,
     )
     // The request-specific viewer block is never cached.
     expect(value).not.toHaveProperty('viewer')
@@ -215,7 +217,7 @@ describe('GET /api/customers/deals/[id] caching', () => {
     expect(cache.set).not.toHaveBeenCalled()
   })
 
-  it('keys the cache by tenant, organization, deal, scope, view, and include axes', async () => {
+  it('keys the cache by tenant, organization, deal, scope, view, includes, and related access', async () => {
     process.env.ENABLE_CRUD_API_CACHE = 'true'
     const { GET } = await loadRoute()
     cache.get.mockResolvedValue(null)
@@ -228,8 +230,50 @@ describe('GET /api/customers/deals/[id] caching', () => {
     expect(cache.set).toHaveBeenCalledTimes(1)
     const [key] = cache.set.mock.calls[0]
     expect(key).toBe(
-      `customers:deal:detail:tenant=${tenantId}:org=${organizationId}:deal=${dealId}:scope=filter:${organizationId}:view=lite:include=stages`,
+      `customers:deal:detail:v2:tenant=${tenantId}:org=${organizationId}:deal=${dealId}:scope=filter:${organizationId}:view=lite:include=stages:related=111`,
     )
+  })
+
+  it('rechecks related access before serving cached detail to the same caller', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const stored = new Map<string, object>()
+    cache.get.mockImplementation(async (key: string) => stored.get(key) ?? null)
+    cache.set.mockImplementation(async (key: string, value: object) => {
+      stored.set(key, value)
+    })
+    const personId = '550e8400-e29b-41d4-a716-446655440100'
+    mockFindWithDecryption.mockImplementation(async (_em: unknown, entity: { name?: string }) =>
+      entity.name === 'CustomerDealPersonLink'
+        ? [{ person: { id: personId, displayName: 'Example contact', deletedAt: null } }]
+        : [],
+    )
+    const { GET } = await loadRoute()
+
+    const allowed = await GET(makeRequest(), routeContext)
+    expect(allowed.status).toBe(200)
+    expect(await allowed.json()).toMatchObject({
+      people: [{ id: personId, label: 'Example contact' }],
+      linkedPersonIds: [personId],
+    })
+    const cached = await GET(makeRequest(), routeContext)
+    expect(await cached.json()).toMatchObject({
+      people: [{ id: personId, label: 'Example contact' }],
+    })
+    expect(cache.set).toHaveBeenCalledTimes(1)
+
+    mockUserHasAllFeatures.mockImplementation(async (_userId: string, [feature]: string[]) =>
+      feature !== 'customers.people.view',
+    )
+    const restricted = await GET(makeRequest(), routeContext)
+    expect(restricted.status).toBe(200)
+    expect(await restricted.json()).toMatchObject({
+      deal: { id: dealId },
+      people: [],
+      linkedPersonIds: [personId],
+      counts: { people: 1 },
+    })
+    expect(cache.set).toHaveBeenCalledTimes(2)
+    expect(cache.get).toHaveBeenLastCalledWith(expect.stringMatching(/:related=011$/))
   })
 
   it('partitions the cache key per RBAC scope', async () => {

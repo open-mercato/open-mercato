@@ -269,6 +269,113 @@ describe('GET /api/customers/deals/[id]?include=stages', () => {
     ])
   })
 
+  it.each([
+    { view: 'full', canViewPeople: false, canViewCompanies: true },
+    { view: 'lite', canViewPeople: true, canViewCompanies: false },
+  ])('checks related permissions independently for $view deal detail', async ({
+    view,
+    canViewPeople,
+    canViewCompanies,
+  }) => {
+    const dealId = '550e8400-e29b-41d4-a716-446655440000'
+    const pipelineId = '550e8400-e29b-41d4-a716-446655440010'
+    const pipelineStageId = '550e8400-e29b-41d4-a716-446655440011'
+    const person = {
+      id: '550e8400-e29b-41d4-a716-446655440100',
+      displayName: 'Example contact',
+      deletedAt: null,
+      personProfile: { jobTitle: 'Example job title' },
+    }
+    const company = {
+      id: '550e8400-e29b-41d4-a716-446655440200',
+      displayName: 'Example company',
+      deletedAt: null,
+      companyProfile: { domain: 'company.example' },
+    }
+    mockGetAuthFromRequest.mockResolvedValue({
+      sub: 'user-1',
+      tenantId: 'tenant-1',
+      orgId: 'org-home',
+      isApiKey: false,
+    })
+    mockUserHasAllFeatures.mockImplementation(async (_userId: string, [feature]: string[]) => (
+      (feature === 'customers.people.view' && canViewPeople)
+      || (feature === 'customers.companies.view' && canViewCompanies)
+    ))
+    mockFindOneWithDecryption.mockImplementation(async (_em: unknown, entity: { name: string }) => {
+      if (entity.name === 'CustomerDeal') {
+        return {
+          id: dealId,
+          tenantId: 'tenant-1',
+          organizationId: 'org-1',
+          title: 'Example deal',
+          pipelineId,
+          pipelineStageId,
+          pipelineStage: 'Discovery',
+          createdAt: new Date('2026-04-10T08:00:00.000Z'),
+          updatedAt: new Date('2026-04-14T16:30:00.000Z'),
+        }
+      }
+      return null
+    })
+    mockFindWithDecryption.mockImplementation(async (
+      _em: unknown,
+      entity: { name: string },
+      where: { id?: { $in?: string[] } },
+      options?: { populate?: string[] },
+    ) => {
+      if (entity.name === 'CustomerDealPersonLink') {
+        return [{ person: options?.populate?.length ? person : { id: person.id } }]
+      }
+      if (entity.name === 'CustomerDealCompanyLink') {
+        return [{ company: options?.populate?.length ? company : { id: company.id } }]
+      }
+      if (entity.name === 'CustomerEntity') {
+        return [person, company].filter((record) => where.id?.$in?.includes(record.id))
+      }
+      return []
+    })
+
+    const { GET } = await import('../route')
+    const query = new URLSearchParams({ include: 'stages', view })
+    const response = await GET(new Request(`http://localhost/api/customers/deals/${dealId}?${query}`), {
+      params: { id: dealId },
+    })
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      deal: { id: dealId, pipelineId, pipelineStageId, pipelineStage: 'Discovery' },
+      people: canViewPeople ? [{ id: person.id, label: person.displayName, subtitle: person.personProfile.jobTitle }] : [],
+      companies: canViewCompanies ? [{ id: company.id, label: company.displayName, subtitle: company.companyProfile.domain }] : [],
+      linkedPersonIds: [person.id],
+      linkedCompanyIds: [company.id],
+      counts: { people: 1, companies: 1 },
+      pipelineName: null,
+      pipelineStages: [],
+      pipelineStageProbabilitiesEnabled: false,
+      stageTransitions: [],
+    })
+    for (const feature of ['customers.people.view', 'customers.companies.view', 'customers.pipelines.view']) {
+      expect(mockUserHasAllFeatures).toHaveBeenCalledWith('user-1', [feature], {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+    }
+    const deniedLinkEntity = canViewPeople ? 'CustomerDealCompanyLink' : 'CustomerDealPersonLink'
+    const deniedLinkReads = mockFindWithDecryption.mock.calls.filter(([, entity]) => entity.name === deniedLinkEntity)
+    expect(deniedLinkReads).toHaveLength(1)
+    expect(deniedLinkReads[0][3]?.populate ?? []).toEqual([])
+    const deniedRecordId = canViewPeople ? company.id : person.id
+    expect(mockFindWithDecryption.mock.calls
+      .filter(([, entity]) => entity.name === 'CustomerEntity')
+      .flatMap(([, , where]) => where.id?.$in ?? [])).not.toContain(deniedRecordId)
+    const fetchedEntities = [...mockFindWithDecryption.mock.calls, ...mockFindOneWithDecryption.mock.calls]
+      .map(([, entity]) => entity.name)
+    expect(fetchedEntities).not.toContain('CustomerPipeline')
+    expect(fetchedEntities).not.toContain('CustomerPipelineStage')
+    expect(fetchedEntities).not.toContain('CustomerDealStageTransition')
+  })
+
   it('returns an empty transition history when the stage transition table is missing', async () => {
     const createdAt = new Date('2026-04-10T08:00:00.000Z')
     const updatedAt = new Date('2026-04-14T16:30:00.000Z')

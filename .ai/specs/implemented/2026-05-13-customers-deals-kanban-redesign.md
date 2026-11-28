@@ -435,7 +435,7 @@ New per-tenant setting:
 - Surface: `/backend/config/customers/deals` — a minimal panel with one field (number input + helper text); gated by new feature `customers.deals.manage` (added to admin defaults).
 - Seeded by `customers/setup.ts` `seedDefaults` for every tenant (idempotent).
 
-## Migration & Compatibility
+## Migration & Backward Compatibility
 
 ### Backward compatibility
 
@@ -447,6 +447,7 @@ New per-tenant setting:
 - Existing `/backend/customers/deals/create` page is redesigned in-place. Existing query params (`?personId=…&companyId=…&pipelineId=…`) continue to pre-fill the form.
 - Existing list page `/backend/customers/deals` is untouched in this spec. The view-tabs row is added on the kanban side only; clicking "Lista" navigates to the existing list URL. Adding the tabs row to the list page is a follow-up spec.
 - One new feature id `customers.deals.export` is declared in `acl.ts` (note: `customers.deals.manage` already existed before this spec, contrary to an earlier draft). Both are covered by the existing `admin: ['customers.*']` wildcard in `setup.ts` `defaultRoleFeatures`; `customers.deals.export` is also added explicitly to the `employee` role list. `yarn mercato auth sync-role-acls` is run to grant the new feature to existing tenant employee roles.
+- Deal list, view export, full export, and detail responses authorize linked people and companies independently in the deal's organization. The list and exports return empty association arrays for restricted kinds. Full and lite detail responses keep linked IDs and counts while suppressing restricted previews. Deal detail also requires pipeline view access for pipeline metadata and stage history. Clients can continue using the existing fields and treat empty arrays and null metadata as unavailable. Operators can grant related view permissions to roles that need the corresponding data. This change needs no migration or cache purge.
 
 ### Database migrations
 
@@ -756,6 +757,8 @@ None.
 **Fully compliant** — ready for implementation.
 
 ## Changelog
+
+- 2026-11-21 · Applied scoped related-view permissions to deal list, export, and detail responses, including cached reads.
 
 ### 2026-05-13
 - Initial specification.
