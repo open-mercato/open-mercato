@@ -1,6 +1,6 @@
 import { describe, test, expect, jest, beforeEach, afterEach } from '@jest/globals'
-import { applyParallelJoinOutputMapping, openFork, resumeBranchAfterActivities } from '../parallel-handler'
-import { WorkflowBranchInstance, WorkflowEvent, WorkflowInstance } from '../../data/entities'
+import { advanceBranches, applyParallelJoinOutputMapping, openFork, resumeBranchAfterActivities } from '../parallel-handler'
+import { UserTask, WorkflowBranchInstance, WorkflowEvent, WorkflowInstance } from '../../data/entities'
 
 jest.mock('../step-handler', () => ({
   executeStep: jest.fn(),
@@ -96,6 +96,41 @@ function makeDefinition() {
     },
   } as any
 }
+
+test('sibling cancellation closes pending tasks in its scope and preserves completed tasks', async () => {
+  const { em, created } = makeEmStub()
+  const instance = makeInstance()
+  instance.activeForkStepId = 'fork'
+  const failed = { id: 'failed', forkStepId: 'fork', branchKey: 'failed', status: 'FAILED' }
+  const sibling = { id: 'sibling', forkStepId: 'fork', branchKey: 'sibling', status: 'PAUSED' }
+  const scope = { workflowInstanceId: instance.id, branchInstanceId: sibling.id, tenantId, organizationId }
+  const completed = { ...scope, status: 'COMPLETED', formData: { approved: true } }
+  const pending = { ...scope, status: 'PENDING' }
+  const foreign = { ...pending, organizationId: 'another-organization' }
+  em.find = jest.fn(async (entity: unknown) => entity === WorkflowBranchInstance ? [failed, sibling] : [])
+  em.nativeUpdate = jest.fn(async (
+    _entity: unknown, where: Record<string, unknown>, changes: Record<string, unknown>,
+  ) => {
+    const matching = [completed, pending, foreign].filter((task) =>
+      Object.entries(where).every(([key, value]) => task[key as keyof typeof pending] === value),
+    )
+    matching.forEach((task) => Object.assign(task, changes))
+    return matching.length
+  })
+
+  await expect(advanceBranches(em, {} as never, instance, makeDefinition(), {})).resolves.toMatchObject({
+    outcome: 'failed',
+  })
+
+  expect(em.nativeUpdate).toHaveBeenCalledWith(
+    UserTask, { ...scope, status: 'PENDING' }, { status: 'CANCELLED', updatedAt: expect.any(Date) },
+  )
+  expect(completed).toMatchObject({ status: 'COMPLETED', formData: { approved: true } })
+  expect(pending.status).toBe('CANCELLED')
+  expect(foreign.status).toBe('PENDING')
+  expect(sibling.status).toBe('CANCELLED')
+  expect(created.map(({ data }) => data.eventType)).toEqual(['PARALLEL_BRANCH_CANCELLED', 'PARALLEL_FORK_FAILED'])
+})
 
 describe('openFork', () => {
   beforeEach(() => {

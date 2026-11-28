@@ -285,7 +285,8 @@ describe('runTaskSlaJob', () => {
     expect(outcome).toBe('noop')
     expect(mockEm.findOne).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ id: taskId, tenantId, organizationId })
+      expect.objectContaining({ id: taskId, tenantId, organizationId }),
+      { disableIdentityMap: true },
     )
   })
 
@@ -451,6 +452,14 @@ describe('breach routing (spec §6.1 §4)', () => {
 
     expect(outcome).toBe('breached')
     expect(task.status).toBe('ESCALATED')
+    expect(mockEm.nativeUpdate).toHaveBeenCalledTimes(1)
+    expect(mockEm.nativeUpdate).toHaveBeenCalledWith(UserTask, expect.objectContaining({
+      id: taskId,
+      tenantId,
+      organizationId,
+      status: 'PENDING',
+      escalatedAt: null,
+    }), expect.objectContaining({ status: 'ESCALATED', escalatedAt: expect.any(Date) }))
     expect(mockExitStep).toHaveBeenCalled()
     expect(mockExecuteTransition).toHaveBeenCalledWith(
       mockEm,
@@ -483,6 +492,37 @@ describe('breach routing (spec §6.1 §4)', () => {
       'fulfil',
       expect.objectContaining({ transitionId: 't_approved' }),
     )
+  })
+
+  test.each([
+    { onBreach: null, transitions: [breachRoute], current: { status: 'COMPLETED', assignedTo: 'user-1' } },
+    {
+      onBreach: { action: 'reassign', reassignTo: 'supervisors' },
+      transitions: [],
+      current: { status: 'PENDING', assignedTo: 'current-owner' },
+    },
+  ])('skips stale breach handling without changing the task or advancing the run (%j)', async ({
+    onBreach, transitions, current,
+  }) => {
+    setDefinition(onBreach, transitions)
+    const stored = { ...task, ...current }
+    mockEm.nativeUpdate.mockImplementation(async (_entity, where, changes) => {
+      if (typeof where !== 'object' || !('status' in where) || !('assignedTo' in where)) return 0
+      if (where.status !== stored.status || where.assignedTo !== stored.assignedTo) return 0
+      Object.assign(stored, changes)
+      return 1
+    })
+
+    await expect(runTaskSlaJob(mockEm, mockContainer as never, jobOptions)).resolves.toBe('noop')
+
+    expect(stored).toMatchObject({ ...current, escalatedAt: null })
+    expect(task).toMatchObject({ status: 'PENDING', assignedTo: 'user-1', escalatedAt: null })
+    expect(mockEm.flush).not.toHaveBeenCalled()
+    expect(mockLogWorkflowEvent).not.toHaveBeenCalled()
+    expect(mockEmit).not.toHaveBeenCalled()
+    expect(mockExitStep).not.toHaveBeenCalled()
+    expect(mockExecuteTransition).not.toHaveBeenCalled()
+    expect(mockExecuteWorkflow).not.toHaveBeenCalled()
   })
 
   test('an unwired breach falls back to reassign', async () => {
