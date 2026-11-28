@@ -27,7 +27,13 @@ import {
   readTimeTrackingSettings,
   type TimeTrackingSettings,
 } from '../lib/time-tracking/settings'
-import { isProjectAccessibleOnDate, resolveProjectAccess, type ProjectAccess } from '../lib/time-tracking/access'
+import {
+  isProjectAccessibleOnDate,
+  MANAGE_PROJECTS_FEATURE,
+  resolveProjectAccess,
+  type ProjectAccess,
+} from '../lib/time-tracking/access'
+import { resolveFeatureAccess } from '../lib/time-tracking/featureAccess'
 // Imported for the command ids AND for the registration side effect: the tag
 // commands must be in the registry before this file asks the bus to run one.
 import { staffTimeTagCommandIds, TAG_TARGET_LOCKED_CODE } from './timesheets-tags'
@@ -397,6 +403,29 @@ export async function resolveTimeEntryWriteAccess(
   return {
     access: await resolveEntryProjectAccess(em, ctx, tenantId, organizationId, settings),
     hasManageAll: await callerHasManageAll(ctx),
+  }
+}
+
+async function resolveTimerStartAccess(
+  em: EntityManager,
+  ctx: EntryAccessCaller,
+  scope: { tenantId: string; organizationId: string },
+  settings: TimeTrackingSettings,
+): Promise<TimeEntryWriteAccess> {
+  const userId = ctx.auth?.sub ?? null
+  const [entryManagement, projectManagement] = await Promise.all([
+    resolveFeatureAccess(ctx.container, userId, ['staff.timesheets.manage_all'], scope),
+    resolveFeatureAccess(ctx.container, userId, [MANAGE_PROJECTS_FEATURE], scope),
+  ])
+  return {
+    access: await resolveProjectAccess({
+      em,
+      userId,
+      ...scope,
+      canManageAll: projectManagement.allowed,
+      assignmentGraceDays: settings.access.assignmentGraceDays,
+    }),
+    hasManageAll: entryManagement.allowed,
   }
 }
 
@@ -1138,13 +1167,21 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scopeCtx = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
+
+    // A timer entry starts at zero minutes, and D-7 makes `rounded_minutes` the
+    // only input to cost — leaving it null here would price the entry at nothing
+    // until something else happened to rewrite it. Seeded from the same rule as
+    // every other create so timer-stop only ever restates it.
+    const settings = await readEntrySettings(ctx, parsed.tenantId)
+    const writeAccess = await resolveTimerStartAccess(em, ctx, scopeCtx, settings)
 
     // Ownership enforcement mirrors createTimeEntryCommand: callers without
     // `staff.timesheets.manage_all` can only start their own timer, so the
     // request body's staffMemberId can't start a timer under a colleague's id.
     let effectiveStaffMemberId = parsed.staffMemberId
-    if (!(await callerHasManageAll(ctx))) {
-      const callerStaffMemberId = await resolveCallerStaffMemberId(em, ctx)
+    if (!writeAccess.hasManageAll) {
+      const callerStaffMemberId = writeAccess.access.staffMemberId
       if (!callerStaffMemberId) {
         const { translate } = await resolveTranslations()
         throw new CrudHttpError(403, {
@@ -1166,13 +1203,11 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     const project = await requireTimeProjectInScope(em, requestedProjectId, parsed.tenantId, parsed.organizationId)
     await assertTaskBelongsToProject(task, project?.id ?? null)
 
-    // A timer entry starts at zero minutes, and D-7 makes `rounded_minutes` the
-    // only input to cost — leaving it null here would price the entry at nothing
-    // until something else happened to rewrite it. Seeded from the same rule as
-    // every other create so timer-stop only ever restates it.
-    const settings = await readEntrySettings(ctx, parsed.tenantId)
-
-    const scopeCtx = { tenantId: parsed.tenantId, organizationId: parsed.organizationId }
+    await assertEntryProjectAccess(writeAccess, {
+      projectId: project?.id ?? null,
+      entryStaffMemberId: effectiveStaffMemberId,
+      date: parsed.date,
+    })
 
     // Create the timer entry AND start it inside a single transaction so a
     // partial failure can never leave an orphaned, never-started timer entry
@@ -1684,14 +1719,12 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
     // The `staff.timesheets.manage_all` bypass in createTimeEntryCommand /
     // startTimerCommand is NOT copied: it would newly permit starting a
     // colleague's timer, which is an RBAC change rather than a refactor.
-    const callerUserId = ctx.auth?.sub ?? null
-    const staffMember = callerUserId
-      ? await getStaffMemberByUserId(em, callerUserId, parsed.tenantId, parsed.organizationId)
-      : null
-    if (!staffMember || entry.staffMemberId !== staffMember.id) {
-      const { translate } = await resolveTranslations()
+    const settings = await readEntrySettings(ctx, parsed.tenantId)
+    const writeAccess = await resolveTimerStartAccess(em, ctx, scopeCtx, settings)
+    const callerStaffMemberId = writeAccess.access.staffMemberId
+    if (!callerStaffMemberId || entry.staffMemberId !== callerStaffMemberId) {
       throw new CrudHttpError(403, {
-        error: translate('staff.timesheets.errors.notOwner', 'You can only manage your own time entries.'),
+        error: translateTimeEntryWriteDenial('notOwner', lockTranslate),
       })
     }
 
@@ -1702,12 +1735,12 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
     // timer lock is taken before the row lock, in the order every timer-opening
     // path uses, so that re-check cannot interleave with another start or undo.
     const { startedAt, undoState } = await em.transactional(async (trx) => {
-      await lockStaffMemberTimers(trx, scopeCtx, staffMember.id)
+      await lockStaffMemberTimers(trx, scopeCtx, callerStaffMemberId)
       const lockedEntry = await findOneWithDecryption(
         trx,
         StaffTimeEntry,
         { id: parsed.id, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
-        { lockMode: LockMode.PESSIMISTIC_WRITE },
+        { lockMode: LockMode.PESSIMISTIC_WRITE, refresh: true },
         scopeCtx,
       )
       if (!lockedEntry) {
@@ -1717,6 +1750,16 @@ const startTimerExistingCommand: CommandHandler<StaffTimeEntryStartTimerExisting
       // Re-checked under the row lock: a report close committed between the
       // pre-flight read and this transaction would otherwise slip through.
       assertTimeEntryUnlocked(lockedEntry, lockTranslate)
+      if (lockedEntry.staffMemberId !== callerStaffMemberId) {
+        throw new CrudHttpError(403, {
+          error: translateTimeEntryWriteDenial('notOwner', lockTranslate),
+        })
+      }
+      await assertEntryProjectAccess(writeAccess, {
+        projectId: lockedEntry.timeProjectId ?? null,
+        entryStaffMemberId: lockedEntry.staffMemberId,
+        date: lockedEntry.date,
+      })
       if (lockedEntry.startedAt) {
         const { translate } = await resolveTranslations()
         throw new CrudHttpError(409, {

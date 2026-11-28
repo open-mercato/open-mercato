@@ -160,6 +160,7 @@ describe('start_timer_existing lock gate (T4.2 / TC-TT-018)', () => {
 
   it('still starts a timer on an unlocked entry', async () => {
     mockFindOneWithDecryption.mockImplementation(async (_em, _cls, where) => {
+      if ((where as Record<string, unknown>).userId === 'user-1') return { id: STAFF_MEMBER_ID }
       if (typeof (where as Record<string, unknown>).id === 'object') return null
       return makeEntry()
     })
