@@ -4,6 +4,10 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  beginTransactionLifetime,
+  completeTransactionLifetime,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
 import { E } from '#generated/entities.ids.generated'
 import {
   InventoryBalance,
@@ -633,6 +637,11 @@ function buildImportRowLockKey(scope: ImportScope, importBatchId: string, rowNum
   ].join(':')
 }
 
+// Opens (or joins) the row's transaction and gives it an owned transaction lifetime, so
+// wms.inventory.adjust can tell this is an ambient, not-yet-really-committed transaction
+// (see the matching check in inventory-actions.ts) and defer publishing its side effects
+// until the commit below has actually happened — a SAVEPOINT release inside the adjust
+// command's own nested transaction is not that commit.
 async function runInTransaction<TResult>(
   em: EntityManager,
   operation: (trx: EntityManager) => Promise<TResult>,
@@ -640,10 +649,25 @@ async function runInTransaction<TResult>(
   const transactionalEm = em as EntityManager & {
     transactional?: (callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
   }
-  if (typeof transactionalEm.transactional === 'function') {
-    return transactionalEm.transactional((trx) => operation(trx))
+  if (typeof transactionalEm.transactional !== 'function') {
+    return operation(em)
   }
-  return operation(em)
+  let trx: EntityManager | undefined
+  let lifetime: ReturnType<typeof beginTransactionLifetime> | undefined
+  try {
+    const result = await transactionalEm.transactional((inner) => {
+      trx = inner
+      lifetime = beginTransactionLifetime(inner)
+      return operation(inner)
+    })
+    if (trx && lifetime) await completeTransactionLifetime(trx, lifetime, 'committed')
+    return result
+  } catch (error) {
+    if (trx && lifetime) {
+      await completeTransactionLifetime(trx, lifetime, 'rolled_back').catch(() => undefined)
+    }
+    throw error
+  }
 }
 
 export async function applyInventoryImport(

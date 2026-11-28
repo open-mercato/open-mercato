@@ -2,6 +2,12 @@
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
 import {
+  beginTransactionLifetime,
+  completeTransactionLifetime,
+} from '@open-mercato/shared/lib/commands/transaction-lifetime'
+import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
+import { emitWmsEvent } from '../../events'
+import {
   InventoryBalance,
   InventoryMovement,
   Warehouse,
@@ -218,6 +224,83 @@ describe('wms inventory adjust / cycle-count idempotent replay', () => {
     // separate fire-and-forget read, so it is left out of this assertion).
     expect(containerEm.transactional).not.toHaveBeenCalled()
     expect(lockEm.transactional).toHaveBeenCalled()
+  })
+
+  // ctx.transactionalEm's write above only ran inside a SAVEPOINT: the caller that owns the
+  // real transaction (e.g. the CSV import row lock) has not committed yet when execute()
+  // returns. Publishing the movement event / cache invalidation at that point would let an
+  // observer see a row it cannot read yet, or one that is later rolled back entirely.
+  it('defers adjust side effects until the ambient transaction lifetime actually commits', async () => {
+    const containerEm = createEm()
+    const lockEm = createEm()
+    const ctx = { ...createCtx(containerEm), transactionalEm: lockEm }
+    const { balance } = baseFixtures('10')
+    mockWarehouseLocationBalance(balance, () => null)
+    ;(emitWmsEvent as jest.Mock).mockClear()
+    ;(emitCrudSideEffects as jest.Mock).mockClear()
+
+    const lifetime = beginTransactionLifetime(lockEm as never)
+    const handler = commandRegistry.get('wms.inventory.adjust')
+    const result = await handler!.execute(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        warehouseId: WAREHOUSE_ID,
+        locationId: LOCATION_ID,
+        catalogVariantId: VARIANT_ID,
+        delta: 3,
+        reason: 'correction',
+        referenceType: 'manual',
+        referenceId: REFERENCE_ID,
+        performedBy: USER_ID,
+      },
+      ctx as never,
+    )
+
+    expect(result).toEqual({ movementId: 'generated-id' })
+    expect(emitWmsEvent).not.toHaveBeenCalled()
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+
+    await completeTransactionLifetime(lockEm as never, lifetime, 'committed')
+
+    expect(emitCrudSideEffects).toHaveBeenCalled()
+    expect(emitWmsEvent).toHaveBeenCalledWith(
+      'wms.inventory.adjusted',
+      expect.objectContaining({ movementId: 'generated-id' }),
+    )
+  })
+
+  it('drops adjust side effects when the ambient transaction lifetime rolls back', async () => {
+    const containerEm = createEm()
+    const lockEm = createEm()
+    const ctx = { ...createCtx(containerEm), transactionalEm: lockEm }
+    const { balance } = baseFixtures('10')
+    mockWarehouseLocationBalance(balance, () => null)
+    ;(emitWmsEvent as jest.Mock).mockClear()
+    ;(emitCrudSideEffects as jest.Mock).mockClear()
+
+    const lifetime = beginTransactionLifetime(lockEm as never)
+    const handler = commandRegistry.get('wms.inventory.adjust')
+    await handler!.execute(
+      {
+        organizationId: ORG,
+        tenantId: TENANT,
+        warehouseId: WAREHOUSE_ID,
+        locationId: LOCATION_ID,
+        catalogVariantId: VARIANT_ID,
+        delta: 3,
+        reason: 'correction',
+        referenceType: 'manual',
+        referenceId: REFERENCE_ID,
+        performedBy: USER_ID,
+      },
+      ctx as never,
+    )
+
+    await completeTransactionLifetime(lockEm as never, lifetime, 'rolled_back')
+
+    expect(emitCrudSideEffects).not.toHaveBeenCalled()
+    expect(emitWmsEvent).not.toHaveBeenCalled()
   })
 
   it('cycle-count does not skew balance when unique-constraint race returns existing movement', async () => {
