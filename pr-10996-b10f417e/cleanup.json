@@ -1,0 +1,11 @@
+{
+  "appPortClosed": true,
+  "databasePortClosed": true,
+  "databaseContainerRemoved": "4eb9fd33cb56",
+  "ephemeralStateAbsent": true,
+  "sourceDiffClean": true,
+  "gitStatus": "",
+  "branch": "cez/b10f417e",
+  "ownedProcesses": [],
+  "teardown": "Generated down script initially left its database container alive. Local exact-container removal fallback repaired and proved; idempotent teardown passed. Shared runtimes untouched."
+}
