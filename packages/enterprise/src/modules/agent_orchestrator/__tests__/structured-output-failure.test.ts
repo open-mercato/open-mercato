@@ -15,6 +15,20 @@ describe('readStructuredOutputFailure', () => {
     ).toEqual({ reason: 'no_object', recovered: { kind: 'research', data: {} }, usage: { inputTokens: 3, outputTokens: 1 } })
   })
 
+  it('keeps the cached share of a no-object failure from the SDK cache detail or the legacy field', () => {
+    const fromDetail = readStructuredOutputFailure(
+      named('AI_NoObjectGeneratedError', {
+        text: 'nope',
+        usage: { inputTokens: 900, outputTokens: 10, inputTokenDetails: { cacheReadTokens: 600 } },
+      }),
+    )
+    expect(fromDetail?.usage).toEqual({ inputTokens: 900, outputTokens: 10, cachedInputTokens: 600 })
+    const fromLegacy = readStructuredOutputFailure(
+      named('AI_NoObjectGeneratedError', { text: 'nope', usage: { inputTokens: 900, outputTokens: 10, cachedInputTokens: 400 } }),
+    )
+    expect(fromLegacy?.usage).toEqual({ inputTokens: 900, outputTokens: 10, cachedInputTokens: 400 })
+  })
+
   it('reports a tool loop that ended without an answer, with nothing recovered', () => {
     expect(readStructuredOutputFailure(named('AI_NoOutputGeneratedError'))).toEqual({
       reason: 'no_output',

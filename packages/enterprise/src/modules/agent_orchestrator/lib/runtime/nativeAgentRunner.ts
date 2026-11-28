@@ -58,6 +58,8 @@ import {
   extractIgnoredCallSettings,
   captureNativeRunTrace,
   isNativeTraceCaptureEnabled,
+  readCachedInputTokens,
+  sumCachedInputTokens,
   type NativeStepRecord,
 } from './nativeTraceCapture'
 import { attachModelCallsToSteps, createNativeModelCallCollector } from './nativeModelCallRecorder'
@@ -430,7 +432,7 @@ export class NativeAgentRunner {
     const modelStartMs = Date.now()
     let rawObject: unknown
     let structuredFailure: StructuredOutputFailure | null = null
-    let fallbackUsage: { inputTokens?: number; outputTokens?: number } | null = null
+    let fallbackUsage: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number } | null = null
     let fallbackIgnoredSettings: ReturnType<typeof extractIgnoredCallSettings> = []
     // Usage + estimated-cost stamp for the terminal transition (data-honesty
     // spec §3.2): tokens summed from the recorded steps (or the object-mode
@@ -439,6 +441,7 @@ export class NativeAgentRunner {
     // Null tokens or an unknown model keep cost null — the UI renders `—`.
     const buildUsageStamp = (): {
       inputTokens?: number | null
+      cachedInputTokens?: number | null
       outputTokens?: number | null
       costMinor?: number | null
       currency?: string | null
@@ -454,13 +457,23 @@ export class NativeAgentRunner {
         stepRecords.length > 0 ? summed.inputTokens : (fallbackUsage?.inputTokens ?? null)
       const outputTokens =
         stepRecords.length > 0 ? summed.outputTokens : (fallbackUsage?.outputTokens ?? null)
+      const cachedInputTokens =
+        stepRecords.length > 0
+          ? sumCachedInputTokens(stepRecords)
+          : (fallbackUsage?.cachedInputTokens ?? null)
       if (inputTokens == null && outputTokens == null) return {}
       const resolvedModelId = [...stepRecords]
         .reverse()
         .find((step) => step.modelId && step.modelId !== 'unknown')?.modelId
-      const cost = computeCostMinor(resolvedModelId ?? entry.defaultModel ?? null, inputTokens, outputTokens)
+      const cost = computeCostMinor(
+        resolvedModelId ?? entry.defaultModel ?? null,
+        inputTokens,
+        outputTokens,
+        cachedInputTokens,
+      )
       return {
         inputTokens,
+        ...(cachedInputTokens != null ? { cachedInputTokens } : {}),
         outputTokens,
         ...(cost ? { costMinor: cost.costMinor, currency: cost.currency } : {}),
       }
@@ -568,7 +581,16 @@ export class NativeAgentRunner {
                 if (objectResult.mode === 'stream') {
                   return await objectResult.object
                 }
-                fallbackUsage = objectResult.usage ?? null
+                if (objectResult.usage) {
+                  const cachedInputTokens = readCachedInputTokens(objectResult.usage)
+                  fallbackUsage = {
+                    inputTokens: objectResult.usage.inputTokens,
+                    outputTokens: objectResult.usage.outputTokens,
+                    ...(cachedInputTokens !== undefined ? { cachedInputTokens } : {}),
+                  }
+                } else {
+                  fallbackUsage = null
+                }
                 fallbackIgnoredSettings = extractIgnoredCallSettings(objectResult.warnings)
                 return objectResult.object
               }),

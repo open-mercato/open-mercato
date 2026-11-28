@@ -115,7 +115,7 @@ export function buildIngestLlmMetadataAttributes(llm: TraceLlmIngest): SpanAttri
     assign(attributes, GEN_AI_ATTRIBUTES.usageOutputTokens, usage.outputTokens)
     assign(attributes, GEN_AI_ATTRIBUTES.usageCacheReadInputTokens, usage.cachedInputTokens)
     assign(attributes, GEN_AI_ATTRIBUTES.usageReasoningOutputTokens, usage.reasoningTokens)
-    const cost = computeCostMicros(llm.responseModel ?? llm.requestModel, usage)
+    const cost = computeCostMicros(llm.responseModel ?? llm.requestModel, usage, usage.cachedInputTokens)
     if (cost) {
       attributes[OM_LLM_ATTRIBUTES.costMicros] = cost.micros
       attributes[OM_LLM_ATTRIBUTES.costCurrency] = cost.currency

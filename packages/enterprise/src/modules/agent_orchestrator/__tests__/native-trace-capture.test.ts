@@ -2,6 +2,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   buildNativeStepRecord,
   buildNativeTracePayload,
+  readCachedInputTokens,
   captureNativeRunTrace,
   extractIgnoredCallSettings,
   isNativeTraceCaptureEnabled,
@@ -18,6 +19,8 @@ import {
 } from '../lib/trace/genAiAttributes'
 import { computeManifestSha256 } from '../lib/trace/runManifest'
 import { captureLogs } from './support/captureLogs'
+import { computeCostMinor } from '../lib/runtime/modelPricing'
+import { deriveLlmStepRows } from '../components/trace/llmStepRows'
 import { AgentRun, AgentSpan, AgentToolCall } from '../data/entities'
 
 /** Same in-memory EM fake as trace-ingestion-service.test.ts — deterministic, no DB. */
@@ -131,6 +134,63 @@ function stepsWithCall(call: NativeModelCallRecord): NativeStepRecord[] {
   return [{ ...TWO_STEPS[0], call }, TWO_STEPS[1]]
 }
 
+describe('per-step cost estimate vs run total', () => {
+  it('prices a single cached call at the cached tier on the step panel, agreeing with the run total', () => {
+    const usage = { inputTokens: 1_000_000, outputTokens: 0, cachedInputTokens: 1_000_000 }
+    const call = buildCall({
+      provider: 'anthropic',
+      requestModel: 'claude-sonnet-4-5',
+      responseModel: 'claude-sonnet-4-5',
+      usage,
+    })
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: [{ modelId: 'claude-sonnet-4-5', finishReason: 'stop', usage, toolCalls: [], endedAtMs: T0 + 500, call }],
+    })
+    const [span] = payload.spans ?? []
+    const [row] = deriveLlmStepRows(
+      [
+        {
+          id: 'span-1',
+          externalSpanId: span.externalSpanId,
+          parentSpanId: null,
+          sequence: span.sequence,
+          name: span.name,
+          kind: span.kind,
+          startedAt: span.startedAt,
+          endedAt: span.endedAt ?? null,
+          durationMs: span.durationMs ?? null,
+          status: span.status ?? null,
+          attributes: span.attributes,
+        },
+      ],
+      'USD',
+    )
+    expect(row.usage.cachedInputTokens).toBe(1_000_000)
+    expect(row.costMicros).toBe(300_000)
+
+    const runCost = computeCostMinor(payload.model, payload.inputTokens, payload.outputTokens, payload.cachedInputTokens)
+    expect(runCost?.costMinor).toBe(30)
+    expect(Math.abs(row.costMicros! / 10_000 - runCost!.costMinor)).toBeLessThan(1)
+  })
+
+  it('forwards the fallback cached share to a toolless call estimate', () => {
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: [],
+      fallbackUsage: { inputTokens: 1_000_000, outputTokens: 0, cachedInputTokens: 1_000_000 },
+      fallbackCall: buildCall({
+        requestModel: 'claude-sonnet-4-5',
+        responseModel: 'claude-sonnet-4-5',
+        usage: {},
+      }),
+    })
+    const attributes = (payload.spans ?? [])[0].attributes as Record<string, unknown>
+    expect(attributes[GEN_AI_ATTRIBUTES.usageCacheReadInputTokens]).toBe(1_000_000)
+    expect(attributes[OM_LLM_ATTRIBUTES.costMicros]).toBe(300_000)
+  })
+})
+
 describe('buildNativeTracePayload llm span metadata', () => {
   it('writes legacy, gen_ai and om keys for a step with a call record and reads them back', () => {
     const call = buildCall()
@@ -149,7 +209,7 @@ describe('buildNativeTracePayload llm span metadata', () => {
       [GEN_AI_ATTRIBUTES.requestMaxTokens]: 512,
       [GEN_AI_ATTRIBUTES.requestStopSequences]: ['END'],
       [GEN_AI_ATTRIBUTES.responseFinishReasons]: ['tool-calls'],
-      [OM_LLM_ATTRIBUTES.costMicros]: 65,
+      [OM_LLM_ATTRIBUTES.costMicros]: 56,
       [OM_LLM_ATTRIBUTES.costCurrency]: 'USD',
       [OM_LLM_ATTRIBUTES.costPricingSource]: 'default',
       [OM_LLM_ATTRIBUTES.contentStatus]: 'disabled',
@@ -171,7 +231,7 @@ describe('buildNativeTracePayload llm span metadata', () => {
       usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 40, reasoningTokens: 5 },
       finishReasons: ['tool-calls'],
       latencyMs: 480,
-      costMicros: 65,
+      costMicros: 56,
       costCurrency: 'USD',
       pricingSource: 'default',
       promptSystemSha256: call.systemSha256,
@@ -551,6 +611,49 @@ describe('buildNativeTracePayload', () => {
   })
 })
 
+describe('buildNativeTracePayload — cached input share (#6240)', () => {
+  it('sums the reported cached share across steps', () => {
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: [
+        { ...TWO_STEPS[0], usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 80 } },
+        { ...TWO_STEPS[1], usage: { inputTokens: 60, outputTokens: 30, cachedInputTokens: 50 } },
+      ],
+    })
+    expect(payload.inputTokens).toBe(160)
+    expect(payload.cachedInputTokens).toBe(130)
+  })
+
+  it('omits the cached share when no step reported one (unknown, not 0)', () => {
+    expect(buildNativeTracePayload(baseInput())).not.toHaveProperty('cachedInputTokens')
+  })
+
+  it('carries the fallback cached share for a toolless run', () => {
+    const payload = buildNativeTracePayload({
+      ...baseInput(),
+      steps: [],
+      fallbackUsage: { inputTokens: 42, outputTokens: 7, cachedInputTokens: 40 },
+    })
+    expect(payload.cachedInputTokens).toBe(40)
+  })
+})
+
+describe('readCachedInputTokens', () => {
+  it('reads ai@7 inputTokenDetails.cacheReadTokens, then the legacy flat field', () => {
+    expect(readCachedInputTokens({ inputTokenDetails: { cacheReadTokens: 12 } })).toBe(12)
+    expect(readCachedInputTokens({ cachedInputTokens: 7 })).toBe(7)
+    expect(readCachedInputTokens({ inputTokenDetails: { cacheReadTokens: 0 }, cachedInputTokens: 9 })).toBe(0)
+  })
+
+  it('is undefined when the provider did not report a usable value', () => {
+    expect(readCachedInputTokens(undefined)).toBeUndefined()
+    expect(readCachedInputTokens({ inputTokens: 10 })).toBeUndefined()
+    expect(readCachedInputTokens({ inputTokenDetails: { cacheReadTokens: undefined } })).toBeUndefined()
+    expect(readCachedInputTokens({ cachedInputTokens: -3 })).toBeUndefined()
+    expect(readCachedInputTokens({ cachedInputTokens: Number.NaN })).toBeUndefined()
+  })
+})
+
 describe('buildNativeStepRecord', () => {
   const SDK7_STEP = {
     toolCalls: [
@@ -645,6 +748,15 @@ describe('buildNativeStepRecord', () => {
         durationMs: 40,
       },
     ])
+  })
+
+  it('captures the cached input share reported by the step usage', () => {
+    const fromDetails = buildNativeStepRecord(
+      { ...SDK7_STEP, usage: { inputTokens: 11, outputTokens: 3, inputTokenDetails: { cacheReadTokens: 8 } } },
+      T0,
+    )
+    expect(fromDetails.usage).toEqual({ inputTokens: 11, outputTokens: 3, cachedInputTokens: 8 })
+    expect(buildNativeStepRecord(SDK7_STEP, T0).usage).not.toHaveProperty('cachedInputTokens')
   })
 })
 

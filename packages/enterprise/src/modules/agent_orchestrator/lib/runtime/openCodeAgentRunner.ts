@@ -40,10 +40,13 @@ import {
   failRun,
   createProposal,
   shapeResult,
+  type RunUsageStamp,
 } from './persistence'
 import type { AgentRunSessionStore } from './agentRunSessionStore'
 import type { AgentWorkspaceLease, AgentWorkspaceManager } from './agentWorkspaceManager'
 import { collectArtifacts } from './artifactCollector'
+import { computeCostMinor } from './modelPricing'
+import { recordOpenCodeMessageUsage, totalOpenCodeUsage, type OpenCodeUsageSink } from './openCodeUsage'
 import { extractFileInput } from './fileInput'
 import { stageAttachments, type StagedInput } from './attachmentStager'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
@@ -142,6 +145,13 @@ const SESSION_TTL_MINUTES = 120
 const IDLE_GRACE_MS = 500
 /** How often to poll the shared store for the captured outcome (cross-process). */
 const OUTCOME_POLL_MS = 750
+/**
+ * Upper bound on waiting for the session to go idle after the outcome lands.
+ * OpenCode emits the final `message.updated` token counts for the step that
+ * called submit_outcome (and any closing reply) just after the tool returns;
+ * unsubscribing on the outcome alone dropped them from the usage stamp.
+ */
+const USAGE_SETTLE_MS = 2000
 
 /**
  * Wall-clock backstop for a single OpenCode run. Completion is normally signalled
@@ -328,6 +338,26 @@ export class OpenCodeAgentRunner {
     // leaving the debugger with no duration, no spans and no tool calls — the
     // exact evidence needed to see WHERE it broke.
     let startedAtMs: number | null = null
+    // Usage measured off the SSE stream (`message.updated`), stamped on the
+    // terminal transition like the native runner does; without it every
+    // OpenCode run stored null tokens and had no cost estimate.
+    const usageSink: OpenCodeUsageSink = new Map()
+    const buildUsageStamp = (): RunUsageStamp => {
+      const usage = totalOpenCodeUsage(usageSink)
+      if (!usage) return {}
+      const cost = computeCostMinor(
+        usage.modelId ?? entry.defaultModel ?? null,
+        usage.inputTokens,
+        usage.outputTokens,
+        usage.cachedInputTokens,
+      )
+      return {
+        inputTokens: usage.inputTokens,
+        cachedInputTokens: usage.cachedInputTokens,
+        outputTokens: usage.outputTokens,
+        ...(cost ? { costMinor: cost.costMinor, currency: cost.currency } : {}),
+      }
+    }
     let integrityRawOutputKey: string | null = null
     let reconstructedRequest: TraceLlmRequestIngest | null = null
 
@@ -383,29 +413,42 @@ export class OpenCodeAgentRunner {
         onProgress: emitProgress,
         messageSink: messageCollector,
         runTimeoutMs: resolveRunTimeoutMs(ctx.runTimeoutMs),
+        usageSink,
       })
 
       if (capturedOutcome === NO_OUTCOME) {
         await failRun(this.commandBus, commandCtx, {
           runId,
           errorMessage: 'agent finished without calling submit_outcome',
+          ...buildUsageStamp(),
         })
         throw new OpenCodeRunFailedError(agentId, 'no outcome submitted')
       }
 
+      const usageStamp = buildUsageStamp()
       const integrity = entry.integrity?.length
-        ? await this.runIntegrityPipeline({ entry, ctx, commandCtx, runId, businessInput, capturedOutcome, capturedToolCalls })
+        ? await this.runIntegrityPipeline({
+            entry,
+            ctx,
+            commandCtx,
+            runId,
+            businessInput,
+            capturedOutcome,
+            capturedToolCalls,
+            usageStamp,
+          })
         : null
       integrityRawOutputKey = integrity?.rawOutputKey ?? null
       const outputGuardResults =
-        integrity?.guardResults ?? (await this.runOutputGuardrails({ entry, ctx, commandCtx, runId, capturedOutcome }))
+        integrity?.guardResults ??
+        (await this.runOutputGuardrails({ entry, ctx, commandCtx, runId, capturedOutcome, usageStamp }))
 
       // Defense in depth: re-validate the captured outcome against the schema
       // even though submit_outcome already validated it server-side.
       const parsed = entry.schema.safeParse(integrity ? integrity.finalOutput : capturedOutcome)
       if (!parsed.success) {
         const detail = parsed.error.message
-        await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+        await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...usageStamp })
         throw new OpenCodeRunFailedError(agentId, `outcome failed re-validation: ${detail}`)
       }
 
@@ -418,6 +461,7 @@ export class OpenCodeAgentRunner {
         // Proposal runs surface the proposal's confidence on the run row;
         // researcher runs have no confidence semantics → null (renders `—`).
         confidence: result.kind === 'proposal' ? deriveEnvelopeConfidence(result.proposal) : null,
+        ...usageStamp,
       })
 
       if (result.kind === 'proposal') {
@@ -566,8 +610,9 @@ export class OpenCodeAgentRunner {
     commandCtx: ReturnType<typeof buildCommandContext>
     runId: string
     capturedOutcome: unknown
+    usageStamp: RunUsageStamp
   }): Promise<GuardResults> {
-    const { entry, ctx, commandCtx, runId } = args
+    const { entry, ctx, commandCtx, runId, usageStamp } = args
     let verdict: Awaited<ReturnType<GuardrailService['checkOutput']>>
     let guardResults: GuardResults
     try {
@@ -588,13 +633,14 @@ export class OpenCodeAgentRunner {
       await failRun(this.commandBus, commandCtx, {
         runId,
         errorMessage: err instanceof Error ? err.message : String(err),
+        ...usageStamp,
       })
       throw err
     }
     if (verdict.result === 'block') {
       const parsed = entry.schema.safeParse(args.capturedOutcome)
       const detail = parsed.success ? 'guardrail block' : parsed.error.message
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...usageStamp })
       const blocked = verdict.blockedReason
       if (!blocked || blocked.kind === 'schema') {
         throw new OpenCodeRunFailedError(entry.id, `outcome failed re-validation: ${detail}`)
@@ -625,13 +671,14 @@ export class OpenCodeAgentRunner {
     businessInput: unknown
     capturedOutcome: unknown
     capturedToolCalls: readonly CapturedToolCall[]
+    usageStamp: RunUsageStamp
   }): Promise<{
     finalOutput: unknown
     guardResults: GuardResults
     rawOutputKey: string | null
     reviewRequest: OutputPipelineResult['reviewRequest']
   }> {
-    const { entry, ctx, commandCtx, runId } = args
+    const { entry, ctx, commandCtx, runId, usageStamp } = args
     const agentId = entry.id
     const integritySet = resolveIntegritySet(entry)
     if (integritySet) await ensureRunIntegritySetSynced(this.container, ctx, entry)
@@ -657,6 +704,7 @@ export class OpenCodeAgentRunner {
       await failRun(this.commandBus, commandCtx, {
         runId,
         errorMessage: err instanceof Error ? err.message : String(err),
+        ...usageStamp,
       })
       throw err
     }
@@ -680,7 +728,7 @@ export class OpenCodeAgentRunner {
       const blocked = verdict.blockedReason
       const parsed = entry.schema.safeParse(outcome.finalOutput)
       const detail = parsed.success ? 'guardrail block' : parsed.error.message
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...usageStamp })
       if (!blocked) throw new OpenCodeRunFailedError(agentId, `outcome failed re-validation: ${detail}`)
       const blockingCheck = verdict.checks.find((check) => check.result === 'block')
       throw new AgentGuardrailBlockedError(agentId, detail, {
@@ -943,8 +991,15 @@ export class OpenCodeAgentRunner {
     messageSink?: OpenCodeMessageCollector | null
     /** Wall-clock budget for this run (already resolved by the caller). */
     runTimeoutMs: number
+    usageSink?: OpenCodeUsageSink
   }): Promise<unknown | typeof NO_OUTCOME> {
-    const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink, args.onProgress, args.messageSink)
+    const idleSignal = this.subscribeSession(
+      args.sessionId,
+      args.toolCallSink,
+      args.onProgress,
+      args.messageSink,
+      args.usageSink,
+    )
     const deadline = createDeadline(args.runTimeoutMs)
     // The send is synchronous server-side (holds until the loop finishes), so use
     // the long run deadline as its timeout — aborting at the 30s chat default
@@ -968,7 +1023,14 @@ export class OpenCodeAgentRunner {
       let idleWait = idleSignal.nextIdle()
       while (true) {
         const got = await read()
-        if (got.done) return got.outcome
+        if (got.done) {
+          if (args.usageSink) {
+            const settle = createDeadline(USAGE_SETTLE_MS)
+            await Promise.race([idleWait, settle.promise])
+            settle.cancel()
+          }
+          return got.outcome
+        }
         const signal = await Promise.race([
           idleWait.then(() => 'idle' as const),
           deadline.promise.then(() => 'timeout' as const),
@@ -1029,6 +1091,7 @@ export class OpenCodeAgentRunner {
     toolCallSink: CapturedToolCall[],
     onTransition?: (transition: CapturedTransition) => void,
     messageSink?: OpenCodeMessageCollector | null,
+    usageSink?: OpenCodeUsageSink,
   ): {
     nextIdle: () => Promise<void>
     unsubscribe: () => void
@@ -1069,6 +1132,10 @@ export class OpenCodeAgentRunner {
         if (type === 'message.part.updated') {
           const transition = captureToolPart(toolCallSink, properties.part)
           if (transition && onTransition) onTransition(transition)
+          return
+        }
+        if (type === 'message.updated') {
+          if (usageSink) recordOpenCodeMessageUsage(usageSink, properties.info)
           return
         }
         if (type !== 'session.status') return

@@ -607,6 +607,8 @@ export const traceIngestSchema = z.object({
   proposalId: z.string().uuid().nullable().optional(),
   confidence: z.number().min(0).max(1).optional(),
   inputTokens: z.number().int().nonnegative().optional(),
+  /** Cached SUBSET of `inputTokens`, priced at the model's cached-input rate. */
+  cachedInputTokens: z.number().int().nonnegative().optional(),
   outputTokens: z.number().int().nonnegative().optional(),
   costMinor: z.number().int().nonnegative().max(TRACE_INGEST_MAX_COST_MINOR).optional(),
   currency: z.string().length(3).optional(),
