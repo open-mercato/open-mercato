@@ -48,6 +48,43 @@ async function resolveOne(
   return options.find((option) => option.value === id)?.label ?? id
 }
 
+/**
+ * Customers can be stored as either `/api/customers/people` or
+ * `/api/customers/companies` rows — the two entities are not unioned behind
+ * a single endpoint, so suggestions and label resolution must query both and
+ * merge, the same pattern used by the portal user CRM-link pickers.
+ */
+async function loadOptionsAcrossPaths(
+  paths: string[],
+  params: Record<string, string>,
+  mapItem: (item: RemoteItem) => ComboboxOption | null,
+): Promise<ComboboxOption[]> {
+  const results = await Promise.all(paths.map((path) => loadOptions(path, params, mapItem)))
+  const seen = new Set<string>()
+  const merged: ComboboxOption[] = []
+  for (const options of results) {
+    for (const option of options) {
+      if (seen.has(option.value)) continue
+      seen.add(option.value)
+      merged.push(option)
+    }
+  }
+  return merged
+}
+
+async function resolveAcrossPaths(
+  paths: string[],
+  idParam: string,
+  id: string,
+  mapItem: (item: RemoteItem) => ComboboxOption | null,
+): Promise<string> {
+  for (const path of paths) {
+    const label = await resolveOne(path, idParam, id, mapItem)
+    if (label !== id) return label
+  }
+  return id
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
@@ -133,6 +170,8 @@ export function PriceVariantSelect({
   )
 }
 
+const CUSTOMER_PATHS = ['/api/customers/people', '/api/customers/companies']
+
 export function PriceCustomerSelect({
   value,
   onChange,
@@ -155,8 +194,8 @@ export function PriceCustomerSelect({
       allowCustomValues={false}
       clearable
       placeholder={t('catalog.prices.select.customer.placeholder', 'Search customers…')}
-      loadSuggestions={(query) => loadOptions('/api/customers/people', buildLookupParams(query, '10'), mapItem)}
-      resolveLabel={(id) => resolveOne('/api/customers/people', 'id', id, mapItem)}
+      loadSuggestions={(query) => loadOptionsAcrossPaths(CUSTOMER_PATHS, buildLookupParams(query, '10'), mapItem)}
+      resolveLabel={(id) => resolveAcrossPaths(CUSTOMER_PATHS, 'id', id, mapItem)}
     />
   )
 }

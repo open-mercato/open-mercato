@@ -2,8 +2,8 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
-import { PricePriceKindSelect } from '../PriceScopeSelectors'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { PriceCustomerSelect, PricePriceKindSelect } from '../PriceScopeSelectors'
 
 const mockReadApiResultOrThrow = jest.fn()
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
@@ -51,5 +51,69 @@ describe('PricePriceKindSelect', () => {
 
     await waitFor(() => expect(screen.getByDisplayValue('Regular (regular)')).toBeInTheDocument())
     expect(screen.queryByDisplayValue('Sale (sale)')).not.toBeInTheDocument()
+  })
+})
+
+// Regression coverage for #8107: the customer field only searched/resolved
+// against `/api/customers/people`, so company customers could neither be
+// found nor labeled. It must now query both `/api/customers/people` and
+// `/api/customers/companies` and merge the results.
+describe('PriceCustomerSelect (#8107)', () => {
+  const PERSON_ID = '33333333-3333-4333-8333-333333333333'
+  const COMPANY_ID = '44444444-4444-4444-8444-444444444444'
+
+  beforeEach(() => {
+    mockReadApiResultOrThrow.mockReset()
+  })
+
+  it('resolves a company customerId to its display name instead of the raw id', async () => {
+    mockReadApiResultOrThrow.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/people')) return Promise.resolve({ items: [] })
+      if (url.startsWith('/api/customers/companies')) {
+        return Promise.resolve({ items: [{ id: COMPANY_ID, display_name: 'Acme Inc' }] })
+      }
+      return Promise.resolve({ items: [] })
+    })
+
+    render(<PriceCustomerSelect value={COMPANY_ID} onChange={() => {}} />)
+
+    await waitFor(() => expect(screen.getByDisplayValue('Acme Inc')).toBeInTheDocument())
+    expect(screen.queryByDisplayValue(COMPANY_ID)).not.toBeInTheDocument()
+  })
+
+  it('still resolves a person customerId to its display name', async () => {
+    mockReadApiResultOrThrow.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/people')) {
+        return Promise.resolve({ items: [{ id: PERSON_ID, displayName: 'Jane Doe' }] })
+      }
+      return Promise.resolve({ items: [] })
+    })
+
+    render(<PriceCustomerSelect value={PERSON_ID} onChange={() => {}} />)
+
+    await waitFor(() => expect(screen.getByDisplayValue('Jane Doe')).toBeInTheDocument())
+  })
+
+  it('merges search suggestions from both people and companies', async () => {
+    mockReadApiResultOrThrow.mockImplementation((url: string) => {
+      if (url.startsWith('/api/customers/people')) {
+        return Promise.resolve({ items: [{ id: PERSON_ID, displayName: 'Jane Doe' }] })
+      }
+      if (url.startsWith('/api/customers/companies')) {
+        return Promise.resolve({ items: [{ id: COMPANY_ID, display_name: 'Acme Inc' }] })
+      }
+      return Promise.resolve({ items: [] })
+    })
+
+    render(<PriceCustomerSelect value="" onChange={() => {}} />)
+
+    const input = screen.getByPlaceholderText('Search customers…')
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'a' } })
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Jane Doe' })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: 'Acme Inc' })).toBeInTheDocument()
+    })
   })
 })
