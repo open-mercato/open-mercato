@@ -77,6 +77,21 @@ test('prTriage configures triage and acceptance labels and coreTeamFile without 
     assert.ok(!forbidden.includes(label), label)
     assert.ok(config.labels.meta.includes(label), `${label} must be listed in labels.meta`)
   }
+
+  assert.ok(Array.isArray(triage.trustedBots) && triage.trustedBots.length > 0)
+  const loweredBots = triage.trustedBots.map((bot) => {
+    assert.equal(typeof bot, 'string')
+    assert.ok(bot.trim().length > 0)
+    return bot.toLowerCase()
+  })
+  assert.equal(new Set(loweredBots).size, loweredBots.length)
+  for (const expectedBot of ['open-mercato-maintenance[bot]', 'open-mercato-assistant[bot]', 'dependabot[bot]']) {
+    assert.ok(loweredBots.includes(expectedBot), expectedBot)
+  }
+  const coreTeamLower = new Set(coreTeam.logins.map((login) => login.toLowerCase()))
+  for (const bot of loweredBots) {
+    assert.equal(coreTeamLower.has(bot), false, `trusted bot ${bot} must not be in core-team.json`)
+  }
 })
 
 test('the core-team list is a non-empty list of unique GitHub logins', () => {

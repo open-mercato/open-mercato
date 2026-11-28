@@ -63,7 +63,12 @@
     "acceptanceLabel": "needs-triage",
     "acceptedLabel": "human-triage-accepted",
     "triagedLabel": "triaged",
-    "coreTeamFile": ".github/core-team.json"
+    "coreTeamFile": ".github/core-team.json",
+    "trustedBots": [
+      "open-mercato-maintenance[bot]",
+      "open-mercato-assistant[bot]",
+      "dependabot[bot]"
+    ]
   },
   "ci": { "maxWaitMinutes": 40 },
   "autofix": { "label": "cez-autofix", "eligibility": { "lookbackDays": 30, "analyzeLimit": 100, "limit": 20, "excludeLabels": ["blocked", "do-not-fix"] } },

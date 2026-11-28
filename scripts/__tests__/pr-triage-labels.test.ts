@@ -8,6 +8,7 @@ import {
   decide,
   formatUnauthorizedAcceptanceComment,
   parseCoreTeamLogins,
+  parseTrustedBots,
   run,
   type TriageContext,
   type TriageCore,
@@ -17,9 +18,15 @@ import {
 
 const WORKFLOW_PATH = new URL('../../.github/workflows/pr-triage-labels.yml', import.meta.url)
 const CORE_TEAM_PATH = new URL('../../.github/core-team.json', import.meta.url)
+const AGENTIC_CONFIG_PATH = new URL('../../.ai/agentic.config.json', import.meta.url)
 
 const REPO = { owner: 'open-mercato', repo: 'open-mercato' }
 const CORE_TEAM = new Set(['pkarw', 'kapsik89', 'matgren', 'tkarwatka'])
+const TRUSTED_BOTS = new Set([
+  'open-mercato-maintenance[bot]',
+  'open-mercato-assistant[bot]',
+  'dependabot[bot]',
+])
 
 function makePr(overrides: Partial<TriagePullRequest> = {}): TriagePullRequest {
   return {
@@ -296,6 +303,70 @@ test('run executes addLabels, removeLabel, and unauthorized-acceptance rejection
   }
 })
 
+test('parseTrustedBots normalizes prTriage.trustedBots from .ai/agentic.config.json', () => {
+  const bots = parseTrustedBots(readFileSync(AGENTIC_CONFIG_PATH, 'utf8'))
+  assert.ok(bots.has('open-mercato-maintenance[bot]'))
+  assert.ok(bots.has('open-mercato-assistant[bot]'))
+  assert.ok(bots.has('dependabot[bot]'))
+})
+
+test('trusted bots skip needs-triage case-insensitively, still lose triaged on synchronize, and cannot accept PRs', async () => {
+  for (const action of ['opened', 'reopened', 'ready_for_review']) {
+    const decision = decide({
+      action,
+      pullRequest: makePr({ user: { login: 'Open-Mercato-Maintenance[bot]', type: 'Bot' } }),
+      labels: [],
+      coreTeam: CORE_TEAM,
+      trustedBots: TRUSTED_BOTS,
+      repo: REPO,
+    })
+    assert.equal(decision.kind, 'noop', action)
+  }
+
+  // run() skips API calls when a trusted bot opens a PR
+  {
+    const { github, calls } = fakeGithub([])
+    const { core } = fakeCore()
+    const context: TriageContext = {
+      repo: REPO,
+      payload: {
+        action: 'opened',
+        pull_request: makePr({ user: { login: 'dependabot[bot]', type: 'Bot' } }),
+      },
+    }
+    const decision = await run({ github, context, core, coreTeam: CORE_TEAM, trustedBots: TRUSTED_BOTS })
+    assert.equal(decision.kind, 'noop')
+    assert.deepEqual(calls, [])
+  }
+
+  // Trusted bots still need fresh triage on synchronize
+  const syncDecision = decide({
+    action: 'synchronize',
+    pullRequest: makePr({ user: { login: 'open-mercato-assistant[bot]', type: 'Bot' } }),
+    labels: [TRIAGED_LABEL],
+    coreTeam: CORE_TEAM,
+    trustedBots: TRUSTED_BOTS,
+    repo: REPO,
+  })
+  assert.equal(syncDecision.kind, 'remove-label')
+  if (syncDecision.kind === 'remove-label') {
+    assert.equal(syncDecision.label, TRIAGED_LABEL)
+  }
+
+  // Trusted bots NEVER count as human acceptors
+  const acceptDecision = decide({
+    action: 'labeled',
+    pullRequest: makePr(),
+    labelName: HUMAN_TRIAGE_ACCEPTED_LABEL,
+    sender: { login: 'open-mercato-maintenance[bot]', type: 'Bot' },
+    labels: [NEEDS_TRIAGE_LABEL, HUMAN_TRIAGE_ACCEPTED_LABEL],
+    coreTeam: CORE_TEAM,
+    trustedBots: TRUSTED_BOTS,
+    repo: REPO,
+  })
+  assert.equal(acceptDecision.kind, 'reject-accepted')
+})
+
 test('workflow security properties: pull_request_target, minimal permissions, default-branch sparse checkout, no PR code execution', () => {
   const workflow = readFileSync(WORKFLOW_PATH, 'utf8')
 
@@ -315,6 +386,7 @@ test('workflow security properties: pull_request_target, minimal permissions, de
   assert.match(workflow, /persist-credentials:\s*false/)
   assert.match(workflow, /sparse-checkout-cone-mode:\s*false/)
   assert.match(workflow, /\.github\/core-team\.json/)
+  assert.match(workflow, /\.ai\/agentic\.config\.json/)
   assert.match(workflow, /scripts\/ci\/pr-triage-labels\.mts/)
   assert.doesNotMatch(workflow, /pull_request\.head\.sha/)
   assert.doesNotMatch(workflow, /^\s*run:/m)

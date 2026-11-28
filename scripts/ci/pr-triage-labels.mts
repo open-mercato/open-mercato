@@ -50,6 +50,7 @@ export type DecideInput = {
   sender?: TriageUser | null
   labels: readonly string[]
   coreTeam: ReadonlySet<string>
+  trustedBots?: ReadonlySet<string>
   repo: TriageRepo
 }
 
@@ -68,6 +69,23 @@ export function parseCoreTeamLogins(raw: string): Set<string> {
   return logins
 }
 
+export function parseTrustedBots(raw: string): Set<string> {
+  const parsed = JSON.parse(raw) as { prTriage?: { trustedBots?: unknown } }
+  const rawBots = parsed.prTriage?.trustedBots
+  if (rawBots === undefined) return new Set<string>()
+  if (!Array.isArray(rawBots)) {
+    throw new Error('agentic.config.json prTriage.trustedBots must be an array')
+  }
+  const bots = new Set<string>()
+  for (const entry of rawBots) {
+    if (typeof entry !== 'string' || entry.trim().length === 0) {
+      throw new Error('agentic.config.json prTriage.trustedBots entries must be non-empty strings')
+    }
+    bots.add(entry.trim().toLowerCase())
+  }
+  return bots
+}
+
 export function isBotUser(user?: TriageUser | null): boolean {
   if (!user) return false
   if (user.type === 'Bot') return true
@@ -76,6 +94,10 @@ export function isBotUser(user?: TriageUser | null): boolean {
 
 export function isCoreTeamLogin(login: string | undefined, coreTeam: ReadonlySet<string>): boolean {
   return typeof login === 'string' && login.length > 0 && coreTeam.has(login.toLowerCase())
+}
+
+export function isTrustedBotLogin(login: string | undefined, trustedBots?: ReadonlySet<string>): boolean {
+  return Boolean(trustedBots && typeof login === 'string' && login.length > 0 && trustedBots.has(login.toLowerCase()))
 }
 
 export function isSameRepoStabilizeBranch(pullRequest: TriagePullRequest, repo: TriageRepo): boolean {
@@ -97,6 +119,7 @@ export function decide({
   sender,
   labels,
   coreTeam,
+  trustedBots,
   repo,
 }: DecideInput): TriageDecision {
   if (!pullRequest) {
@@ -113,6 +136,9 @@ export function decide({
     const author = pullRequest.user?.login
     if (isCoreTeamLogin(author, coreTeam)) {
       return { kind: 'noop', reason: `author @${author} is in .github/core-team.json` }
+    }
+    if (isTrustedBotLogin(author, trustedBots)) {
+      return { kind: 'noop', reason: `author @${author} is in prTriage.trustedBots` }
     }
     if (labels.includes(HUMAN_TRIAGE_ACCEPTED_LABEL)) {
       return { kind: 'noop', reason: `PR already carries ${HUMAN_TRIAGE_ACCEPTED_LABEL}` }
@@ -198,13 +224,14 @@ export type TriageRunOptions = {
   context: TriageContext
   core: TriageCore
   coreTeam: ReadonlySet<string>
+  trustedBots?: ReadonlySet<string>
 }
 
 function isNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { status?: unknown }).status === 404
 }
 
-export async function run({ github, context, core, coreTeam }: TriageRunOptions): Promise<TriageDecision> {
+export async function run({ github, context, core, coreTeam, trustedBots }: TriageRunOptions): Promise<TriageDecision> {
   const { action, label, pull_request: pullRequest, sender } = context.payload
   const repo = context.repo
 
@@ -231,16 +258,24 @@ export async function run({ github, context, core, coreTeam }: TriageRunOptions)
     core.info(`#${pullRequest.number}: noop (${decision.reason})`)
     return decision
   }
-  if (
-    (action === 'opened' || action === 'reopened' || action === 'ready_for_review') &&
-    isCoreTeamLogin(pullRequest.user?.login, coreTeam)
-  ) {
-    const decision: TriageDecision = {
-      kind: 'noop',
-      reason: `author @${pullRequest.user?.login} is in .github/core-team.json`,
+  if (action === 'opened' || action === 'reopened' || action === 'ready_for_review') {
+    const author = pullRequest.user?.login
+    if (isCoreTeamLogin(author, coreTeam)) {
+      const decision: TriageDecision = {
+        kind: 'noop',
+        reason: `author @${author} is in .github/core-team.json`,
+      }
+      core.info(`#${pullRequest.number}: noop (${decision.reason})`)
+      return decision
     }
-    core.info(`#${pullRequest.number}: noop (${decision.reason})`)
-    return decision
+    if (isTrustedBotLogin(author, trustedBots)) {
+      const decision: TriageDecision = {
+        kind: 'noop',
+        reason: `author @${author} is in prTriage.trustedBots`,
+      }
+      core.info(`#${pullRequest.number}: noop (${decision.reason})`)
+      return decision
+    }
   }
 
   const issue: IssueParams = { ...repo, issue_number: pullRequest.number }
@@ -254,6 +289,7 @@ export async function run({ github, context, core, coreTeam }: TriageRunOptions)
     sender,
     labels,
     coreTeam,
+    trustedBots,
     repo,
   })
 
